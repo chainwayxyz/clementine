@@ -147,6 +147,8 @@ pub struct ReimburseDbCache<'a, 'b> {
     latest_blockhash_root_hash: Option<[u8; 32]>,
     /// replaceable additional disprove script
     replaceable_additional_disprove_script: Option<Vec<u8>>,
+    /// Operator bitvm keys in kickoff tx for asserts
+    operator_bitvm_keys: Option<ClementineBitVMPublicKeys>,
 }
 
 impl<'a, 'b> ReimburseDbCache<'a, 'b> {
@@ -171,6 +173,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             operator_data: None,
             latest_blockhash_root_hash: None,
             replaceable_additional_disprove_script: None,
+            operator_bitvm_keys: None,
         }
     }
 
@@ -194,6 +197,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             operator_data: None,
             latest_blockhash_root_hash: None,
             replaceable_additional_disprove_script: None,
+            operator_bitvm_keys: None,
         }
     }
 
@@ -298,6 +302,29 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         }
     }
 
+    pub async fn get_operator_bitvm_keys(
+        &mut self,
+    ) -> Result<&ClementineBitVMPublicKeys, BridgeError> {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
+            if let Some(ref keys) = self.operator_bitvm_keys {
+                return Ok(keys);
+            }
+            self.operator_bitvm_keys = Some(ClementineBitVMPublicKeys::from_flattened_vec(
+                &self
+                    .db
+                    .get_operator_bitvm_keys(
+                        self.dbtx.as_deref_mut(),
+                        self.operator_xonly_pk,
+                        *deposit_outpoint,
+                    )
+                    .await?,
+            ));
+            Ok(self.operator_bitvm_keys.as_ref().expect("Inserted before"))
+        } else {
+            Err(TxError::InsufficientContext.into())
+        }
+    }
+
     pub async fn get_replaceable_additional_disprove_script(
         &mut self,
     ) -> Result<&Vec<u8>, BridgeError> {
@@ -305,31 +332,13 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             return Ok(script);
         }
 
-        let deposit_outpoint = self.deposit_outpoint.ok_or(TxError::InsufficientContext)?;
+        let bridge_circuit_constant = *self.paramset.bridge_circuit_constant()?;
+        let challenge_ack_hashes = self.get_challenge_ack_hashes().await?.to_vec();
 
-        let bitvm_wpks = self
-            .db
-            .get_operator_bitvm_keys(
-                self.dbtx.as_deref_mut(),
-                self.operator_xonly_pk,
-                deposit_outpoint,
-            )
-            .await?;
-
-        let challenge_ack_hashes = self
-            .db
-            .get_operators_challenge_ack_hashes(
-                self.dbtx.as_deref_mut(),
-                self.operator_xonly_pk,
-                deposit_outpoint,
-            )
-            .await?
-            .ok_or(BridgeError::InvalidChallengeAckHashes)?;
-
-        let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+        let bitvm_keys = self.get_operator_bitvm_keys().await?;
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            *self.paramset.bridge_circuit_constant()?,
+            bridge_circuit_constant,
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
@@ -793,16 +802,7 @@ pub async fn create_txhandlers(
 
     let disprove_path = if transaction_type == TransactionType::Disprove {
         // no need to use db cache here, this is only called once when creating the disprove tx
-        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
-            &db_cache
-                .db
-                .get_operator_bitvm_keys(
-                    None,
-                    operator_xonly_pk,
-                    deposit_data.get_deposit_outpoint(),
-                )
-                .await?,
-        );
+        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?;
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
         DisprovePath::Scripts(disprove_scripts)
     } else {
