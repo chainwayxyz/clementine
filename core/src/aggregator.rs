@@ -952,10 +952,7 @@ impl Aggregator {
             other_errors.push(format!("Clementine not compatible with some actors: {}", e));
         }
         if !other_errors.is_empty() {
-            return Err(eyre::eyre!(
-                "{}",
-                other_errors.join("; ")
-            ).into());
+            return Err(eyre::eyre!("{}", other_errors.join("; ")).into());
         }
 
         Ok(())
