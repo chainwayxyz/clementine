@@ -102,16 +102,13 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
 
     // calculate sha256 of disprove scripts, to be used in compatibility checks
     let mut hasher = Sha256::new();
-    for script in bitvm_cache.disprove_scripts.iter() {
-        hasher.update(script);
-    }
     hasher.update(
-        // expect is fine here because BitVM cache is generated on main() and shouldn't fail
-        borsh::to_vec(&bitvm_cache.replacement_places)
-            .expect("Failed to serialize replacement places while generating fresh data")
+        borsh::to_vec(&bitvm_cache)
+            .expect("Failed to serialize bitvm cache while generating fresh data")
             .as_slice(),
     );
     let sha256_bitvm_cache: [u8; 32] = hasher.finalize().into();
+    tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
 
     BitvmCacheWithMetadata {
         bitvm_cache,

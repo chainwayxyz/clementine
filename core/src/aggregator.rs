@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
-    ENTITY_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
+    ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
     PUBLIC_KEY_COLLECTION_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
@@ -796,7 +796,7 @@ impl Aggregator {
                     async move {
                         tracing::debug!("Getting operator compatibility data for {:?}", key);
                         let mut request = Request::new(Empty {});
-                        request.set_timeout(ENTITY_DATA_POLL_TIMEOUT);
+                        request.set_timeout(ENTITY_COMP_DATA_POLL_TIMEOUT);
                         let response = client.get_compatibility_params(request).await;
 
                         EntityDataWithId {
@@ -826,7 +826,7 @@ impl Aggregator {
                     async move {
                         tracing::debug!("Getting verifier compatibility data for {:?}", key);
                         let mut request = Request::new(Empty {});
-                        request.set_timeout(ENTITY_DATA_POLL_TIMEOUT);
+                        request.set_timeout(ENTITY_COMP_DATA_POLL_TIMEOUT);
                         let response = client.get_compatibility_params(request).await;
 
                         EntityDataWithId {
