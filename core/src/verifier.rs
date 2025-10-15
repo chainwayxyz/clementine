@@ -2140,10 +2140,12 @@ where
             self.config.protocol_paramset(),
             Some(dbtx),
         );
+        tracing::warn!("Step 1: ReimburseDbCache created");
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
             tracing::error!("Error getting nofn xonly pk: {:?}", e);
         })?;
+        tracing::warn!("Step 2: Got nofn key");
 
         let move_txid = txhandlers
             .get(&TransactionType::MoveToVault)
@@ -2156,6 +2158,7 @@ where
             .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
             .get_txid()
             .to_byte_array();
+        tracing::warn!("Step 3: Got move_txid and round_txid");
 
         let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
 
@@ -2185,6 +2188,7 @@ where
                 tweaked.output_key().serialize()
             })
             .collect::<Vec<_>>();
+        tracing::warn!("Step 4: Computed watchtower pubkeys");
 
         let deposit_constant = deposit_constant(
             kickoff_data.operator_xonly_pk.serialize(),
@@ -2195,6 +2199,7 @@ where
             vout,
             self.config.protocol_paramset.genesis_chain_state_hash,
         );
+        tracing::warn!("Step 5: Computed deposit constant");
 
         tracing::debug!("Deposit constant: {:?}", deposit_constant);
 
@@ -2202,27 +2207,32 @@ where
             .get_kickoff_winternitz_keys()
             .await?
             .clone();
+        tracing::warn!("Step 6: Got kickoff winternitz keys");
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
             .get_keys_for_round(kickoff_data.round_idx)?
             .get(kickoff_data.kickoff_idx as usize)
             .ok_or(TxError::IndexOverflow)?
             .clone();
+        tracing::warn!("Step 7: Got payout_tx_blockhash_pk");
 
         let replaceable_additional_disprove_script = reimburse_db_cache
             .get_replaceable_additional_disprove_script()
             .await?;
+        tracing::warn!("Step 8: Got replaceable additional disprove script");
 
         let additional_disprove_script = replace_placeholders_in_script(
             replaceable_additional_disprove_script.clone(),
             payout_tx_blockhash_pk,
             deposit_constant.0,
         );
+        tracing::warn!("Step 9: Replaced placeholders in script");
 
         let witness = operator_asserts
             .get(&0)
             .wrap_err("No witness found in operator asserts")?
             .clone();
+        tracing::warn!("Step 10: Got witness from operator_asserts");
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
@@ -2232,6 +2242,7 @@ where
             &ClementineBitVMPublicKeys::mini_assert_derivations_0(deposit_outpoint, paramset),
             self.config.protocol_paramset(),
         )?;
+        tracing::warn!("Step 11: Extracted winternitz commits");
 
         let mut challenge_sending_watchtowers_signature = Witness::new();
         let len = commits.len();
@@ -2245,6 +2256,7 @@ where
         for elem in commits[len - 2].iter() {
             g16_public_input_signature.push(elem);
         }
+        tracing::warn!("Step 12: Built signatures from commits");
 
         let num_of_watchtowers = deposit_data.get_num_watchtowers();
 
@@ -2274,6 +2286,7 @@ where
 
             tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
+        tracing::warn!("Step 13: Processed operator acks");
 
         let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
             .iter()
@@ -2298,6 +2311,7 @@ where
         for element in payout_blockhash {
             payout_blockhash_new.push(element);
         }
+        tracing::warn!("Step 14: Processed blockhashes");
 
         tracing::debug!(
             target: "ci",
@@ -2321,6 +2335,7 @@ where
             g16_public_input_signature
         );
 
+        tracing::warn!("Step 15: Starting validate_assertions_for_additional_script");
         let additional_disprove_witness = validate_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
@@ -2329,7 +2344,9 @@ where
             challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec.clone(),
         );
+        tracing::warn!("Step 16: Completed validate_assertions_for_additional_script");
 
+        tracing::warn!("Step 17: Starting debug_assertions_for_additional_script");
         let debug_additional_disprove_script = debug_assertions_for_additional_script(
             additional_disprove_script.clone(),
             g16_public_input_signature.clone(),
@@ -2338,6 +2355,7 @@ where
             challenge_sending_watchtowers_signature.clone(),
             operator_acks_vec,
         );
+        tracing::warn!("Step 18: Completed debug_assertions_for_additional_script");
 
         tracing::info!(
             "Debug additional disprove script: {:?}",
@@ -2907,6 +2925,9 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
+                    tracing::warn!("Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}",
+                    verifier_xonly_pk, kickoff_data, deposit_data
+                    );
                     #[cfg(test)]
                     {
                         if !self
@@ -2923,8 +2944,19 @@ mod states {
                         self.config.protocol_paramset(),
                         self.signer.clone(),
                     );
+                    tracing::warn!(
+                        "Verifier {:?} called verifier disprove with context: {:?}",
+                        verifier_xonly_pk,
+                        context
+                    );
                     let mut db_cache =
                         ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
+
+                    tracing::warn!(
+                        "Verifier {:?} called verifier disprove with db_cache: {:?}",
+                        verifier_xonly_pk,
+                        db_cache
+                    );
 
                     let txhandlers = create_txhandlers(
                         TransactionType::Disprove,
@@ -2933,7 +2965,11 @@ mod states {
                         &mut db_cache,
                     )
                     .await?;
-
+                    tracing::warn!(
+                        "Verifier {:?} called verifier disprove with txhandlers: {:?}",
+                        verifier_xonly_pk,
+                        txhandlers
+                    );
                     // Attempt to find an additional disprove witness first
                     if let Some(additional_disprove_witness) = self
                         .verify_additional_disprove_conditions(

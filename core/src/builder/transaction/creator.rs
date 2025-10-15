@@ -600,6 +600,7 @@ pub async fn create_txhandlers(
 
     let operator_data = db_cache.get_operator_data().await?.clone();
     let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?.clone();
+    tracing::warn!("Step 1: Got operator data and kickoff winternitz keys");
 
     let ContractContext {
         operator_xonly_pk,
@@ -629,6 +630,7 @@ pub async fn create_txhandlers(
         for round_txhandler in round_txhandlers.into_iter() {
             txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
         }
+        tracing::warn!("Step 2: Created round txhandlers");
     }
 
     if matches!(
@@ -652,6 +654,7 @@ pub async fn create_txhandlers(
         kickoff_winternitz_keys.get_keys_for_round(round_idx.next_round())?,
         paramset,
     )?;
+    tracing::warn!("Step 3: Created next round txhandler");
 
     let mut deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
     let kickoff_data = KickoffData {
@@ -659,6 +662,7 @@ pub async fn create_txhandlers(
         round_idx,
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
+    tracing::warn!("Step 4: Got deposit data and kickoff data");
 
     if let Some(deposit_outpoint) = db_cache.deposit_outpoint {
         if deposit_outpoint != deposit_data.get_deposit_outpoint() {
@@ -682,9 +686,11 @@ pub async fn create_txhandlers(
         let move_txhandler =
             builder::transaction::create_move_to_vault_txhandler(&mut deposit_data, paramset)?;
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
+        tracing::warn!("Step 5: Created move to vault txhandler");
     }
 
     let challenge_ack_public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+    tracing::warn!("Step 6: Got challenge ack hashes");
 
     if challenge_ack_public_hashes.len() != deposit_data.get_num_watchtowers() {
         return Err(eyre::eyre!(
@@ -745,6 +751,7 @@ pub async fn create_txhandlers(
         vout,
         context.paramset.genesis_chain_state_hash,
     );
+    tracing::warn!("Step 7: Computed deposit constant");
 
     tracing::debug!(
         target: "ci",
@@ -788,8 +795,11 @@ pub async fn create_txhandlers(
         payout_tx_blockhash_pk,
         deposit_constant.0,
     );
+    tracing::warn!("Step 8: Got and processed additional disprove script");
+
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
+    tracing::warn!("Step 9: Got disprove and latest blockhash root hashes");
 
     let disprove_path = if transaction_type == TransactionType::Disprove {
         // no need to use db cache here, this is only called once when creating the disprove tx
@@ -803,7 +813,9 @@ pub async fn create_txhandlers(
                 )
                 .await?,
         );
+        tracing::warn!("Step 10: Created bitvm pks");
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
+        tracing::warn!("Step 11: Created disprove scripts");
         DisprovePath::Scripts(disprove_scripts)
     } else {
         DisprovePath::HiddenNode(&disprove_root_hash)
@@ -813,6 +825,7 @@ pub async fn create_txhandlers(
         transaction_type,
         TransactionType::LatestBlockhash | TransactionType::MiniAssert(_)
     ) {
+        tracing::warn!("Step 10: Creating kickoff with scripts");
         // create scripts if any mini assert tx or latest blockhash tx is specifically requested as it needs
         // the actual scripts to be able to spend
         let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
@@ -823,6 +836,7 @@ pub async fn create_txhandlers(
             actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
+        tracing::warn!("Step 11: Generated BitVM keys and assert scripts");
 
         let latest_blockhash_script = Arc::new(WinternitzCommit::new(
             vec![(bitvm_pks.latest_blockhash_pk.to_vec(), 40)],
@@ -843,6 +857,7 @@ pub async fn create_txhandlers(
             &challenge_ack_public_hashes,
             paramset,
         )?;
+        tracing::warn!("Step 12: Created kickoff txhandler with scripts");
 
         // Create and insert mini_asserts into return Vec
         let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts, paramset)?;
@@ -850,6 +865,7 @@ pub async fn create_txhandlers(
         for mini_assert in mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
         }
+        tracing::warn!("Step 13: Created mini asserts");
 
         let latest_blockhash_txhandler =
             create_latest_blockhash_txhandler(&kickoff_txhandler, paramset)?;
@@ -857,9 +873,11 @@ pub async fn create_txhandlers(
             latest_blockhash_txhandler.get_transaction_type(),
             latest_blockhash_txhandler,
         );
+        tracing::warn!("Step 14: Created latest blockhash txhandler");
 
         kickoff_txhandler
     } else {
+        tracing::warn!("Step 10: Creating kickoff with db hashes");
         // use db data for scripts
         create_kickoff_txhandler(
             kickoff_data,
@@ -875,8 +893,10 @@ pub async fn create_txhandlers(
             paramset,
         )?
     };
+    tracing::warn!("Step 15: Created kickoff txhandler");
 
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
+    tracing::warn!("Step 16: Inserted kickoff txhandler");
 
     // Creates the challenge_tx handler.
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
@@ -889,6 +909,7 @@ pub async fn create_txhandlers(
         challenge_txhandler.get_transaction_type(),
         challenge_txhandler,
     );
+    tracing::warn!("Step 17: Created challenge and timeout txhandlers");
 
     // Creates the challenge timeout txhandler
     let challenge_timeout_txhandler = create_challenge_timeout_txhandler(
@@ -921,8 +942,10 @@ pub async fn create_txhandlers(
         latest_blockhash_timeout_txhandler.get_transaction_type(),
         latest_blockhash_timeout_txhandler,
     );
+    tracing::warn!("Step 18: Created kickoff_not_finalized and latest_blockhash_timeout");
 
     // create watchtower tx's except WatchtowerChallenges
+    tracing::warn!("Step 19: Starting watchtower txhandlers creation");
     for watchtower_idx in 0..deposit_data.get_num_watchtowers() {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, otherwise their burn connector
@@ -961,6 +984,7 @@ pub async fn create_txhandlers(
             operator_challenge_ack_txhandler,
         );
     }
+    tracing::warn!("Step 20: Completed watchtower txhandlers creation");
 
     if let TransactionType::WatchtowerChallenge(_) = transaction_type {
         return Err(eyre::eyre!(
@@ -978,6 +1002,7 @@ pub async fn create_txhandlers(
     for assert_timeout in assert_timeouts.into_iter() {
         txhandlers.insert(assert_timeout.get_transaction_type(), assert_timeout);
     }
+    tracing::warn!("Step 21: Created assert timeout txhandlers");
 
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
@@ -989,6 +1014,7 @@ pub async fn create_txhandlers(
         disprove_timeout_txhandler.get_transaction_type(),
         disprove_timeout_txhandler,
     );
+    tracing::warn!("Step 22: Created disprove timeout txhandler");
 
     // Creates the reimburse_tx handler.
     let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
@@ -1004,6 +1030,7 @@ pub async fn create_txhandlers(
         reimburse_txhandler.get_transaction_type(),
         reimburse_txhandler,
     );
+    tracing::warn!("Step 23: Created reimburse txhandler");
 
     match transaction_type {
         TransactionType::AllNeededForDeposit | TransactionType::Disprove => {
@@ -1016,10 +1043,12 @@ pub async fn create_txhandlers(
                 disprove_txhandler.get_transaction_type(),
                 disprove_txhandler,
             );
+            tracing::warn!("Step 24: Created disprove txhandler");
         }
         _ => {}
     }
 
+    tracing::warn!("Step 25: Completed create_txhandlers successfully");
     Ok(txhandlers)
 }
 

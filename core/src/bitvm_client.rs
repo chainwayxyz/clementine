@@ -594,6 +594,7 @@ pub fn replace_disprove_scripts(
 
     let cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
     let replacement_places = &cache.replacement_places;
+    tracing::warn!("Step 1: Loaded bitvm cache");
 
     // Calculate estimated operations to prevent DoS attacks
     let estimated_operations = calculate_replacement_operations(replacement_places);
@@ -601,6 +602,8 @@ pub fn replace_disprove_scripts(
         "Estimated operations for script replacement: {}",
         estimated_operations
     );
+    tracing::warn!("Step 2: Calculated estimated operations");
+
     if estimated_operations > MAX_SCRIPT_REPLACEMENT_OPERATIONS {
         tracing::warn!(
             "Rejecting script replacement: estimated {} operations exceeds limit of {}",
@@ -615,6 +618,7 @@ pub fn replace_disprove_scripts(
     tracing::info!("Estimated operations: {}", estimated_operations);
 
     let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
+    tracing::warn!("Step 3: Cloned disprove scripts");
 
     for (digit, places) in replacement_places.payout_tx_blockhash_pk.iter().enumerate() {
         for (script_idx, pos) in places.iter() {
@@ -622,12 +626,14 @@ pub fn replace_disprove_scripts(
                 .copy_from_slice(&pks.payout_tx_blockhash_pk[digit]);
         }
     }
+    tracing::warn!("Step 4: Replaced payout_tx_blockhash_pk");
 
     for (digit, places) in replacement_places.latest_blockhash_pk.iter().enumerate() {
         for (script_idx, pos) in places.iter() {
             result[*script_idx][*pos..*pos + 20].copy_from_slice(&pks.latest_blockhash_pk[digit]);
         }
     }
+    tracing::warn!("Step 5: Replaced latest_blockhash_pk");
 
     for (digit, places) in replacement_places
         .challenge_sending_watchtowers_pk
@@ -639,6 +645,7 @@ pub fn replace_disprove_scripts(
                 .copy_from_slice(&pks.challenge_sending_watchtowers_pk[digit]);
         }
     }
+    tracing::warn!("Step 6: Replaced challenge_sending_watchtowers_pk");
 
     for (digit, places) in replacement_places.bitvm_pks.0.iter().enumerate() {
         for (pk_idx, places) in places.iter().enumerate() {
@@ -648,6 +655,7 @@ pub fn replace_disprove_scripts(
             }
         }
     }
+    tracing::warn!("Step 7: Replaced bitvm_pks.0");
 
     for (digit, places) in replacement_places.bitvm_pks.1.iter().enumerate() {
         for (pk_idx, places) in places.iter().enumerate() {
@@ -657,6 +665,7 @@ pub fn replace_disprove_scripts(
             }
         }
     }
+    tracing::warn!("Step 8: Replaced bitvm_pks.1");
 
     for (digit, places) in replacement_places.bitvm_pks.2.iter().enumerate() {
         for (pk_idx, places) in places.iter().enumerate() {
@@ -666,8 +675,10 @@ pub fn replace_disprove_scripts(
             }
         }
     }
+    tracing::warn!("Step 9: Replaced bitvm_pks.2");
 
     let result: Vec<ScriptBuf> = result.into_iter().map(ScriptBuf::from_bytes).collect();
+    tracing::warn!("Step 10: Converted to ScriptBuf");
 
     let elapsed = start.elapsed();
     tracing::info!(
