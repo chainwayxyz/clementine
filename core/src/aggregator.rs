@@ -947,25 +947,15 @@ impl Aggregator {
             }
         }
 
-        // return both compatibility error and other errors (ex: connection)
-        let is_compatible = self.is_compatible(actors_compat_params);
-        if let Err(e) = is_compatible {
-            if other_errors.is_empty() {
-                return Err(e);
-            } else {
-                return Err(eyre::eyre!(
-                    "Clementine not compatible with some actors: {}. Actors returned errors while retrieving compatibility params: {}",
-                    e,
-                    other_errors.join(", ")
-                ).into());
-            }
+        // Combine compatibility error and other errors (ex: connection) into a single message
+        if let Err(e) = self.is_compatible(actors_compat_params) {
+            other_errors.push(format!("Clementine not compatible with some actors: {}", e));
         }
         if !other_errors.is_empty() {
             return Err(eyre::eyre!(
-                "Actors returned errors while retrieving compatibility params: {}",
-                other_errors.join(", ")
-            )
-            .into());
+                "{}",
+                other_errors.join("; ")
+            ).into());
         }
 
         Ok(())
