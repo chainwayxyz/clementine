@@ -903,7 +903,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, BlockHash, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -1129,24 +1129,6 @@ mod tests {
         let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
         let current_tip_height = 100;
 
-        // need to insert a block info because foreign key constraint in tx_sender_try_to_send_txs
-        let latest_block_id = db
-            .insert_block_info(
-                Some(&mut dbtx),
-                &BlockHash::all_zeros(),
-                &BlockHash::all_zeros(),
-                0,
-            )
-            .await
-            .unwrap();
-
-        db.update_sent_block_id(Some(&mut dbtx), id1, latest_block_id)
-            .await
-            .unwrap();
-        db.update_sent_block_id(Some(&mut dbtx), id2, latest_block_id)
-            .await
-            .unwrap();
-
         let sendable_txs = db
             .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
@@ -1170,11 +1152,11 @@ mod tests {
         assert_eq!(sendable_txs.len(), 1);
         assert!(sendable_txs.contains(&id2));
 
-        // after latest block id is updated, all should be sendable
+        // increase fee rate, all should be sendable again
         let sendable_txs = db
             .get_sendable_txs(
                 Some(&mut dbtx),
-                FeeRate::from_sat_per_vb(0).unwrap(),
+                FeeRate::from_sat_per_vb(4).unwrap(),
                 current_tip_height + 1,
             )
             .await
