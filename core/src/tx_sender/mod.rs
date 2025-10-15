@@ -322,7 +322,7 @@ impl TxSender {
     /// # Arguments
     /// * `new_fee_rate` - The current target fee rate based on network conditions.
     /// * `current_tip_height` - The current blockchain height, used for time-lock checks.
-    /// * `highest_block_id` - The block id of the highest block that the tx sender has seen.
+    /// * `is_tip_height_increased` - True if the tip height has increased since the last time we sent unconfirmed transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,

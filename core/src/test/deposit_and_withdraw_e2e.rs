@@ -149,11 +149,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         );
 
         tracing::info!(
-            "config bitcoin rpc data: url: {}, user: {}, password: {}
+            "config bitcoin rpc data: url: {}, user: {:?},
             citrea rpc url: {},",
             config.bitcoin_rpc_url,
-            secrecy::ExposeSecret::expose_secret(&config.bitcoin_rpc_user),
-            secrecy::ExposeSecret::expose_secret(&config.bitcoin_rpc_password),
+            config.bitcoin_rpc_user,
             config.citrea_rpc_url,
         );
 
