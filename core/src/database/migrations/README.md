@@ -29,7 +29,7 @@ ALTER TABLE tx_sender_try_to_send_txs
 ADD COLUMN IF NOT EXISTS sent_block_id INT DEFAULT NULL;
 ```
 
-`0001_add_send_block_id.down.sql`
+`0001_add_sent_block_id.down.sql`
 
 ```sql
 ALTER TABLE tx_sender_try_to_send_txs DROP COLUMN IF EXISTS sent_block_id;
