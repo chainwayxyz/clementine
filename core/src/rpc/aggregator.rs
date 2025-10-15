@@ -1287,8 +1287,7 @@ impl ClementineAggregator for AggregatorServer {
                             .into_inner();
 
                         tx.send(deposit_sign_param).await.map_err(|e| {
-                            BridgeError::from(Box::new(Status::internal(format!("Failed to send deposit sign session: {e:?}"))))
-                        })?;
+                            BridgeError::from(eyre::eyre!("Failed to send deposit sign session: {e:?}"))})?;
 
                         Ok::<_, BridgeError>((stream, tx))
                     }
@@ -1338,9 +1337,8 @@ impl ClementineAggregator for AggregatorServer {
                     async move {
                         tx.send(param).await
                         .map_err(|e| {
-                            BridgeError::from(Status::internal(format!(
-                                "Failed to send deposit finalize first param: {e:?}"
-                            )))
+                            BridgeError::from(eyre::eyre!(
+                                "Failed to send deposit finalize first param: {e:?}"))
                         })
                     }
                 })
@@ -1437,7 +1435,7 @@ impl ClementineAggregator for AggregatorServer {
             // 1st signature of all operators, then 2nd of all operators etc.
             let all_op_sigs = operator_sigs_fut
                 .await
-                .map_err(|_| BridgeError::from(Box::new(Status::internal("panic when collecting operator signatures"))))??;
+                .map_err(|_| BridgeError::from(eyre::eyre!("panic when collecting operator signatures")))??;
 
             tracing::debug!("Got all operator signatures");
 
@@ -1492,9 +1490,8 @@ impl ClementineAggregator for AggregatorServer {
                     Some(verifiers.ids()),
                     deposit_finalize_futures.into_iter().map(|fut| async move {
                         let inner = fut.await
-                            .map_err(|_| BridgeError::from(Box::new(Status::internal("panic finishing deposit_finalize"))))??
+                            .map_err(|_| BridgeError::from(eyre::eyre!("panic finishing deposit_finalize")))??
                             .into_inner();
-
                         Ok((inner.move_to_vault_partial_sig, inner.emergency_stop_partial_sig))
                     }),
                 )
