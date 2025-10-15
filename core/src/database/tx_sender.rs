@@ -559,24 +559,6 @@ impl Database {
         Ok(())
     }
 
-    pub async fn update_sent_block_id(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        id: u32,
-        sent_block_id: u32,
-    ) -> Result<(), BridgeError> {
-        let query =
-            sqlx::query("UPDATE tx_sender_try_to_send_txs SET sent_block_id = $1 WHERE id = $2")
-                .bind(
-                    i32::try_from(sent_block_id)
-                        .wrap_err("Failed to convert sent block id to i32")?,
-                )
-                .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-        Ok(())
-    }
-
     /// Returns unconfirmed try-to-send transactions that satisfy all activation
     /// conditions for sending:
     ///
