@@ -33,19 +33,34 @@ impl CompatibilityParams {
     pub fn is_compatible(&self, other: &CompatibilityParams) -> Result<(), BridgeError> {
         let mut reasons = Vec::new();
         if self.protocol_paramset != other.protocol_paramset {
-            reasons.push("Protocol paramset mismatch");
+            reasons.push(format!(
+                "Protocol paramset mismatch: self={:?}, other={:?}",
+                self.protocol_paramset, other.protocol_paramset
+            ));
         }
         if self.security_council != other.security_council {
-            reasons.push("Security council mismatch");
+            reasons.push(format!(
+                "Security council mismatch: self={:?}, other={:?}",
+                self.security_council, other.security_council
+            ));
         }
         if self.citrea_chain_id != other.citrea_chain_id {
-            reasons.push("Citrea chain ID mismatch");
+            reasons.push(format!(
+                "Citrea chain ID mismatch: self={}, other={}",
+                self.citrea_chain_id, other.citrea_chain_id
+            ));
         }
         if self.bridge_circuit_constant != other.bridge_circuit_constant {
-            reasons.push("Bridge circuit constant mismatch");
+            reasons.push(format!(
+                "Bridge circuit constant mismatch: self={:?}, other={:?}",
+                self.bridge_circuit_constant, other.bridge_circuit_constant
+            ));
         }
         if self.sha256_bitvm_cache != other.sha256_bitvm_cache {
-            reasons.push("BitVM cache SHA256 mismatch");
+            reasons.push(format!(
+                "BitVM cache SHA256 mismatch: self={:?}, other={:?}",
+                self.sha256_bitvm_cache, other.sha256_bitvm_cache
+            ));
         }
         let own_version = semver::Version::parse(&self.clementine_version).wrap_err(format!(
             "Failed to parse own Clementine version {}",
