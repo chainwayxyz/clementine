@@ -14,8 +14,7 @@ use crate::operator::Operator;
 use crate::rpc::clementine::CompatibilityParamsRpc;
 use crate::verifier::Verifier;
 
-// Everything related to protocol params that can affect the transactions in the contract, syncing with citrea and version number
-// for checking compatibility. This must not include any sensitive information.
+/// Parameters related to protocol configuration that can affect contract transactions, Citrea syncing, and version compatibility. This must not include sensitive information.
 #[derive(Clone, Debug)]
 pub struct CompatibilityParams {
     pub protocol_paramset: ProtocolParamset,
@@ -27,9 +26,9 @@ pub struct CompatibilityParams {
 }
 
 impl CompatibilityParams {
-    // Returns an error with reason if not compatible, otherwise returns Ok(())
-    // For Protocol paramset, security council and citrea chain ID, we only check if they are different.
-    // For Clementine version, we allow different patch versions, but not different major or minor versions.
+    /// Returns an error with reason if not compatible, otherwise returns Ok(())
+    /// For Protocol paramset, security council and citrea chain ID, we only check if they are different.
+    /// For Clementine version, we allow different patch versions, but not different major or minor versions.
     pub fn is_compatible(&self, other: &CompatibilityParams) -> Result<(), BridgeError> {
         let mut reasons = Vec::new();
         if self.protocol_paramset != other.protocol_paramset {
