@@ -91,7 +91,7 @@ impl TestCase for TxSenderReorgBehavior {
         .await
         .unwrap();
 
-        let actor = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let actor = Actor::new(config.secret_key, config.protocol_paramset.network);
         let db = Database::new(&config).await.unwrap();
 
         let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
@@ -371,11 +371,7 @@ impl TestCase for ReorgOnDeposit {
         let mut aggregator = actors.get_aggregator();
 
         let evm_address = EVMAddress([1u8; 20]);
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
         let verifiers_public_keys: Vec<PublicKey> = aggregator
             .setup(Request::new(Empty {}))

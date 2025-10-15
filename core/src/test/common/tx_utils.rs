@@ -345,7 +345,7 @@ pub async fn create_tx_sender(
 
     let sk = SecretKey::new(&mut rand::thread_rng());
     let network = bitcoin::Network::Regtest;
-    let actor: Actor = Actor::new(sk, None, network);
+    let actor: Actor = Actor::new(sk, network);
 
     let config = {
         let mut config = config.clone();
