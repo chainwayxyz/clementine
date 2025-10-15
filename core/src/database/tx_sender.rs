@@ -584,12 +584,12 @@ impl Database {
     /// - Not in the cancelled list
     /// - Transaction itself is not already confirmed
     /// - Transaction and UTXO timelocks must be passed
-    /// - Fee rate is lower than the provided maximum fee rate (previous sends had a lower fee rate) or null (transaction wasn't sent before) OR the transaction was sent before, but a new block was mined since then, and the transaction is still not confirmed (accomplished by calling this fn with a dummy high fee rate)
+    /// - Fee rate is lower than the provided maximum fee rate (previous sends had a lower fee rate) or null (transaction wasn't sent before) OR the transaction was sent before, but the chain height increased since then, and the transaction is still not confirmed (accomplished by calling this fn with a dummy high fee rate)
     ///
     /// # Parameters
     ///
     /// - `tx`: Optional database transaction
-    /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
+    /// - `fee_rate`: Current fee rate of bitcoin
     /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
     ///   for checking timelocks
     ///
