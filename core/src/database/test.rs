@@ -59,12 +59,7 @@ impl Database {
         }
     }
 
-    pub async fn debug_inactive_txs(
-        &self,
-        fee_rate: FeeRate,
-        current_tip_height: u32,
-        latest_block_id: u32,
-    ) {
+    pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         // Query all transactions that aren't confirmed yet
@@ -85,7 +80,7 @@ impl Database {
         };
 
         let sendable_txs = match self
-            .get_sendable_txs(None, fee_rate, current_tip_height, latest_block_id)
+            .get_sendable_txs(None, fee_rate, current_tip_height)
             .await
         {
             Ok(txs) => txs,

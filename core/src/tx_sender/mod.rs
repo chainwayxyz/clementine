@@ -328,11 +328,21 @@ impl TxSender {
         &self,
         new_fee_rate: FeeRate,
         current_tip_height: u32,
-        highest_block_id: u32,
+        is_tip_height_increased: bool,
     ) -> Result<()> {
+        // get_sendable_txs doesnt return txs that we already sent in the past with >= fee rate to the current fee rate
+        // but if we have a new block eheight, but the tx is still not confirmed, we want to send it again anyway in case
+        // some error occured on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
+        // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
+        // if block height is increased, we use a dummy high fee rate to get all sendable txs
+        let get_sendable_txs_fee_rate = if is_tip_height_increased {
+            FeeRate::from_sat_per_kwu(u32::MAX as u64)
+        } else {
+            new_fee_rate
+        };
         let txs = self
             .db
-            .get_sendable_txs(None, new_fee_rate, current_tip_height, highest_block_id)
+            .get_sendable_txs(None, get_sendable_txs_fee_rate, current_tip_height)
             .await
             .map_to_eyre()?;
 
@@ -344,7 +354,7 @@ impl TxSender {
         {
             if env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
                 self.db
-                    .debug_inactive_txs(new_fee_rate, current_tip_height, highest_block_id)
+                    .debug_inactive_txs(get_sendable_txs_fee_rate, current_tip_height)
                     .await;
             }
         }
@@ -400,15 +410,6 @@ impl TxSender {
 
             if let Err(e) = result {
                 log_error_for_tx!(self.db, id, format!("Failed to send tx: {:?}", e));
-            } else {
-                // Update sent_block_id to the latest block id after sending the transaction.
-                // Note: This does NOT guarantee the transaction will be included in this block.
-                // Actual confirmation is handled separately (see seen_block_id above).
-                // sent_block_id stores the tip while the tx was sent to the bitcoin rpc
-                self.db
-                    .update_sent_block_id(None, id, highest_block_id)
-                    .await
-                    .map_to_eyre()?;
             }
         }
 

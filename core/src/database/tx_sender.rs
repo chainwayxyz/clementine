@@ -584,7 +584,7 @@ impl Database {
     /// - Not in the cancelled list
     /// - Transaction itself is not already confirmed
     /// - Transaction and UTXO timelocks must be passed
-    /// - Fee rate is lower than the provided fee rate or null (deprecated) OR the transaction was sent before, but a new block was mined since then, and the transaction is still not confirmed
+    /// - Fee rate is lower than the provided maximum fee rate (previous sends had a lower fee rate) or null (transaction wasn't sent before) OR the transaction was sent before, but a new block was mined since then, and the transaction is still not confirmed
     ///
     /// # Parameters
     ///
@@ -602,7 +602,6 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         fee_rate: FeeRate,
         current_tip_height: u32,
-        highest_block_id: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
             "WITH
@@ -667,7 +666,7 @@ impl Database {
                     -- Transaction must not be already confirmed
                     AND txs.seen_block_id IS NULL
                     -- Check if fee_rate is lower than the provided fee rate or null
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1 OR txs.sent_block_id != $3 OR txs.sent_block_id IS NULL);",
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_vb_ceil())
@@ -676,10 +675,6 @@ impl Database {
         .bind(
             i32::try_from(current_tip_height)
                 .wrap_err("Failed to convert current tip height to i32")?,
-        )
-        .bind(
-            i32::try_from(highest_block_id)
-                .wrap_err("Failed to convert latest block id to i32")?,
         );
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
@@ -1172,12 +1167,7 @@ mod tests {
             .unwrap();
 
         let sendable_txs = db
-            .get_sendable_txs(
-                Some(&mut dbtx),
-                fee_rate,
-                current_tip_height,
-                latest_block_id,
-            )
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
             .unwrap();
 
@@ -1193,12 +1183,7 @@ mod tests {
             .unwrap();
 
         let sendable_txs = db
-            .get_sendable_txs(
-                Some(&mut dbtx),
-                fee_rate,
-                current_tip_height,
-                latest_block_id,
-            )
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
             .unwrap();
         assert_eq!(sendable_txs.len(), 1);
@@ -1210,7 +1195,6 @@ mod tests {
                 Some(&mut dbtx),
                 FeeRate::from_sat_per_vb(0).unwrap(),
                 current_tip_height + 1,
-                latest_block_id + 1,
             )
             .await
             .unwrap();

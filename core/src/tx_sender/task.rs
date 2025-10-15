@@ -30,7 +30,7 @@ const POLL_DELAY: Duration = if cfg!(test) {
 pub struct TxSenderTask {
     db: Database,
     current_tip_height: u32,
-    highest_block_id: Option<u32>,
+    last_processed_tip_height: u32,
     inner: TxSender,
 }
 
@@ -71,8 +71,6 @@ impl Task for TxSenderTask {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
 
                     dbtx.commit().await?;
-
-                    self.highest_block_id = Some(block_id);
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
@@ -108,11 +106,14 @@ impl Task for TxSenderTask {
         tracing::debug!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
         let fee_rate = fee_rate_result?;
 
-        if let Some(highest_block_id) = self.highest_block_id {
-            self.inner
-                .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height, highest_block_id)
-                .await?;
-        }
+        self.inner
+            .try_to_send_unconfirmed_txs(
+                fee_rate,
+                self.current_tip_height,
+                self.last_processed_tip_height != self.current_tip_height,
+            )
+            .await?;
+        self.last_processed_tip_height = self.current_tip_height;
 
         Ok(false)
     }
@@ -125,7 +126,7 @@ impl IntoTask for TxSender {
         TxSenderTask {
             db: self.db.clone(),
             current_tip_height: 0,
-            highest_block_id: None,
+            last_processed_tip_height: 0,
             inner: self,
         }
         .ignore_error()
