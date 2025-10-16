@@ -938,8 +938,6 @@ async fn handle_print_addresses() {
     };
 
     println!("Bitcoin RPC URL: {bitcoin_rpc_url}");
-    println!("Bitcoin RPC user: {bitcoin_rpc_user}");
-    println!("Bitcoin RPC password: {bitcoin_rpc_password}");
 
     // Get network from environment or default to regtest
     let network = match std::env::var("NETWORK") {

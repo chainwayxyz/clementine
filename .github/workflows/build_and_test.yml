@@ -48,6 +48,8 @@ jobs:
 
   release_build:
     name: Release | No features | Compile and Test
+    permissions:
+      contents: read
     runs-on: ubicloud-standard-4
     if: ${{ !github.event.pull_request.draft }}
     env:
