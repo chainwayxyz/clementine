@@ -550,20 +550,17 @@ impl Database {
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
             r#"
-            WITH existing AS (
-                SELECT deposit_id
-                FROM deposits
-                WHERE deposit_outpoint = $1
-            ),
-            inserted AS (
+            WITH ins AS (
                 INSERT INTO deposits (deposit_outpoint)
-                SELECT $1
-                WHERE NOT EXISTS (SELECT 1 FROM existing)
+                VALUES ($1)
+                ON CONFLICT (deposit_outpoint) DO NOTHING
                 RETURNING deposit_id
             )
-            SELECT deposit_id FROM inserted
-            UNION
-            SELECT deposit_id FROM existing
+            SELECT deposit_id FROM ins
+            UNION ALL
+            SELECT d.deposit_id
+            FROM deposits d
+            WHERE d.deposit_outpoint = $1
             LIMIT 1;
             "#,
         )
