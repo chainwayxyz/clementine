@@ -471,7 +471,7 @@ impl TxSender {
                     .duration_since(std::time::UNIX_EPOCH)
                     .wrap_err("Failed to get unix timestamp")?
                     .as_secs()
-                    - mempool_info.time
+                    .saturating_sub(mempool_info.time)
                     < self
                         .config
                         .tx_sender_limits
