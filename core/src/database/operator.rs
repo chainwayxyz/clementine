@@ -1533,4 +1533,44 @@ mod tests {
             .unwrap();
         assert!(non_existent.is_none());
     }
+
+    #[tokio::test]
+    async fn concurrent_get_deposit_id_same_outpoint() {
+        use tokio::time::{timeout, Duration};
+
+        let config = create_test_config_with_thread_name().await;
+        let database = Database::new(&config).await.unwrap();
+
+        let deposit_outpoint = OutPoint {
+            txid: Txid::from_byte_array([7u8; 32]),
+            vout: 0,
+        };
+
+        let mut tx1 = database.begin_transaction().await.unwrap();
+        let mut tx2 = database.begin_transaction().await.unwrap();
+
+        let fut1 = async {
+            let id = database
+                .get_deposit_id(Some(&mut tx1), deposit_outpoint)
+                .await
+                .unwrap();
+            tx1.commit().await.unwrap();
+            id
+        };
+
+        let fut2 = async {
+            let id = database
+                .get_deposit_id(Some(&mut tx2), deposit_outpoint)
+                .await
+                .unwrap();
+            tx2.commit().await.unwrap();
+            id
+        };
+
+        let (id1, id2) = timeout(Duration::from_secs(10), async { tokio::join!(fut1, fut2) })
+            .await
+            .expect("concurrent get_deposit_id timed out");
+
+        assert_eq!(id1, id2, "both transactions should see the same deposit id");
+    }
 }
