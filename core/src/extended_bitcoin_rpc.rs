@@ -1313,8 +1313,7 @@ mod tests {
             let before_reorg_tip_height = rpc.get_block_count().await?;
             let before_reorg_tip_hash = rpc.get_block_hash(before_reorg_tip_height).await?;
 
-            let address =
-                Actor::new(config.secret_key, None, config.protocol_paramset.network).address;
+            let address = Actor::new(config.secret_key, config.protocol_paramset.network).address;
             let tx = rpc
                 .send_to_address(&address, Amount::from_sat(10000))
                 .await?;
