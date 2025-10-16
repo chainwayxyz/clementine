@@ -20,6 +20,7 @@ use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use eyre::Context;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
@@ -157,7 +158,11 @@ pub async fn create_and_sign_txs(
     let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
+        let _ = signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache))
+            .wrap_err(format!(
+                "Couldn't sign transaction {tx_type:?} in create_and_sign_txs for context {context:?}"
+            ));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
@@ -195,7 +200,7 @@ pub async fn create_and_sign_txs(
                 signed_txs.push((tx_type, checked_txhandler.get_cached_tx().clone()));
             }
             Err(e) => {
-                tracing::trace!(
+                tracing::debug!(
                     "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}.
                     This might be normal if the transaction is not needed to be/cannot be signed.",
                     tx_type,
@@ -329,7 +334,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -345,7 +350,7 @@ where
                 self.db.clone(),
                 operator_xonly_pk,
                 self.config.protocol_paramset(),
-                dbtx,
+                dbtx.as_deref_mut(),
             ),
         )
         .await?;
@@ -353,7 +358,7 @@ where
         // signatures saved during setup
         let unspent_kickoff_sigs = self
             .db
-            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx)
+            .get_unspent_kickoff_sigs(dbtx, operator_xonly_pk, round_idx)
             .await?
             .ok_or(eyre::eyre!(
                 "No unspent kickoff signatures found for operator {:?} and round {:?}",
@@ -369,11 +374,15 @@ where
                 // do not try to sign unrelated txs
                 continue;
             }
-            self.signer.tx_sign_and_fill_sigs(
-                &mut txhandler,
-                &unspent_kickoff_sigs,
-                Some(&mut tweak_cache),
-            )?;
+            let res = self.signer
+                .tx_sign_and_fill_sigs(
+                    &mut txhandler,
+                    &unspent_kickoff_sigs,
+                    Some(&mut tweak_cache),
+                )
+                .wrap_err(format!(
+                    "Couldn't sign transaction {tx_type:?} in create_and_sign_unspent_kickoff_connector_txs for round {round_idx:?} and operator {operator_xonly_pk:?}",
+                ));
 
             let checked_txhandler = txhandler.promote();
 
@@ -383,9 +392,10 @@ where
                 }
                 Err(e) => {
                     tracing::trace!(
-                        "Couldn't sign transaction {:?} in create_and_sign_unspent_kickoff_connector_txs: {:?}",
+                        "Couldn't sign transaction {:?} in create_and_sign_unspent_kickoff_connector_txs: {:?}: {:?}",
                         tx_type,
-                        e
+                        e,
+                        res.err()
                     );
                 }
             }

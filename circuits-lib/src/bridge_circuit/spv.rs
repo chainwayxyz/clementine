@@ -35,9 +35,9 @@ impl SPV {
     pub fn verify(&self, mmr_guest: MMRGuest) -> bool {
         let mid_state_txid: [u8; 32] = self.transaction.mid_state_txid();
         let block_merkle_root = self.block_inclusion_proof.get_root(mid_state_txid);
-        assert_eq!(block_merkle_root, self.block_header.merkle_root,
-            "Calculated block Merkle root from the block inclusion proof does not match the one in the block header"
-        );
+        if block_merkle_root != self.block_header.merkle_root {
+            return false;
+        }
         let block_hash = self.block_header.compute_block_hash();
         mmr_guest.verify_proof(block_hash, &self.mmr_inclusion_proof)
     }

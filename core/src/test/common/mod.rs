@@ -155,8 +155,9 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
                 }
             } else {
                 Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}",
-                    entity.entity_id
+                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                    entity.entity_id,
+                    entity.status_result
                 ))
             }
         })
@@ -191,7 +192,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     // get the current finalized chain height
-    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
+    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     // assume synced if state manager is not running
     let state_manager_running = actors
         .aggregator
@@ -792,10 +793,9 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Failed to generate certificates: {}", stderr);
+                eprintln!("Failed to generate certificates: {stderr}");
                 return Err(std::io::Error::other(format!(
-                    "Certificate generation failed: {}",
-                    stderr
+                    "Certificate generation failed: {stderr}"
                 )));
             }
 

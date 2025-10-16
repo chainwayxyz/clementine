@@ -257,7 +257,9 @@ impl Database {
         let query = sqlx::query_as::<_, (Option<XOnlyPublicKeyDB>, BlockHashDB, TxidDB, i32)>(
             "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.payout_txid, w.idx
              FROM withdrawals w
-             WHERE w.move_to_vault_txid = $1",
+             WHERE w.move_to_vault_txid = $1
+               AND w.payout_txid IS NOT NULL
+               AND w.payout_tx_blockhash IS NOT NULL",
         )
         .bind(TxidDB(move_to_vault_txid));
 
