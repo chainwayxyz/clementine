@@ -56,7 +56,7 @@ async fn base_setup(
             .await
             .expect("failed to create database");
 
-        let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
+        let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{i}"));
         tx_senders.push(tx_sender);
     }
 
@@ -265,8 +265,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         )
         .await
         .context(format!(
-            "failed to send watchtower challenge transaction for watchtower {}",
-            verifier_idx
+            "failed to send watchtower challenge transaction for watchtower {verifier_idx}"
         ))?;
     }
 
@@ -307,8 +306,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         )
         .await
         .context(format!(
-            "failed to send mini assert transaction {}",
-            assert_idx
+            "failed to send mini assert transaction {assert_idx}"
         ))?;
     }
 
@@ -478,8 +476,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
     )
     .await
     .context(format!(
-        "failed to send watchtower challenge transaction for watchtower {}",
-        watchtower_idx
+        "failed to send watchtower challenge transaction for watchtower {watchtower_idx}"
     ))?;
 
     rpc.mine_blocks(BLOCKS_PER_DAY * 3).await?;

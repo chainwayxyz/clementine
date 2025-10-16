@@ -636,12 +636,15 @@ mod tests {
         assert!(others.is_some(), "OtherSpendable not found");
 
         // Print found items.
-        println!("CheckSig: {:?}", checksig.unwrap().1);
+        let checksig_val = checksig.unwrap().1;
+        println!("CheckSig: {checksig_val:?}");
         // println!("WinternitzCommit: {:?}", winternitz.unwrap().1);
-        println!("TimelockScript: {:?}", timelock.unwrap().1);
+        let timelock_val = timelock.unwrap().1;
+        println!("TimelockScript: {timelock_val:?}");
         // println!("PreimageRevealScript: {:?}", preimage.unwrap().1);
         // println!("DepositScript: {:?}", deposit.unwrap().1);
-        println!("OtherSpendable: {:?}", others.unwrap().1);
+        let others_val = others.unwrap().1;
+        println!("OtherSpendable: {others_val:?}");
     }
 
     #[test]
@@ -660,8 +663,8 @@ mod tests {
             .expect("");
 
         let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
-        println!("{:?}", otherspendable);
-        println!("{:?}", checksig);
+        println!("{otherspendable:?}");
+        println!("{checksig:?}");
     }
 
     #[test]
@@ -708,7 +711,7 @@ mod tests {
                 ("BaseDepositScript", ScriptKind::BaseDepositScript(_)) => (),
                 ("ReplacementDepositScript", ScriptKind::ReplacementDepositScript(_)) => (),
                 ("Other", ScriptKind::Other(_)) => (),
-                (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
+                (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {s}"),
             }
         }
     }

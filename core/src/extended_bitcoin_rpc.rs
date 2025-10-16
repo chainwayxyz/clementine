@@ -537,15 +537,12 @@ impl ExtendedBitcoinRpc {
                 .get_block_info(&block_hash)
                 .await
                 .wrap_err(format!(
-                    "Failed to get block info for block hash {}",
-                    block_hash
+                    "Failed to get block info for block hash {block_hash}"
                 ))?
                 .height;
             if block_height < paramset.start_height as usize {
                 tracing::warn!(
-                    "Collateral utxo of operator {:?} is spent in a block before paramset start height: {} < {}",
-                    operator_data,
-                    block_height,
+                    "Collateral utxo of operator {operator_data:?} is spent in a block before paramset start height: {block_height} < {0}",
                     paramset.start_height
                 );
                 return Ok(false);
@@ -624,12 +621,10 @@ impl ExtendedBitcoinRpc {
         height: u64,
     ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
         let block_hash = self.get_block_hash(height).await.wrap_err(format!(
-            "Couldn't retrieve block hash from height {} from rpc",
-            height
+            "Couldn't retrieve block hash from height {height} from rpc"
         ))?;
         let block_header = self.get_block_header(&block_hash).await.wrap_err(format!(
-            "Couldn't retrieve block header with block hash {} from rpc",
-            block_hash
+            "Couldn't retrieve block header with block hash {block_hash} from rpc"
         ))?;
 
         Ok((block_hash, block_header))
@@ -1029,7 +1024,7 @@ impl ExtendedBitcoinRpc {
         let tx = transaction_info
             .transaction()
             .wrap_err("Failed to get transaction")?;
-        let tx_size = tx.weight().to_vbytes_ceil();
+        let tx_weight = tx.weight().to_wu();
         let current_fee_sat = u64::try_from(
             transaction_info
                 .fee
@@ -1039,28 +1034,39 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);
+        let current_fee_rate_sat_kwu = current_fee_sat as f64 / tx_weight as f64 * 1000.0;
+
+        tracing::trace!(
+            "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
+        );
 
         // If current fee rate is already sufficient, return original txid
-        if current_fee_rate >= fee_rate {
+        if current_fee_rate_sat_kwu >= fee_rate.to_sat_per_kwu() as f64 {
             return Ok(txid);
         }
+
+        tracing::trace!(
+            "Bump fee with fee rate txid: {txid} - Current fee rate: {current_fee_rate_sat_kwu} sat/kwu, target fee rate: {fee_rate} sat/kwu"
+        );
 
         // Get node's incremental fee to determine how much to increase
         let network_info = self
             .get_network_info()
             .await
             .wrap_err("Failed to get network info")?;
+        // incremental fee is in BTC/kvB
         let incremental_fee = network_info.incremental_fee;
-        let incremental_fee_rate: FeeRate = FeeRate::from_sat_per_kwu(incremental_fee.to_sat());
+        // Convert from sat/kvB to sat/kwu by dividing by 4.0, since 1 kvB = 4 kwu.
+        let incremental_fee_rate_sat_kwu = incremental_fee.to_sat() as f64 / 4.0;
 
-        // Calculate new fee rate by adding incremental fee to current fee rate
-        let new_fee_rate = FeeRate::from_sat_per_kwu(
-            current_fee_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu(),
-        );
+        // Calculate new fee rate by adding incremental fee to current fee rate, or use the target fee rate if it's higher
+        let new_fee_rate = FeeRate::from_sat_per_kwu(std::cmp::max(
+            (current_fee_rate_sat_kwu + incremental_fee_rate_sat_kwu).ceil() as u64,
+            fee_rate.to_sat_per_kwu(),
+        ));
 
         tracing::debug!(
-            "Bumping fee for txid: {txid} from {current_fee_rate} to {new_fee_rate} with incremental fee {incremental_fee_rate} - Final fee rate: {new_fee_rate}"
+            "Bumping fee for txid: {txid} from {current_fee_rate_sat_kwu} to {new_fee_rate} with incremental fee {incremental_fee_rate_sat_kwu} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
         );
 
         // Call Bitcoin Core's bumpfee RPC
@@ -1130,6 +1136,28 @@ impl ExtendedBitcoinRpc {
             #[cfg(test)]
             cached_mining_address: self.cached_mining_address.clone(),
         })
+    }
+
+    /// Retrieves the block for a given height.
+    ///
+    /// # Arguments
+    ///
+    /// * `height` - The target block height.
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoin::Block`]: The block at the specified height.
+    pub async fn get_block_by_height(&self, height: u64) -> Result<bitcoin::Block> {
+        let hash = self
+            .get_block_info_by_height(height)
+            .await
+            .wrap_err("Failed to get block info by height")?
+            .0;
+
+        Ok(self
+            .get_block(&hash)
+            .await
+            .wrap_err("Failed to get block by height")?)
     }
 }
 
@@ -1271,7 +1299,7 @@ mod tests {
             .inspect_err(|e| {
                 match e {
                     BitcoinRPCError::TransactionAlreadyInBlock(_) => {}
-                    _ => panic!("Unexpected error: {:?}", e),
+                    _ => panic!("Unexpected error: {e:?}"),
                 }
             })
             .is_err());
@@ -1454,8 +1482,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::Io(io_error);
                 assert!(
                     rpc_error.is_retryable(),
-                    "ErrorKind::{:?} should be retryable",
-                    kind
+                    "ErrorKind::{kind:?} should be retryable"
                 );
             }
         }
@@ -1474,8 +1501,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::Io(io_error);
                 assert!(
                     !rpc_error.is_retryable(),
-                    "ErrorKind::{:?} should not be retryable",
-                    kind
+                    "ErrorKind::{kind:?} should not be retryable"
                 );
             }
         }
@@ -1513,8 +1539,7 @@ mod tests {
                 let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
                 assert!(
                     !rpc_error.is_retryable(),
-                    "Message '{}' should not be retryable",
-                    msg
+                    "Message '{msg}' should not be retryable"
                 );
             }
         }
@@ -1531,13 +1556,10 @@ mod tests {
 
             let serialization_errors = [
                 bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
-                    IoError::new(ErrorKind::Other, "test").into(),
+                    IoError::other("test").into(),
                 )),
                 // bitcoincore_rpc::Error::Hex(HexToBytesError::InvalidChar(InvalidCharError{invalid: 0})),
-                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::new(
-                    ErrorKind::Other,
-                    "test",
-                ))),
+                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::other("test"))),
             ];
 
             for error in serialization_errors {

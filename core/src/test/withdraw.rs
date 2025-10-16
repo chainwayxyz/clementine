@@ -96,7 +96,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .await
         .0
         .outpoint;
-        println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+        println!("Created withdrawal UTXO: {withdrawal_utxo:?}");
 
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
@@ -114,7 +114,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .get_balance(citrea_client.wallet_address)
             .await
             .unwrap();
-        println!("Initial balance: {}", balance);
+        println!("Initial balance: {balance}");
 
         let withdrawal_count = citrea_client
             .contract
@@ -145,7 +145,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         sequencer.client.send_publish_batch_request().await.unwrap();
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        println!("Citrea withdrawal tx receipt: {:?}", receipt);
+        println!("Citrea withdrawal tx receipt: {receipt:?}");
 
         let withdrawal_count = citrea_client
             .contract

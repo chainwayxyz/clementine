@@ -32,41 +32,55 @@ impl TxSender {
     /// * `new_feerate` - The target fee rate requested for the replacement transaction
     ///
     /// # Returns
-    /// * `Ok(Some(Amount))` - The effective fee rate (in satoshis per vbyte) to use for the replacement
+    /// * `Ok(Some(FeeRate))` - The effective fee rate (in satoshis per kilo-wu) to use for the replacement
     /// * `Ok(None)` - If the original transaction already has a higher fee rate than requested
     /// * `Err(...)` - If there was an error retrieving or analyzing the original transaction
-    pub async fn calculate_bump_feerate(
+    pub async fn calculate_bump_feerate_if_needed(
         &self,
         txid: &Txid,
         new_feerate: FeeRate,
-    ) -> Result<Option<Amount>> {
+    ) -> Result<Option<FeeRate>> {
         let original_tx = self.rpc.get_tx_of_txid(txid).await.map_err(|e| eyre!(e))?;
 
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //println!("original_tx_fee: {}", original_tx_fee);
+        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
 
         let original_tx_weight = original_tx.weight();
 
-        // Conservative vsize calculation
-        let original_tx_vsize = original_tx_weight.to_vbytes_floor();
-        let original_feerate = original_tx_fee.to_sat() as f64 / original_tx_vsize as f64;
-
-        // Use max of target fee rate and original + incremental rate
-        let min_bump_feerate = original_feerate + (222f64 / original_tx_vsize as f64);
-
-        let effective_feerate_sat_per_vb = std::cmp::max(
-            new_feerate.to_sat_per_vb_ceil(),
-            min_bump_feerate.ceil() as u64,
+        // Original fee rate calculation according to Bitcoin Core
+        // In Rust Bitcoin, the calculations are done in sat/kwu
+        // so some precision is lost. https://github.com/bitcoin/bitcoin/blob/a33bd767a37dccf39a094d03c2f62ea81633410f/src/policy/feerate.cpp#L11
+        let original_feerate_sat_per_kwu = FeeRate::from_sat_per_kwu(
+            (original_tx_fee.to_sat() * 1000) / (original_tx_weight.to_vbytes_ceil() * 4),
         );
 
         // If original feerate is already higher than target, avoid bumping
-        if original_feerate >= new_feerate.to_sat_per_vb_ceil() as f64 {
+        if original_feerate_sat_per_kwu >= new_feerate {
             return Ok(None);
         }
 
-        Ok(Some(Amount::from_sat(effective_feerate_sat_per_vb)))
+        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kvB
+        let incremental_fee_rate = self
+            .rpc
+            .get_network_info()
+            .await
+            .map_err(|e| eyre!(e))?
+            .incremental_fee;
+        let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
+        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+
+        // Use max of target fee rate and original + minimum fee increment rate.
+        let min_bump_feerate =
+            original_feerate_sat_per_kwu.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+
+        let effective_feerate_sat_per_kwu =
+            std::cmp::max(new_feerate.to_sat_per_kwu(), min_bump_feerate);
+
+        Ok(Some(FeeRate::from_sat_per_kwu(
+            effective_feerate_sat_per_kwu,
+        )))
     }
 
     pub async fn fill_in_utxo_info(&self, psbt: &mut String) -> Result<()> {
@@ -160,7 +174,8 @@ impl TxSender {
             estimate_mode: None,
         };
 
-        let outputs: Vec<WalletCreateFundedPsbtOutput> = tx
+        let mut omitted = 0usize;
+        let filtered_outputs: Vec<WalletCreateFundedPsbtOutput> = tx
             .output
             .iter()
             .filter_map(|out| {
@@ -173,22 +188,34 @@ impl TxSender {
                         ));
                     }
                 }
-                let address = Address::from_script(&out.script_pubkey, self.paramset.network)
-                    .map_err(|e| eyre!(e));
+                let address = Address::from_script(
+                    &out.script_pubkey,
+                    self.config.protocol_paramset().network,
+                )
+                .map_err(|e| eyre!(e));
                 match address {
                     Ok(address) => Some(WalletCreateFundedPsbtOutput::Spendable(
                         address.to_string(),
                         out.value,
                     )),
                     Err(err) => {
-                        tracing::warn!("Failed to create address from script: {}", err);
+                        tracing::error!(
+                            "Failed to get address from script for output of tx with txid {} for script: {}",
+                            tx.compute_txid(),
+                            err
+                        );
+                        omitted += 1;
                         None
                     }
                 }
             })
             .collect::<Vec<_>>();
 
-        let outputs = WalletCreateFundedPsbtOutputs(outputs);
+        if omitted > 0 {
+            return Err(eyre::eyre!("Failed to get address for outputs of tx with txid {} for {} outputs in create_funded_psbt", tx.compute_txid(), omitted).into());
+        }
+
+        let outputs = WalletCreateFundedPsbtOutputs(filtered_outputs);
 
         self.rpc
             .wallet_create_funded_psbt(
@@ -430,7 +457,7 @@ impl TxSender {
             );
 
             let effective_feerate = self
-                .calculate_bump_feerate(&last_rbf_txid, fee_rate)
+                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
                 .await?;
 
             let Some(effective_feerate) = effective_feerate else {
@@ -444,7 +471,9 @@ impl TxSender {
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
-                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(effective_feerate)),
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
+                    effective_feerate.to_sat_per_vb_ceil(),
+                ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
             };
@@ -470,7 +499,7 @@ impl TxSender {
                         return Ok(());
                     } else {
                         // Other potentially transient errors
-                        let error_message = format!("psbt_bump_fee failed: {}", e);
+                        let error_message = format!("psbt_bump_fee failed: {e}");
                         log_error_for_tx!(self.db, try_to_send_id, error_message);
                         let _ = self
                             .db
@@ -489,7 +518,7 @@ impl TxSender {
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
                     self.handle_err(
-                        format!("psbt_bump_fee failed: {:?}", errors),
+                        format!("psbt_bump_fee failed: {errors:?}"),
                         "rbf_psbt_bump_failed",
                         try_to_send_id,
                     );
@@ -530,7 +559,7 @@ impl TxSender {
                     self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?
                 }
                 Err(e) => {
-                    let err_msg = format!("wallet_process_psbt error: {}", e);
+                    let err_msg = format!("wallet_process_psbt error: {e}");
                     tracing::warn!(?try_to_send_id, "{}", err_msg);
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
@@ -554,7 +583,7 @@ impl TxSender {
                     ..
                 }) => hex,
                 Ok(res) => {
-                    let err_msg = format!("Could not finalize PSBT: {:?}", res);
+                    let err_msg = format!("Could not finalize PSBT: {res:?}");
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
 
                     let _ = self
@@ -667,11 +696,7 @@ impl TxSender {
                 .await
                 .map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to create funded PSBT");
-                    self.handle_err(
-                        format!("{:?}", err),
-                        "rbf_psbt_create_failed",
-                        try_to_send_id,
-                    );
+                    self.handle_err(format!("{err:?}"), "rbf_psbt_create_failed", try_to_send_id);
 
                     err
                 })?;
@@ -699,7 +724,7 @@ impl TxSender {
             self.fill_in_utxo_info(&mut psbt).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to fill in utxo info");
                 self.handle_err(
-                    format!("{:?}", err),
+                    format!("{err:?}"),
                     "rbf_fill_in_utxo_info_failed",
                     try_to_send_id,
                 );
@@ -710,7 +735,7 @@ impl TxSender {
             psbt = self.copy_witnesses(psbt, &tx).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to copy witnesses");
                 self.handle_err(
-                    format!("{:?}", err),
+                    format!("{err:?}"),
                     "rbf_copy_witnesses_failed",
                     try_to_send_id,
                 );
@@ -726,7 +751,7 @@ impl TxSender {
                 .map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to process initial RBF PSBT");
                     self.handle_err(
-                        format!("{:?}", err),
+                        format!("{err:?}"),
                         "rbf_psbt_process_failed",
                         try_to_send_id,
                     );
@@ -740,11 +765,7 @@ impl TxSender {
                     .await
                     .map_err(|err| {
                         let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
-                        self.handle_err(
-                            format!("{:?}", err),
-                            "rbf_psbt_sign_failed",
-                            try_to_send_id,
-                        );
+                        self.handle_err(format!("{err:?}"), "rbf_psbt_sign_failed", try_to_send_id);
 
                         err
                     })?;
@@ -759,7 +780,7 @@ impl TxSender {
                 let psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e)).map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
                     self.handle_err(
-                        format!("{:?}", err),
+                        format!("{err:?}"),
                         "rbf_psbt_deserialize_failed",
                         try_to_send_id,
                     );
@@ -787,8 +808,7 @@ impl TxSender {
                 Ok(sent_txid) => {
                     if sent_txid != initial_txid {
                         let err_msg = format!(
-                            "send_raw_transaction returned unexpected txid {} (expected {}) for initial RBF",
-                            sent_txid, initial_txid
+                            "send_raw_transaction returned unexpected txid {sent_txid} (expected {initial_txid}) for initial RBF",
                         );
                         log_error_for_tx!(self.db, try_to_send_id, err_msg);
                         let _ = self
@@ -803,14 +823,13 @@ impl TxSender {
                     }
                     tracing::debug!(
                         try_to_send_id,
-                        "Successfully sent initial RBF tx with txid {}",
-                        sent_txid
+                        "Successfully sent initial RBF tx with txid {sent_txid}"
                     );
                     sent_txid
                 }
                 Err(e) => {
                     tracing::error!("RBF failed for: {:?}", final_tx);
-                    let err_msg = format!("send_raw_transaction error for initial RBF tx: {}", e);
+                    let err_msg = format!("send_raw_transaction error for initial RBF tx: {e}");
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db

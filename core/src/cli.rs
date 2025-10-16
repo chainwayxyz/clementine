@@ -161,7 +161,7 @@ pub fn get_cli_config() -> (BridgeConfig, Args) {
             let e = e.into_eyre();
             match e.root_cause().downcast_ref::<BridgeError>() {
                 Some(BridgeError::CLIDisplayAndExit(msg)) => {
-                    println!("{}", msg);
+                    println!("{msg}");
                     process::exit(0);
                 }
                 _ => delayed_panic!("Failed to get CLI config: {e:?}"),
@@ -381,6 +381,10 @@ mod tests {
 
         env::set_var("TELEMETRY_HOST", "0.0.0.0");
         env::set_var("TELEMETRY_PORT", "8081");
+        env::set_var("TX_SENDER_FEE_RATE_HARD_CAP", "100");
+        env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER", "1");
+        env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB", "0");
+        env::set_var("TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS", "3600");
     }
 
     // Helper to set up all environment variables needed for protocol paramset
