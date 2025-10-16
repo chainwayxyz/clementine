@@ -78,8 +78,8 @@ pub struct OperatorId(pub XOnlyPublicKey);
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntityId::Verifier(id) => write!(f, "{}", id),
-            EntityId::Operator(id) => write!(f, "{}", id),
+            EntityId::Verifier(id) => write!(f, "{id}"),
+            EntityId::Operator(id) => write!(f, "{id}"),
         }
     }
 }
@@ -297,7 +297,7 @@ impl Aggregator {
             let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
 
             if unique_keys.len() != non_none_keys.len() {
-                let reason = format!("{} keys are not unique: {:?}", key_type_name, keys);
+                let reason = format!("{key_type_name} keys are not unique: {keys:?}");
                 // reset all keys to None so that faulty keys are not used
                 for key in keys.iter_mut() {
                     *key = None;
@@ -498,15 +498,14 @@ impl Aggregator {
 
                             timed_request(
                                 VERIFIER_SEND_KEYS_TIMEOUT,
-                                &format!("Setting operator keys for {}", verifier_id),
+                                &format!("Setting operator keys for {verifier_id}"),
                                 async {
                                     Ok(verifier
                                         .set_operator_keys(operator_keys)
                                         .await
                                         .wrap_err_with(|| {
                                             Status::internal(format!(
-                                                "Failed to set operator keys for {}",
-                                                verifier_id
+                                                "Failed to set operator keys for {verifier_id}",
                                             ))
                                         }))
                                 },
@@ -685,8 +684,7 @@ impl Aggregator {
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
-                                    "Failed to restart background tasks for operator {}",
-                                    key
+                                    "Failed to restart background tasks for operator {key}"
                                 ))
                             })
                     }
@@ -706,8 +704,7 @@ impl Aggregator {
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
-                                    "Failed to restart background tasks for verifier {}",
-                                    key
+                                    "Failed to restart background tasks for verifier {key}"
                                 ))
                             })
                     }

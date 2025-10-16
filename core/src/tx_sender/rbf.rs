@@ -494,7 +494,7 @@ impl TxSender {
                         return Ok(());
                     } else {
                         // Other potentially transient errors
-                        let error_message = format!("psbt_bump_fee failed: {}", e);
+                        let error_message = format!("psbt_bump_fee failed: {e}");
                         log_error_for_tx!(self.db, try_to_send_id, error_message);
                         let _ = self
                             .db
@@ -513,7 +513,7 @@ impl TxSender {
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
                     self.handle_err(
-                        format!("psbt_bump_fee failed: {:?}", errors),
+                        format!("psbt_bump_fee failed: {errors:?}"),
                         "rbf_psbt_bump_failed",
                         try_to_send_id,
                     );
@@ -554,7 +554,7 @@ impl TxSender {
                     self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?
                 }
                 Err(e) => {
-                    let err_msg = format!("wallet_process_psbt error: {}", e);
+                    let err_msg = format!("wallet_process_psbt error: {e}");
                     tracing::warn!(?try_to_send_id, "{}", err_msg);
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
@@ -578,7 +578,7 @@ impl TxSender {
                     ..
                 }) => hex,
                 Ok(res) => {
-                    let err_msg = format!("Could not finalize PSBT: {:?}", res);
+                    let err_msg = format!("Could not finalize PSBT: {res:?}");
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
 
                     let _ = self
@@ -691,11 +691,7 @@ impl TxSender {
                 .await
                 .map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to create funded PSBT");
-                    self.handle_err(
-                        format!("{:?}", err),
-                        "rbf_psbt_create_failed",
-                        try_to_send_id,
-                    );
+                    self.handle_err(format!("{err:?}"), "rbf_psbt_create_failed", try_to_send_id);
 
                     err
                 })?;
@@ -723,7 +719,7 @@ impl TxSender {
             self.fill_in_utxo_info(&mut psbt).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to fill in utxo info");
                 self.handle_err(
-                    format!("{:?}", err),
+                    format!("{err:?}"),
                     "rbf_fill_in_utxo_info_failed",
                     try_to_send_id,
                 );
@@ -734,7 +730,7 @@ impl TxSender {
             psbt = self.copy_witnesses(psbt, &tx).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to copy witnesses");
                 self.handle_err(
-                    format!("{:?}", err),
+                    format!("{err:?}"),
                     "rbf_copy_witnesses_failed",
                     try_to_send_id,
                 );
@@ -750,7 +746,7 @@ impl TxSender {
                 .map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to process initial RBF PSBT");
                     self.handle_err(
-                        format!("{:?}", err),
+                        format!("{err:?}"),
                         "rbf_psbt_process_failed",
                         try_to_send_id,
                     );
@@ -764,11 +760,7 @@ impl TxSender {
                     .await
                     .map_err(|err| {
                         let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
-                        self.handle_err(
-                            format!("{:?}", err),
-                            "rbf_psbt_sign_failed",
-                            try_to_send_id,
-                        );
+                        self.handle_err(format!("{err:?}"), "rbf_psbt_sign_failed", try_to_send_id);
 
                         err
                     })?;
@@ -783,7 +775,7 @@ impl TxSender {
                 let psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e)).map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
                     self.handle_err(
-                        format!("{:?}", err),
+                        format!("{err:?}"),
                         "rbf_psbt_deserialize_failed",
                         try_to_send_id,
                     );
@@ -811,8 +803,7 @@ impl TxSender {
                 Ok(sent_txid) => {
                     if sent_txid != initial_txid {
                         let err_msg = format!(
-                            "send_raw_transaction returned unexpected txid {} (expected {}) for initial RBF",
-                            sent_txid, initial_txid
+                            "send_raw_transaction returned unexpected txid {sent_txid} (expected {initial_txid}) for initial RBF",
                         );
                         log_error_for_tx!(self.db, try_to_send_id, err_msg);
                         let _ = self
@@ -827,14 +818,13 @@ impl TxSender {
                     }
                     tracing::debug!(
                         try_to_send_id,
-                        "Successfully sent initial RBF tx with txid {}",
-                        sent_txid
+                        "Successfully sent initial RBF tx with txid {sent_txid}"
                     );
                     sent_txid
                 }
                 Err(e) => {
                     tracing::error!("RBF failed for: {:?}", final_tx);
-                    let err_msg = format!("send_raw_transaction error for initial RBF tx: {}", e);
+                    let err_msg = format!("send_raw_transaction error for initial RBF tx: {e}");
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db

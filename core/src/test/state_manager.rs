@@ -77,11 +77,7 @@ async fn test_process_empty_block_with_no_machines() {
         .expect("Failed to commit transaction");
 
     // Should succeed with no state changes
-    assert!(
-        result.is_ok(),
-        "Failed to process empty block: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "Failed to process empty block: {result:?}");
 }
 
 #[tokio::test]
@@ -106,9 +102,7 @@ async fn test_process_block_parallel() {
         let result = state_manager.process_block_parallel(&mut context).await;
         assert!(
             result.is_ok(),
-            "Failed to process block on iteration {}: {:?}",
-            i,
-            result
+            "Failed to process block on iteration {i}: {result:?}",
         );
     }
 
@@ -150,11 +144,11 @@ async fn test_save_and_load_state() {
         .new_context(dbtx.clone(), &block, 1)
         .expect("Failed to create context");
     let result = state_manager.process_block_parallel(&mut context).await;
-    assert!(result.is_ok(), "Failed to process block: {:?}", result);
+    assert!(result.is_ok(), "Failed to process block: {result:?}");
 
     // Save state to DB
     let result = state_manager.save_state_to_db(&mut context).await;
-    assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to save state to DB: {result:?}");
     drop(context);
 
     Arc::into_inner(dbtx)
@@ -169,7 +163,7 @@ async fn test_save_and_load_state() {
 
     // Load state from DB
     let result = new_state_manager.load_machines_from_db().await;
-    assert!(result.is_ok(), "Failed to load state from DB: {:?}", result);
+    assert!(result.is_ok(), "Failed to load state from DB: {result:?}");
 
     // Check that the state is the same
     let mut round_machines = new_state_manager.round_machines();

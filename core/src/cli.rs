@@ -161,7 +161,7 @@ pub fn get_cli_config() -> (BridgeConfig, Args) {
             let e = e.into_eyre();
             match e.root_cause().downcast_ref::<BridgeError>() {
                 Some(BridgeError::CLIDisplayAndExit(msg)) => {
-                    println!("{}", msg);
+                    println!("{msg}");
                     process::exit(0);
                 }
                 _ => delayed_panic!("Failed to get CLI config: {e:?}"),

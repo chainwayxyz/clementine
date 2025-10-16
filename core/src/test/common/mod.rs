@@ -793,10 +793,9 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Failed to generate certificates: {}", stderr);
+                eprintln!("Failed to generate certificates: {stderr}");
                 return Err(std::io::Error::other(format!(
-                    "Certificate generation failed: {}",
-                    stderr
+                    "Certificate generation failed: {stderr}"
                 )));
             }
 

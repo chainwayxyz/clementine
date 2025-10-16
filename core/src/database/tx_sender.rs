@@ -50,12 +50,11 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_txids
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_activate_try_to_send_txids AS tap
             SET seen_block_id = $1
             WHERE tap.txid IN (SELECT txid FROM relevant_txs)
-            AND tap.seen_block_id IS NULL",
-            common_ctes
+            AND tap.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -63,12 +62,11 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_outpoints
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_activate_try_to_send_outpoints AS tap
             SET seen_block_id = $1
             WHERE (tap.txid, tap.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND tap.seen_block_id IS NULL",
-            common_ctes
+            AND tap.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -76,12 +74,11 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_txids
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_cancel_try_to_send_txids AS ctt
             SET seen_block_id = $1
             WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
-            AND ctt.seen_block_id IS NULL",
-            common_ctes
+            AND ctt.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -89,12 +86,11 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_outpoints
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
             SET seen_block_id = $1
             WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND cto.seen_block_id IS NULL",
-            common_ctes
+            AND cto.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -102,12 +98,11 @@ impl Database {
 
         // Update tx_sender_fee_payer_utxos
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_fee_payer_utxos AS fpu
             SET seen_block_id = $1
             WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
-            AND fpu.seen_block_id IS NULL",
-            common_ctes
+            AND fpu.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -115,12 +110,11 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
+            AND txs.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -128,12 +122,11 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
+            AND txs.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -144,11 +137,10 @@ impl Database {
         tokio::spawn(async move {
             // Get confirmed direct transactions for debugging
             let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
-                "{}
+                "{common_ctes}
             SELECT txs.id, txs.txid
             FROM tx_sender_try_to_send_txs AS txs
             WHERE txs.txid IN (SELECT txid FROM relevant_txs)",
-                common_ctes
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)
@@ -160,11 +152,10 @@ impl Database {
 
             // Get confirmed RBF transactions for debugging
             let Ok(confirmed_rbf_txs): Result<Vec<(i32,)>, _> = sqlx::query_as(&format!(
-                "{}
+                "{common_ctes}
             SELECT txs.id
             FROM tx_sender_try_to_send_txs AS txs
             WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)",
-                common_ctes
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)

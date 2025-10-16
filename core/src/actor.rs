@@ -786,8 +786,7 @@ impl Actor {
             None,
         )
         .wrap_err(format!(
-            "Failed to verify signature from DB for signature {:?} for signer xonly pk {}",
-            signature_id, xonly_public_key
+            "Failed to verify signature from DB for signature {signature_id:?} for signer xonly pk {xonly_public_key}"
         ))
         .map_err(Into::into)
     }

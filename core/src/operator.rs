@@ -1294,16 +1294,14 @@ where
             .await
             .wrap_err("Failed to get payout info from db during sending asserts.")?
             .ok_or_eyre(format!(
-                "Payout info not found in db while sending asserts for move txid: {}",
-                move_txid
+                "Payout info not found in db while sending asserts for move txid: {move_txid}"
             ))?;
 
         let payout_op_xonly_pk = payout_op_xonly_pk_opt.ok_or_eyre(format!(
-            "Payout operator xonly pk not found in payout info DB while sending asserts for deposit move txid: {}",
-            move_txid
+            "Payout operator xonly pk not found in payout info DB while sending asserts for deposit move txid: {move_txid}"
         ))?;
 
-        tracing::info!("Sending asserts for deposit_idx: {:?}", deposit_idx);
+        tracing::info!("Sending asserts for deposit_idx: {deposit_idx:?}");
 
         if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
             return Err(eyre::eyre!(
@@ -1317,8 +1315,7 @@ where
             .get_full_block_from_hash(Some(dbtx), payout_block_hash)
             .await?
             .ok_or_eyre(format!(
-                "Payout block {:?} {:?} not found in db",
-                payout_op_xonly_pk, payout_block_hash
+                "Payout block {payout_op_xonly_pk:?} {payout_block_hash:?} not found in db",
             ))?;
 
         let payout_tx_index = payout_block
@@ -1326,8 +1323,7 @@ where
             .iter()
             .position(|tx| tx.compute_txid() == payout_txid)
             .ok_or_eyre(format!(
-                "Payout txid {:?} not found in block {:?} {:?}",
-                payout_txid, payout_op_xonly_pk, payout_block_hash
+                "Payout txid {payout_txid:?} not found in block {payout_op_xonly_pk:?} {payout_block_hash:?}"
             ))?;
         let payout_tx = &payout_block.txdata[payout_tx_index];
         tracing::debug!("Calculated payout tx in send_asserts: {:?}", payout_tx);
@@ -1356,11 +1352,10 @@ where
             .get_storage_proof(l2_height, deposit_idx as u32)
             .await
             .wrap_err(format!(
-                "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
-                move_txid, l2_height, deposit_idx
+                "Failed to get storage proof for move txid {move_txid:?}, l2 height {l2_height}, deposit_idx {deposit_idx}",
             ))?;
 
-        tracing::debug!("Got storage proof in send_asserts {:?}", storage_proof);
+        tracing::debug!("Got storage proof in send_asserts {storage_proof:?}");
 
         // get committed latest blockhash
         let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
@@ -1938,14 +1933,11 @@ where
             .get_deposit_data(Some(&mut dbtx), deposit_outpoint)
             .await?
             .ok_or_eyre(format!(
-                "Deposit data not found for the requested deposit outpoint: {:?}, make sure you send the deposit outpoint, not the move txid.",
-                deposit_outpoint
+                "Deposit data not found for the requested deposit outpoint: {deposit_outpoint:?}, make sure you send the deposit outpoint, not the move txid."
             ))?;
 
         tracing::info!(
-            "Deposit data found for the requested deposit outpoint: {:?}, deposit id: {:?}",
-            deposit_outpoint,
-            deposit_id
+            "Deposit data found for the requested deposit outpoint: {deposit_outpoint:?}, deposit id: {deposit_id:?}",
         );
 
         // validate payer is operator and get payer xonly pk, payout blockhash and kickoff txid

@@ -641,7 +641,11 @@ where
 {
     timed_request_base(duration, description, future)
         .await
-        .map_err(|_| Status::deadline_exceeded(format!("{} timed out", description)))?
+        .map_err(|_| {
+            Box::new(Status::deadline_exceeded(format!(
+                "{description} timed out"
+            )))
+        })?
 }
 
 /// Wraps a future with a timeout and adds a debug span with the description.
@@ -714,12 +718,12 @@ where
             timeout(duration, item.1)
                 .await
                 .map_err(|_| {
-                    Status::deadline_exceeded(format!(
+                    Box::new(Status::deadline_exceeded(format!(
                         "{} (id: {}) timed out",
                         description,
                         id.map(|id| id.to_string())
                             .unwrap_or_else(|| "n/a".to_string())
-                    ))
+                    )))
                 })?
                 // Add the id to the error chain for easier debugging for other errors.
                 .wrap_err_with(|| {

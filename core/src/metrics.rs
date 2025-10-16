@@ -353,7 +353,7 @@ mod tests {
             .await;
 
         // expect result to be Ok(_)
-        assert!(res.is_ok(), "Expected Ok(_) but got {:?}", res);
+        assert!(res.is_ok(), "Expected Ok(_) but got {res:?}");
 
         // expect the balance to be None because the wallet was unloaded
         assert_eq!(res.unwrap().into_inner().wallet_balance, None);
@@ -445,7 +445,8 @@ mod tests {
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
-                    panic!("Couldn't get entity status: {}", error.error);
+                    let error_msg = &error.error;
+                    panic!("Couldn't get entity status: {error_msg}");
                 }
             }
         }

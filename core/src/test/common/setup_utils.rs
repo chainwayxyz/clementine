@@ -88,9 +88,9 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         get_available_port()
     };
 
-    config.bitcoin_rpc_url = format!("http://127.0.0.1:{}", rpc_port);
+    config.bitcoin_rpc_url = format!("http://127.0.0.1:{rpc_port}");
 
-    if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{}", rpc_port)).is_err() {
+    if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{rpc_port}")).is_err() {
         // Bitcoind is already running on port 18443, use existing port.
         return WithProcessCleanup(
             None,
@@ -147,7 +147,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Start bitcoind process with log redirection
     let process = std::process::Command::new("bitcoind")
         .args(&args)
-        .arg(format!("-debuglogfile={}", log_file_path))
+        .arg(format!("-debuglogfile={log_file_path}"))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -158,7 +158,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     }
 
     // Create RPC client
-    let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
+    let rpc_url = format!("http://127.0.0.1:{rpc_port}");
 
     // Wait for node to be ready
     let mut attempts = 0;
@@ -176,7 +176,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
             Err(_) => {
                 attempts += 1;
                 if attempts >= retry_count {
-                    panic!("Bitcoin node failed to start in {} seconds", retry_count);
+                    panic!("Bitcoin node failed to start in {retry_count} seconds");
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }

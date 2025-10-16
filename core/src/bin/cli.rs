@@ -13,9 +13,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, GetEntityStatusesRequest,
-        Outpoint, ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
-        XOnlyPublicKeys,
+        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, EntityStatus,
+        GetEntityStatusesRequest, Outpoint, ReplacementDeposit, SendMoveTxRequest,
+        VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -216,14 +216,11 @@ fn get_path_from_env_or_default(env_var: &str, default: &str) -> PathBuf {
     let path = std::env::var(env_var);
     let path = match path {
         Ok(path) => {
-            println!(
-                "Using cert path from environment variable {}: {}",
-                env_var, path
-            );
+            println!("Using cert path from environment variable {env_var}: {path}");
             path
         }
         Err(_) => {
-            println!("Warning: {} is not set, using default cert path: {}.\nIf this path is incorrect, please set the environment variable {} to the correct path or call the binary from the correct directory, or any aggregator/operator/verifier command may not work.", env_var, default, env_var);
+            println!("Warning: {env_var} is not set, using default cert path: {default}.\nIf this path is incorrect, please set the environment variable {env_var} to the correct path or call the binary from the correct directory, or any aggregator/operator/verifier command may not work.");
             default.to_string()
         }
     };
@@ -267,8 +264,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             deposit_outpoint_vout,
         } => {
             println!(
-                "Getting deposit keys for outpoint {}:{}",
-                deposit_outpoint_txid, deposit_outpoint_vout
+                "Getting deposit keys for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
             );
             let params = clementine_core::rpc::clementine::DepositParams {
                 security_council: Some(clementine::SecurityCouncil {
@@ -304,14 +300,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .get_deposit_keys(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Get deposit keys response: {:?}", response);
+            println!("Get deposit keys response: {response:?}");
         }
         OperatorCommands::GetParams => {
             let params = operator
                 .get_params(Empty {})
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Operator params: {:?}", params);
+            println!("Operator params: {params:?}");
         }
         OperatorCommands::Withdraw {
             withdrawal_id,
@@ -321,7 +317,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             output_script_pubkey,
             output_amount,
         } => {
-            println!("Processing withdrawal with id {}", withdrawal_id);
+            println!("Processing withdrawal with id {withdrawal_id}");
 
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
@@ -351,7 +347,8 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .vergen(Request::new(params))
                 .await
                 .expect("Failed to make a request to operator");
-            println!("Vergen response:\n{}", response.into_inner().response);
+            let response_msg = response.into_inner().response;
+            println!("Vergen response:\n{response_msg}");
         }
         OperatorCommands::GetReimbursementTxs {
             deposit_outpoint_txid,
@@ -364,8 +361,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             }
 
             println!(
-                "Getting kickoff txs for outpoint {}:{}",
-                deposit_outpoint_txid, deposit_outpoint_vout
+                "Getting kickoff txs for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
             );
             let mut txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
             txid_bytes.reverse();
@@ -402,26 +398,26 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                         println!("Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
                     TransactionType::ChallengeTimeout => {
-                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {:?}.
+                        println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {}.
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)",
                         transaction.input[0].previous_output.txid);
                     }
                     TransactionType::Round => {
                         println!("Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
-                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {:?} (If this is not collateral)",
+                        If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {} (If this is not collateral)",
                         transaction.input[0].previous_output.txid);
                     }
                     _ => {}
                 }
                 let hex_tx = hex::encode(&signed_tx.raw_tx);
-                println!("Tx type: {:?}, Tx hex: {:?}", tx_type, hex_tx);
+                println!("Tx type: {tx_type:?}, Tx hex: {hex_tx:?}");
             }
         }
     }
 }
 
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
-    println!("Connecting to verifier at {}", url);
+    println!("Connecting to verifier at {url}");
     let config = create_minimal_config();
     let mut verifier = clementine_core::rpc::get_clients(
         vec![url],
@@ -439,7 +435,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .get_params(Empty {})
                 .await
                 .expect("Failed to make a request");
-            println!("Verifier params: {:?}", params);
+            println!("Verifier params: {params:?}");
         }
         VerifierCommands::NonceGen { num_nonces } => {
             let params = clementine_core::rpc::clementine::NonceGenRequest { num_nonces };
@@ -447,7 +443,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .nonce_gen(Request::new(params))
                 .await
                 .expect("Failed to make a request");
-            println!("Noncegen response: {:?}", response);
+            println!("Noncegen response: {response:?}");
         }
         VerifierCommands::Vergen => {
             let params = Empty {};
@@ -455,13 +451,14 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .vergen(Request::new(params))
                 .await
                 .expect("Failed to make a request");
-            println!("Vergen response:\n{}", response.into_inner().response);
+            let response_msg = response.into_inner().response;
+            println!("Vergen response:\n{response_msg}");
         }
     }
 }
 
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
-    println!("Connecting to aggregator at {}", url);
+    println!("Connecting to aggregator at {url}");
     let config = create_minimal_config();
     let mut aggregator = clementine_core::rpc::get_clients(
         vec![url],
@@ -479,7 +476,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .setup(Empty {})
                 .await
                 .expect("Failed to make a request");
-            println!("{:?}", setup);
+            println!("{setup:?}");
         }
         AggregatorCommands::NewDeposit {
             deposit_outpoint_txid,
@@ -550,10 +547,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                             .try_into()
                             .expect("Failed to convert txid to array"),
                     );
-                    println!("Move txid: {}", txid);
+                    println!("Move txid: {txid}");
                 }
                 Err(e) => {
-                    println!("Failed to send move transaction: {}", e);
+                    println!("Failed to send move transaction: {e}");
                     println!(
                         "Please send manually: {}",
                         hex::encode(move_to_vault_tx.raw_tx)
@@ -568,7 +565,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .expect("Failed to make a request");
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .expect("Failed to parse xonly_pk");
-            println!("{:?}", xonly_pk.to_string());
+            println!("{xonly_pk}");
         }
         AggregatorCommands::GetDepositAddress {
             evm_address,
@@ -623,7 +620,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             )
             .expect("Failed to generate deposit address");
 
-            println!("Deposit address: {}", deposit_address.0);
+            let address = &deposit_address.0;
+            println!("Deposit address: {address}");
         }
         AggregatorCommands::InternalGetEmergencyStopTx { move_txids } => {
             let move_txids = move_txids
@@ -644,7 +642,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 ))
                 .await
                 .expect("Failed to make a request");
-            println!("Emergency stop tx: {:?}", emergency_stop_tx);
+            println!("Emergency stop tx: {emergency_stop_tx:?}");
             for (i, tx) in emergency_stop_tx
                 .into_inner()
                 .encrypted_emergency_stop_txs
@@ -652,8 +650,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .enumerate()
             {
                 println!(
-                    "Emergency stop tx {} for move tx {}: {}",
-                    i,
+                    "Emergency stop tx {i} for move tx {}: {}",
                     move_txids[i],
                     hex::encode(tx)
                 );
@@ -697,10 +694,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 )
                 .expect("Failed to generate replacement deposit address");
 
-            println!(
-                "Replacement deposit address: {}",
-                replacement_deposit_address
-            );
+            println!("Replacement deposit address: {replacement_deposit_address}");
         }
         AggregatorCommands::NewReplacementDeposit {
             deposit_outpoint_txid,
@@ -748,7 +742,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     .try_into()
                     .expect("Failed to convert txid to array"),
             );
-            println!("Move txid: {}", txid);
+            println!("Move txid: {txid}");
         }
         AggregatorCommands::NewWithdrawal {
             withdrawal_id,
@@ -760,7 +754,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             verification_signature,
             operator_xonly_pks,
         } => {
-            println!("Processing withdrawal with id {}", withdrawal_id);
+            println!("Processing withdrawal with id {withdrawal_id}");
 
             let mut input_outpoint_txid_bytes =
                 hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
@@ -815,7 +809,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let withdraw_responses = response.get_ref().withdraw_responses.clone();
 
             for (i, result) in withdraw_responses.iter().enumerate() {
-                println!("Operator {}: {:?}", i, result);
+                println!("Operator {i}: {result:?}");
             }
         }
         AggregatorCommands::GetEntityStatuses { restart_tasks } => {
@@ -831,23 +825,56 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             for entity_status in &response.get_ref().entity_statuses {
                 match &entity_status.entity_id {
                     Some(entity_id) => {
-                        println!("Entity: {:?} - {}", entity_id.kind, entity_id.id);
+                        let kind = entity_id.kind;
+                        let id = &entity_id.id;
+                        println!("Entity: {kind} - {id}");
                         match &entity_status.status_result {
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
-                                println!("  Automation: {}", status.automation);
-                                println!("  Wallet balance: {}", status.wallet_balance.as_ref().map_or("N/A".to_string(), |s| s.clone()));
-                                println!("  TX sender synced height: {}", status.tx_sender_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                println!("  Finalized synced height: {}", status.finalized_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                println!("  HCP last proven height: {}", status.hcp_last_proven_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                println!("  RPC tip height: {}", status.rpc_tip_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                println!("  Bitcoin syncer synced height: {}", status.bitcoin_syncer_synced_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                println!("  State manager next height: {}", status.state_manager_next_height.map_or("N/A".to_string(), |h| h.to_string()));
-                                if !status.stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
-                                    println!("  Stopped tasks: {:?}", status.stopped_tasks.as_ref().expect("Stopped tasks are required").stopped_tasks);
+                                let EntityStatus {
+                                    automation,
+                                    wallet_balance,
+                                    tx_sender_synced_height,
+                                    finalized_synced_height,
+                                    hcp_last_proven_height,
+                                    rpc_tip_height,
+                                    bitcoin_syncer_synced_height,
+                                    state_manager_next_height,
+                                    stopped_tasks,
+                                } = &status;
+                                println!("  Automation: {automation}");
+                                let wallet_balance = wallet_balance
+                                    .as_ref()
+                                    .map_or("N/A".to_string(), |s| s.clone());
+                                println!("  Wallet balance: {wallet_balance}");
+                                let tx_sender_height = tx_sender_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  TX sender synced height: {tx_sender_height}");
+                                let finalized_height = finalized_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  Finalized synced height: {finalized_height}");
+                                let hcp_height = hcp_last_proven_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  HCP last proven height: {hcp_height}");
+                                let rpc_tip_height = rpc_tip_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  RPC tip height: {rpc_tip_height}");
+                                let bitcoin_syncer_height = bitcoin_syncer_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  Bitcoin syncer synced height: {bitcoin_syncer_height}");
+                                let state_manager_height = state_manager_next_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  State manager next height: {state_manager_height}");
+                                if !stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
+                                    let stopped_tasks = &stopped_tasks
+                                        .as_ref()
+                                        .expect("Stopped tasks are required")
+                                        .stopped_tasks;
+                                    println!("  Stopped tasks: {stopped_tasks:?}");
                                 }
                             }
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
-                                println!("  Error: {}", error.error);
+                                let error_msg = &error.error;
+                                println!("  Error: {error_msg}");
                             }
                             None => {
                                 println!("  No status available");
@@ -871,7 +898,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .vergen(Request::new(params))
                 .await
                 .expect("Failed to make a request");
-            println!("Vergen response:\n{}", response.into_inner().response);
+            let response_msg = response.into_inner().response;
+            println!("Vergen response:\n{response_msg}");
         }
     }
 }
@@ -909,9 +937,9 @@ async fn handle_print_addresses() {
         }
     };
 
-    println!("Bitcoin RPC URL: {}", bitcoin_rpc_url);
-    println!("Bitcoin RPC user: {}", bitcoin_rpc_user);
-    println!("Bitcoin RPC password: {}", bitcoin_rpc_password);
+    println!("Bitcoin RPC URL: {bitcoin_rpc_url}");
+    println!("Bitcoin RPC user: {bitcoin_rpc_user}");
+    println!("Bitcoin RPC password: {bitcoin_rpc_password}");
 
     // Get network from environment or default to regtest
     let network = match std::env::var("NETWORK") {
@@ -921,7 +949,7 @@ async fn handle_print_addresses() {
 
     let actor = Actor::new(secret_key, network);
     let taproot_address = actor.address;
-    println!("Actor's taproot address: {}", taproot_address);
+    println!("Actor's taproot address: {taproot_address}");
 
     // Connect to Bitcoin RPC and get new address
     let rpc = match Client::new(
@@ -932,7 +960,7 @@ async fn handle_print_addresses() {
     {
         Ok(client) => client,
         Err(e) => {
-            println!("Error connecting to Bitcoin RPC: {}", e);
+            println!("Error connecting to Bitcoin RPC: {e}");
             return;
         }
     };
@@ -941,8 +969,11 @@ async fn handle_print_addresses() {
         .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
         .await
     {
-        Ok(address) => println!("Bitcoin wallet's new address: {}", address.assume_checked()),
-        Err(e) => println!("Error getting new address from Bitcoin wallet: {}", e),
+        Ok(address) => {
+            let addr = address.assume_checked();
+            println!("Bitcoin wallet's new address: {addr}");
+        }
+        Err(e) => println!("Error getting new address from Bitcoin wallet: {e}"),
     }
 }
 
@@ -959,8 +990,10 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_hex)
                 .expect("Failed to deserialize transaction");
 
-            println!("Transaction created: {}", tx.compute_txid());
-            println!("Raw transaction: {}", hex::encode(tx_hex));
+            let txid = tx.compute_txid();
+            println!("Transaction created: {txid}");
+            let raw_tx = hex::encode(tx_hex);
+            println!("Raw transaction: {raw_tx}");
 
             // Find P2A anchor output (script: 51024e73)
             let p2a_vout = tx
@@ -973,7 +1006,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
 
             let p2a_txout = tx.output[p2a_vout].clone();
 
-            println!("Found P2A anchor output at vout: {}", p2a_vout);
+            println!("Found P2A anchor output at vout: {p2a_vout}");
 
             // Connect to Bitcoin RPC
             use bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -1015,9 +1048,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             let required_fee = bitcoin::Amount::from_sat(required_fee_sats);
 
             println!(
-                "Parent weight: {}, estimated total: {}, required fee: {} sats",
-                parent_weight,
-                total_weight,
+                "Parent weight: {parent_weight}, estimated total: {total_weight}, required fee: {} sats",
                 required_fee.to_sat()
             );
 
@@ -1040,9 +1071,9 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                 if unspent.is_empty() {
                     println!("No unspent outputs available for fee payment.");
                     println!("Please send some funds to the fee payer address.");
-                    println!("Fee payer address: {}", fee_payer_address);
+                    println!("Fee payer address: {fee_payer_address}");
                 } else {
-                    println!("Unspent outputs: {:?}", unspent);
+                    println!("Unspent outputs: {unspent:?}");
                     println!("Please wait for them to confirm.");
                 }
                 return;
@@ -1053,8 +1084,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                 .find(|utxo| utxo.amount > required_fee)
                 .unwrap_or_else(|| {
                     panic!(
-                        "No UTXO found with enough balance for fee payment, required fee is: {}",
-                        required_fee
+                        "No UTXO found with enough balance for fee payment, required fee is: {required_fee}"
                     )
                 });
 
@@ -1130,12 +1160,14 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             {
                 Ok(result) => {
                     println!("CPFP package submitted successfully");
-                    println!("Package result: {:?}", result);
-                    println!("Parent transaction TXID: {}", tx.compute_txid());
-                    println!("Child transaction TXID: {}", signed_child_tx.compute_txid());
+                    println!("Package result: {result:?}");
+                    let parent_txid = tx.compute_txid();
+                    println!("Parent transaction TXID: {parent_txid}");
+                    let child_txid = signed_child_tx.compute_txid();
+                    println!("Child transaction TXID: {child_txid}");
                 }
                 Err(e) => {
-                    println!("Failed to submit CPFP package: {}", e);
+                    println!("Failed to submit CPFP package: {e}");
                     println!("Manual submission options:");
                     println!(
                         "Parent tx: {}",

@@ -24,7 +24,7 @@ where
 {
     read_string_from_env(env_var)?
         .parse::<T>()
-        .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{:?}", e)))
+        .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
 }
 
 impl GrpcLimits {
