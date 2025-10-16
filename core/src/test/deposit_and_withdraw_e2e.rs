@@ -167,7 +167,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             let genesis_height: u32 = 10;
 
             let genesis_chain_state_hash = HeaderChainProver::get_chain_state_from_height(
-                rpc.clone(),
+                &rpc,
                 genesis_height as u64,
                 config.protocol_paramset().network,
             )

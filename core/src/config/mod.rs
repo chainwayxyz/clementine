@@ -13,9 +13,12 @@
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
+use eyre::Context;
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -213,6 +216,58 @@ impl BridgeConfig {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
+    }
+
+    /// Check general requirements for the configuration irrespective of the network.
+    pub async fn check_general_requirements(&self) -> Result<(), BridgeError> {
+        // check genesis state hash
+        let rpc = ExtendedBitcoinRpc::connect(
+            self.bitcoin_rpc_url.clone(),
+            self.bitcoin_rpc_user.clone(),
+            self.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        .wrap_err("Failed to connect to bitcoin rpc while checking general requirements")?;
+
+        let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
+            &rpc,
+            self.protocol_paramset().genesis_height.into(),
+            self.protocol_paramset().network,
+        )
+        .await
+        .wrap_err("Failed to get genesis chain state while checking general requirements")?;
+
+        let mut reasons = Vec::new();
+
+        if genesis_chain_state.to_hash() != self.protocol_paramset().genesis_chain_state_hash {
+            reasons.push(format!(
+                "Genesis chain state hash mismatch, state hash generated from bitcoin rpc does not match value in config: {} != expected: {}",
+                hex::encode(genesis_chain_state.to_hash()),
+                hex::encode(self.protocol_paramset().genesis_chain_state_hash)
+            ));
+        }
+
+        if self.protocol_paramset().start_height < self.protocol_paramset().genesis_height {
+            reasons.push(format!(
+                "Start height is less than genesis height: {} < {}",
+                self.protocol_paramset().start_height,
+                self.protocol_paramset().genesis_height
+            ));
+        }
+
+        if self.protocol_paramset().finality_depth < 1 {
+            reasons.push(format!(
+                "Finality depth cannot be less than 1, finality depth is: {}",
+                self.protocol_paramset().finality_depth
+            ));
+        }
+
+        if !reasons.is_empty() {
+            return Err(BridgeError::ConfigError(reasons.join(", ")));
+        }
+
+        Ok(())
     }
 }
 
