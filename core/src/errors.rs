@@ -73,6 +73,7 @@ use bitcoin::{secp256k1::PublicKey, OutPoint, Txid, XOnlyPublicKey};
 use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
+use http::StatusCode;
 use thiserror::Error;
 use tonic::Status;
 
@@ -168,7 +169,7 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
-    RPC(#[from] Status),
+    RPCStatus(#[from] Box<Status>),
 
     #[error("Arithmetic overflow occurred: {0}")]
     ArithmeticOverflow(&'static str),
@@ -178,6 +179,20 @@ pub enum BridgeError {
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FeeErr {
+    #[error("request timed out")]
+    Timeout,
+    #[error("transport/decode error: {0}")]
+    Transport(#[from] reqwest::Error),
+    #[error("http status {0}")]
+    Status(StatusCode),
+    #[error("json decode error: {0}")]
+    JsonDecode(reqwest::Error),
+    #[error("'fastestFee' field not found or invalid in API response")]
+    MissingField,
 }
 
 /// Extension traits for errors to easily convert them to eyre::Report and
@@ -199,6 +214,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+    #[allow(clippy::result_large_err)]
     fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
@@ -223,6 +239,12 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
 
     fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
         self.map_err(ErrorExt::into_status)
+    }
+}
+
+impl From<Status> for BridgeError {
+    fn from(status: Status) -> Self {
+        BridgeError::RPCStatus(Box::new(status))
     }
 }
 

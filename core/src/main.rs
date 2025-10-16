@@ -61,6 +61,9 @@ async fn main() {
     let mut handle = match args.actor {
         cli::Actors::Verifier => {
             println!("Starting verifier server...");
+            config
+                .check_mainnet_requirements(cli::Actors::Verifier)
+                .expect("Illegal configuration options!");
 
             create_verifier_grpc_server::<CitreaClient>(config.clone())
                 .await
@@ -69,6 +72,9 @@ async fn main() {
         }
         cli::Actors::Operator => {
             println!("Starting operator server...");
+            config
+                .check_mainnet_requirements(cli::Actors::Operator)
+                .expect("Illegal configuration options!");
 
             create_operator_grpc_server::<CitreaClient>(config.clone())
                 .await
@@ -77,6 +83,9 @@ async fn main() {
         }
         cli::Actors::Aggregator => {
             println!("Starting aggregator server...");
+            config
+                .check_mainnet_requirements(cli::Actors::Aggregator)
+                .expect("Illegal configuration options!");
 
             create_aggregator_grpc_server(config.clone())
                 .await
@@ -115,9 +124,9 @@ async fn main() {
             }
             let address = Actor::new(config.secret_key, config.protocol_paramset.network).address;
 
-            println!("Configuration: {:#?}", config);
-            println!("Bitcoin address: {}", address);
-            println!("Bitcoin node addresses: {:?}", addresses);
+            println!("Configuration: {config:#?}");
+            println!("Bitcoin address: {address}");
+            println!("Bitcoin node addresses: {addresses:?}");
 
             println!("DB connection is successful.");
             println!("Bitcoin node connection is successful.");

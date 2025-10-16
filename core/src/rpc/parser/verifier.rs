@@ -144,7 +144,7 @@ pub fn parse_deposit_sign_session(
             "Verifier with index {verifier_idx} and public key of {verifier_pk} doesn't exists in nonce_gen_first_responses!"
         )))?
         .id.parse()
-        .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
+        .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {e}")))?;
 
     Ok((deposit_data, session_id))
 }
