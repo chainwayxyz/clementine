@@ -71,7 +71,7 @@ where
     #[cfg(test)]
     {
         ensure_test_certificates().map_err(|e| {
-            BridgeError::ConfigError(format!("Failed to ensure test certificates: {}", e))
+            BridgeError::ConfigError(format!("Failed to ensure test certificates: {e}"))
         })?;
     }
 
@@ -142,7 +142,7 @@ where
                                 }))
                                 .await
                                 .wrap_err_with(|| {
-                                    format!("Failed to connect to Unix socket {}", endpoint)
+                                    format!("Failed to connect to Unix socket {endpoint}")
                                 })?
                         }
 
@@ -158,8 +158,7 @@ where
                         // Handle TCP/HTTP connection
                         let uri = Uri::try_from(endpoint.clone()).map_err(|e| {
                             BridgeError::ConfigError(format!(
-                                "Endpoint {} is malformed: {}",
-                                endpoint, e
+                                "Endpoint {endpoint} is malformed: {e}"
                             ))
                         })?;
 

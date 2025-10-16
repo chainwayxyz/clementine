@@ -66,6 +66,6 @@ impl MMRGuest {
                 current_hash = hash_pair(sibling, current_hash);
             }
         }
-        self.subroots[mmr_proof.subroot_idx] == current_hash
+        self.subroots.get(mmr_proof.subroot_idx) == Some(&current_hash)
     }
 }
