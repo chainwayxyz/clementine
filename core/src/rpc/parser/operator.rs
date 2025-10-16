@@ -167,7 +167,10 @@ pub fn parse_withdrawal_sig_params(
             Status::invalid_argument(format!("Can't convert input to taproot Signature - {e}"))
         })?;
 
-    // if sighash is type default (meaning sighash is not specified, 64 byte sig given), set it to SinglePlusAnyoneCanPay
+    // If the Taproot sighash type is Default (no explicit type attached; i.e. a 64-byte
+    // signature without a sighash flag), normalize it to SinglePlusAnyoneCanPay.
+    // Prior to v0.5 this was Clementine's implicit behavior; we retain it here for
+    // backwards compatibility when a 64-byte signature is provided.
     if input_signature.sighash_type == TapSighashType::Default {
         tracing::warn!(
             "Input signature for withdrawal {} has sighash type default, setting to SinglePlusAnyoneCanPay", params.withdrawal_id,
