@@ -121,7 +121,7 @@ fn create_key_agg_cache(
                     .finalize();
 
                 musig_key_agg_cache
-                    .pubkey_ec_tweak_add(
+                    .pubkey_xonly_tweak_add(
                         SECP256K1,
                         &Scalar::from_be_bytes(xonly_tweak.into())
                             .wrap_err("Failed to create scalar from xonly tweak bytes")?,
@@ -165,20 +165,57 @@ pub fn aggregate_nonces(pub_nonces: &[&PublicNonce]) -> Result<AggregatedNonce, 
     Ok(AggregatedNonce::new(SECP256K1, pub_nonces))
 }
 
-// Aggregates the partial signatures into a single aggregated signature.
+/// Aggregates the partial signatures into a single aggregated signature and verifies the aggregated signature. If PARTIAL_SIG_VERIFICATION is set to true, each partial signature will also be verified.
 pub fn aggregate_partial_signatures(
     pks: Vec<PublicKey>,
     tweak: Option<Musig2Mode>,
     agg_nonce: AggregatedNonce,
-    partial_sigs: &[PartialSignature],
+    partial_sigs: &[(PartialSignature, PublicNonce)],
     message: Message,
 ) -> Result<schnorr::Signature, BridgeError> {
-    let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
+    let musig_key_agg_cache = create_key_agg_cache(pks.clone(), tweak)?;
     let secp_message = to_secp_msg(&message);
 
     let session = Session::new(SECP256K1, &musig_key_agg_cache, agg_nonce, secp_message);
 
-    let partial_sigs: Vec<&PartialSignature> = partial_sigs.iter().collect();
+    let partial_sigs_and_nonces: Vec<&(PartialSignature, PublicNonce)> =
+        partial_sigs.iter().collect();
+    let partial_sigs: Vec<&PartialSignature> =
+        partial_sigs_and_nonces.iter().map(|(sig, _)| sig).collect();
+    // enable partial signature verification with an environment variable to see which verifier is giving bad partial signatures
+    // this is an env var so that we can turn it off for better performance
+    let enable_partial_sig_verification = std::env::var("PARTIAL_SIG_VERIFICATION")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "y" | "on"
+            )
+        })
+        .unwrap_or(false);
+
+    if enable_partial_sig_verification {
+        for ((partial_sig, pub_nonce), pub_key) in
+            partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
+        {
+            if !session.partial_verify(
+                SECP256K1,
+                &musig_key_agg_cache,
+                *partial_sig,
+                *pub_nonce,
+                to_secp_pk(pub_key),
+            ) {
+                tracing::error!(
+                    "MuSig2 Error: partial signature verification failed for pub key: {}",
+                    pub_key
+                );
+                return Err(BridgeError::from(eyre::eyre!(
+                    "MuSig2 Error: partial signature verification failed for pub key: {}",
+                    pub_key
+                )));
+            }
+        }
+    }
     let final_sig = session.partial_sig_agg(&partial_sigs);
 
     SECP256K1
@@ -262,7 +299,7 @@ mod tests {
         secp256k1::{schnorr, Message, PublicKey},
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
-    use secp256k1::{musig::PartialSignature, rand::Rng};
+    use secp256k1::rand::Rng;
     use std::sync::Arc;
     use std::vec;
 
@@ -306,15 +343,18 @@ mod tests {
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
-                super::partial_sign(
-                    public_keys.clone(),
-                    None,
-                    nonce_pair.0,
-                    aggregated_nonce,
-                    kp,
-                    message,
+                (
+                    super::partial_sign(
+                        public_keys.clone(),
+                        None,
+                        nonce_pair.0,
+                        aggregated_nonce,
+                        kp,
+                        message,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -348,26 +388,35 @@ mod tests {
         let agg_nonce =
             super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]).unwrap();
 
-        let partial_sig_0 =
-            super::partial_sign(pks.clone(), None, sec_nonce_0, agg_nonce, kp_0, message).unwrap();
-        let partial_sig_1 =
-            super::partial_sign(pks.clone(), None, sec_nonce_1, agg_nonce, kp_1, message).unwrap();
+        let partial_sig_0 = (
+            super::partial_sign(pks.clone(), None, sec_nonce_0, agg_nonce, kp_0, message).unwrap(),
+            pub_nonce_0,
+        );
+        let partial_sig_1 = (
+            super::partial_sign(pks.clone(), None, sec_nonce_1, agg_nonce, kp_1, message).unwrap(),
+            pub_nonce_1,
+        );
         // Oops, a verifier accidentally added some tweak!
-        let partial_sig_2 = super::partial_sign(
-            pks.clone(),
-            Some(Musig2Mode::KeySpendWithScript(
-                TapNodeHash::from_slice(&[1u8; 32]).unwrap(),
-            )),
-            sec_nonce_2,
-            agg_nonce,
-            kp_2,
-            message,
-        )
-        .unwrap();
+        let partial_sig_2 = (
+            super::partial_sign(
+                pks.clone(),
+                Some(Musig2Mode::KeySpendWithScript(
+                    TapNodeHash::from_slice(&[1u8; 32]).unwrap(),
+                )),
+                sec_nonce_2,
+                agg_nonce,
+                kp_2,
+                message,
+            )
+            .unwrap(),
+            pub_nonce_2,
+        );
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature: Result<schnorr::Signature, BridgeError> =
             super::aggregate_partial_signatures(pks, None, agg_nonce, &partial_sigs, message);
+
+        println!("final_signature: {final_signature:?}");
 
         assert!(final_signature.is_err());
     }
@@ -403,17 +452,20 @@ mod tests {
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
-                super::partial_sign(
-                    public_keys.clone(),
-                    Some(Musig2Mode::KeySpendWithScript(
-                        TapNodeHash::from_slice(&tweak).unwrap(),
-                    )),
-                    nonce_pair.0,
-                    aggregated_nonce,
-                    kp,
-                    message,
+                (
+                    super::partial_sign(
+                        public_keys.clone(),
+                        Some(Musig2Mode::KeySpendWithScript(
+                            TapNodeHash::from_slice(&tweak).unwrap(),
+                        )),
+                        nonce_pair.0,
+                        aggregated_nonce,
+                        kp,
+                        message,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -451,31 +503,39 @@ mod tests {
         let agg_nonce =
             super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]).unwrap();
 
-        let partial_sig_0 = super::partial_sign(
-            pks.clone(),
-            Some(Musig2Mode::KeySpendWithScript(
-                TapNodeHash::from_slice(&tweak).unwrap(),
-            )),
-            sec_nonce_0,
-            agg_nonce,
-            kp_0,
-            message,
-        )
-        .unwrap();
-        let partial_sig_1 = super::partial_sign(
-            pks.clone(),
-            Some(Musig2Mode::KeySpendWithScript(
-                TapNodeHash::from_slice(&tweak).unwrap(),
-            )),
-            sec_nonce_1,
-            agg_nonce,
-            kp_1,
-            message,
-        )
-        .unwrap();
+        let partial_sig_0 = (
+            super::partial_sign(
+                pks.clone(),
+                Some(Musig2Mode::KeySpendWithScript(
+                    TapNodeHash::from_slice(&tweak).unwrap(),
+                )),
+                sec_nonce_0,
+                agg_nonce,
+                kp_0,
+                message,
+            )
+            .unwrap(),
+            pub_nonce_0,
+        );
+        let partial_sig_1 = (
+            super::partial_sign(
+                pks.clone(),
+                Some(Musig2Mode::KeySpendWithScript(
+                    TapNodeHash::from_slice(&tweak).unwrap(),
+                )),
+                sec_nonce_1,
+                agg_nonce,
+                kp_1,
+                message,
+            )
+            .unwrap(),
+            pub_nonce_1,
+        );
         // Oops, a verifier accidentally forgot to put the tweak!
-        let partial_sig_2 =
-            super::partial_sign(pks.clone(), None, sec_nonce_2, agg_nonce, kp_2, message).unwrap();
+        let partial_sig_2 = (
+            super::partial_sign(pks.clone(), None, sec_nonce_2, agg_nonce, kp_2, message).unwrap(),
+            pub_nonce_2,
+        );
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature = super::aggregate_partial_signatures(
@@ -566,21 +626,24 @@ mod tests {
         );
         let merkle_root = sending_address_spend_info.merkle_root().unwrap();
 
-        let partial_sigs: Vec<PartialSignature> = key_pairs
+        let partial_sigs = key_pairs
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
-                super::partial_sign(
-                    public_keys.clone(),
-                    Some(Musig2Mode::KeySpendWithScript(merkle_root)),
-                    nonce_pair.0,
-                    agg_nonce,
-                    kp,
-                    message,
+                (
+                    super::partial_sign(
+                        public_keys.clone(),
+                        Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+                        nonce_pair.0,
+                        agg_nonce,
+                        kp,
+                        message,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
             public_keys.clone(),
@@ -673,21 +736,24 @@ mod tests {
                 .to_byte_array(),
         );
 
-        let partial_sigs: Vec<PartialSignature> = key_pairs
+        let partial_sigs = key_pairs
             .into_iter()
             .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
-                super::partial_sign(
-                    public_keys.clone(),
-                    None,
-                    nonce_pair.0,
-                    agg_nonce,
-                    kp,
-                    message,
+                (
+                    super::partial_sign(
+                        public_keys.clone(),
+                        None,
+                        nonce_pair.0,
+                        agg_nonce,
+                        kp,
+                        message,
+                    )
+                    .unwrap(),
+                    nonce_pair.1,
                 )
-                .unwrap()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
             public_keys,
@@ -778,7 +844,7 @@ mod tests {
             public_keys.clone(),
             Some(key_spend_with_script_tweak),
             agg_nonce,
-            &[partial_sig1, partial_sig2],
+            &[(partial_sig1, pub_nonce1), (partial_sig2, pub_nonce2)],
             message,
         )
         .unwrap();

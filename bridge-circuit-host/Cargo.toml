@@ -12,6 +12,7 @@ risc0-circuit-recursion = { workspace = true }
 risc0-zkp = { workspace = true }
 risc0-groth16 = { workspace = true }
 risc0-binfmt = { workspace = true }
+risc0-core = { version = "2.0.0" }
 
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
@@ -23,6 +24,8 @@ ark-relations = { workspace = true }
 ark-groth16 = { workspace = true }
 
 alloy-rpc-types = { workspace = true }
+
+bytemuck = { version = "1.14" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
