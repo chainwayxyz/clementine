@@ -4,7 +4,7 @@ use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::constants::{
-    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET_LC_IMAGE_ID,
+    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
 };
 use eyre::Context;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,7 @@ impl FromStr for ProtocolParamsetName {
         match s {
             "regtest" => Ok(ProtocolParamsetName::Regtest),
             _ => Err(BridgeError::ConfigError(format!(
-                "Unknown paramset name: {}",
-                s
+                "Unknown paramset name: {s}"
             ))),
         }
     }
@@ -118,6 +117,8 @@ pub struct ProtocolParamset {
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
+    /// Also means finality_confirmations, how many confirmations are needed for a block to be considered finalized
+    /// The chain tip has 1 confirmation. Minimum value should be 1.
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
@@ -134,6 +135,11 @@ impl ProtocolParamset {
         let contents = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 
         let paramset: Self = toml::from_str(&contents).wrap_err("Failed to parse TOML")?;
+        if paramset.finality_depth < 1 {
+            return Err(BridgeError::ConfigError(
+                "Finality depth must be at least 1".to_string(),
+            ));
+        }
 
         Ok(paramset)
     }
@@ -198,6 +204,12 @@ impl ProtocolParamset {
             bridge_nonstandard: read_string_from_env_then_parse::<bool>("BRIDGE_NONSTANDARD")?,
         };
 
+        if config.finality_depth < 1 {
+            return Err(BridgeError::ConfigError(
+                "Finality depth must be at least 1".to_string(),
+            ));
+        }
+
         Ok(config)
     }
 
@@ -249,7 +261,7 @@ impl ProtocolParamset {
     pub fn get_lcp_image_id(&self) -> Result<[u8; 32], BridgeError> {
         Ok(match self.network {
             bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
-            bitcoin::Network::Testnet4 => TESTNET_LC_IMAGE_ID,
+            bitcoin::Network::Testnet4 => TESTNET4_LC_IMAGE_ID,
             bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
             bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
             _ => return Err(eyre::eyre!("Unsupported Bitcoin network").into()),
@@ -345,37 +357,37 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 pub const REGTEST_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    229, 255, 70, 181, 5, 243, 79, 6, 103, 117, 14, 141, 150, 120, 37, 162, 249, 166, 11, 58, 70,
-    39, 7, 98, 119, 209, 219, 124, 254, 194, 76, 198,
+    189, 18, 107, 231, 66, 231, 28, 107, 204, 10, 106, 233, 19, 48, 168, 84, 121, 70, 47, 191, 192,
+    29, 175, 139, 205, 175, 12, 31, 217, 101, 54, 215,
 ];
 
 pub const REGTEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    56, 56, 76, 64, 131, 29, 37, 22, 157, 4, 2, 244, 149, 128, 242, 53, 20, 57, 182, 135, 95, 121,
-    27, 138, 242, 135, 224, 184, 229, 51, 253, 51,
+    120, 67, 112, 167, 195, 144, 161, 1, 250, 109, 198, 26, 3, 141, 216, 12, 162, 205, 105, 129,
+    125, 133, 231, 254, 150, 123, 105, 109, 26, 40, 36, 207,
 ];
 
 pub const SIGNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    171, 168, 232, 140, 164, 40, 225, 119, 96, 77, 61, 250, 118, 186, 82, 170, 104, 234, 163, 77,
-    205, 104, 184, 243, 255, 181, 175, 146, 153, 192, 68, 148,
+    147, 164, 147, 7, 37, 82, 68, 146, 65, 0, 30, 234, 137, 186, 79, 251, 198, 108, 53, 221, 100,
+    225, 69, 71, 24, 54, 234, 80, 64, 137, 99, 153,
 ];
 
 pub const SIGNET_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    161, 5, 208, 175, 145, 88, 143, 113, 232, 44, 244, 98, 225, 234, 167, 27, 128, 55, 235, 108,
-    248, 134, 247, 15, 224, 235, 219, 189, 87, 55, 155, 246,
+    139, 39, 33, 94, 111, 140, 23, 179, 45, 115, 45, 144, 208, 43, 190, 99, 172, 215, 9, 53, 53,
+    110, 226, 111, 145, 10, 10, 195, 41, 0, 198, 223,
 ];
 
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    5, 158, 197, 9, 112, 80, 145, 124, 47, 238, 251, 8, 191, 166, 58, 127, 23, 138, 4, 48, 121,
-    111, 60, 29, 145, 44, 131, 206, 186, 172, 56, 68,
+    25, 52, 63, 193, 229, 177, 2, 27, 89, 29, 211, 202, 82, 126, 14, 62, 46, 228, 222, 217, 94,
+    162, 20, 162, 130, 222, 141, 218, 129, 126, 98, 219,
 ];
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    51, 229, 156, 95, 104, 135, 110, 51, 211, 122, 212, 76, 2, 140, 8, 116, 247, 153, 143, 242, 90,
-    129, 187, 24, 74, 93, 100, 65, 180, 33, 246, 243,
+    50, 100, 197, 134, 171, 25, 235, 34, 139, 15, 180, 76, 98, 155, 187, 243, 25, 253, 115, 99,
+    212, 169, 114, 76, 219, 66, 163, 175, 208, 209, 118, 196,
 ];
 
 pub const TESTNET4_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    158, 94, 163, 220, 11, 9, 39, 209, 41, 59, 108, 28, 138, 110, 233, 66, 119, 134, 246, 193, 203,
-    86, 158, 75, 130, 151, 163, 236, 131, 206, 94, 233,
+    192, 123, 245, 11, 57, 161, 152, 209, 134, 53, 189, 180, 177, 160, 38, 187, 77, 63, 80, 159,
+    81, 70, 92, 241, 188, 13, 67, 35, 54, 240, 62, 151,
 ];
 
 #[cfg(test)]

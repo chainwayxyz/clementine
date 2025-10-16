@@ -24,6 +24,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use eyre::Context;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -76,7 +77,7 @@ where
                 .try_into()
                 .map_err(|_| Status::invalid_argument("agg_nonce must be exactly 66 bytes"))?,
         )
-        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {e}")))?;
         let nonce_session_id = params
             .nonce_gen
             .ok_or(Status::invalid_argument(
@@ -84,7 +85,7 @@ where
             ))?
             .id
             .parse::<u128>()
-            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
+            .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {e}")))?;
 
         let opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
@@ -107,7 +108,7 @@ where
         let verification_signature = verification_signature_str
             .map(|sig| {
                 PrimitiveSignature::from_str(&sig).map_err(|e| {
-                    Status::invalid_argument(format!("Invalid verification signature: {}", e))
+                    Status::invalid_argument(format!("Invalid verification signature: {e}"))
                 })
             })
             .transpose()?;
@@ -283,6 +284,7 @@ where
 
         let (param_tx, mut param_rx) = mpsc::channel(1);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
+        let config = self.verifier.config.clone();
 
         // Send incoming data to deposit sign job.
         let handle = tokio::spawn(async move {
@@ -296,6 +298,10 @@ where
                 )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
+
+            let mut received_agg_nonces = 0;
+            let needed_agg_nonces = config.get_num_required_nofn_sigs(&deposit_data);
+
             param_tx
                 .send((deposit_data, session_id))
                 .await
@@ -320,6 +326,11 @@ where
                     .send(agg_nonce)
                     .await
                     .map_err(error::output_stream_ended_prematurely)?;
+
+                received_agg_nonces += 1;
+                if received_agg_nonces == needed_agg_nonces {
+                    break;
+                }
             }
             Ok(())
         });
@@ -443,8 +454,7 @@ where
             }
             if nonce_idx < num_required_nofn_sigs {
                 let err_msg = format!(
-                    "Insufficient N-of-N signatures received: got {}, expected {}",
-                    nonce_idx, num_required_nofn_sigs
+                    "Insufficient N-of-N signatures received: got {nonce_idx}, expected {num_required_nofn_sigs}",
                 );
                 tracing::error!(err_msg);
                 return Err(Status::invalid_argument(err_msg));
@@ -504,8 +514,7 @@ where
 
             if total_op_sig_count < num_required_total_op_sigs {
                 let err_msg = format!(
-                    "Insufficient operator signatures received: got {}, expected {}",
-                    total_op_sig_count, num_required_total_op_sigs
+                    "Insufficient operator signatures received: got {total_op_sig_count}, expected {num_required_total_op_sigs}",
                 );
                 tracing::error!(err_msg);
                 return Err(Status::invalid_argument(err_msg));
@@ -515,11 +524,11 @@ where
         });
 
         sig_handle.await.map_err(|e| {
-            Status::internal(format!("Deposit sign thread failed to finish: {}", e).as_str())
+            Status::internal(format!("Deposit sign thread failed to finish: {e}").as_str())
         })??;
 
         let partial_sig = deposit_finalize_handle.await.map_err(|e| {
-            Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
+            Status::internal(format!("Deposit finalize thread failed to finish: {e}").as_str())
         })??;
 
         let response = VerifierDepositFinalizeResponse {
@@ -593,7 +602,9 @@ where
         request: Request<clementine::Txid>,
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
-        let txid = bitcoin::Txid::try_from(txid).expect("Should be able to convert");
+        let txid = bitcoin::Txid::try_from(txid).map_err(|e| {
+            Status::invalid_argument(format!("Failed to convert txid to bitcoin::Txid: {e}"))
+        })?;
         tracing::warn!(
             "Called internal_handle_kickoff for kickoff txid: {:?}",
             txid
@@ -606,12 +617,22 @@ where
             .await?;
         if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
+                .handle_kickoff(
+                    &mut dbtx,
+                    Witness::new(),
+                    deposit_data,
+                    kickoff_id,
+                    false,
+                    txid,
+                )
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
-        dbtx.commit().await.expect("Failed to commit transaction");
+        dbtx.commit()
+            .await
+            .wrap_err("Failed to commit transaction")
+            .map_to_status()?;
         Ok(Response::new(Empty {}))
     }
 
@@ -634,8 +655,7 @@ where
             match self.verifier.tx_sender.debug_tx(tx_id).await {
                 Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
                 Err(e) => Err(tonic::Status::internal(format!(
-                    "Failed to debug TX {}: {}",
-                    tx_id, e
+                    "Failed to debug TX {tx_id}: {e}",
                 ))),
             }
         }

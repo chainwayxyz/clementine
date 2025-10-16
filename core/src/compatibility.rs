@@ -73,8 +73,7 @@ impl CompatibilityParams {
         // This ensures that only compatible protocol changes are accepted, while allowing bugfixes.
         if own_version.major != other_version.major || own_version.minor != other_version.minor {
             reasons.push(format!(
-                "Clementine version mismatch: self={:?}, other={:?}",
-                own_version, other_version
+                "Clementine version mismatch: self={own_version:?}, other={other_version:?}",
             ));
         }
         if reasons.is_empty() {
@@ -148,7 +147,7 @@ pub trait ActorWithConfig {
         let mut reasons = Vec::new();
         for (id, params) in others {
             if let Err(e) = own_params.is_compatible(&params) {
-                reasons.push(format!("{}: {}", id, e));
+                reasons.push(format!("{id}: {e}"));
             }
         }
         if reasons.is_empty() {

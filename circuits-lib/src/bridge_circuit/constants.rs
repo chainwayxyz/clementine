@@ -26,7 +26,7 @@ pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
 pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
     hex!("868e65191b05cdc0b1138983b3e0fd65326448fdba00092c4ddfbea58b081944");
 
-pub const TESTNET_LC_IMAGE_ID: [u8; 32] =
+pub const TESTNET4_LC_IMAGE_ID: [u8; 32] =
     hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
 
 // MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
@@ -35,13 +35,13 @@ pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
 
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("7a5e19c21ae060be36ddff77c8f07849d8fc8b0b240384e8801a66e328b2ee22");
+    hex!("dd49d59b8032bd7127f78b482a82a60d80b7b8e270dc9832258947e835dedb80");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("8d6d75f630594a20ec0c55da0a9ba89a7cceffab9cb492eb9b3689d8c1e44c51");
+    hex!("3f1eefa80ff8985ffa1ef1867a8e772ff2ee35f9d5c625ae89fb9fec1af91e73");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("ee89251fc3344efd8ab2f9ff3dbf7a4d509cb3223b374af70485efd1d3810edd");
+    hex!("50d0d3e2193d83d7af5a61e291797ff7c5db37eb81cbd44652f4006357ebda8e");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("dc4600ac1fba430ff3d86e2776eb415a796c6b210a2c8e434b30a4f49727ac2d");
+    hex!("8e61eecc10779b7fe9acc10da27d5acb64f51fb9d699a866a9d1d7aad044e6af");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
@@ -55,10 +55,10 @@ pub static CLAIM_TAG: [u8; 32] =
 pub static OUTPUT_TAG: [u8; 32] =
     hex_literal::hex!("77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4"); // SHA256 hash of "risc0.Output"
 
-pub const A0_BIGINT: BigInt<4> = BigInt::new([162754123530195662, 1949396425256203034, 0, 0]);
+pub const A0_BIGINT: BigInt<4> = BigInt::new([2055224492124818853, 4733028617431930770, 0, 0]);
 pub const A0_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A0_BIGINT);
 
-pub const A1_BIGINT: BigInt<4> = BigInt::new([2457364108815709557, 2960371475104660934, 0, 0]);
+pub const A1_BIGINT: BigInt<4> = BigInt::new([4020834093867526107, 6205833401006706155, 0, 0]);
 pub const A1_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> = Fr::new(A1_BIGINT);
 
 pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
@@ -70,9 +70,9 @@ pub const BN_254_CONTROL_ID_BIGINT: BigInt<4> = BigInt::new([
 pub const BN_254_CONTROL_ID_ARK: ark_ff::Fp<ark_ff::MontBackend<ark_bn254::FrConfig, 4>, 4> =
     Fr::new(BN_254_CONTROL_ID_BIGINT);
 
-pub const PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
+pub static PREPARED_VK: &[u8] = include_bytes!("bin/prepared_vk.bin");
 
-pub const TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
+pub static TEST_PREPARED_VK: &[u8] = include_bytes!("bin/test_prepared_vk.bin");
 
 #[cfg(feature = "use-test-vk")]
 pub fn get_prepared_vk() -> &'static [u8] {
@@ -82,6 +82,10 @@ pub fn get_prepared_vk() -> &'static [u8] {
 #[cfg(not(feature = "use-test-vk"))]
 pub fn get_prepared_vk() -> &'static [u8] {
     PREPARED_VK
+}
+
+pub fn is_test_vk() -> bool {
+    cfg!(feature = "use-test-vk")
 }
 
 #[cfg(test)]
