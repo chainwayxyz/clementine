@@ -22,7 +22,9 @@ pub use crate::builder::block_cache;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
-use eyre::Context;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::states::block_cache::BlockCache;
+use eyre::{Context, OptionExt};
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
 use matcher::BlockMatcher;
@@ -34,6 +36,7 @@ use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 pub mod context;
 mod event;
@@ -121,9 +124,11 @@ pub struct StateManager<T: Owner> {
     owner: T,
     round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
-    context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
     next_height_to_process: u32,
+    rpc: ExtendedBitcoinRpc,
+    // Set on the first finalized block event or the load_from_db method
+    last_finalized_block: Arc<BlockCache>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -132,9 +137,40 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
 
+    /// Warning: This is costly due to the calculation of the block_cache, use a
+    /// pre-existing `block_cache` with the `new_context_with_block_cache`
+    /// method if possible.
+    pub fn new_context(
+        &self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
+        block: &bitcoin::Block,
+        block_height: u32,
+    ) -> Result<context::StateContext<T>, BridgeError> {
+        Ok(context::StateContext::new(
+            dbtx,
+            Arc::new(self.owner.clone()),
+            Arc::new(BlockCache::from_block(block.clone(), block_height)),
+            self.paramset,
+        ))
+    }
+
+    pub fn new_context_with_block_cache(
+        &self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
+        block_cache: Arc<BlockCache>,
+    ) -> Result<context::StateContext<T>, BridgeError> {
+        Ok(context::StateContext::new(
+            dbtx,
+            Arc::new(self.owner.clone()),
+            block_cache,
+            self.paramset,
+        ))
+    }
+
     pub async fn new(
         db: Database,
         owner: T,
+        rpc: ExtendedBitcoinRpc,
         paramset: &'static ProtocolParamset,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
@@ -143,24 +179,55 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
+        // Get the owner type from the context
+        let owner_type = T::ENTITY_NAME;
+        // First, check if we have any state saved
+        let status = db.get_next_height_to_process(None, owner_type).await?;
+
+        // If no state is saved, return early
+        let next_height_to_process = match status {
+            Some(block_height) => {
+                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
+            }
+            None => {
+                tracing::info!("No state machines found in the database");
+                paramset.start_height
+            }
+        };
+
+        let last_height = next_height_to_process.saturating_sub(1);
+
         let mut mgr = Self {
-            context: context::StateContext::new(
-                db.clone(),
-                Arc::new(owner.clone()),
-                Default::default(),
-                paramset,
-            ),
+            last_finalized_block: Arc::new(BlockCache::from_block(
+                match db.get_full_block(None, last_height).await? {
+                    Some(block) => block,
+                    None => rpc.get_block_by_height(last_height.into()).await?,
+                },
+                last_height,
+            )),
             db,
             owner,
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            next_height_to_process: paramset.start_height,
+            next_height_to_process,
+            rpc,
         };
 
-        mgr.load_from_db().await?;
+        mgr.load_machines_from_db().await?;
         Ok(mgr)
+    }
+
+    async fn get_block(
+        &self,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        height: u32,
+    ) -> Result<bitcoin::Block, BridgeError> {
+        match self.db.get_full_block(dbtx, height).await? {
+            Some(block) => Ok(block),
+            None => Ok(self.rpc.get_block_by_height(height.into()).await?),
+        }
     }
 
     /// Loads the state machines from the database.
@@ -168,26 +235,24 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
-    pub async fn load_from_db(&mut self) -> Result<(), BridgeError> {
-        // Get the owner type from the context
-        let owner_type = &self.context.owner_type;
+    pub async fn load_machines_from_db(&mut self) -> Result<(), BridgeError> {
+        tracing::info!(
+            "Loading state machines from block height {}",
+            self.next_height_to_process.saturating_sub(1)
+        );
 
-        // First, check if we have any state saved
-        let status = self.db.get_next_height_to_process(None, owner_type).await?;
-
-        // If no state is saved, return early
-        let Some(block_height) = status else {
-            tracing::info!("No state machines found in the database");
-            return Ok(());
-        };
-
-        tracing::info!("Loading state machines from block height {}", block_height);
+        let owner_type = T::ENTITY_NAME;
 
         // Load kickoff machines
         let kickoff_machines = self.db.load_kickoff_machines(None, owner_type).await?;
 
         // Load round machines
         let round_machines = self.db.load_round_machines(None, owner_type).await?;
+
+        let init_dbtx = Arc::new(Mutex::new(self.db.begin_transaction().await?));
+
+        let mut ctx = self
+            .new_context_with_block_cache(init_dbtx.clone(), self.last_finalized_block.clone())?;
 
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
@@ -203,14 +268,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             match machine {
                 Ok(uninitialized) => {
-                    // Create a context for initialization
-                    let mut ctx = context::StateContext::new(
-                        self.db.clone(),
-                        Arc::new(self.owner.clone()),
-                        Default::default(),
-                        self.paramset,
-                    );
-
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
                     self.kickoff_machines.push(initialized);
@@ -239,14 +296,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             match machine {
                 Ok(uninitialized) => {
-                    // Create a context for initialization
-                    let mut ctx = context::StateContext::new(
-                        self.db.clone(),
-                        Arc::new(self.owner.clone()),
-                        Default::default(),
-                        self.paramset,
-                    );
-
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
                     self.round_machines.push(initialized);
@@ -261,14 +310,28 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
 
+        if !ctx.errors.is_empty() {
+            return Err(eyre::eyre!(
+                "Multiple errors occurred during state processing: {:?}",
+                ctx.errors
+            )
+            .into());
+        }
+
+        drop(ctx);
+
         tracing::info!(
             "Loaded {} kickoff machines and {} round machines from the database",
             kickoff_machines.len(),
             round_machines.len()
         );
 
-        self.next_height_to_process =
-            u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
+        Arc::into_inner(init_dbtx)
+            .ok_or_eyre("Expected single reference to DB tx when committing")?
+            .into_inner()
+            .commit()
+            .await?;
+
         Ok(())
     }
     #[cfg(test)]
@@ -286,17 +349,17 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     }
 
     /// Saves the state machines with dirty flag set to the database.
+    /// Uses the database transaction from the context if any.
     /// Resets the dirty flag for all machines after successful save.
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails.
     pub async fn save_state_to_db(
         &mut self,
-        block_height: u32,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        context: &mut context::StateContext<T>,
     ) -> eyre::Result<()> {
         // Get the owner type from the context
-        let owner_type = &self.context.owner_type;
+        let owner_type = T::ENTITY_NAME;
 
         // Prepare kickoff machines data with direct serialization
         let kickoff_machines: eyre::Result<Vec<_>> = self
@@ -306,11 +369,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
                 let state_json = serde_json::to_string(&machine).wrap_err_with(|| {
-                    format!("Failed to serialize kickoff machine: {:?}", machine)
+                    format!("Failed to serialize kickoff machine: {machine:?}")
                 })?;
                 let kickoff_id =
                     serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
-                        format!("Failed to serialize kickoff id for machine: {:?}", machine)
+                        format!("Failed to serialize kickoff id for machine: {machine:?}")
                     })?;
                 Ok((state_json, (kickoff_id)))
             })
@@ -323,9 +386,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             // Only serialize machines that are dirty
             .filter(|machine| machine.dirty)
             .map(|machine| -> eyre::Result<_> {
-                let state_json = serde_json::to_string(machine).wrap_err_with(|| {
-                    format!("Failed to serialize round machine: {:?}", machine)
-                })?;
+                let state_json = serde_json::to_string(machine)
+                    .wrap_err_with(|| format!("Failed to serialize round machine: {machine:?}"))?;
                 let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating
@@ -333,22 +395,25 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             })
             .collect();
 
-        // Use the database function to save the state machines
-        self.db
-            .save_state_machines(
-                dbtx,
-                kickoff_machines?,
-                round_machines?,
-                block_height as i32,
-                owner_type,
-            )
-            .await?;
+        {
+            let mut dbtx = context.shared_dbtx.lock().await;
+            // Use the database function to save the state machines
+            self.db
+                .save_state_machines(
+                    &mut dbtx,
+                    kickoff_machines?,
+                    round_machines?,
+                    context.cache.block_height as i32 + 1,
+                    owner_type,
+                )
+                .await?;
+        }
 
         // Reset the dirty flag for all machines after successful save
         for machine in &mut self.kickoff_machines {
             if machine.dirty {
                 machine
-                    .handle_with_context(&KickoffEvent::SavedToDb, &mut self.context)
+                    .handle_with_context(&KickoffEvent::SavedToDb, context)
                     .await;
             }
         }
@@ -356,7 +421,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         for machine in &mut self.round_machines {
             if machine.dirty {
                 machine
-                    .handle_with_context(&RoundEvent::SavedToDb, &mut self.context)
+                    .handle_with_context(&RoundEvent::SavedToDb, context)
                     .await;
             }
         }
@@ -415,6 +480,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Then append the new states to the current state machines.
     pub async fn process_and_add_new_states_from_height(
         &mut self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
         new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
         new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
         start_height: u32,
@@ -426,20 +492,18 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         for block_height in start_height..temporary_manager.next_height_to_process {
             let block = temporary_manager
-                .db
-                .get_full_block(None, block_height)
+                .get_block(Some(&mut *dbtx.lock().await), block_height)
+                .await
+                .wrap_err_with(|| {
+                    format!(
+                        "Block at height {block_height} not found in process_and_add_new_states_from_height"
+                    )
+                })?;
+
+            let mut context = temporary_manager.new_context(dbtx.clone(), &block, block_height)?;
+            temporary_manager
+                .process_block_parallel(&mut context)
                 .await?;
-            if let Some(block) = block {
-                temporary_manager.update_block_cache(&block, block_height);
-                temporary_manager
-                    .process_block_parallel(block_height)
-                    .await?;
-            } else {
-                return Err(eyre::eyre!(
-                    "Block at height {} not found in process_and_add_new_states_from_height",
-                    block_height
-                ));
-            }
         }
 
         // append new states to the current state manager
@@ -459,11 +523,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ///
     /// # Errors
     /// If the state machines do not stabilize after some iterations, we return an error.
-    pub async fn process_block_parallel(&mut self, block_height: u32) -> Result<u32, eyre::Report> {
-        eyre::ensure!(
-            self.context.cache.block_height == block_height,
-            "Block cache is not updated"
-        );
+    pub async fn process_block_parallel(
+        &mut self,
+        context: &mut context::StateContext<T>,
+    ) -> Result<u32, eyre::Report> {
+        let block_height = context.cache.block_height;
 
         // Store the original machines to revert to in case of an error happens during processing
         // If an error is encountered, the block processing will retry. If we don't store and revert all
@@ -475,9 +539,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
-            Self::update_machines(&mut self.kickoff_machines, &self.context);
+            Self::update_machines(&mut self.kickoff_machines, context);
         let (mut final_round_machines, mut round_futures) =
-            Self::update_machines(&mut self.round_machines, &self.context);
+            Self::update_machines(&mut self.round_machines, context);
 
         // Here we store number of iterations to detect if the machines do not stabilize after a while
         // to prevent infinite loops. If a matcher is used, it is deleted, but a bug in implementation
@@ -542,6 +606,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             //
             // Something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is possibly a safe value
             if iterations > 100000 {
+                // revert state machines to the previous state first before returning an error
+                self.kickoff_machines = kickoff_machines_checkpoint;
+                self.round_machines = round_machines_checkpoint;
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
@@ -567,9 +634,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             // Reprocess changed machines and commit these futures to be handled
             // in the next round If they're empty, we'll exit the loop.
             let (finalized_kickoff_machines, new_kickoff_futures) =
-                Self::update_machines(&mut changed_kickoff_machines, &self.context);
+                Self::update_machines(&mut changed_kickoff_machines, context);
             let (finalized_round_machines, new_round_futures) =
-                Self::update_machines(&mut changed_round_machines, &self.context);
+                Self::update_machines(&mut changed_round_machines, context);
             final_kickoff_machines.extend(finalized_kickoff_machines);
             final_round_machines.extend(finalized_round_machines);
 

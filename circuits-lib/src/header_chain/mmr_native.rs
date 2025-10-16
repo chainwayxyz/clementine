@@ -126,7 +126,14 @@ impl MMRNative {
     pub fn verify_proof(&self, leaf: [u8; 32], mmr_proof: &MMRInclusionProof) -> bool {
         let subroot = mmr_proof.get_subroot(leaf);
         let subroots = self.get_subroots();
-        subroots[mmr_proof.subroot_idx] == subroot
+        subroots.get(mmr_proof.subroot_idx) == Some(&subroot)
+    }
+
+    pub fn to_guest_mmr(&self) -> crate::header_chain::mmr_guest::MMRGuest {
+        crate::header_chain::mmr_guest::MMRGuest {
+            subroots: self.get_subroots(),
+            size: self.nodes[0].len() as u32,
+        }
     }
 }
 
@@ -226,8 +233,7 @@ mod tests {
             let subroots_guest = mmr_guest.subroots.clone();
             assert_eq!(
                 subroots_native, subroots_guest,
-                "Subroots do not match after adding leaf {}",
-                i
+                "Subroots do not match after adding leaf {i}"
             );
 
             // let root_native = mmr_native.get_root();
@@ -242,13 +248,11 @@ mod tests {
                 let (leaf, mmr_proof) = mmr_native.generate_proof(j).unwrap();
                 assert!(
                     mmr_native.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in native MMR",
-                    j
+                    "Failed to verify proof for leaf {j} in native MMR"
                 );
                 assert!(
                     mmr_guest.verify_proof(leaf, &mmr_proof),
-                    "Failed to verify proof for leaf {} in guest MMR",
-                    j
+                    "Failed to verify proof for leaf {j} in guest MMR",
                 );
             }
         }

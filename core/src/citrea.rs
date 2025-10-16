@@ -264,7 +264,7 @@ impl CitreaClientT for CitreaClient {
 
         let storage_key_deposit: U256 = storage_address_deposit + U256::from(deposit_index);
         let storage_key_deposit_hex = hex::encode(storage_key_deposit.to_be_bytes::<32>());
-        let storage_key_deposit_hex = format!("0x{}", storage_key_deposit_hex);
+        let storage_key_deposit_hex = format!("0x{storage_key_deposit_hex}");
 
         let response: serde_json::Value = self
             .client
@@ -275,7 +275,7 @@ impl CitreaClientT for CitreaClient {
                     storage_key_vout_hex,
                     storage_key_deposit_hex,
                 ],
-                format!("0x{:x}", l2_height),
+                format!("0x{l2_height:x}"),
             )
             .await
             .wrap_err("Failed to get storage proof from rpc")?;
@@ -458,8 +458,13 @@ impl CitreaClientT for CitreaClient {
                 .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
-            if withdrawal_utxo.is_err() {
-                break;
+            match withdrawal_utxo {
+                Err(e) if e.to_string().contains("execution reverted") => {
+                    tracing::trace!("Withdrawal utxo not found for index, error: {:?}", e);
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
             }
             let withdrawal_utxo = withdrawal_utxo.expect("Failed to get withdrawal UTXO");
             let txid = withdrawal_utxo.txId.0;
@@ -498,7 +503,6 @@ impl CitreaClientT for CitreaClient {
 
             let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
                 .wrap_err("Failed to convert l2 height to u64")?;
-            let hex_l2_str = format!("0x{:x}", l2_height);
 
             let lc_image_id = paramset.get_lcp_image_id()?;
 
@@ -521,7 +525,6 @@ impl CitreaClientT for CitreaClient {
             Some((
                 LightClientProof {
                     lc_journal: receipt.journal.bytes.clone(),
-                    l2_height: hex_l2_str,
                 },
                 receipt,
                 l2_height,
