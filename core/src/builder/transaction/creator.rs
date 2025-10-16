@@ -63,7 +63,7 @@ fn get_txhandler(
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
 #[derive(Debug, Clone)]
 pub struct KickoffWinternitzKeys {
-    pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
     num_rounds: usize,
 }
@@ -74,12 +74,15 @@ impl KickoffWinternitzKeys {
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
         num_kickoffs_per_round: usize,
         num_rounds: usize,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, TxError> {
+        if keys.len() != num_kickoffs_per_round * (num_rounds + 1) {
+            return Err(TxError::KickoffWinternitzKeysDBInconsistency);
+        }
+        Ok(Self {
             keys,
             num_kickoffs_per_round,
             num_rounds,
-        }
+        })
     }
 
     /// Get the winternitz keys for a specific round tx.
@@ -93,14 +96,14 @@ impl KickoffWinternitzKeys {
         &self,
         round_idx: RoundIndex,
     ) -> Result<&[bitvm::signatures::winternitz::PublicKey], TxError> {
-        // 0th round is the collateral, there are no keys for the 0th round
         // Additionally there are no keys after num_rounds + 1, +1 is because we need additional round to generate
         // reimbursement connectors of previous round
         if round_idx == RoundIndex::Collateral || round_idx.to_index() > self.num_rounds + 1 {
             return Err(TxError::InvalidRoundIndex(round_idx));
         }
         let start_idx = (round_idx.to_index())
-            .checked_sub(1) // 0th round is the collateral, there are no keys for the 0th round
+            // 0th round is the collateral, there are no keys for the 0th round so we subtract 1
+            .checked_sub(1)
             .ok_or(TxError::IndexOverflow)?
             .checked_mul(self.num_kickoffs_per_round)
             .ok_or(TxError::IndexOverflow)?;
@@ -108,6 +111,11 @@ impl KickoffWinternitzKeys {
             .checked_add(self.num_kickoffs_per_round)
             .ok_or(TxError::IndexOverflow)?;
         Ok(&self.keys[start_idx..end_idx])
+    }
+
+    /// Returns keys Vec and consumes self
+    pub fn get_all_keys(self) -> Vec<bitvm::signatures::winternitz::PublicKey> {
+        self.keys
     }
 }
 
@@ -139,6 +147,8 @@ pub struct ReimburseDbCache<'a, 'b> {
     latest_blockhash_root_hash: Option<[u8; 32]>,
     /// replaceable additional disprove script
     replaceable_additional_disprove_script: Option<Vec<u8>>,
+    /// Operator bitvm keys in kickoff tx for asserts
+    operator_bitvm_keys: Option<ClementineBitVMPublicKeys>,
 }
 
 impl<'a, 'b> ReimburseDbCache<'a, 'b> {
@@ -163,6 +173,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             operator_data: None,
             latest_blockhash_root_hash: None,
             replaceable_additional_disprove_script: None,
+            operator_bitvm_keys: None,
         }
     }
 
@@ -186,6 +197,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             operator_data: None,
             latest_blockhash_root_hash: None,
             replaceable_additional_disprove_script: None,
+            operator_bitvm_keys: None,
         }
     }
 
@@ -267,7 +279,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
                         .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
                     self.paramset.num_round_txs,
-                ));
+                )?);
                 Ok(self
                     .kickoff_winternitz_keys
                     .as_ref()
@@ -290,6 +302,29 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         }
     }
 
+    pub async fn get_operator_bitvm_keys(
+        &mut self,
+    ) -> Result<&ClementineBitVMPublicKeys, BridgeError> {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
+            if let Some(ref keys) = self.operator_bitvm_keys {
+                return Ok(keys);
+            }
+            self.operator_bitvm_keys = Some(ClementineBitVMPublicKeys::from_flattened_vec(
+                &self
+                    .db
+                    .get_operator_bitvm_keys(
+                        self.dbtx.as_deref_mut(),
+                        self.operator_xonly_pk,
+                        *deposit_outpoint,
+                    )
+                    .await?,
+            ));
+            Ok(self.operator_bitvm_keys.as_ref().expect("Inserted before"))
+        } else {
+            Err(TxError::InsufficientContext.into())
+        }
+    }
+
     pub async fn get_replaceable_additional_disprove_script(
         &mut self,
     ) -> Result<&Vec<u8>, BridgeError> {
@@ -297,31 +332,13 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             return Ok(script);
         }
 
-        let deposit_outpoint = self.deposit_outpoint.ok_or(TxError::InsufficientContext)?;
+        let bridge_circuit_constant = *self.paramset.bridge_circuit_constant()?;
+        let challenge_ack_hashes = self.get_challenge_ack_hashes().await?.to_vec();
 
-        let bitvm_wpks = self
-            .db
-            .get_operator_bitvm_keys(
-                self.dbtx.as_deref_mut(),
-                self.operator_xonly_pk,
-                deposit_outpoint,
-            )
-            .await?;
-
-        let challenge_ack_hashes = self
-            .db
-            .get_operators_challenge_ack_hashes(
-                self.dbtx.as_deref_mut(),
-                self.operator_xonly_pk,
-                deposit_outpoint,
-            )
-            .await?
-            .ok_or(BridgeError::InvalidChallengeAckHashes)?;
-
-        let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+        let bitvm_keys = self.get_operator_bitvm_keys().await?;
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            *self.paramset.bridge_circuit_constant()?,
+            bridge_circuit_constant,
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
@@ -599,6 +616,15 @@ pub async fn create_txhandlers(
         ..
     } = context;
 
+    if context.operator_xonly_pk != operator_data.xonly_pk {
+        return Err(eyre::eyre!(
+            "Operator xonly pk mismatch between ContractContext and ReimburseDbCache: {:?} != {:?}",
+            context.operator_xonly_pk,
+            operator_data.xonly_pk
+        )
+        .into());
+    }
+
     let mut txhandlers = txhandler_cache.get_cached_txs();
     if !txhandlers.contains_key(&TransactionType::Round) {
         // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
@@ -643,6 +669,23 @@ pub async fn create_txhandlers(
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
 
+    if let Some(deposit_outpoint) = db_cache.deposit_outpoint {
+        if deposit_outpoint != deposit_data.get_deposit_outpoint() {
+            return Err(eyre::eyre!(
+                "Deposit outpoint mismatch between ReimburseDbCache and ContractContext: {:?} != {:?}",
+                deposit_outpoint,
+                deposit_data.get_deposit_outpoint()
+            )
+            .into());
+        }
+    } else {
+        return Err(eyre::eyre!(
+            "Deposit outpoint is not set in ReimburseDbCache, but is set in ContractContext: {:?}",
+            deposit_data.get_deposit_outpoint()
+        )
+        .into());
+    }
+
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
         let move_txhandler =
@@ -650,10 +693,19 @@ pub async fn create_txhandlers(
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
 
-    let challenge_ack_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+    let challenge_ack_public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+
+    if challenge_ack_public_hashes.len() != deposit_data.get_num_watchtowers() {
+        return Err(eyre::eyre!(
+            "Expected {} number of challenge ack public hashes, but got {} from db for deposit {:?}",
+            deposit_data.get_num_watchtowers(),
+            challenge_ack_public_hashes.len(),
+            deposit_data
+        )
+        .into());
+    }
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
-    let public_hashes = challenge_ack_hashes;
 
     let move_txid = txhandlers
         .get(&TransactionType::MoveToVault)
@@ -668,7 +720,7 @@ pub async fn create_txhandlers(
         .to_byte_array();
 
     let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
-    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout() as u16;
+    let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout();
     let secp = Secp256k1::verification_only();
 
     let nofn_key: XOnlyPublicKey = deposit_data.get_nofn_xonly_pk()?;
@@ -749,9 +801,8 @@ pub async fn create_txhandlers(
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
     let disprove_path = if transaction_type == TransactionType::Disprove {
-        let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
-        let bitvm_pks =
-            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
+        // no need to use db cache here, this is only called once when creating the disprove tx
+        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?;
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
         DisprovePath::Scripts(disprove_scripts)
     } else {
@@ -789,7 +840,7 @@ pub async fn create_txhandlers(
             disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
-            &public_hashes,
+            &challenge_ack_public_hashes,
             paramset,
         )?;
 
@@ -820,7 +871,7 @@ pub async fn create_txhandlers(
             disprove_path,
             additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
-            &public_hashes,
+            &challenge_ack_public_hashes,
             paramset,
         )?
     };
@@ -1172,8 +1223,7 @@ mod tests {
                                         .iter()
                                         .any(|signed_tx| signed_tx.transaction_type
                                             == Some((*tx_type).into())),
-                                    "Tx type: {:?} not found in signed txs for operator",
-                                    tx_type
+                                    "Tx type: {tx_type:?} not found in signed txs for operator"
                                 );
                             }
                             tracing::info!(
@@ -1259,8 +1309,7 @@ mod tests {
                                             .iter()
                                             .any(|signed_tx| signed_tx.transaction_type
                                                 == Some((*tx_type).into())),
-                                        "Tx type: {:?} not found in signed txs for verifier",
-                                        tx_type
+                                        "Tx type: {tx_type:?} not found in signed txs for verifier"
                                     );
                                 }
                                 tracing::info!(

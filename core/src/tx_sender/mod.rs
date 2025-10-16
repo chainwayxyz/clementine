@@ -15,8 +15,9 @@
 //! There are several database tables that saves the transaction states. Please
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
-use crate::config::protocol::ProtocolParamset;
-use crate::errors::ResultExt;
+use crate::config::BridgeConfig;
+use crate::errors::{FeeErr, ResultExt};
+use crate::extended_bitcoin_rpc::RetryConfig;
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
@@ -30,12 +31,15 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, Network, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::eyre;
-use eyre::ContextCompat;
 use eyre::OptionExt;
 use eyre::WrapErr;
+use http::StatusCode;
+use tokio::time::timeout;
+use tokio_retry::RetryIf;
 
 #[cfg(test)]
 use std::env;
+use std::time::Duration;
 
 mod client;
 mod cpfp;
@@ -77,11 +81,9 @@ pub struct TxSender {
     pub rpc: ExtendedBitcoinRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
-    paramset: &'static ProtocolParamset,
+    pub config: BridgeConfig,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
-    pub mempool_api_host: Option<String>,
-    pub mempool_api_endpoint: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -121,96 +123,153 @@ impl TxSender {
         rpc: ExtendedBitcoinRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        paramset: &'static ProtocolParamset,
-        mempool_api_host: Option<String>,
-        mempool_api_endpoint: Option<String>,
+        config: BridgeConfig,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
                 &[],
                 Some(signer.xonly_public_key),
-                paramset.network,
+                config.protocol_paramset.network,
             )
             .1,
             signer,
             rpc,
             db,
             btc_syncer_consumer_id,
-            paramset,
+            config: config.clone(),
             http_client: reqwest::Client::new(),
-            mempool_api_host,
-            mempool_api_endpoint,
         }
     }
 
-    /// Gets the current recommended fee rate in sat/vb from Mempool Space or Bitcoin Core.
+    /// Gets the current recommended fee rate in sat/vb from Mempool Space and Bitcoin Core and selects the minimum.
+    /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
+    /// # Logic
+    /// *   **Regtest:** Uses a fixed fee rate of 1 sat/vB for simplicity.
+    /// *   **Mainnet, Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
+    /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
+    /// # Fallbacks
+    /// *   If one source fails, it uses the other.
+    /// *   If both fail, it falls back to a default of 1 sat/vB.
     async fn get_fee_rate(&self) -> Result<FeeRate> {
-        match self.paramset.network {
-            // Regtest and Signet use a fixed, low fee rate.
-            Network::Regtest | Network::Signet => {
+        match self.config.protocol_paramset.network {
+            // Regtest use a fixed, low fee rate.
+            Network::Regtest => {
                 tracing::debug!(
                     "Using fixed fee rate of 1 sat/vB for {} network",
-                    self.paramset.network
+                    self.config.protocol_paramset.network
                 );
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
 
-            // Mainnet and Testnet4 fetch fees from Mempool Space or Bitcoin Core RPC.
-            Network::Bitcoin | Network::Testnet4 => {
-                tracing::debug!("Fetching fee rate for {} network...", self.paramset.network);
+            // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
+            Network::Bitcoin | Network::Testnet4 | Network::Signet => {
+                tracing::debug!(
+                    "Fetching fee rate for {} network...",
+                    self.config.protocol_paramset.network
+                );
 
-                // Fetch fee from RPC provider with a fallback to the RPC node.
+                // Fetch fees from both mempool.space and Bitcoin Core RPC
                 let mempool_fee = get_fee_rate_from_mempool_space(
-                    &self.mempool_api_host,
-                    &self.mempool_api_endpoint,
-                    self.paramset.network,
+                    &self.config.mempool_api_host,
+                    &self.config.mempool_api_endpoint,
+                    self.config.protocol_paramset.network,
                 )
                 .await;
 
-                let smart_fee_result: Result<Amount> = if let Ok(fee_rate) = mempool_fee {
-                    Ok(fee_rate)
-                } else {
-                    if let Err(e) = &mempool_fee {
-                        tracing::warn!(
-                        "Mempool.space fee fetch failed, falling back to Bitcoin Core RPC: {:#}",
-                        e
-                    );
+                let rpc_fee = timeout(
+                    Duration::from_secs(30),
+                    self.rpc.estimate_smart_fee(1, None),
+                )
+                .await
+                .map_err(|_| eyre!("RPC estimate_smart_fee timed out after 30 seconds"))
+                .and_then(|result| {
+                    result.wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
+                })
+                .and_then(|estimate| {
+                    estimate.fee_rate.ok_or_else(|| {
+                        eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
+                    })
+                });
+
+                // Use the minimum of both fee sources, with fallback logic, carefully avoiding overflow
+                let selected_fee_amount = match (mempool_fee, rpc_fee) {
+                    (Ok(mempool_amt), Ok(rpc_amt)) => {
+                        // Use checked arithmetic to avoid overflow
+                        let multiplier = self.config.tx_sender_limits.mempool_fee_rate_multiplier;
+                        let offset = self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb;
+                        let rpc_amt_sat = rpc_amt.to_sat();
+
+                        let threshold_sat = multiplier
+                            .checked_mul(rpc_amt_sat)
+                            .and_then(|v| v.checked_add(offset))
+                            .unwrap_or(u64::MAX);
+
+                        let threshold = Amount::from_sat(threshold_sat);
+
+                        if mempool_amt <= threshold {
+                            tracing::debug!(
+                                "Selected mempool.space fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                mempool_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            mempool_amt
+                        } else {
+                            tracing::debug!(
+                                "Selected Bitcoin Core RPC fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                rpc_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            rpc_amt
+                        }
                     }
-
-                    let fee_estimate = self
-                        .rpc
-                        .estimate_smart_fee(1, None)
-                        .await
-                        .wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")?;
-
-                    Ok(fee_estimate
-                        .fee_rate
-                        .wrap_err("Failed to extract fee rate from Bitcoin Core RPC response")?)
+                    (Ok(mempool_amt), Err(rpc_err)) => {
+                        tracing::warn!(
+                            "RPC fee estimation failed, using mempool.space: {:#}",
+                            rpc_err
+                        );
+                        mempool_amt
+                    }
+                    (Err(mempool_err), Ok(rpc_amt)) => {
+                        tracing::warn!(
+                            "Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}",
+                            mempool_err
+                        );
+                        rpc_amt
+                    }
+                    (Err(mempool_err), Err(rpc_err)) => {
+                        tracing::warn!(
+                            "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
+                            mempool_err, rpc_err
+                        );
+                        Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
+                    }
                 };
 
-                let sat_vkb = smart_fee_result.map_or_else(
-                    |err| {
-                        tracing::warn!(
-                            "Smart fee estimation failed, using default of 1 sat/vB. Error: {:#}",
-                            err
-                        );
-                        1000
-                    },
-                    |rate| rate.to_sat(),
-                );
+                // Convert sat/kvB to sat/vB and apply hard cap
+                let mut fee_sat_kvb = selected_fee_amount.to_sat();
 
-                // Convert sat/kvB to sat/vB.
-                let fee_sat_vb = sat_vkb / 1000;
+                // Apply hard cap from config
+                if fee_sat_kvb > self.config.tx_sender_limits.fee_rate_hard_cap * 1000 {
+                    tracing::warn!(
+                        "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
+                        fee_sat_kvb,
+                        self.config.tx_sender_limits.fee_rate_hard_cap * 1000
+                    );
+                    fee_sat_kvb = self.config.tx_sender_limits.fee_rate_hard_cap * 1000;
+                }
 
-                tracing::info!("Using fee rate: {} sat/vb", fee_sat_vb);
-                Ok(FeeRate::from_sat_per_vb(fee_sat_vb)
-                    .wrap_err("Failed to create FeeRate from calculated sat/vb")?)
+                tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
             }
 
             // All other network types are unsupported.
             _ => Err(eyre!(
                 "Fee rate estimation is not supported for network: {:?}",
-                self.paramset.network
+                self.config.protocol_paramset.network
             )
             .into()),
         }
@@ -281,7 +340,8 @@ impl TxSender {
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
         output.script_pubkey
-            == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey
+            == builder::transaction::anchor_output(self.config.protocol_paramset.anchor_amount())
+                .script_pubkey
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
@@ -334,6 +394,10 @@ impl TxSender {
             .await
             .map_to_eyre()?;
 
+        // bump fees of fee payer transactions that are unconfirmed
+        self.bump_fees_of_unconfirmed_fee_payer_txs(new_fee_rate)
+            .await?;
+
         if !txs.is_empty() {
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
         }
@@ -383,7 +447,7 @@ impl TxSender {
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.paramset.network == bitcoin::Network::Testnet4
+                _ if self.config.protocol_paramset.network == bitcoin::Network::Testnet4
                     && self.is_bridge_tx_nonstandard(&tx) =>
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
@@ -449,11 +513,9 @@ impl TxSender {
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {:?} and metadata: {:?}",
-                    try_to_send_id,
-                    tx_metadata
+                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
                 );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {}", e);
+                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
                 log_error_for_tx!(self.db, try_to_send_id, err_msg);
                 let _ = self
                     .db
@@ -467,43 +529,85 @@ impl TxSender {
     }
 }
 
-/// Fetches the current recommended fee rate from RPC provider. Currently only supports
+/// Fetches the current recommended fee rate from the provider. Currently only supports
 /// Mempool Space API.
 /// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
-#[allow(dead_code)]
 async fn get_fee_rate_from_mempool_space(
-    rpc_url: &Option<String>,
-    rpc_endpoint: &Option<String>,
+    url: &Option<String>,
+    endpoint: &Option<String>,
     network: Network,
 ) -> Result<Amount> {
-    let rpc_url = rpc_url
+    let url = url
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
 
-    let rpc_endpoint = rpc_endpoint
+    let endpoint = endpoint
         .as_ref()
         .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
+
     let url = match network {
         Network::Bitcoin => format!(
             // If the variables are not, return Error to fallback to Bitcoin Core RPC.
-            "{}{}",
-            rpc_url, rpc_endpoint
+            "{url}{endpoint}"
         ),
-        Network::Testnet4 => format!("{}testnet4/{}", rpc_url, rpc_endpoint),
+        Network::Testnet4 => format!("{url}testnet4/{endpoint}"),
         // Return early with error for unsupported networks
+        Network::Signet => {
+            tracing::warn!("You should use Citrea signet url for mempool.space");
+            format!("{url}{endpoint}")
+        }
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
-    let fee_sat_per_vb = reqwest::get(&url)
-        .await
-        .wrap_err_with(|| format!("GET request to {} failed", url))?
-        .json::<serde_json::Value>()
-        .await
-        .wrap_err_with(|| format!("Failed to parse JSON response from {}", url))?
-        .get("fastestFee")
-        .and_then(|fee| fee.as_u64())
-        .ok_or_else(|| eyre!("'fastestFee' field not found or invalid in API response"))?;
+    let retry_config = RetryConfig::new(
+        Duration::from_millis(250),
+        Duration::from_secs(5),
+        4,
+        2,
+        true,
+    );
+
+    let retry_strategy = retry_config.get_strategy();
+
+    // Retry predicate: only retry on timeouts, connect errors, and 5xx/429 statuses.
+    let should_retry = |e: &FeeErr| match e {
+        FeeErr::Timeout => true,
+        FeeErr::Transport(req_err) => req_err.is_timeout() || req_err.is_connect(),
+        FeeErr::Status(code) => code.is_server_error() || *code == StatusCode::TOO_MANY_REQUESTS,
+        FeeErr::JsonDecode(_) | FeeErr::MissingField => false,
+    };
+
+    let fee_sat_per_vb: u64 = RetryIf::spawn(
+        retry_strategy,
+        || {
+            let url = url.clone();
+            async move {
+                let resp = timeout(Duration::from_secs(5), reqwest::get(&url))
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::Transport)?;
+
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(FeeErr::Status(status));
+                }
+
+                let json: serde_json::Value = timeout(Duration::from_secs(5), resp.json())
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::JsonDecode)?;
+
+                json.get("fastestFee")
+                    .and_then(|fee| fee.as_u64())
+                    .ok_or(FeeErr::MissingField)
+            }
+        },
+        should_retry,
+    )
+    .await
+    .map_err(|e| eyre::eyre!(e))
+    .wrap_err_with(|| format!("Failed to fetch/parse fees from {url}"))?;
 
     // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
     let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
@@ -521,6 +625,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::config::protocol::ProtocolParamset;
     use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
     use crate::errors::BridgeError;
     use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -531,10 +636,15 @@ mod tests {
     use bitcoin::secp256k1::rand;
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
+    use serde_json::json;
+    use std::ops::Mul;
     use std::result::Result;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::oneshot;
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
     impl TxSenderClient {
         pub async fn test_dbtx(
@@ -556,7 +666,7 @@ mod tests {
     ) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         let config = create_test_config_with_thread_name().await;
 
@@ -567,14 +677,12 @@ mod tests {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.protocol_paramset(),
-            config.mempool_api_host.clone(),
-            config.mempool_api_endpoint.clone(),
+            config.clone(),
         );
 
         (
             tx_sender,
-            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset)
                 .await
                 .unwrap(),
             rpc,
@@ -770,11 +878,7 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         let amount = Amount::from_sat(100_000);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
+        let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
         let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
         let tx_sender = TxSender::new(
@@ -782,9 +886,7 @@ mod tests {
             rpc.clone(),
             db,
             "tx_sender".into(),
-            config.protocol_paramset(),
-            config.mempool_api_host.clone(),
-            config.mempool_api_endpoint.clone(),
+            config.clone(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
@@ -974,14 +1076,645 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Unsupported network for mempool.space: Signet")]
-    async fn test_mempool_space_fee_rate_signet() {
-        get_fee_rate_from_mempool_space(
-            &Some("https://mempool.space/".to_string()),
-            &Some("api/v1/fees/recommended".to_string()),
-            bitcoin::Network::Signet,
+    async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00002,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 3,
+                "halfHourFee": 2,
+                "hourFee": 1
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
         )
         .await
         .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(500));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_higher_than_mempool() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00005,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 4,
+                "halfHourFee": 3,
+                "hourFee": 2
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1000));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(500).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32603,
+                    "message": "Internal error"
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 10,
+                "halfHourFee": 9,
+                "hourFee": 8
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2500));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_mempool_space_timeout() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00008,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(10))
+                    .set_body_json(json!({
+                        "fastestFee": 2,
+                        "halfHourFee": 1,
+                        "hourFee": 1
+                    })),
+            )
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    }
+
+    #[tokio::test]
+    async fn test_get_fee_rate_rpc_timeout() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(31))
+                    .set_body_json(json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "feerate": 0.00002,
+                            "blocks": 1
+                        }
+                    })),
+            )
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 8,
+                "halfHourFee": 1,
+                "hourFee": 1
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    }
+
+    #[tokio::test]
+    async fn test_rpc_retry_after_failures() {
+        struct RpcSeqResponder {
+            n: Arc<AtomicUsize>,
+        }
+        impl Respond for RpcSeqResponder {
+            fn respond(&self, _req: &Request) -> ResponseTemplate {
+                let i = self.n.fetch_add(1, Ordering::SeqCst);
+                match i {
+                    0 => ResponseTemplate::new(500).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 1"}
+                    })),
+                    1 => ResponseTemplate::new(500).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
+                    })),
+                    _ => ResponseTemplate::new(200).set_body_json(json!({
+                        "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
+                    })),
+                }
+            }
+        }
+
+        let mock_rpc_server = MockServer::start().await;
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(RpcSeqResponder { n: counter.clone() })
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "ping"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(750));
+    }
+
+    #[tokio::test]
+    async fn test_mempool_retry_after_failures() {
+        let mock_rpc_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "estimatesmartfee"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00009,
+                    "blocks": 1
+                }
+            })))
+            .expect(1)
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({"method": "ping"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        struct SeqResponder {
+            n: Arc<AtomicUsize>,
+        }
+
+        impl Respond for SeqResponder {
+            fn respond(&self, _req: &Request) -> ResponseTemplate {
+                let i = self.n.fetch_add(1, Ordering::SeqCst);
+                match i {
+                    0 => ResponseTemplate::new(500),
+                    1 => ResponseTemplate::new(503),
+                    2 => ResponseTemplate::new(500),
+                    _ => ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "fastestFee": 6,
+                        "halfHourFee": 4,
+                        "hourFee": 3
+                    })),
+                }
+            }
+        }
+
+        let mock_mempool_server = MockServer::start().await;
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(SeqResponder { n: counter.clone() })
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(signer, mock_rpc, db, "test_tx_sender".into(), config);
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1500));
+    }
+
+    #[tokio::test]
+    async fn test_hard_cap() {
+        let mock_rpc_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "estimatesmartfee"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "feerate": 0.00500,
+                    "blocks": 1
+                }
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(body_partial_json(json!({
+                "method": "ping"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": null
+            })))
+            .mount(&mock_rpc_server)
+            .await;
+
+        let mock_mempool_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/fees/recommended"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fastestFee": 500,
+                "halfHourFee": 499,
+                "hourFee": 498
+            })))
+            .mount(&mock_mempool_server)
+            .await;
+
+        let mock_rpc = ExtendedBitcoinRpc::connect(
+            mock_rpc_server.uri(),
+            secrecy::SecretString::new("test_user".into()),
+            secrecy::SecretString::new("test_password".into()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let mut config = create_test_config_with_thread_name().await;
+        let network = bitcoin::Network::Bitcoin;
+        let paramset = ProtocolParamset {
+            network,
+            ..ProtocolParamset::default()
+        };
+
+        let mempool_space_uri = mock_mempool_server.uri() + "/";
+
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+        config.mempool_api_host = Some(mempool_space_uri);
+        config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
+
+        let db = Database::new(&config).await.unwrap();
+        let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
+
+        let tx_sender = TxSender::new(
+            signer,
+            mock_rpc,
+            db,
+            "test_tx_sender".into(),
+            config.clone(),
+        );
+
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        assert_eq!(
+            fee_rate,
+            FeeRate::from_sat_per_kwu(
+                config
+                    .tx_sender_limits
+                    .fee_rate_hard_cap
+                    .mul(1000)
+                    .div_ceil(4)
+            )
+        );
     }
 }

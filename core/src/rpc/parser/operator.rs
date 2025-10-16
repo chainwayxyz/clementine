@@ -124,7 +124,7 @@ pub async fn parse_details(
 
     let wallet_reimburse_address = Address::from_str(&operator_config.wallet_reimburse_address)
         .map_err(|e| {
-            Status::invalid_argument(format!("Failed to parse wallet reimburse address: {:?}", e))
+            Status::invalid_argument(format!("Failed to parse wallet reimburse address: {e:?}"))
         })?;
 
     Ok((
@@ -158,12 +158,13 @@ pub async fn parse_schnorr_sig(
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
 ) -> Result<(u32, taproot::Signature, OutPoint, ScriptBuf, Amount), Status> {
     let mut input_signature =
         taproot::Signature::from_slice(&params.input_signature).map_err(|e| {
-            Status::invalid_argument(format!("Can't convert input to taproot Signature - {}", e))
+            Status::invalid_argument(format!("Can't convert input to taproot Signature - {e}"))
         })?;
 
     // if sighash is type default (meaning sighash is not specified, 64 byte sig given), set it to SinglePlusAnyoneCanPay

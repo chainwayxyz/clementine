@@ -10,6 +10,7 @@ use bitcoin::Amount;
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
 use metrics::Gauge;
+use tokio::time::error::Elapsed;
 use tonic::async_trait;
 
 use crate::{
@@ -167,94 +168,124 @@ pub trait L1SyncStatusProvider: NamedEntity {
     ) -> Result<L1SyncStatus, BridgeError>;
 }
 
+#[inline(always)]
+fn log_errs_and_ok<A, T: NamedEntity>(
+    result: Result<Result<A, BridgeError>, Elapsed>,
+    action: &str,
+) -> Option<A> {
+    result
+        .inspect_err(|_| {
+            tracing::error!(
+                "[L1SyncStatus({})] Timed out while {action}",
+                T::ENTITY_NAME
+            )
+        })
+        .ok()
+        .transpose()
+        .inspect_err(|e| {
+            tracing::error!("[L1SyncStatus({})] Error {action}: {:?}", T::ENTITY_NAME, e)
+        })
+        .ok()
+        .flatten()
+}
+
 #[async_trait]
-impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
+impl<T: NamedEntity> L1SyncStatusProvider for T {
     async fn get_l1_status(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
     ) -> Result<L1SyncStatus, BridgeError> {
-        let wallet_balance = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_wallet_balance",
-            get_wallet_balance(rpc),
-        )
-        .await
-        .ok()
-        .transpose()?;
+        let wallet_balance = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_wallet_balance",
+                get_wallet_balance(rpc),
+            )
+            .await,
+            "getting wallet balance",
+        );
 
-        let rpc_tip_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_rpc_tip_height",
-            get_rpc_tip_height(rpc),
-        )
-        .await
-        .ok()
-        .transpose()?;
+        let rpc_tip_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_rpc_tip_height",
+                get_rpc_tip_height(rpc),
+            )
+            .await,
+            "getting rpc tip height",
+        );
 
-        let tx_sender_synced_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_tx_sender_synced_height",
-            get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
+        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_tx_sender_synced_height",
+                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
+            )
+            .await,
+            "getting tx sender synced height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
 
         #[cfg(feature = "automation")]
-        let finalized_synced_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_finalized_synced_height",
-            get_btc_syncer_consumer_last_processed_block_height(
-                db,
-                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
-            ),
+        let finalized_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_finalized_synced_height",
+                get_btc_syncer_consumer_last_processed_block_height(
+                    db,
+                    T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+                ),
+            )
+            .await,
+            "getting finalized synced height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
 
         #[cfg(not(feature = "automation"))]
-        let finalized_synced_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_finalized_synced_height",
-            get_btc_syncer_consumer_last_processed_block_height(
-                db,
-                T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
-            ),
+        let finalized_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_finalized_synced_height",
+                get_btc_syncer_consumer_last_processed_block_height(
+                    db,
+                    T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+                ),
+            )
+            .await,
+            "getting finalized synced height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
 
-        let btc_syncer_synced_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_btc_syncer_synced_height",
-            get_btc_syncer_synced_height(db),
+        let btc_syncer_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_btc_syncer_synced_height",
+                get_btc_syncer_synced_height(db),
+            )
+            .await,
+            "getting btc syncer synced height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
-        let hcp_last_proven_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_hcp_last_proven_height",
-            get_hcp_last_proven_height(db),
+
+        let hcp_last_proven_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_hcp_last_proven_height",
+                get_hcp_last_proven_height(db),
+            )
+            .await,
+            "getting hcp last proven height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
-        let state_manager_next_height = timed_request_base(
-            L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-            "get_state_manager_next_height",
-            get_state_manager_next_height(db, T::ENTITY_NAME),
+        let state_manager_next_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_state_manager_next_height",
+                get_state_manager_next_height(db, T::ENTITY_NAME),
+            )
+            .await,
+            "getting state manager next height",
         )
-        .await
-        .ok()
-        .transpose()?
         .flatten();
 
         Ok(L1SyncStatus {
@@ -271,16 +302,62 @@ impl<T: NamedEntity + Sync + Send + 'static> L1SyncStatusProvider for T {
 
 #[cfg(test)]
 mod tests {
+    use bitcoincore_rpc::RpcApi;
+
     #[cfg(not(feature = "automation"))]
     use crate::rpc::clementine::EntityType;
     use crate::{
-        rpc::clementine::GetEntityStatusesRequest,
+        rpc::clementine::{Empty, GetEntityStatusesRequest},
         test::common::{
             citrea::MockCitreaClient, create_actors, create_regtest_rpc,
             create_test_config_with_thread_name,
         },
     };
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_get_sync_status_should_not_fail() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        config.bitcoin_rpc_url += "/wallet/test-wallet";
+        // unload to avoid conflicts
+        regtest.rpc().unload_wallet("admin".into()).await.unwrap();
+
+        // create a test wallet
+        regtest
+            .rpc()
+            .create_wallet("test-wallet", None, None, None, None)
+            .await
+            .unwrap();
+
+        let addr = regtest.rpc().get_new_address(None, None).await.unwrap();
+        regtest
+            .rpc()
+            .generate_to_address(201, addr.assume_checked_ref())
+            .await
+            .unwrap();
+
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+
+        // lose the wallet that was previously loaded for some reason
+        regtest
+            .rpc()
+            .unload_wallet(Some("test-wallet"))
+            .await
+            .unwrap();
+
+        // try to get status which includes balance
+        let res = actors
+            .get_verifier_client_by_index(0)
+            .get_current_status(Empty {})
+            .await;
+
+        // expect result to be Ok(_)
+        assert!(res.is_ok(), "Expected Ok(_) but got {res:?}");
+
+        // expect the balance to be None because the wallet was unloaded
+        assert_eq!(res.unwrap().into_inner().wallet_balance, None);
+    }
 
     #[tokio::test]
     async fn test_get_sync_status() {
@@ -368,7 +445,8 @@ mod tests {
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
-                    panic!("Couldn't get entity status: {}", error.error);
+                    let error_msg = &error.error;
+                    panic!("Couldn't get entity status: {error_msg}");
                 }
             }
         }

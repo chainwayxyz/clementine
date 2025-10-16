@@ -20,9 +20,11 @@ use super::TransactionType;
 use super::TxError;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
 use crate::builder::script::{PreimageRevealScript, SpendPath};
+use crate::builder::transaction::anchor_output;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::config::protocol::ProtocolParamset;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::constants::NON_STANDARD_V3;
 use crate::deposit::{DepositData, KickoffData};
 use crate::errors::BridgeError;
@@ -422,6 +424,9 @@ pub fn create_payout_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(output_txout)
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            NON_EPHEMERAL_ANCHOR_AMOUNT,
+        )))
         .add_output(UnspentTxOut::from_partial(op_return_txout))
         .finalize();
     txhandler.set_p2tr_key_spend_witness(&user_sig, 0)?;
