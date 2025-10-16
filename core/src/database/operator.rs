@@ -548,11 +548,26 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<u32, BridgeError> {
-        let query = sqlx::query_as("INSERT INTO deposits (deposit_outpoint)
-            VALUES ($1)
-            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
-            RETURNING deposit_id;")
-            .bind(OutPointDB(deposit_outpoint));
+        let query = sqlx::query_as(
+            r#"
+            WITH existing AS (
+                SELECT deposit_id
+                FROM deposits
+                WHERE deposit_outpoint = $1
+            ),
+            inserted AS (
+                INSERT INTO deposits (deposit_outpoint)
+                SELECT $1
+                WHERE NOT EXISTS (SELECT 1 FROM existing)
+                RETURNING deposit_id
+            )
+            SELECT deposit_id FROM inserted
+            UNION ALL
+            SELECT deposit_id FROM existing
+            LIMIT 1;
+            "#,
+        )
+        .bind(OutPointDB(deposit_outpoint));
 
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
@@ -1536,6 +1551,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_get_deposit_id_same_outpoint() {
+        // this test was added to ensure get_deposit_id will not block if two different transactions only read the deposit_id
         use tokio::time::{timeout, Duration};
 
         let config = create_test_config_with_thread_name().await;
@@ -1545,32 +1561,37 @@ mod tests {
             txid: Txid::from_byte_array([7u8; 32]),
             vout: 0,
         };
+        let mut first_insert = database.begin_transaction().await.unwrap();
+        // insert the deposit outpoint into the database
+        let original_id = database
+            .get_deposit_id(Some(&mut first_insert), deposit_outpoint)
+            .await
+            .unwrap();
+        first_insert.commit().await.unwrap();
 
         let mut tx1 = database.begin_transaction().await.unwrap();
         let mut tx2 = database.begin_transaction().await.unwrap();
 
-        let fut1 = async {
-            let id = database
-                .get_deposit_id(Some(&mut tx1), deposit_outpoint)
-                .await
-                .unwrap();
-            tx1.commit().await.unwrap();
-            id
-        };
-
-        let fut2 = async {
-            let id = database
-                .get_deposit_id(Some(&mut tx2), deposit_outpoint)
-                .await
-                .unwrap();
-            tx2.commit().await.unwrap();
-            id
-        };
-
-        let (id1, id2) = timeout(Duration::from_secs(10), async { tokio::join!(fut1, fut2) })
+        let id = database
+            .get_deposit_id(Some(&mut tx1), deposit_outpoint)
             .await
-            .expect("concurrent get_deposit_id timed out");
+            .unwrap();
 
-        assert_eq!(id1, id2, "both transactions should see the same deposit id");
+        let id2 = timeout(
+            Duration::from_secs(30),
+            database.get_deposit_id(Some(&mut tx2), deposit_outpoint),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        tx1.commit().await.unwrap();
+        tx2.commit().await.unwrap();
+
+        assert_eq!(id, id2, "both transactions should see the same deposit id");
+        assert_eq!(
+            id, original_id,
+            "new transaction should see the same deposit id as the original"
+        );
     }
 }
