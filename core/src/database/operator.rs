@@ -562,7 +562,7 @@ impl Database {
                 RETURNING deposit_id
             )
             SELECT deposit_id FROM inserted
-            UNION ALL
+            UNION
             SELECT deposit_id FROM existing
             LIMIT 1;
             "#,
