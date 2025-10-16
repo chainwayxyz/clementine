@@ -35,6 +35,7 @@ where
     C: CitreaClientT,
 {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
 
@@ -42,6 +43,7 @@ where
         &self,
         _request: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        tracing::info!("Restarting background tasks rpc called");
         // because start_background_tasks uses a RwLock, we set a timeout to be safe
         timed_request(
             RESTART_BACKGROUND_TASKS_TIMEOUT,
@@ -49,6 +51,7 @@ where
             self.start_background_tasks(),
         )
         .await?;
+        tracing::info!("Restarting background tasks rpc completed");
         Ok(Response::new(Empty {}))
     }
 
@@ -56,6 +59,7 @@ where
         &self,
         request: Request<OptimisticPayoutParams>,
     ) -> Result<Response<PartialSig>, Status> {
+        tracing::info!("Optimistic payout sign rpc called");
         let params = request.into_inner();
         let agg_nonce = AggregatedNonce::from_byte_array(
             params
@@ -77,6 +81,12 @@ where
         let opt_withdraw_params = params.opt_withdrawal.ok_or(Status::invalid_argument(
             "Withdrawal params not found for optimistic payout",
         ))?;
+
+        tracing::info!(
+            "Parsed optimistic payout rpc params: {:?}",
+            opt_withdraw_params
+        );
+
         let verification_signature_str = opt_withdraw_params.verification_signature.clone();
         let withdrawal_params = opt_withdraw_params
             .withdrawal
@@ -107,6 +117,7 @@ where
                 verification_signature,
             )
             .await?;
+        tracing::info!("Optimistic payout sign rpc completed successfully");
         Ok(Response::new(partial_sig.into()))
     }
 
@@ -114,6 +125,10 @@ where
         &self,
         request: tonic::Request<super::TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::RawTxWithRbfInfo>, tonic::Status> {
+        tracing::warn!(
+            "Internal create watchtower challenge rpc called with request: {:?}",
+            request
+        );
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
 
@@ -147,22 +162,22 @@ where
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
+        tracing::info!("Verifier get params rpc called");
         let params: VerifierParams = (&self.verifier).try_into()?;
 
         Ok(Response::new(params))
     }
 
-    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
         req: Request<Streaming<OperatorParams>>,
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
-
+        tracing::info!("set_operator rpc called");
         let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(&mut in_stream).await?;
+        tracing::info!("Parsed set_operator rpc params for operator xonly pk: {}, collateral funding outpoint: {}, wallet reimburse address: {:?}", operator_xonly_pk, collateral_funding_outpoint, wallet_reimburse_address);
 
         // check if address is valid
         let wallet_reimburse_address_checked = wallet_reimburse_address
@@ -207,16 +222,22 @@ where
             )
             .await?;
 
+        tracing::info!(
+            "Set operator rpc completed successfully for operator xonly pk: {}",
+            operator_xonly_pk
+        );
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn nonce_gen(
         &self,
         req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
         let num_nonces = req.into_inner().num_nonces;
-
+        tracing::info!(
+            "Verifier nonce gen rpc called with num_nonces: {}",
+            num_nonces
+        );
         let (session_id, pub_nonces) = self.verifier.nonce_gen(num_nonces).await?;
 
         let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
@@ -247,6 +268,7 @@ where
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
         let verifier = self.verifier.clone();
+        tracing::info!("Verifier deposit sign rpc called");
 
         let (tx, rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -312,6 +334,8 @@ where
                 .await
                 .ok_or(error::expected_msg_got_none("parameters")())?;
 
+            tracing::info!("Called deposit_sign for deposit data: {:?}", deposit_data,);
+
             let mut partial_sig_receiver = verifier
                 .deposit_sign(deposit_data.clone(), session_id, agg_nonce_rx)
                 .await?;
@@ -351,16 +375,12 @@ where
     /// Function to finalize the deposit. Verifier will check the validity of the both nofn signatures and
     /// operator signatures. It will receive data from the stream in this order -> nofn sigs, movetx agg nonce, operator sigs.
     /// If everything is correct, it will partially sign the move tx and send it to aggregator.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<VerifierDepositFinalizeResponse>, Status> {
         let mut in_stream = req.into_inner();
-        tracing::trace!(
-            "In verifier {:?} deposit_finalize()",
-            self.verifier.signer.public_key
-        );
+        tracing::info!("deposit finalize rpc called");
 
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -376,10 +396,11 @@ where
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
-        tracing::trace!(
-            "Verifier {:?} got DepositSignFirstParam in deposit_finalize()",
-            self.verifier.signer.public_key
+        tracing::info!(
+            "deposit_data received in deposit_finalize, {:?}",
+            deposit_data
         );
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
         // Start deposit finalize job.
         let verifier = self.verifier.clone();
@@ -506,6 +527,11 @@ where
             emergency_stop_partial_sig: partial_sig.1.serialize().to_vec(),
         };
 
+        tracing::info!(
+            "deposit finalize rpc completed successfully for deposit outpoint: {:?}",
+            deposit_outpoint
+        );
+
         Ok(Response::new(response))
     }
 
@@ -513,11 +539,17 @@ where
         &self,
         request: tonic::Request<super::OperatorKeysWithDeposit>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        tracing::info!("set_operator_keys rpc called");
         let data = request.into_inner();
-        let (deposit_params, op_keys, operator_xonly_pk) =
+        let (deposit_data, op_keys, operator_xonly_pk) =
             parser::verifier::parse_op_keys_with_deposit(data)?;
+        tracing::info!(
+            "Parsed set_operator_keys rpc params, operator xonly pk: {:?}, deposit data: {:?}",
+            operator_xonly_pk,
+            deposit_data
+        );
         self.verifier
-            .set_operator_keys(deposit_params, op_keys, operator_xonly_pk)
+            .set_operator_keys(deposit_data, op_keys, operator_xonly_pk)
             .await?;
         Ok(Response::new(Empty {}))
     }
@@ -528,6 +560,10 @@ where
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
+        tracing::warn!(
+            "Called internal_create_signed_txs with transaction data: {:?}",
+            transaction_data
+        );
         let (_, deposit_data) = self
             .verifier
             .db
@@ -560,6 +596,10 @@ where
         let txid = bitcoin::Txid::try_from(txid).map_err(|e| {
             Status::invalid_argument(format!("Failed to convert txid to bitcoin::Txid: {e}"))
         })?;
+        tracing::warn!(
+            "Called internal_handle_kickoff for kickoff txid: {:?}",
+            txid
+        );
         let mut dbtx = self.verifier.db.begin_transaction().await?;
         let kickoff_data = self
             .verifier
@@ -587,7 +627,6 @@ where
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn debug_tx(
         &self,
         request: tonic::Request<super::TxDebugRequest>,
@@ -603,7 +642,7 @@ where
         #[cfg(feature = "automation")]
         {
             let tx_id = request.into_inner().tx_id;
-
+            tracing::info!("Called debug_tx for tx sender try to send id: {:?}", tx_id);
             match self.verifier.tx_sender.debug_tx(tx_id).await {
                 Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
                 Err(e) => Err(tonic::Status::internal(format!(
@@ -617,6 +656,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<clementine::EntityStatus>, Status> {
+        tracing::debug!("Called get_current_status rpc");
         let status = self.get_current_status().await?;
         Ok(Response::new(status))
     }

@@ -125,7 +125,12 @@ impl TxSender {
         let mut decoded_psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e))?;
 
         for (idx, input) in initial_tx.input.iter().enumerate() {
-            decoded_psbt.inputs[idx].final_script_witness = Some(input.witness.clone());
+            if let Some(sig) = input.witness.nth(0) {
+                if sig.len() == 65 && sig[64] == 0x83 {
+                    // This is a S+AP signature, copy it over
+                    decoded_psbt.inputs[idx].final_script_witness = Some(input.witness.clone());
+                }
+            }
         }
 
         Ok(decoded_psbt.to_string())
