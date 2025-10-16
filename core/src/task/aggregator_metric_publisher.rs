@@ -139,6 +139,9 @@ impl Task for AggregatorMetricPublisher {
                             .stopped_tasks_count
                             .set(tasks.stopped_tasks.len() as f64);
                     }
+                    if let Some(fee_rate) = status.btc_fee_rate_sat_vb {
+                        metrics.bitcoin_fee_rate_sat_vb.set(fee_rate as f64);
+                    }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                     tracing::error!("Entity {} error: {}", entity_id, error.error);

@@ -205,6 +205,7 @@ where
                 EntityMetricPublisher::<Operator<C>>::new(
                     self.operator.db.clone(),
                     self.operator.rpc.clone(),
+                    self.operator.config.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -228,8 +229,12 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status =
-            Operator::<C>::get_l1_status(&self.operator.db, &self.operator.rpc).await?;
+        let sync_status = Operator::<C>::get_l1_status(
+            &self.operator.db,
+            &self.operator.rpc,
+            &self.operator.config,
+        )
+        .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
@@ -243,6 +248,7 @@ where
             bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
 
