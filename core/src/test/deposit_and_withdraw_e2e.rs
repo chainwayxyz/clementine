@@ -50,6 +50,7 @@ use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -58,6 +59,7 @@ use citrea_e2e::{
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -94,6 +96,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -127,7 +130,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
         tracing::info!("Starting Citrea");
 
-        let (sequencer, full_node, lc_prover, batch_prover, da) =
+        let (sequencer, full_node, lc_prover, batch_prover, bitcoin_nodes) =
             start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
@@ -137,12 +140,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            bitcoin_nodes.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
                 lc_prover.config.rollup.rpc.bind_port,
             )),
+        );
+
+        tracing::info!(
+            "config bitcoin rpc data: url: {}, user: {:?},
+            citrea rpc url: {},",
+            config.bitcoin_rpc_url,
+            config.bitcoin_rpc_user,
+            config.citrea_rpc_url,
         );
 
         let rpc = ExtendedBitcoinRpc::connect(
@@ -193,7 +204,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,
@@ -408,7 +419,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             if res.is_ok() {
                 break;
             }
-            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
+            rpc.mine_blocks_while_synced(1, &actors, Some(&citrea_e2e_data))
+                .await
+                .unwrap();
         }
 
         // wait for all past kickoff reimburse connectors to be spent
@@ -418,6 +431,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &rpc,
                 *reimburse_connector,
                 &actors,
+                Some(&citrea_e2e_data),
             )
             .await
             .unwrap();
@@ -438,6 +452,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .is_err());
+
+        //tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
     }
