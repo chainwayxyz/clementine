@@ -31,7 +31,6 @@ use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
 use std::collections::HashMap;
-use std::thread::sleep;
 use std::time::Duration;
 use tonic::{async_trait, Request};
 
@@ -284,7 +283,7 @@ impl TestCase for TxSenderReorgBehavior {
                 .is_none()
             {
                 tracing::debug!("Transaction not in mempool yet");
-                sleep(Duration::from_secs(1));
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
