@@ -229,14 +229,14 @@ where
             Err(e) => {
                 tracing::error!("Task error, suppressing due to buffer: {e:?}");
                 // handle the error
-                for attempt in 0..self.handle_error_attempts {
+                for attempt in 1..=self.handle_error_attempts {
                     let result = self.inner.recover_from_error(&e).await;
                     match result {
                         Ok(()) => break,
                         Err(e) => {
                             tracing::error!(
                                 "Task {:?} error handle attempt {attempt} failed: {e:?}",
-                                Self::VARIANT
+                                Self::VARIANT,
                             );
                             if attempt == self.handle_error_attempts - 1 {
                                 // this will only close the task thread
