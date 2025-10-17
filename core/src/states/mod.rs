@@ -193,39 +193,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
-        // Get the owner type from the context
-        let owner_type = T::ENTITY_NAME;
-        // First, check if we have any state saved
-        let status = db.get_next_height_to_process(None, owner_type).await?;
-
-        // If no state is saved, return early
-        let next_height_to_process = match status {
-            Some(block_height) => {
-                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
-            }
-            None => {
-                tracing::info!("No state machines found in the database");
-                paramset.start_height
-            }
-        };
-
-        let last_height = next_height_to_process.saturating_sub(1);
-
         let mut mgr = Self {
-            last_finalized_block: Arc::new(BlockCache::from_block(
-                match db.get_full_block(None, last_height).await? {
-                    Some(block) => block,
-                    None => rpc.get_block_by_height(last_height.into()).await?,
-                },
-                last_height,
-            )),
+            last_finalized_block: Arc::new(BlockCache::empty()),
             db,
             owner,
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            next_height_to_process,
+            next_height_to_process: paramset.start_height,
             rpc,
         };
 
@@ -250,20 +226,52 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_machines_from_db(&mut self) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        let owner_type = T::ENTITY_NAME;
+        let status = self
+            .db
+            .get_next_height_to_process(Some(&mut dbtx), owner_type)
+            .await?;
+
+        // If no state is saved, return early
+        let next_height_to_process = match status {
+            Some(block_height) => {
+                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
+            }
+            None => {
+                tracing::info!("No state machines found in the database");
+                self.paramset.start_height
+            }
+        };
+
         tracing::info!(
             "Loading state machines from block height {}",
             self.next_height_to_process.saturating_sub(1)
         );
 
-        let owner_type = T::ENTITY_NAME;
+        let last_height = next_height_to_process.saturating_sub(1);
+
+        self.last_finalized_block = Arc::new(BlockCache::from_block(
+            match self.db.get_full_block(None, last_height).await? {
+                Some(block) => block,
+                None => self.rpc.get_block_by_height(last_height.into()).await?,
+            },
+            last_height,
+        ));
 
         // Load kickoff machines
-        let kickoff_machines = self.db.load_kickoff_machines(None, owner_type).await?;
+        let kickoff_machines = self
+            .db
+            .load_kickoff_machines(Some(&mut dbtx), owner_type)
+            .await?;
 
         // Load round machines
-        let round_machines = self.db.load_round_machines(None, owner_type).await?;
+        let round_machines = self
+            .db
+            .load_round_machines(Some(&mut dbtx), owner_type)
+            .await?;
 
-        let init_dbtx = Arc::new(Mutex::new(self.db.begin_transaction().await?));
+        let init_dbtx = Arc::new(Mutex::new(dbtx));
 
         let mut ctx = self
             .new_context_with_block_cache(init_dbtx.clone(), self.last_finalized_block.clone())?;
