@@ -104,7 +104,7 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
     let mut hasher = Sha256::new();
     hasher.update(
         borsh::to_vec(&bitvm_cache)
-            .expect("Failed to serialize existing bitvm cache while generating fresh data, the cache might be stale, consider deleting the cache file.")
+            .expect("Failed to serialize BitVM cache, the cache might be stale, consider deleting the cache file.")
             .as_slice(),
     );
     let sha256_bitvm_cache: [u8; 32] = hasher.finalize().into();
