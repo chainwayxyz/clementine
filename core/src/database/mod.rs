@@ -11,6 +11,7 @@ use std::time::Duration;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use eyre::Context;
 use secrecy::ExposeSecret;
+use sqlx::migrate::Migrator;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
@@ -152,6 +153,16 @@ impl Database {
                     .await?;
             }
         }
+
+        // Apply embedded SQLx migrations from the migrations folder
+        // This looks for SQL files under core/src/database/migrations at compile time
+        // SQL files in migration folder will be applied in lexicographical order of their filenames
+        static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
+
+        MIGRATOR
+            .run(&database.connection)
+            .await
+            .wrap_err("Failed to run migrations")?;
 
         database.close().await;
         Ok(())

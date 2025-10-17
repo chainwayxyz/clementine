@@ -30,6 +30,7 @@ const POLL_DELAY: Duration = if cfg!(test) {
 pub struct TxSenderTask {
     db: Database,
     current_tip_height: u32,
+    last_processed_tip_height: u32,
     inner: TxSender,
 }
 
@@ -108,8 +109,13 @@ impl Task for TxSenderTask {
         let fee_rate = fee_rate_result?;
 
         self.inner
-            .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
+            .try_to_send_unconfirmed_txs(
+                fee_rate,
+                self.current_tip_height,
+                self.last_processed_tip_height != self.current_tip_height,
+            )
             .await?;
+        self.last_processed_tip_height = self.current_tip_height;
 
         Ok(false)
     }
@@ -122,6 +128,7 @@ impl IntoTask for TxSender {
         TxSenderTask {
             db: self.db.clone(),
             current_tip_height: 0,
+            last_processed_tip_height: 0,
             inner: self,
         }
         .ignore_error()

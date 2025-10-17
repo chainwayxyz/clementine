@@ -12,9 +12,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use citrea_e2e::bitcoin::{BitcoinNodeCluster, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::{
-    bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
@@ -95,13 +94,12 @@ pub async fn start_citrea(
     &mut Node<EmptyConfig>,
     Option<&Node<LightClientProverConfig>>,
     Option<&Node<BatchProverConfig>>,
-    &BitcoinNode,
+    &BitcoinNodeCluster,
 )> {
     let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
     let full_node = f.full_node.as_mut().expect("Full node is present");
     let batch_prover = f.batch_prover.as_ref();
     let light_client_prover = f.light_client_prover.as_ref();
-    let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
     let min_soft_confirmations_per_commitment = sequencer_config.max_l2_blocks_per_commitment;
 
@@ -115,7 +113,13 @@ pub async fn start_citrea(
         .await?;
     println!("Sequencer is ready");
 
-    Ok((sequencer, full_node, light_client_prover, batch_prover, da))
+    Ok((
+        sequencer,
+        full_node,
+        light_client_prover,
+        batch_prover,
+        &f.bitcoin_nodes,
+    ))
 }
 
 /// Updates given config with the values set by the Citrea e2e.
@@ -207,7 +211,7 @@ pub struct CitreaE2EData<'a> {
     pub full_node: &'a Node<EmptyConfig>,
     pub lc_prover: &'a Node<LightClientProverConfig>,
     pub batch_prover: &'a Node<BatchProverConfig>,
-    pub da: &'a BitcoinNode,
+    pub bitcoin_nodes: &'a BitcoinNodeCluster,
     pub config: BridgeConfig,
     pub citrea_client: &'a CitreaClient,
     pub rpc: &'a ExtendedBitcoinRpc,
@@ -238,12 +242,12 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     actors: &TestActors<CitreaClient>,
 ) -> (OutPoint, TxOut, bitcoin::secp256k1::schnorr::Signature) {
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
     // Send deposit to Citrea
@@ -263,7 +267,10 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
 
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
 
-    e2e.rpc.mine_blocks_while_synced(1, actors).await.unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(1, actors, Some(e2e))
+        .await
+        .unwrap();
 
     // Wait for the deposit to be processed.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -303,12 +310,12 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         .await;
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
     force_sequencer_to_commit(e2e.sequencer).await.unwrap();
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
 
@@ -346,7 +353,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
 
@@ -386,7 +393,7 @@ pub async fn register_replacement_deposit_to_citrea(
     actors: &TestActors<CitreaClient>,
 ) -> eyre::Result<()> {
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -404,15 +411,15 @@ pub async fn register_replacement_deposit_to_citrea(
     tracing::info!("Set operator tx receipt: {:?}", receipt);
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
         .await
         .unwrap();
 
     let (replace_tx, block, block_height) =
         get_tx_information_for_citrea(e2e, replacement_move_txid).await?;
 
-    tracing::warn!("Replace transaction: {:?}", replace_tx);
-    tracing::warn!("Replace transaction block: {:?}", block);
+    tracing::info!("Replace transaction: {:?}", replace_tx);
+    tracing::info!("Replace transaction block: {:?}", block);
 
     // wait for light client to sync until replacement deposit tx
     e2e.lc_prover
@@ -433,12 +440,12 @@ pub async fn register_replacement_deposit_to_citrea(
     )
     .await?;
 
-    tracing::warn!("Replace transaction block height: {:?}", block_height);
-    tracing::warn!(
+    tracing::info!("Replace transaction block height: {:?}", block_height);
+    tracing::info!(
         "Current chain height: {:?}",
         e2e.rpc.get_current_chain_height().await.unwrap()
     );
-    tracing::warn!("Replace transaction tx proof : {:?}", tx_proof);
+    tracing::info!("Replace transaction tx proof : {:?}", tx_proof);
 
     let replace_deposit_tx = e2e
         .citrea_client
@@ -459,16 +466,22 @@ pub async fn register_replacement_deposit_to_citrea(
     tracing::info!("Replace deposit tx receipt: {:?}", receipt);
 
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
         .await
         .unwrap();
-    let finalized_height = e2e.da.get_finalized_height(None).await.unwrap();
+    let finalized_height = e2e
+        .bitcoin_nodes
+        .get(0)
+        .expect("There is a bitcoin node")
+        .get_finalized_height(None)
+        .await
+        .unwrap();
     e2e.batch_prover
         .wait_for_l1_height(finalized_height, None)
         .await
         .unwrap();
     e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors)
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
 
