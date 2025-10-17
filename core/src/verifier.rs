@@ -2909,7 +2909,7 @@ mod states {
 
                     let mut tx_handler_cache = TxHandlerCache::new();
 
-                    let txhandlers = create_txhandlers(
+                    let mut txhandlers = create_txhandlers(
                         TransactionType::AllNeededForDeposit,
                         context.clone(),
                         &mut tx_handler_cache,
@@ -2963,6 +2963,8 @@ mod states {
                                     "The public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
                                     kickoff_data.operator_xonly_pk
                                 );
+
+                                tx_handler_cache.store_for_next_kickoff(&mut txhandlers)?;
 
                                 // Only this one creates a tx handler in which scripts exist, other txhandlers only include scripts as hidden nodes.
                                 let txhandlers_with_disprove = create_txhandlers(
