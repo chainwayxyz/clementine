@@ -408,7 +408,7 @@ pub fn monitor_standalone_task<
             Err(e) => {
                 if e.is_cancelled() {
                     // Task was cancelled, which is expected during cleanup
-                    tracing::debug!("Task {} has cancelled", task_name);
+                    tracing::debug!("Task {} has been cancelled", task_name);
                     let _ = monitor_err_sender
                         .send(Err(Into::<BridgeError>::into(eyre::eyre!(
                             "Task was cancelled due to: {:?}",
