@@ -322,17 +322,12 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         outpoint: OutPoint,
         current_chain_height: u32,
-        finality_depth: u32,
+        protocol_paramset: &'static ProtocolParamset,
     ) -> Result<bool, BridgeError> {
         let spending_tx_height = self.get_block_height_of_spending_txid(tx, outpoint).await?;
         match spending_tx_height {
             Some(spending_tx_height) => {
-                if spending_tx_height > current_chain_height
-                    || current_chain_height - spending_tx_height < finality_depth - 1
-                {
-                    return Ok(false);
-                }
-                Ok(true)
+                Ok(protocol_paramset.is_block_finalized(spending_tx_height, current_chain_height))
             }
             None => Ok(false),
         }
