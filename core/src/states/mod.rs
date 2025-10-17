@@ -137,6 +137,20 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
 
+    pub fn clone_without_states(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            queue: self.queue.clone(),
+            owner: self.owner.clone(),
+            round_machines: Vec::new(),
+            kickoff_machines: Vec::new(),
+            paramset: self.paramset,
+            next_height_to_process: self.next_height_to_process,
+            rpc: self.rpc.clone(),
+            last_finalized_block: self.last_finalized_block.clone(),
+        }
+    }
+
     /// Warning: This is costly due to the calculation of the block_cache, use a
     /// pre-existing `block_cache` with the `new_context_with_block_cache`
     /// method if possible.
@@ -486,7 +500,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         start_height: u32,
     ) -> Result<(), eyre::Report> {
         // create a temporary state manager that only includes the new states
-        let mut temporary_manager = self.clone();
+        let mut temporary_manager = self.clone_without_states();
         temporary_manager.round_machines = new_round_machines;
         temporary_manager.kickoff_machines = new_kickoff_machines;
 
@@ -529,13 +543,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<u32, eyre::Report> {
         let block_height = context.cache.block_height;
 
-        // Store the original machines to revert to in case of an error happens during processing
-        // If an error is encountered, the block processing will retry. If we don't store and revert all
-        // state machines during processing, some state machines can be left in an invalid state
-        // depending on where the error occurred. To be safe, we revert to the original machines.
-        let kickoff_machines_checkpoint = self.kickoff_machines.clone();
-        let round_machines_checkpoint = self.round_machines.clone();
-
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
@@ -568,9 +575,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if !all_errors.is_empty() {
-                // revert state machines to the saved state as the content of the machines might be changed before the error occurred
-                self.kickoff_machines = kickoff_machines_checkpoint;
-                self.round_machines = round_machines_checkpoint;
                 // Return first error or create a combined error
                 return Err(eyre::eyre!(
                     "Multiple errors occurred during state processing: {:?}",
@@ -606,9 +610,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             //
             // Something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is possibly a safe value
             if iterations > 100000 {
-                // revert state machines to the previous state first before returning an error
-                self.kickoff_machines = kickoff_machines_checkpoint;
-                self.round_machines = round_machines_checkpoint;
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
