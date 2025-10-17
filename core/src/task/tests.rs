@@ -344,7 +344,7 @@ async fn test_buffered_errors_with_handle_error_attempts() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, Some(2), None);
     let mut buffered_task = task.into_buffered_errors(3, 3);
-    // first two runs should't error
+    // first two runs shouldn't error
     for _ in 0..2 {
         assert!(buffered_task.run_once().await.is_ok());
     }
@@ -357,7 +357,7 @@ async fn test_buffered_errors_with_handle_error_attempts_and_success() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, None, Some(3));
     let mut buffered_task = task.into_buffered_errors(3, 3);
-    // first three runs should't error
+    // first three runs shouldn't error
     for _ in 0..3 {
         assert!(buffered_task.run_once().await.is_ok());
     }
