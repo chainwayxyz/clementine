@@ -118,6 +118,7 @@ pub mod bitvm_client;
 pub mod builder;
 pub mod citrea;
 pub mod cli;
+pub mod compatibility;
 pub mod config;
 pub mod constants;
 pub mod database;

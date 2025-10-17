@@ -255,10 +255,7 @@ impl HeaderChainProver {
 
         Ok(HeaderChainProver {
             db,
-            batch_size: config
-                .protocol_paramset()
-                .header_chain_proof_batch_size
-                .into(),
+            batch_size: config.header_chain_proof_batch_size.into(),
             network: config.protocol_paramset().network,
         })
     }
@@ -1074,7 +1071,7 @@ mod tests {
         let rpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();
 
-        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+        let batch_size = config.header_chain_proof_batch_size;
 
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -1112,7 +1109,7 @@ mod tests {
         // Save some initial blocks.
         mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), 2).await;
 
-        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+        let batch_size = config.header_chain_proof_batch_size;
 
         let latest_proven_block_height = db.get_next_unproven_block(None).await.unwrap().unwrap().2;
         let _block_headers = mine_and_get_first_n_block_headers(
@@ -1150,7 +1147,7 @@ mod tests {
         // Save some initial blocks.
         mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), 2).await;
 
-        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+        let batch_size = config.header_chain_proof_batch_size;
 
         let latest_proven_block_height = db.get_next_unproven_block(None).await.unwrap().unwrap().2;
         let _block_headers = mine_and_get_first_n_block_headers(
@@ -1197,7 +1194,7 @@ mod tests {
         let rpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();
 
-        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+        let batch_size = config.header_chain_proof_batch_size;
 
         // Save initial blocks, because VerifierServer won't.
         let count = rpc.get_block_count().await.unwrap();

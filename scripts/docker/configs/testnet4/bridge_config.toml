@@ -65,6 +65,7 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption to start with.
 # header_chain_proof_path = "../core/src/test/data/first_1.bin"
+header_chain_proof_batch_size = 100
 
 # TLS certificate and key paths
 server_cert_path = "/certs/server/server.pem"
