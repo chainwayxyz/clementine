@@ -776,7 +776,7 @@ impl ExtendedBitcoinRpc {
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
-    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg.
+    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg. Reorg will cause chain size to increase by number of reorgedd blocks in addition to block_num.
     #[cfg(test)]
     pub async fn mine_blocks_while_synced<C: CitreaClientT>(
         &self,
@@ -829,7 +829,7 @@ impl ExtendedBitcoinRpc {
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
                 // mined blocks has to be block_num higher than reorg_blocks, because this callers of this fn expects
-                // chain size to increase by at least block_num
+                // chain size to increase by at least block_num starting from where cpfp fee payer is in mempool.
                 while mined_blocks.len() != (reorg_blocks + block_num) as usize {
                     if !are_all_state_managers_synced(self, actors).await? {
                         // wait until they are synced
