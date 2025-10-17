@@ -30,11 +30,6 @@ async fn main() {
 
     let (config, args) = get_cli_config();
 
-    config
-        .check_general_requirements()
-        .await
-        .expect("Configuration is invalid");
-
     let level_filter = match args.verbose {
         0 => None,
         other => Some(LevelFilter::from_level(
@@ -49,6 +44,11 @@ async fn main() {
             tracing::error!("Failed to initialize telemetry listener: {:?}", e);
         }
     }
+
+    config
+        .check_general_requirements()
+        .await
+        .expect("Configuration is invalid");
 
     // Load the BitVM cache on startup.
     tracing::info!("Loading BitVM cache...");
