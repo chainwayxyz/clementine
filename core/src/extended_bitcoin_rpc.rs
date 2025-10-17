@@ -776,7 +776,7 @@ impl ExtendedBitcoinRpc {
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
-    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionaly perform a reorg.
+    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg.
     #[cfg(test)]
     pub async fn mine_blocks_while_synced<C: CitreaClientT>(
         &self,
