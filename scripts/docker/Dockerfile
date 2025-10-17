@@ -1,8 +1,8 @@
 # Compile Clementine
-FROM rust:1.88.0
+FROM rust:1.88.0 as builder
 WORKDIR /clementine
 COPY . .
-RUN cargo +1.88.0 build --release --bin clementine-core
+RUN cargo build --release --bin clementine-core
 
 FROM debian:bookworm-slim
 RUN \
@@ -13,7 +13,7 @@ RUN \
   && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=0 /clementine/target/release/clementine-core /clementine-core
+COPY --from=builder /clementine/target/release/clementine-core /clementine-core
 
 # Set up Clementine
 ENTRYPOINT [ "/clementine-core" ]
