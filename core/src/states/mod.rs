@@ -128,7 +128,7 @@ pub struct StateManager<T: Owner> {
     next_height_to_process: u32,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
-    last_finalized_block: Arc<BlockCache>,
+    last_finalized_block: Option<Arc<BlockCache>>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -194,7 +194,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         })?;
 
         let mut mgr = Self {
-            last_finalized_block: Arc::new(BlockCache::empty()),
+            last_finalized_block: None,
             db,
             owner,
             paramset,
@@ -251,13 +251,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         let last_height = next_height_to_process.saturating_sub(1);
 
-        self.last_finalized_block = Arc::new(BlockCache::from_block(
+        self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
             match self.db.get_full_block(None, last_height).await? {
                 Some(block) => block,
                 None => self.rpc.get_block_by_height(last_height.into()).await?,
             },
             last_height,
-        ));
+        )));
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -273,8 +273,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         let init_dbtx = Arc::new(Mutex::new(dbtx));
 
-        let mut ctx = self
-            .new_context_with_block_cache(init_dbtx.clone(), self.last_finalized_block.clone())?;
+        let mut ctx = self.new_context_with_block_cache(
+            init_dbtx.clone(),
+            self.last_finalized_block
+                .clone()
+                .expect("Initialized before"),
+        )?;
 
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {

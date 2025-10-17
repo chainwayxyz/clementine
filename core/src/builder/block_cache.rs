@@ -11,26 +11,6 @@ pub struct BlockCache {
 }
 
 impl BlockCache {
-    // creates a dummy block cache with all zeros
-    pub fn empty() -> Self {
-        Self {
-            txids: HashMap::new(),
-            spent_utxos: HashMap::new(),
-            block_height: 0,
-            block: Block {
-                header: bitcoin::block::Header {
-                    version: bitcoin::block::Version::default(),
-                    prev_blockhash: bitcoin::BlockHash::all_zeros(),
-                    merkle_root: bitcoin::TxMerkleNode::all_zeros(),
-                    time: 0,
-                    bits: bitcoin::CompactTarget::default(),
-                    nonce: 0,
-                },
-                txdata: Vec::new(),
-            },
-        }
-    }
-
     pub fn from_block(block: Block, block_height: u32) -> Self {
         let mut txids = HashMap::new();
         let mut spent_utxos = HashMap::new();
