@@ -1,61 +1,30 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `circuits-lib/src/common/constants.rs`."><title>constants.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-46132b98.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="circuits_lib" data-themes="" data-resource-suffix="" data-rustdoc-version="1.85.1 (4eb161250 2025-03-15)" data-channel="1.85.1" data-search-js="search-75f5ac3e.js" data-settings-js="settings-0f613d39.js" ><script src="../../../static.files/storage-59e33391.js"></script><script defer src="../../../static.files/src-script-56102188.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-5f194d8c.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">circuits_lib/common/</div>constants.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap"><div data-nosnippet><pre class="src-line-numbers">
-<a href="#1" id="1">1</a>
-<a href="#2" id="2">2</a>
-<a href="#3" id="3">3</a>
-<a href="#4" id="4">4</a>
-<a href="#5" id="5">5</a>
-<a href="#6" id="6">6</a>
-<a href="#7" id="7">7</a>
-<a href="#8" id="8">8</a>
-<a href="#9" id="9">9</a>
-<a href="#10" id="10">10</a>
-<a href="#11" id="11">11</a>
-<a href="#12" id="12">12</a>
-<a href="#13" id="13">13</a>
-<a href="#14" id="14">14</a>
-<a href="#15" id="15">15</a>
-<a href="#16" id="16">16</a>
-<a href="#17" id="17">17</a>
-<a href="#18" id="18">18</a>
-<a href="#19" id="19">19</a>
-<a href="#20" id="20">20</a>
-<a href="#21" id="21">21</a>
-<a href="#22" id="22">22</a>
-<a href="#23" id="23">23</a>
-<a href="#24" id="24">24</a>
-<a href="#25" id="25">25</a>
-<a href="#26" id="26">26</a>
-<a href="#27" id="27">27</a>
-<a href="#28" id="28">28</a>
-<a href="#29" id="29">29</a>
-<a href="#30" id="30">30</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Common Constants
-//! Common constants used for Risc0 circuits in the Clementine protocol.
-//! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
-//! They include constants for the number of outputs, transaction assertions, and watchtowers.
-//! ## Header Chain Method IDs
-//! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
-
-/// The number of kickoff outputs before the first assert utxo.
-</span><span class="kw">pub const </span>FIRST_FIVE_OUTPUTS: usize = <span class="number">5</span>;
-<span class="doccomment">/// The number of assertion transactions that a challenged operator should send.
-</span><span class="kw">pub const </span>NUMBER_OF_ASSERT_TXS: usize = <span class="number">33</span>;
-<span class="doccomment">/// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
-</span><span class="kw">pub const </span>MAX_NUMBER_OF_WATCHTOWERS: usize = <span class="number">160</span>;
-
-<span class="comment">// Header chain method IDs for different networks.
-</span><span class="kw">pub const </span>MAINNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
-    <span class="number">3652626281</span>, <span class="number">3002766787</span>, <span class="number">3722627615</span>, <span class="number">4039790070</span>, <span class="number">4147537278</span>, <span class="number">1544178083</span>, <span class="number">1650283956</span>, <span class="number">1173916822</span>,
-];
-
-<span class="kw">pub const </span>TESTNET4_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
-    <span class="number">1238069516</span>, <span class="number">2440952130</span>, <span class="number">296067507</span>, <span class="number">548718500</span>, <span class="number">2300908118</span>, <span class="number">2762236706</span>, <span class="number">1765400336</span>, <span class="number">2839141719</span>,
-];
-
-<span class="kw">pub const </span>SIGNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
-    <span class="number">805076607</span>, <span class="number">3918709423</span>, <span class="number">1059613400</span>, <span class="number">4117586246</span>, <span class="number">1585144107</span>, <span class="number">652222522</span>, <span class="number">1455179921</span>, <span class="number">993675895</span>,
-];
-
-<span class="kw">pub const </span>REGTEST_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
-    <span class="number">1301496876</span>, <span class="number">1115288630</span>, <span class="number">3669357080</span>, <span class="number">2302899584</span>, <span class="number">2983230370</span>, <span class="number">2760464479</span>, <span class="number">2701535872</span>, <span class="number">2516705902</span>,
-];
-</code></pre></div></section></main></body></html>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `circuits-lib/src/common/constants.rs`."><title>constants.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1a91846b.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="circuits_lib" data-themes="" data-resource-suffix="" data-rustdoc-version="1.88.0 (6b00bc388 2025-06-23)" data-channel="1.88.0" data-search-js="search-f7877310.js" data-settings-js="settings-5514c975.js" ><script src="../../../static.files/storage-4e99c027.js"></script><script defer src="../../../static.files/src-script-63605ae7.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-7ef8a74a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">circuits_lib/common/</div>constants.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! # Common Constants
+<a href=#2 id=2 data-nosnippet>2</a>//! Common constants used for Risc0 circuits in the Clementine protocol.
+<a href=#3 id=3 data-nosnippet>3</a>//! These constants are used across various modules to ensure consistency and correctness in the circuit operations.
+<a href=#4 id=4 data-nosnippet>4</a>//! They include constants for the number of outputs, transaction assertions, and watchtowers.
+<a href=#5 id=5 data-nosnippet>5</a>//! ## Header Chain Method IDs
+<a href=#6 id=6 data-nosnippet>6</a>//! These constants represent the method IDs for different network header chains, such as Mainnet, Testnet4, Signet, and Regtest.
+<a href=#7 id=7 data-nosnippet>7</a>
+<a href=#8 id=8 data-nosnippet>8</a>/// The number of kickoff outputs before the first assert utxo.
+<a href=#9 id=9 data-nosnippet>9</a></span><span class="kw">pub const </span>FIRST_FIVE_OUTPUTS: usize = <span class="number">5</span>;
+<a href=#10 id=10 data-nosnippet>10</a><span class="doccomment">/// The number of assertion transactions that a challenged operator should send.
+<a href=#11 id=11 data-nosnippet>11</a></span><span class="kw">pub const </span>NUMBER_OF_ASSERT_TXS: usize = <span class="number">33</span>;
+<a href=#12 id=12 data-nosnippet>12</a><span class="doccomment">/// The theoretical maximum number of watchtowers that can be used in the Clementine protocol.
+<a href=#13 id=13 data-nosnippet>13</a></span><span class="kw">pub const </span>MAX_NUMBER_OF_WATCHTOWERS: usize = <span class="number">160</span>;
+<a href=#14 id=14 data-nosnippet>14</a>
+<a href=#15 id=15 data-nosnippet>15</a><span class="comment">// Header chain method IDs for different networks.
+<a href=#16 id=16 data-nosnippet>16</a></span><span class="kw">pub const </span>MAINNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
+<a href=#17 id=17 data-nosnippet>17</a>    <span class="number">3117507468</span>, <span class="number">2870378349</span>, <span class="number">3727709254</span>, <span class="number">1474362300</span>, <span class="number">751278644</span>, <span class="number">3030335089</span>, <span class="number">3510416266</span>, <span class="number">2595014440</span>,
+<a href=#18 id=18 data-nosnippet>18</a>];
+<a href=#19 id=19 data-nosnippet>19</a>
+<a href=#20 id=20 data-nosnippet>20</a><span class="kw">pub const </span>TESTNET4_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
+<a href=#21 id=21 data-nosnippet>21</a>    <span class="number">1685513462</span>, <span class="number">3309550213</span>, <span class="number">1156649850</span>, <span class="number">1331433837</span>, <span class="number">3373006347</span>, <span class="number">1508474107</span>, <span class="number">464856343</span>, <span class="number">225414579</span>,
+<a href=#22 id=22 data-nosnippet>22</a>];
+<a href=#23 id=23 data-nosnippet>23</a>
+<a href=#24 id=24 data-nosnippet>24</a><span class="kw">pub const </span>SIGNET_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
+<a href=#25 id=25 data-nosnippet>25</a>    <span class="number">3708258746</span>, <span class="number">2684548520</span>, <span class="number">3143010949</span>, <span class="number">3197706394</span>, <span class="number">2166808102</span>, <span class="number">3586245258</span>, <span class="number">1995079827</span>, <span class="number">1275171576</span>,
+<a href=#26 id=26 data-nosnippet>26</a>];
+<a href=#27 id=27 data-nosnippet>27</a>
+<a href=#28 id=28 data-nosnippet>28</a><span class="kw">pub const </span>REGTEST_HEADER_CHAIN_METHOD_ID: [u32; <span class="number">8</span>] = [
+<a href=#29 id=29 data-nosnippet>29</a>    <span class="number">3154972722</span>, <span class="number">960803990</span>, <span class="number">4242666710</span>, <span class="number">1490336826</span>, <span class="number">1789045654</span>, <span class="number">4250584739</span>, <span class="number">3667451556</span>, <span class="number">1538495496</span>,
+<a href=#30 id=30 data-nosnippet>30</a>];</code></pre></div></section></main></body></html>

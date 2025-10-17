@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["receipt_from_inner"],"mod":["bridge_circuit_host","docker","mock_zkvm","structs","utils"]};
+window.SIDEBAR_ITEMS = {"fn":["receipt_from_inner"],"mod":["bridge_circuit_host","docker","mock_zkvm","seal_format","structs","utils"]};

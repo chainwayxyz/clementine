@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["aggregator","bitcoin_syncer","header_chain_prover","operator","state_machine","tx_sender","verifier","wrapper"],"struct":["Database"],"type":["DatabaseTransaction"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_CONNECTIONS_FOR_POOL"],"mod":["aggregator","bitcoin_syncer","header_chain_prover","operator","state_machine","tx_sender","verifier","wrapper"],"struct":["Database"],"type":["DatabaseTransaction"]};
