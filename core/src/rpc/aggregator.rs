@@ -6,7 +6,9 @@ use super::clementine::{
     AggregatorWithdrawResponse, Deposit, EntityStatuses, GetEntityStatusesRequest,
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys,
 };
-use crate::aggregator::{AggregatorServer, ParticipatingOperators, ParticipatingVerifiers};
+use crate::aggregator::{
+    AggregatorServer, OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId,
+};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
@@ -18,7 +20,8 @@ use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
     KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT,
     OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
-    PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, WITHDRAWAL_TIMEOUT,
+    PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, SETUP_COMPLETION_TIMEOUT,
+    WITHDRAWAL_TIMEOUT,
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
@@ -78,19 +81,21 @@ async fn get_next_pub_nonces(
               + Unpin
               + Send
               + 'static],
+    verifiers_ids: &[VerifierId],
 ) -> Result<Vec<PublicNonce>, BridgeError> {
     Ok(try_join_all(
         nonce_streams
             .iter_mut()
-            .enumerate()
-            .map(|(i, s)| async move {
+            .zip(verifiers_ids)
+            .map(|(s, id)| async move {
                 s.next()
                     .await
-                    .transpose()? // Return the inner error if it exists
+                    .transpose()
+                    .wrap_err(format!("Failed to get nonce from {id}"))? // Return the inner error if it exists
                     .ok_or_else(|| -> eyre::Report {
                         AggregatorError::InputStreamEndedEarlyUnknownSize {
                             // Return an early end error if the stream is empty
-                            stream_name: format!("Nonce stream {i}"),
+                            stream_name: format!("Nonce stream {id}"),
                         }
                         .into()
                     })
@@ -109,6 +114,8 @@ async fn nonce_aggregator(
         + Send
         + 'static,
     agg_nonce_sender: Sender<(AggNonceQueueItem, Vec<PublicNonce>)>,
+    needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<
     (
         (AggregatedNonce, Vec<PublicNonce>),
@@ -118,7 +125,14 @@ async fn nonce_aggregator(
 > {
     let mut total_sigs = 0;
 
-    tracing::info!("Starting nonce aggregation");
+    tracing::info!("Starting nonce aggregation (expecting {needed_nofn_sigs} nonces)");
+
+    // sanity check
+    if verifiers_ids.len() != nonce_streams.len() {
+        return Err(
+            eyre::eyre!("Number of verifiers ids and nonce streams must be the same").into(),
+        );
+    }
 
     // We assume the sighash stream returns the correct number of items.
     while let Some(msg) = sighash_stream.next().await {
@@ -126,7 +140,7 @@ async fn nonce_aggregator(
 
         total_sigs += 1;
 
-        let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+        let pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
             .await
             .wrap_err_with(|| {
                 format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
@@ -151,23 +165,31 @@ async fn nonce_aggregator(
             siginfo.signature_id
         );
     }
+    tracing::trace!(tmp_debug = 1, "Sent {total_sigs} to agg_nonce stream");
 
-    if total_sigs == 0 {
-        tracing::warn!("Sighash stream returned 0 signatures");
+    if total_sigs != needed_nofn_sigs {
+        let err_msg = format!(
+            "Expected {needed_nofn_sigs} nofn signatures, got {total_sigs} from sighash stream",
+        );
+        tracing::error!("{err_msg}");
+        return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
-    let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next()
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
+    let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
+        |(s, id)| async move {
+            s.next()
+                .await
+                .transpose()
+                .wrap_err(format!("Failed to get movetx nonce from {id}",))? // Return the inner error if it exists
+                .ok_or_else(|| -> eyre::Report {
+                    AggregatorError::InputStreamEndedEarlyUnknownSize {
+                        // Return an early end error if the stream is empty
+                        stream_name: format!("Movetx nonce stream for verifier {id}"),
+                    }
+                    .into()
+                })
+        },
+    ))
     .await
     .wrap_err("Failed to aggregate nonces for the move tx")?;
 
@@ -176,20 +198,26 @@ async fn nonce_aggregator(
     let move_tx_agg_nonce =
         aggregate_nonces(movetx_pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
 
-    let emergency_stop_pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next()
-            .await
-            .transpose()? // Return the inner error if it exists
-            .ok_or_else(|| -> eyre::Report {
-                AggregatorError::InputStreamEndedEarlyUnknownSize {
-                    // Return an early end error if the stream is empty
-                    stream_name: "Nonce stream".to_string(),
-                }
-                .into()
-            })
-    }))
-    .await
-    .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+    let emergency_stop_pub_nonces =
+        try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
+            |(s, id)| async move {
+                s.next()
+                    .await
+                    .transpose()
+                    .wrap_err(format!(
+                        "Failed to get emergency stop nonce from verifier {id}"
+                    ))? // Return the inner error if it exists
+                    .ok_or_else(|| -> eyre::Report {
+                        AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            // Return an early end error if the stream is empty
+                            stream_name: format!("Emergency stop nonce stream for verifier {id}"),
+                        }
+                        .into()
+                    })
+            },
+        ))
+        .await
+        .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
 
     let emergency_stop_agg_nonce = aggregate_nonces(
         emergency_stop_pub_nonces
@@ -212,20 +240,31 @@ async fn nonce_distributor(
         Sender<clementine::VerifierDepositSignParams>,
     )>,
     partial_sig_sender: Sender<(Vec<(PartialSignature, PublicNonce)>, AggNonceQueueItem)>,
+    needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<(), BridgeError> {
+    let mut nonce_count = 0;
     let mut sig_count = 0;
     let (mut partial_sig_rx, mut partial_sig_tx): (Vec<_>, Vec<_>) =
         partial_sig_streams.into_iter().unzip();
 
     let (queue_tx, mut queue_rx) = channel(crate::constants::DEFAULT_CHANNEL_SIZE);
 
+    // sanity check
+    if verifiers_ids.len() != partial_sig_rx.len() {
+        return Err(eyre::eyre!(
+            "Number of verifiers ids and partial sig streams must be the same"
+        )
+        .into());
+    }
+    let verifiers_ids_clone = verifiers_ids.clone();
     let handle_1 = tokio::spawn(async move {
         while let Some((queue_item, pub_nonces)) = agg_nonce_receiver.recv().await {
-            sig_count += 1;
+            nonce_count += 1;
 
             tracing::trace!(
                 "Received aggregated nonce {} in nonce_distributor",
-                sig_count
+                nonce_count
             );
 
             let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
@@ -235,16 +274,27 @@ async fn nonce_distributor(
             };
 
             // Broadcast aggregated nonce to all streams
-            try_join_all(partial_sig_tx.iter_mut().enumerate().map(|(idx, tx)| {
-                let agg_nonce_wrapped = agg_nonce_wrapped.clone();
-                async move {
-                    tx.send(agg_nonce_wrapped).await.wrap_err_with(|| {
-                        AggregatorError::OutputStreamEndedEarly {
-                            stream_name: format!("Partial sig stream {idx}"),
+            try_join_all(
+                partial_sig_tx
+                    .iter_mut()
+                    .zip(verifiers_ids_clone.iter())
+                    .map(|(tx, id)| {
+                        let agg_nonce_wrapped = agg_nonce_wrapped.clone();
+                        async move {
+                            tx.send(agg_nonce_wrapped)
+                                .await
+                                .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
+                                    stream_name: format!("Partial sig {id}"),
+                                })
+                                .inspect_err(|e| {
+                                    tracing::error!(
+                                        "Failed to send aggregated nonce to {id}: {:?}",
+                                        e
+                                    );
+                                })
                         }
-                    })
-                }
-            }))
+                    }),
+            )
             .await
             .wrap_err("Failed to send aggregated nonces to verifiers")?;
 
@@ -255,26 +305,57 @@ async fn nonce_distributor(
 
             tracing::trace!(
                 "Sent aggregated nonce {} to verifiers in nonce_distributor",
-                sig_count
+                nonce_count
             );
+            if nonce_count == needed_nofn_sigs {
+                break;
+            }
+        }
+        if nonce_count != needed_nofn_sigs {
+            let err_msg = format!("Expected {needed_nofn_sigs} aggregated nonces in nonce_distributor, got {nonce_count}",);
+            tracing::error!("{err_msg}");
+            return Err(eyre::eyre!(err_msg).into());
         }
 
+        tracing::trace!(
+            tmp_debug = 1,
+            "Broadcasted {nonce_count} agg_nonces to verifiers and to the queue"
+        );
         Ok::<(), BridgeError>(())
     });
 
     let handle_2 = tokio::spawn(async move {
         while let Some((queue_item, pub_nonces)) = queue_rx.recv().await {
             let pub_nonces_ref = pub_nonces.as_slice();
-            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().enumerate().map(
-                |(idx, stream)| async move {
+            if pub_nonces_ref.len() != partial_sig_rx.len() {
+                return Err(eyre::eyre!(
+                    "Number of public nonces {} and partial sig streams {} must be the same",
+                    pub_nonces_ref.len(),
+                    partial_sig_rx.len()
+                )
+                .into());
+            }
+            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
+                |((stream, pub_nonce), id)| async move {
                     let partial_sig = stream
                         .message()
                         .await
                         .wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Partial sig stream {idx}"),
+                            request_name: format!("Partial sig {sig_count} from {id}"),
+                        })
+                        .inspect_err(|e| {
+                            tracing::error!(
+                                "Failed to receive partial signature {sig_count} from {id}, an error was sent: {:?}",
+                                e
+                            );
                         })?
                         .ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
-                            stream_name: format!("Partial sig stream {idx}"),
+                            stream_name: format!("Partial sig {sig_count} from {id} closed"),
+                        }).inspect_err(|e| {
+                            tracing::error!(
+                                "Failed to receive partial signature {sig_count} from {id}, the stream was closed: {:?}",
+                                e
+                            );
                         })?;
                     let partial_sig = PartialSignature::from_byte_array(
                         &partial_sig
@@ -285,10 +366,12 @@ async fn nonce_distributor(
                     )
                     .wrap_err("Failed to parse partial signature")?;
 
-                    Ok::<_, BridgeError>((partial_sig, pub_nonces_ref[idx]))
+                    Ok::<_, BridgeError>((partial_sig, *pub_nonce))
                 },
             ))
             .await?;
+
+            sig_count += 1;
 
             tracing::trace!(
                 "Received partial signature {} from verifiers in nonce_distributor",
@@ -309,17 +392,58 @@ async fn nonce_distributor(
                 sig_count
             );
         }
+
+        if sig_count != needed_nofn_sigs {
+            let err_msg = format!(
+                "Expected {needed_nofn_sigs} partial signatures in nonce_distributor, got {sig_count}",
+            );
+            tracing::error!("{err_msg}");
+            return Err(eyre::eyre!(err_msg).into());
+        }
+        tracing::trace!(
+            tmp_debug = 1,
+            "Sent {sig_count} partial sig bundles to partial_sigs stream"
+        );
+
+        tracing::trace!("Finished tasks in nonce_distributor handle 2");
         Ok::<(), BridgeError>(())
     });
 
     let (result_1, result_2) = tokio::join!(handle_1, handle_2);
 
-    result_1
-        .wrap_err("Task crashed while distributing aggnonces")?
-        .wrap_err("Error while distributing aggnonces")?;
-    result_2
-        .wrap_err("Task crashed while receiving partial sigs")?
-        .wrap_err("Error while receiving partial sigs")?;
+    let mut task_errors = Vec::new();
+
+    match result_1 {
+        Ok(inner_result) => {
+            if let Err(e) = inner_result {
+                task_errors.push(format!("Task crashed while distributing aggnonces: {e:#?}"));
+            }
+        }
+        Err(e) => {
+            task_errors.push(format!("Failed to distribute aggnonces: {e:#?}"));
+        }
+    }
+
+    match result_2 {
+        Ok(inner_result) => {
+            if let Err(e) = inner_result {
+                task_errors.push(format!("Task crashed while receiving partial sigs: {e:#?}"));
+            }
+        }
+        Err(e) => {
+            task_errors.push(format!("Failed to receive partial sigs: {e:#?}"));
+        }
+    }
+
+    if !task_errors.is_empty() {
+        return Err(eyre::eyre!(format!(
+            "nonce_distributor failed with errors: {:#?}",
+            task_errors
+        ))
+        .into());
+    }
+
+    tracing::debug!("Finished tasks in nonce_distributor");
 
     Ok(())
 }
@@ -330,6 +454,7 @@ async fn signature_aggregator(
     mut partial_sig_receiver: Receiver<(Vec<(PartialSignature, PublicNonce)>, AggNonceQueueItem)>,
     verifiers_public_keys: Vec<PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
+    needed_nofn_sigs: usize,
 ) -> Result<(), BridgeError> {
     let mut sig_count = 0;
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
@@ -361,7 +486,24 @@ async fn signature_aggregator(
             "Sent aggregated signature {} to signature_distributor in signature_aggregator",
             sig_count
         );
+
+        if sig_count == needed_nofn_sigs {
+            break;
+        }
     }
+
+    if sig_count != needed_nofn_sigs {
+        let err_msg = format!(
+            "Expected {needed_nofn_sigs} aggregated signatures in signature_aggregator, got {sig_count}",
+        );
+        tracing::error!("{err_msg}");
+        return Err(eyre::eyre!(err_msg).into());
+    }
+
+    tracing::trace!(
+        tmp_debug = 1,
+        "Sent {sig_count} aggregated signatures to final_sig stream"
+    );
 
     Ok(())
 }
@@ -380,6 +522,8 @@ async fn signature_distributor(
             Status,
         >,
     >,
+    needed_nofn_sigs: usize,
+    verifiers_ids: Vec<VerifierId>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -390,16 +534,21 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        try_join_all(deposit_finalize_sender.iter().map(|tx| {
-            let final_params = final_params.clone();
-            async move {
-                tx.send(final_params).await.wrap_err_with(|| {
-                    AggregatorError::OutputStreamEndedEarly {
-                        stream_name: "Deposit finalize sender".to_string(),
+        try_join_all(
+            deposit_finalize_sender
+                .iter()
+                .zip(verifiers_ids.iter())
+                .map(|(tx, id)| {
+                    let final_params = final_params.clone();
+                    async move {
+                        tx.send(final_params).await.wrap_err_with(|| {
+                            AggregatorError::OutputStreamEndedEarly {
+                                stream_name: format!("Deposit finalize sender for {id}"),
+                            }
+                        })
                     }
-                })
-            }
-        }))
+                }),
+        )
         .await
         .wrap_err("Failed to send final signatures to verifiers")?;
 
@@ -407,7 +556,24 @@ async fn signature_distributor(
             "Sent signature {} to verifiers in signature_distributor",
             sig_count
         );
+
+        if sig_count == needed_nofn_sigs {
+            break;
+        }
     }
+
+    if sig_count != needed_nofn_sigs {
+        let err_msg = format!(
+            "Expected {needed_nofn_sigs} signatures in signature_distributor, got {sig_count}",
+        );
+        tracing::error!("{err_msg}");
+        return Err(eyre::eyre!(err_msg).into());
+    }
+
+    tracing::trace!(
+        tmp_debug = 1,
+        "Sent {sig_count} signatures to verifiers in deposit_finalize"
+    );
 
     let (movetx_agg_nonce, emergency_stop_agg_nonce) = agg_nonce
         .await
@@ -958,6 +1124,7 @@ impl ClementineAggregator for AggregatorServer {
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let verifiers_ids = participating_verifiers.ids();
             let (first_responses, mut nonce_streams) = {
                 create_nonce_streams(
                     participating_verifiers.clone(),
@@ -968,7 +1135,7 @@ impl ClementineAggregator for AggregatorServer {
                 .await?
             };
             // collect nonces
-            let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+            let pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
                 .map_to_status()?;
@@ -1138,67 +1305,99 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
 
         let operators = self.get_operator_clients().to_vec();
+        let operator_pks = self.fetch_operator_keys().await?;
+        let operator_ids = operator_pks
+            .iter()
+            .map(|key| OperatorId(*key))
+            .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            try_join_all(operators.iter().map(|operator| {
-                let mut operator = operator.clone();
-                let tx = operator_params_tx.clone();
-                async move {
-                    let stream = operator
-                        .get_params(Request::new(Empty {}))
-                        .await?
-                        .into_inner();
-                    tx.send(stream.try_collect::<Vec<_>>().await?)
-                        .map_err(|e| {
-                            BridgeError::from(eyre::eyre!("failed to read operator params: {e}"))
-                        })?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            try_join_all(
+                operators
+                    .iter()
+                    .zip(operator_ids.iter())
+                    .map(|(operator, id)| {
+                        let mut operator = operator.clone();
+                        let tx = operator_params_tx.clone();
+                        async move {
+                            let stream = operator
+                                .get_params(Request::new(Empty {}))
+                                .await
+                                .wrap_err_with(|| AggregatorError::RequestFailed {
+                                    request_name: format!("Operator get params for {id}"),
+                                })
+                                .map_err(BridgeError::from)?
+                                .into_inner();
+                            tx.send(stream.try_collect::<Vec<_>>().await?)
+                                .map_err(|e| {
+                                    BridgeError::from(eyre::eyre!(
+                                        "Failed to read operator params for {id}: {e}"
+                                    ))
+                                })?;
+                            Ok::<_, Status>(())
+                        }
+                    }),
+            )
             .await?;
             Ok::<_, Status>(())
         });
 
         let verifiers = self.get_verifier_clients().to_vec();
+        let verifier_pks = self.fetch_verifier_keys().await?;
+        let verifier_ids = verifier_pks
+            .iter()
+            .map(|key| VerifierId(*key))
+            .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(verifiers.iter().zip(operator_params_rx_handles).map(
-                |(verifier, mut rx)| {
-                    let verifier = verifier.clone();
-                    async move {
-                        collect_and_call(&mut rx, |params| {
-                            let mut verifier = verifier.clone();
-                            async move {
-                                verifier.set_operator(futures::stream::iter(params)).await?;
-                                Ok::<_, Status>(())
-                            }
-                        })
-                        .await?;
-                        Ok::<_, Status>(())
-                    }
-                },
-            ))
+            try_join_all(
+                verifiers
+                    .iter()
+                    .zip(verifier_ids.iter())
+                    .zip(operator_params_rx_handles)
+                    .map(|((verifier, id), mut rx)| {
+                        let verifier = verifier.clone();
+                        async move {
+                            collect_and_call(&mut rx, |params| {
+                                let mut verifier = verifier.clone();
+                                async move {
+                                    verifier
+                                        .set_operator(futures::stream::iter(params))
+                                        .await
+                                        .wrap_err_with(|| AggregatorError::RequestFailed {
+                                            request_name: format!("Verifier set_operator for {id}"),
+                                        })
+                                        .map_err(BridgeError::from)?;
+                                    Ok::<_, Status>(())
+                                }
+                            })
+                            .await?;
+                            Ok::<_, Status>(())
+                        }
+                    }),
+            )
             .await?;
             Ok::<_, Status>(())
         });
 
-        try_join_all([
-            get_operator_params_chunked_handle,
-            set_operator_params_handle,
-        ])
-        .await
-        .wrap_err("aggregator setup failed")
-        .map_err(BridgeError::from)?
-        .into_iter()
-        .collect::<Result<Vec<_>, Status>>()?;
+        let task_outputs = timed_request(
+            SETUP_COMPLETION_TIMEOUT,
+            "Aggregator setup pipeline",
+            async move {
+                Ok::<_, BridgeError>(
+                    futures::future::join_all([
+                        get_operator_params_chunked_handle,
+                        set_operator_params_handle,
+                    ])
+                    .await,
+                )
+            },
+        )
+        .await?;
 
-        tracing::info!("Setup rpc completed successfully");
+        check_task_results(["Get operator params", "Set operator params"], task_outputs)?;
 
-        let verifier_public_keys = self.fetch_verifier_keys().await?;
-
-        Ok(Response::new(VerifierPublicKeys::from(
-            verifier_public_keys,
-        )))
+        Ok(Response::new(VerifierPublicKeys::from(verifier_pks)))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
@@ -1262,6 +1461,7 @@ impl ClementineAggregator for AggregatorServer {
             tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
             let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let verifiers_ids = verifiers.ids();
 
             // Generate nonce streams for all verifiers.
             let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
@@ -1379,6 +1579,8 @@ impl ClementineAggregator for AggregatorServer {
 
             let verifiers_public_keys = deposit_data.get_verifiers();
 
+            let needed_nofn_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+
             // Create sighash stream for transaction signing
             let sighash_stream = Box::pin(create_nofn_sighash_stream(
                 self.db.clone(),
@@ -1398,6 +1600,8 @@ impl ClementineAggregator for AggregatorServer {
                 nonce_streams,
                 sighash_stream,
                 agg_nonce_sender,
+                needed_nofn_sigs,
+                verifiers_ids.clone(),
             ));
 
             // Start the nonce distribution pipe.
@@ -1405,6 +1609,8 @@ impl ClementineAggregator for AggregatorServer {
                 agg_nonce_receiver,
                 partial_sig_streams,
                 partial_sig_sender,
+                needed_nofn_sigs,
+                verifiers_ids.clone(),
             ));
 
             // Start the signature aggregation pipe.
@@ -1412,6 +1618,7 @@ impl ClementineAggregator for AggregatorServer {
                 partial_sig_receiver,
                 verifiers_public_keys,
                 final_sig_sender,
+                needed_nofn_sigs,
             ));
 
             tracing::debug!("Getting signatures from operators");
@@ -1450,6 +1657,8 @@ impl ClementineAggregator for AggregatorServer {
                 final_sig_receiver,
                 deposit_finalize_sender.clone(),
                 nonce_agg_handle.clone(),
+                needed_nofn_sigs,
+                verifiers_ids.clone(),
             ));
 
             // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
@@ -1462,42 +1671,59 @@ impl ClementineAggregator for AggregatorServer {
             tracing::info!("Got all operator signatures for deposit {:?}", deposit_info);
 
             // Wait for all pipeline tasks to complete
-            timed_request(
+            // join_all should be enough here as if one fails other tasks should fail too as they are connected through streams
+            // one should not hang if any other task fails, the others should finish
+            // this is needed because try_join_all can potentially not return the error of the first task that failed, just the one it polled first
+            // that returned an error
+            let task_outputs =  timed_request(
                 PIPELINE_COMPLETION_TIMEOUT,
                 "MuSig2 signing pipeline",
-                try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle]).map_err(|join_err| -> BridgeError { eyre::Report::from(join_err).wrap_err("Failed to join on pipelined tasks").into()}),
+                async move {
+                    Ok::<_, BridgeError>(futures::future::join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle]).await)
+                },
             )
             .await?;
 
+            check_task_results(
+                ["Nonce distribution", "Signature aggregation", "Signature distribution"],
+                task_outputs,
+            )?;
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
 
+            tracing::debug!("Pipeline tasks completed");
+            let verifiers_ids = verifiers.ids();
 
             // send operators sigs to verifiers after all verifiers have signed
-            timed_request(
+            let deposit_finalize_futures = timed_request(
                 SEND_OPERATOR_SIGS_TIMEOUT,
                 "Sending operator signatures to verifiers",
                 async {
                     let send_operator_sigs: Vec<_> = deposit_finalize_sender
                         .iter()
-                        .map(|tx| async {
+                        .zip(verifiers_ids.iter())
+                        .zip(deposit_finalize_futures.into_iter())
+                        .map(|((tx, id), dep_fin_fut)| async {
                             for one_op_sigs in all_op_sigs.iter() {
                                 for sig in one_op_sigs.iter() {
                                     let deposit_finalize_param: VerifierDepositFinalizeParams =
                                         sig.into();
 
-                                    tx.send(deposit_finalize_param).await.wrap_err_with(|| {
-                                        eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
-                                            stream_name: "deposit_finalize_sender".into(),
-                                        })
-                                    })?;
+                                    let send = tx.send(deposit_finalize_param).await;
+                                    match send {
+                                        Ok(()) => (),
+                                        Err(e) => {
+                                            // check exact error by awaiting the future
+                                            dep_fin_fut.await.wrap_err(format!("{} deposit finalize tokio task on aggregator returned error", id.clone()))?.wrap_err(format!("{} deposit finalize rpc call returned error", id.clone()))?;
+                                            return Err(BridgeError::from(eyre::eyre!(format!("{} deposit finalize stream sending returned error: {:?}", id.clone(), e))));
+                                        }
+                                    }
                                 }
                             }
 
-                            Ok::<(), BridgeError>(())
+                            Ok::<_, BridgeError>(dep_fin_fut)
                         })
                         .collect();
-                    try_join_all(send_operator_sigs).await?;
-                    Ok(())
+                    try_join_all(send_operator_sigs).await
                 },
             )
             .await?;
@@ -1826,6 +2052,71 @@ impl ClementineAggregator for AggregatorServer {
             Ok(Response::new(movetx.compute_txid().into()))
         }
     }
+}
+
+/// Checks task results and returns an error if any task failed.
+///
+/// Takes separate iterators for task names and task results where each result is a nested Result.
+/// Collects all errors (both outer and inner) and returns an error if any task failed.
+fn check_task_results<T, E1, E2, S, N, R>(task_names: N, task_results: R) -> Result<(), BridgeError>
+where
+    N: IntoIterator<Item = S>,
+    R: IntoIterator<Item = Result<Result<T, E1>, E2>>,
+    S: AsRef<str>,
+    E1: std::fmt::Display,
+    E2: std::fmt::Display,
+{
+    let mut task_errors = Vec::new();
+
+    let names: Vec<_> = task_names.into_iter().collect();
+    let results: Vec<_> = task_results.into_iter().collect();
+
+    // show an error if the number of task names does not match the number of task results, for development
+    if names.len() != results.len() {
+        let err_msg = if names.len() > results.len() {
+            let missing_names: Vec<_> = names[results.len()..].iter().map(|n| n.as_ref()).collect();
+            format!(
+                "Task names count ({}) does not match task results count ({}). Missing results for tasks: {:?}",
+                names.len(),
+                results.len(),
+                missing_names
+            )
+        } else {
+            format!(
+                "Task names count ({}) does not match task results count ({}). {} unnamed task results",
+                names.len(),
+                results.len(),
+                results.len() - names.len()
+            )
+        };
+        task_errors.push(err_msg);
+    }
+
+    for (task_name, task_output) in names.into_iter().zip(results.into_iter()) {
+        match task_output {
+            Ok(inner_result) => {
+                if let Err(e) = inner_result {
+                    let err_msg = format!("{} failed with error: {:#}", task_name.as_ref(), e);
+                    task_errors.push(err_msg);
+                }
+            }
+            Err(e) => {
+                let err_msg = format!(
+                    "{} task thread failed with error: {:#}",
+                    task_name.as_ref(),
+                    e
+                );
+                task_errors.push(err_msg);
+            }
+        }
+    }
+
+    if !task_errors.is_empty() {
+        tracing::error!("Tasks failed with errors: {:#?}", task_errors);
+        return Err(eyre::eyre!(format!("Tasks failed with errors: {:#?}", task_errors)).into());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

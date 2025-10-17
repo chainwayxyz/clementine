@@ -11,7 +11,7 @@ use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestD
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-use crate::errors::ResultExt;
+use crate::errors::ResultExt as _;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -23,9 +23,9 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
-use eyre::Context;
+use eyre::Context as _;
 use secp256k1::musig::AggregatedNonce;
-use tokio::sync::mpsc::{self, error::SendError};
+use tokio::sync::mpsc::{self};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -241,6 +241,7 @@ where
         let (session_id, pub_nonces) = self.verifier.nonce_gen(num_nonces).await?;
 
         let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
+        let monitor_sender = tx.clone();
 
         let handle = tokio::spawn(async move {
             let nonce_gen_first_response = clementine::NonceGenFirstResponse {
@@ -248,16 +249,20 @@ where
                 num_nonces,
             };
             let session_id: NonceGenResponse = nonce_gen_first_response.into();
-            tx.send(Ok(session_id)).await?;
+            tx.send(Ok(session_id)).await.map_err(|e| {
+                Status::aborted(format!("Failed to send nonce gen first response: {e}"))
+            })?;
 
             for pub_nonce in &pub_nonces {
                 let pub_nonce: NonceGenResponse = pub_nonce.into();
-                tx.send(Ok(pub_nonce)).await?;
+                tx.send(Ok(pub_nonce)).await.map_err(|e| {
+                    Status::aborted(format!("Failed to send nonce gen response: {e}"))
+                })?;
             }
 
-            Ok::<(), SendError<_>>(())
+            Ok::<(), Status>(())
         });
-        monitor_standalone_task(handle, "Verifier nonce_gen");
+        monitor_standalone_task(handle, "Verifier nonce_gen", monitor_sender);
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -325,9 +330,10 @@ where
             }
             Ok(())
         });
-        monitor_standalone_task(handle, "Verifier deposit data receiver");
+        monitor_standalone_task(handle, "Verifier deposit data receiver", tx.clone());
 
         // Start partial sig job and return partial sig responses.
+        let tx_for_monitor = tx.clone();
         let handle = tokio::spawn(async move {
             let (deposit_data, session_id) = param_rx
                 .recv()
@@ -342,16 +348,31 @@ where
 
             let mut nonce_idx = 0;
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
-            while let Some(partial_sig) = partial_sig_receiver.recv().await {
-                tx.send(Ok(PartialSig {
-                    partial_sig: partial_sig.serialize().to_vec(),
-                }))
-                .await
-                .map_err(|e| {
-                    Status::aborted(format!(
-                        "Error sending partial sig, stream ended prematurely: {e}"
-                    ))
-                })?;
+            while let Some(partial_sig_result) = partial_sig_receiver.recv().await {
+                match partial_sig_result {
+                    Ok(partial_sig) => {
+                        tx.send(Ok(PartialSig {
+                            partial_sig: partial_sig.serialize().to_vec(),
+                        }))
+                        .await
+                        .map_err(|e| {
+                            Status::aborted(format!(
+                                "Error sending partial sig, stream ended prematurely: {e}"
+                            ))
+                        })?;
+                    }
+                    Err(e) => {
+                        tx
+                            .send(Err(e.into()))
+                            .await
+                            .map_err(|send_err| {
+                                Status::aborted(format!(
+                                    "Error forwarding partial sig error, stream ended prematurely: {send_err}"
+                                ))
+                            })?;
+                        break;
+                    }
+                }
 
                 nonce_idx += 1;
                 tracing::trace!(
@@ -367,7 +388,7 @@ where
 
             Ok::<(), Status>(())
         });
-        monitor_standalone_task(handle, "Verifier deposit signature sender");
+        monitor_standalone_task(handle, "Verifier deposit signature sender", tx_for_monitor);
 
         Ok(Response::new(out_stream))
     }
@@ -421,12 +442,22 @@ where
         let verifier = self.verifier.clone();
         let sig_handle = tokio::spawn(async move {
             let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
+            tracing::debug!(
+                "Needed nofn sigs for deposit {:?}: {}",
+                deposit_data,
+                num_required_nofn_sigs
+            );
             let mut nonce_idx = 0;
-            while let Some(sig) =
-                parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                    .await?
+            while let Some(sig) = parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(
+                &mut in_stream,
+            )
+            .await
+            .wrap_err_with(|| {
+                format!("While waiting for {nonce_idx} + 1th sig out of {num_required_nofn_sigs} ")
+            })
+            .map_to_status()?
             {
-                tracing::debug!(
+                tracing::trace!(
                     "Received full nofn sig {} in deposit_finalize()",
                     nonce_idx + 1
                 );
@@ -447,7 +478,7 @@ where
                 let err_msg = format!(
                     "Insufficient N-of-N signatures received: got {nonce_idx}, expected {num_required_nofn_sigs}",
                 );
-                tracing::error!(err_msg);
+                tracing::error!("{err_msg}");
                 return Err(Status::invalid_argument(err_msg));
             }
 
@@ -482,7 +513,7 @@ where
                     parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                         .await?
                 {
-                    tracing::debug!(
+                    tracing::trace!(
                         "Received full operator sig {} in deposit_finalize()",
                         op_sig_count + 1
                     );
@@ -490,7 +521,7 @@ where
                         .send(operator_sig)
                         .await
                         .map_err(error::output_stream_ended_prematurely)?;
-                    tracing::debug!(
+                    tracing::trace!(
                         "Sent full operator sig {} to src/verifier in deposit_finalize()",
                         op_sig_count + 1
                     );
@@ -507,7 +538,7 @@ where
                 let err_msg = format!(
                     "Insufficient operator signatures received: got {total_op_sig_count}, expected {num_required_total_op_sigs}",
                 );
-                tracing::error!(err_msg);
+                tracing::error!("{err_msg}");
                 return Err(Status::invalid_argument(err_msg));
             }
 
