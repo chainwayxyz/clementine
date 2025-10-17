@@ -238,7 +238,7 @@ where
                                 "Task {:?} error handle attempt {attempt} failed: {e:?}",
                                 Self::VARIANT,
                             );
-                            if attempt == self.handle_error_attempts - 1 {
+                            if attempt == self.handle_error_attempts {
                                 // this will only close the task thread
                                 panic!(
                                     "Failed to handle task {:?} error after {attempt} attempts",
