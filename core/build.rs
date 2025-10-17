@@ -49,7 +49,7 @@ fn compile_protobuf() {
 
     // Tell Cargo that if a proto file changes, rerun this build script.
     for pf in &proto_files {
-        println!("cargo:rerun-if-changed={}", pf);
+        println!("cargo:rerun-if-changed={pf}");
     }
 
     // Compile server and client code from proto files

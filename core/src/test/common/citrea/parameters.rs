@@ -310,6 +310,6 @@ mod tests {
             get_citrea_deposit_params(&rpc, tx, block, block_info.height as u32, txid)
                 .await
                 .unwrap();
-        println!("{:?}", transaction_params);
+        println!("{transaction_params:?}");
     }
 }

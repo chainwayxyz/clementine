@@ -7,8 +7,6 @@ index = 0
 # Secret key of the current actor (operator or verifier)
 secret_key = "2222222222222222222222222222222222222222222222222222222222222222"
 
-winternitz_secret_key = "2222222222222222222222222222222222222222222222222222222222222222"
-
 # All of the verifiers public keys
 verifiers_public_keys = [
     "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -74,6 +72,10 @@ aggregator_cert_path = "certs/aggregator/aggregator.pem"
 client_verification = true
 
 # socket_path = "/"
+
+tx_sender_fee_rate_hard_cap = 100
+tx_sender_mempool_fee_rate_multiplier = 1
+tx_sender_mempool_fee_rate_offset_sat_kvb = 0
 
 [telemetry]
 host = "0.0.0.0"

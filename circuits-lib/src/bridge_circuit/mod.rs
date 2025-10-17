@@ -69,7 +69,6 @@ use bitcoin::{
     Script, TapLeafHash, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
-use core::panic;
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use k256::{
@@ -156,8 +155,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
         panic!(
-            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
-            total_work, max_total_work
+            "Insufficient total work: Total Work {total_work:?} - Max Total Work: {max_total_work:?}",
         );
     }
 
@@ -178,10 +176,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let spv_l1_block_hash = input.payout_spv.block_header.compute_block_hash();
 
     if lc_l1_block_hash != spv_l1_block_hash {
-        panic!(
-            "L1 block hash mismatch: expected {:?}, got {:?}",
-            lc_l1_block_hash, spv_l1_block_hash
-        );
+        panic!("L1 block hash mismatch: expected {lc_l1_block_hash:?}, got {spv_l1_block_hash:?}");
     }
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
@@ -215,6 +210,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .previous_output
         .txid
         .to_byte_array();
+
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
@@ -232,7 +228,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         input.hcp.genesis_state_hash,
     );
 
-    // In the future this will be fetched from the LC proof
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
@@ -365,10 +360,12 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
                         sighash_type,
                         signature[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => (
-                        TapSighashType::Default,
-                        signature[0..64].try_into().expect("Cannot fail"),
-                    ),
+                    Err(_) => {
+                        panic!(
+                            "Invalid sighash type, watchtower index: {}",
+                            watchtower_input.watchtower_idx
+                        );
+                    }
                 }
             } else {
                 panic!(
@@ -441,7 +438,6 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             .watchtower_idx
             .checked_mul(2)
             .and_then(|x| x.checked_add(circuit_input.watchtower_challenge_connector_start_idx))
-            .map(u32::from)
             .expect("Overflow occurred while calculating vout");
 
         if vout != input.previous_output.vout {
@@ -465,14 +461,19 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             );
         };
 
-        if verifying_key
+        match verifying_key
             .verify_prehash(sighash.as_byte_array(), &signature)
-            .is_ok()
         {
-            challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
-                1 << (watchtower_input.watchtower_idx % 8);
-            watchtower_challenges_outputs
-                .push(watchtower_input.watchtower_challenge_tx.output.clone());
+            Ok(_) => {
+                challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
+                    1 << (watchtower_input.watchtower_idx % 8);
+                watchtower_challenges_outputs
+                    .push(watchtower_input.watchtower_challenge_tx.output.clone());
+            }
+            Err(_) => panic!(
+                "Invalid signature for watchtower challenge with watchtower index: {}, should not happen",
+                watchtower_input.watchtower_idx
+            ),
         }
     }
 
@@ -632,7 +633,7 @@ pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
 /// A `DepositConstant` containing a 32-byte SHA-256 hash of the concatenated input components.
 pub fn deposit_constant(
     operator_xonlypk: [u8; 32],
-    watchtower_challenge_connector_start_idx: u16,
+    watchtower_challenge_connector_start_idx: u32,
     watchtower_pubkeys: &[[u8; 32]],
     move_txid: [u8; 32],
     round_txid: [u8; 32],
@@ -991,15 +992,15 @@ mod tests {
 
         let mut watchtower_pubkeys = vec![[0u8; 32]; 160];
 
-        let operator_idx: u16 = 6;
+        let operator_idx: u32 = 6;
 
         let pubkey = hex::decode(pubkey_hex).unwrap();
 
         watchtower_pubkeys[operator_idx as usize] =
             pubkey.try_into().expect("Pubkey must be 32 bytes");
 
-        let watchtower_challenge_connector_start_idx: u16 =
-            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+        let watchtower_challenge_connector_start_idx: u32 =
+            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u32;
 
         let input = BridgeCircuitInput {
             kickoff_tx: CircuitTransaction(kickoff_tx),
@@ -1061,6 +1062,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
         let (mut input, _) = total_work_and_watchtower_flags_setup();
 
@@ -1087,6 +1089,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Invalid signature for watchtower challenge")]
     fn test_total_work_and_watchtower_flags_incorrect_tx() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 

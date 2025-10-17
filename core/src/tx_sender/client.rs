@@ -333,7 +333,7 @@ impl TxSenderClient {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
-                        relative_block_height: config.protocol_paramset().finality_depth,
+                        relative_block_height: config.protocol_paramset().finality_depth - 1,
                     }],
                 )
                 .await
@@ -424,7 +424,7 @@ impl TxSenderClient {
             submission_errors,
             created_at: "".to_string(),
             txid: Some(txid.into()),
-            fee_paying_type: format!("{:?}", fee_paying_type),
+            fee_paying_type: format!("{fee_paying_type:?}"),
             fee_payer_utxos_count: fee_payer_utxos.len() as u32,
             fee_payer_utxos_confirmed_count: fee_payer_utxos
                 .iter()

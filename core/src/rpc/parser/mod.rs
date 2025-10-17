@@ -41,14 +41,13 @@ impl From<ParserError> for tonic::Status {
     fn from(value: ParserError) -> Self {
         match value {
             ParserError::RPCRequiredParam(field) => {
-                Status::invalid_argument(format!("RPC function field {} is required.", field))
+                Status::invalid_argument(format!("RPC function field {field} is required."))
             }
             ParserError::RPCParamMalformed(field) => {
-                Status::invalid_argument(format!("RPC function parameter {} is malformed.", field))
+                Status::invalid_argument(format!("RPC function parameter {field} is malformed."))
             }
             ParserError::RPCParamOversized(field, size) => Status::invalid_argument(format!(
-                "RPC function parameter {} is oversized: {}",
-                field, size
+                "RPC function parameter {field} is oversized: {size}",
             )),
         }
     }
@@ -206,9 +205,7 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
                 inner_vec
                     .try_into()
                     .map_err(|e: Vec<_>| eyre::eyre!("Incorrect length {:?}, expected 20", e.len()))
-                    .wrap_err_with(|| {
-                        ParserError::RPCParamMalformed(format!("digit_pubkey.[{}]", i))
-                    })
+                    .wrap_err_with(|| ParserError::RPCParamMalformed(format!("digit_pubkey.[{i}]")))
             })
             .collect::<Result<Vec<[u8; 20]>, eyre::Report>>()
             .map_err(Into::into)
@@ -338,8 +335,7 @@ impl TryFrom<clementine::deposit::DepositData> for DepositType {
                 Ok(DepositType::BaseDeposit(BaseDepositData {
                     evm_address: data.evm_address.try_into().map_err(|e| {
                         Status::invalid_argument(format!(
-                            "Failed to convert evm_address to EVMAddress: {}",
-                            e
+                            "Failed to convert evm_address to EVMAddress: {e}",
                         ))
                     })?,
                     recovery_taproot_address: data
@@ -355,8 +351,7 @@ impl TryFrom<clementine::deposit::DepositData> for DepositType {
                         .ok_or(Status::invalid_argument("No move_txid received"))?
                         .try_into().map_err(|e| {
                             Status::invalid_argument(format!(
-                                "Failed to convert replacement deposit move_txid to bitcoin::Txid: {}",
-                                e
+                                "Failed to convert replacement deposit move_txid to bitcoin::Txid: {e}",
                             ))
                         })?,
                 }))
@@ -397,7 +392,7 @@ impl TryFrom<clementine::XOnlyPublicKeys> for Vec<XOnlyPublicKey> {
             .iter()
             .map(|pk| {
                 XOnlyPublicKey::from_slice(pk).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+                    Status::invalid_argument(format!("Failed to parse xonly public key: {e}"))
                 })
             })
             .collect::<Result<Vec<_>, _>>()
@@ -469,7 +464,7 @@ impl TryFrom<clementine::SecurityCouncil> for SecurityCouncil {
             .into_iter()
             .map(|pk| {
                 XOnlyPublicKey::from_slice(&pk).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+                    Status::invalid_argument(format!("Failed to parse xonly public key: {e}"))
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -486,7 +481,7 @@ impl TryFrom<RawSignedTx> for bitcoin::Transaction {
 
     fn try_from(value: RawSignedTx) -> Result<Self, Self::Error> {
         bitcoin::consensus::encode::deserialize(&value.raw_tx)
-            .map_err(|e| Status::invalid_argument(format!("Failed to parse raw signed tx: {}", e)))
+            .map_err(|e| Status::invalid_argument(format!("Failed to parse raw signed tx: {e}")))
     }
 }
 
@@ -549,7 +544,7 @@ impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {
     fn try_from(value: clementine::KickoffId) -> Result<Self, Self::Error> {
         let operator_xonly_pk =
             XOnlyPublicKey::from_slice(&value.operator_xonly_pk).map_err(|e| {
-                Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {}", e))
+                Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {e}"))
             })?;
 
         Ok(crate::deposit::KickoffData {
@@ -594,10 +589,10 @@ impl TryFrom<SignedTxWithType> for (TransactionType, Transaction) {
                 .ok_or(Status::invalid_argument("No transaction type received"))?
                 .try_into()
                 .map_err(|e| {
-                    Status::invalid_argument(format!("Failed to parse transaction type: {}", e))
+                    Status::invalid_argument(format!("Failed to parse transaction type: {e}"))
                 })?,
             bitcoin::consensus::encode::deserialize(&value.raw_tx).map_err(|e| {
-                Status::invalid_argument(format!("Failed to parse raw signed tx: {}", e))
+                Status::invalid_argument(format!("Failed to parse raw signed tx: {e}"))
             })?,
         ))
     }
