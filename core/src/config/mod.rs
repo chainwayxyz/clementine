@@ -268,7 +268,7 @@ impl BridgeConfig {
 
         if genesis_chain_state.to_hash() != self.protocol_paramset().genesis_chain_state_hash {
             reasons.push(format!(
-                "Genesis chain state hash mismatch, state hash generated from bitcoin rpc ({}) does not match value in config ({})",
+                "Genesis chain state hash mismatch, state hash generated from Bitcoin RPC ({}) does not match value in config ({})",
                 hex::encode(genesis_chain_state.to_hash()),
                 hex::encode(self.protocol_paramset().genesis_chain_state_hash)
             ));
