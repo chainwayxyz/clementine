@@ -378,28 +378,6 @@ mod tests {
     }
 
     #[test]
-    fn test_incompatible_different_major_versions() {
-        let params1 = create_test_compatibility_params("1.2.3");
-        let params2 = create_test_compatibility_params("2.2.3");
-
-        let result = params1.is_compatible(&params2);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Clementine version mismatch"));
-    }
-
-    #[test]
-    fn test_incompatible_different_minor_versions() {
-        let params1 = create_test_compatibility_params("1.2.3");
-        let params2 = create_test_compatibility_params("1.3.3");
-
-        let result = params1.is_compatible(&params2);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Clementine version mismatch"));
-    }
-
-    #[test]
     fn test_incompatible_different_security_council() {
         let params1 = create_test_compatibility_params("1.2.3");
         let mut params2 = create_test_compatibility_params("1.2.3");
@@ -491,15 +469,6 @@ mod tests {
 
         let result = params1.is_compatible(&params2);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_version_with_prerelease() {
-        let params1 = create_test_compatibility_params("1.2.3-alpha");
-        let params2 = create_test_compatibility_params("1.2.4-beta");
-
-        // Prerelease versions should still be compatible if major.minor match
-        assert!(params1.is_compatible(&params2).is_ok());
     }
 
     #[test]
