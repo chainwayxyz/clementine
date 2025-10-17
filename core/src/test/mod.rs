@@ -7,6 +7,8 @@ pub mod common;
 mod deposit_and_withdraw_e2e;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod full_flow;
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
+mod reorg;
 
 #[cfg(feature = "integration-tests")]
 mod musig2;
