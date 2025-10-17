@@ -87,8 +87,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         &mut self,
         event: SystemEvent,
         dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
-    ) -> Result<u32, BridgeError> {
-        let next_height_to_process_after_event = match event {
+    ) -> Result<(), BridgeError> {
+        match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock {
                 block_id,
@@ -96,8 +96,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 height,
             } => {
                 if self.next_height_to_process != height {
-                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height);
-                    return Ok(self.next_height_to_process);
+                    return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
                 }
 
                 let mut context = self.new_context(dbtx.clone(), &block, height)?;
@@ -116,11 +115,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         .await?;
                 }
 
-                let new_next_height = self.process_block_parallel(&mut context).await?;
+                self.process_block_parallel(&mut context).await?;
 
                 self.last_finalized_block = context.cache.clone();
-
-                new_next_height
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -129,7 +126,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 // In this case, we don't want to create a new state machine.
                 for operator_machine in self.round_machines.iter() {
                     if operator_machine.operator_data.xonly_pk == operator_data.xonly_pk {
-                        return Ok(self.next_height_to_process);
+                        return Ok(());
                     }
                 }
 
@@ -163,7 +160,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     self.paramset.start_height,
                 )
                 .await?;
-                self.next_height_to_process
             }
             // Received when a new kickoff is detected
             SystemEvent::NewKickoff {
@@ -191,7 +187,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         && kickoff_machine.payout_blockhash == payout_blockhash
                         && kickoff_machine.kickoff_height == kickoff_height
                     {
-                        return Ok(self.next_height_to_process);
+                        return Ok(());
                     }
                 }
 
@@ -220,7 +216,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
-                self.next_height_to_process
             }
         };
 
@@ -231,6 +226,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // So that in case of a node restart the state machines can be restored
         self.save_state_to_db(&mut context).await?;
 
-        Ok(next_height_to_process_after_event)
+        Ok(())
     }
 }

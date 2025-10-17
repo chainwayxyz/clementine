@@ -138,7 +138,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 
             let arc_dbtx = Arc::new(Mutex::new(dbtx));
 
-            let next_height_to_process = self.inner.handle_event(message, arc_dbtx.clone()).await?;
+            self.inner.handle_event(message, arc_dbtx.clone()).await?;
 
             let mut dbtx = Arc::into_inner(arc_dbtx)
                 .ok_or_eyre("Expected single reference to DB tx when committing")?
@@ -152,8 +152,6 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .wrap_err("Deleting event from queue")?;
 
             dbtx.commit().await?;
-            // after db commit, update the next height to process on memory
-            self.inner.next_height_to_process = next_height_to_process;
             Ok(true)
         }
         .await?;
@@ -166,7 +164,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 impl<T: Owner + std::fmt::Debug + 'static> TaskErrorHandler for MessageConsumerTask<T> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
         // in case of any error, reload the state machines from the database
-        self.inner.load_machines_from_db().await
+        self.inner.reload_state_manager_from_db().await
     }
 }
 

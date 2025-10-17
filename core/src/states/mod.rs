@@ -137,7 +137,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
     }
 
-    pub fn clone_without_states(&self) -> Self {
+    pub fn clone_without_machines(&self) -> Self {
         Self {
             db: self.db.clone(),
             queue: self.queue.clone(),
@@ -205,7 +205,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             rpc,
         };
 
-        mgr.load_machines_from_db().await?;
+        mgr.reload_state_manager_from_db().await?;
         Ok(mgr)
     }
 
@@ -220,12 +220,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         }
     }
 
-    /// Loads the state machines from the database.
+    /// Loads the state manager and its state machines from the database.
     /// This method should be called when initializing the StateManager.
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
-    pub async fn load_machines_from_db(&mut self) -> Result<(), BridgeError> {
+    pub async fn reload_state_manager_from_db(&mut self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
         let owner_type = T::ENTITY_NAME;
         let status = self
@@ -508,7 +508,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         start_height: u32,
     ) -> Result<(), eyre::Report> {
         // create a temporary state manager that only includes the new states
-        let mut temporary_manager = self.clone_without_states();
+        let mut temporary_manager = self.clone_without_machines();
         temporary_manager.round_machines = new_round_machines;
         temporary_manager.kickoff_machines = new_kickoff_machines;
 
@@ -548,7 +548,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn process_block_parallel(
         &mut self,
         context: &mut context::StateContext<T>,
-    ) -> Result<u32, eyre::Report> {
+    ) -> Result<(), eyre::Report> {
         let block_height = context.cache.block_height;
 
         // Process all machines, for those unaffected collect them them, otherwise return
@@ -662,9 +662,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
 
-        // Return what the next height to process should be
-        // Do not edit the next height to process here as the block processing can still fail afterwards
-        // (for example if db transaction commit fails)
-        Ok(max(block_height + 1, self.next_height_to_process))
+        self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
+
+        Ok(())
     }
 }
