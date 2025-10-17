@@ -46,6 +46,8 @@ use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 
 #[cfg(test)]
+use crate::test::common::citrea::CitreaE2EData;
+#[cfg(test)]
 use crate::{
     citrea::CitreaClientT,
     test::common::{are_all_state_managers_synced, test_actors::TestActors},
@@ -774,23 +776,85 @@ impl ExtendedBitcoinRpc {
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
+    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg. Reorg will cause chain size to increase by number of reorged blocks in addition to block_num.
     #[cfg(test)]
     pub async fn mine_blocks_while_synced<C: CitreaClientT>(
         &self,
         block_num: u64,
         actors: &TestActors<C>,
+        e2e: Option<&CitreaE2EData<'_>>,
     ) -> Result<Vec<BlockHash>> {
-        let mut mined_blocks = Vec::new();
-        while mined_blocks.len() < block_num as usize {
-            if !are_all_state_managers_synced(self, actors).await? {
-                // wait until they are synced
-                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                continue;
+        match e2e {
+            // do a reorg if there are multiple nodes, the actors are currently always using node 0
+            Some(e2e) if e2e.bitcoin_nodes.iter().count() > 1 => {
+                use bitcoin::secp256k1::rand::{thread_rng, Rng};
+                e2e.bitcoin_nodes
+                    .disconnect_nodes()
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to disconnect nodes: {}", e))?;
+                let reorg_blocks =
+                    thread_rng().gen_range(0..e2e.config.protocol_paramset().finality_depth as u64);
+                let da0 = e2e.bitcoin_nodes.get(0).expect("node 0 should exist");
+                let da1 = e2e.bitcoin_nodes.get(1).expect("node 1 should exist");
+
+                let mut mined_blocks = Vec::new();
+                while mined_blocks.len() < reorg_blocks as usize {
+                    if !are_all_state_managers_synced(self, actors).await? {
+                        // wait until they are synced
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    da0.generate(1)
+                        .await
+                        .wrap_err("Failed to generate blocks")?;
+                    // da1 will be canonical
+                    let new_blocks = da1
+                        .generate(1)
+                        .await
+                        .wrap_err("Failed to generate blocks")?;
+                    mined_blocks.extend(new_blocks);
+                }
+                mined_blocks.extend(
+                    da1.generate(1)
+                        .await
+                        .wrap_err("Failed to generate blocks")?,
+                );
+                // connect and reorg, da0's blocks will be non-canonical
+                e2e.bitcoin_nodes
+                    .connect_nodes()
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to connect nodes: {}", e))?;
+                e2e.bitcoin_nodes
+                    .wait_for_sync(None)
+                    .await
+                    .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
+                // mined blocks has to be block_num higher than reorg_blocks + 1, because this callers of this fn expects
+                // chain size to increase by at least block_num starting from where cpfp fee payer is in mempool.
+                while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
+                    if !are_all_state_managers_synced(self, actors).await? {
+                        // wait until they are synced
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    mined_blocks.extend(self.mine_blocks(1).await?);
+                }
+                Ok(mined_blocks)
             }
-            let new_blocks = self.mine_blocks(1).await?;
-            mined_blocks.extend(new_blocks);
+            _ => {
+                // do not do a reorg here, just mine blocks
+                let mut mined_blocks = Vec::new();
+                while mined_blocks.len() < block_num as usize {
+                    if !are_all_state_managers_synced(self, actors).await? {
+                        // wait until they are synced
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    let new_blocks = self.mine_blocks(1).await?;
+                    mined_blocks.extend(new_blocks);
+                }
+                Ok(mined_blocks)
+            }
         }
-        Ok(mined_blocks)
     }
 
     /// Internal helper that performs the actual block mining logic.
@@ -870,7 +934,16 @@ impl ExtendedBitcoinRpc {
     ) -> Result<OutPoint> {
         let txid = self
             .client
-            .send_to_address(address, amount_sats, None, None, None, None, None, None)
+            .send_to_address(
+                address,
+                amount_sats,
+                None,
+                None,
+                None,
+                Some(true),
+                Some(2),
+                Some(bitcoincore_rpc::json::EstimateMode::Conservative),
+            )
             .await
             .wrap_err("Failed to send to address")?;
 
