@@ -174,32 +174,45 @@ impl<T: Task + Sized> Task for CancelableLoop<T> {
     }
 }
 
+/// A trait for tasks that can handle errors, required for BufferedErrors.
+/// Tasks that want to use `into_buffered_errors()` must implement this trait
+/// to define how they recover from errors.
+#[async_trait]
+pub trait TaskErrorHandler: Send + Sync {
+    /// Recover from an error by attempting to handle it.
+    /// If the error is handled, the task will continue running if error overflow limit is not reached.
+    async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError>;
+}
+
 #[derive(Debug)]
-pub struct BufferedErrors<T: Task + Sized>
+pub struct BufferedErrors<T: TaskErrorHandler + Task + Sized>
 where
     T::Output: Default,
 {
     inner: T,
     buffer: Vec<BridgeError>,
     error_overflow_limit: usize,
+    handle_error_attempts: usize,
 }
 
-impl<T: Task + Sized> BufferedErrors<T>
+impl<T: TaskErrorHandler + Task + Sized> BufferedErrors<T>
 where
     T::Output: Default,
 {
-    pub fn new(inner: T, error_overflow_limit: usize) -> Self {
+    pub fn new(inner: T, error_overflow_limit: usize, handle_error_attempts: usize) -> Self {
         Self {
             inner,
             buffer: Vec::new(),
             error_overflow_limit,
+            handle_error_attempts,
         }
     }
 }
 
 #[async_trait]
-impl<T: Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
+impl<T: TaskErrorHandler + Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
 where
+    T: Send,
     T::Output: Default,
 {
     type Output = T::Output;
@@ -215,6 +228,28 @@ where
             }
             Err(e) => {
                 tracing::error!("Task error, suppressing due to buffer: {e:?}");
+                // handle the error
+                for attempt in 0..self.handle_error_attempts {
+                    let result = self.inner.recover_from_error(&e).await;
+                    match result {
+                        Ok(()) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Task {:?} error handle attempt {attempt} failed: {e:?}",
+                                Self::VARIANT
+                            );
+                            if attempt == self.handle_error_attempts - 1 {
+                                // this will only close the task thread
+                                panic!(
+                                    "Failed to handle task {:?} error after {attempt} attempts",
+                                    Self::VARIANT
+                                );
+                            }
+                            // wait 10 seconds before trying again
+                            tokio::time::sleep(Duration::from_secs(10)).await;
+                        }
+                    }
+                }
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
                     let mut base_error: eyre::Report =
@@ -307,8 +342,14 @@ pub trait TaskExt: Task + Sized {
 
     /// Buffers consecutive errors until the task succeeds, emits all errors when there are
     /// more than `error_overflow_limit` consecutive errors.
-    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
+    /// If the task fails, error will be tried to be handled up to `handle_error_attempts` times.
+    fn into_buffered_errors(
+        self,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+    ) -> BufferedErrors<Self>
     where
+        Self: TaskErrorHandler,
         Self::Output: Default;
 
     /// Maps the task's `Ok()` output using the given function.
@@ -352,11 +393,16 @@ impl<T: Task + Sized> TaskExt for T {
         })
     }
 
-    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
+    fn into_buffered_errors(
+        self,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+    ) -> BufferedErrors<Self>
     where
+        Self: TaskErrorHandler,
         Self::Output: Default,
     {
-        BufferedErrors::new(self, error_overflow_limit)
+        BufferedErrors::new(self, error_overflow_limit, handle_error_attempts)
     }
 
     fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
