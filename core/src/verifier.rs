@@ -359,8 +359,12 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
-                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+                EntityMetricPublisher::<Verifier<C>>::new(
+                    self.verifier.db.clone(),
+                    rpc.clone(),
+                    self.verifier.config.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
             .await;
 
@@ -372,8 +376,12 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let l1_sync_status =
-            Verifier::<C>::get_l1_status(&self.verifier.db, &self.verifier.rpc).await?;
+        let l1_sync_status = Verifier::<C>::get_l1_status(
+            &self.verifier.db,
+            &self.verifier.rpc,
+            &self.verifier.config,
+        )
+        .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
@@ -387,6 +395,7 @@ where
             bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: l1_sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
 

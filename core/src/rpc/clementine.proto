@@ -282,6 +282,7 @@ message EntityStatus {
   optional uint32 rpc_tip_height = 7;
   optional uint32 bitcoin_syncer_synced_height = 8;
   optional uint32 state_manager_next_height = 9;
+  optional uint64 btc_fee_rate_sat_vb = 10;
 }
 
 enum EntityType {

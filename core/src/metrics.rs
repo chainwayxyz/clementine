@@ -41,6 +41,8 @@ pub struct L1SyncStatusMetrics {
     pub finalized_synced_height: Gauge,
     #[metric(describe = "The next block height to process for the State Manager")]
     pub state_manager_next_height: Gauge,
+    #[metric(describe = "The current Bitcoin fee rate in sat/vB")]
+    pub bitcoin_fee_rate_sat_vb: Gauge,
 }
 
 #[derive(Metrics)]
@@ -72,6 +74,9 @@ pub struct EntityL1SyncStatusMetrics {
     #[metric(describe = "The next block height to process for the State Manager for the entity")]
     pub state_manager_next_height: Gauge,
 
+    #[metric(describe = "The current Bitcoin fee rate in sat/vB for the entity")]
+    pub bitcoin_fee_rate_sat_vb: Gauge,
+
     #[metric(describe = "The number of error responses from the entity status endpoint")]
     pub entity_status_error_count: metrics::Counter,
 
@@ -95,6 +100,7 @@ pub struct L1SyncStatus {
     pub tx_sender_synced_height: Option<u32>,
     pub finalized_synced_height: Option<u32>,
     pub state_manager_next_height: Option<u32>,
+    pub bitcoin_fee_rate_sat_vb: Option<u64>,
 }
 
 /// Get the current balance of the wallet.
@@ -159,12 +165,34 @@ pub async fn get_state_manager_next_height(
     }
 }
 
+/// Get the current Bitcoin fee rate in sat/vB.
+pub async fn get_bitcoin_fee_rate(
+    rpc: &ExtendedBitcoinRpc,
+    config: &crate::config::BridgeConfig,
+) -> Result<u64, BridgeError> {
+    let fee_rate = rpc
+        .get_fee_rate(
+            config.protocol_paramset.network,
+            &config.mempool_api_host,
+            &config.mempool_api_endpoint,
+            config.tx_sender_limits.mempool_fee_rate_multiplier,
+            config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
+            config.tx_sender_limits.fee_rate_hard_cap,
+        )
+        .await
+        .wrap_err("Failed to get fee rate")?;
+
+    // Convert from FeeRate to sat/vB
+    Ok(fee_rate.to_sat_per_vb_ceil())
+}
+
 #[async_trait]
 /// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
 pub trait L1SyncStatusProvider: NamedEntity {
     async fn get_l1_status(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
+        config: &crate::config::BridgeConfig,
     ) -> Result<L1SyncStatus, BridgeError>;
 }
 
@@ -194,6 +222,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
     async fn get_l1_status(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
+        config: &crate::config::BridgeConfig,
     ) -> Result<L1SyncStatus, BridgeError> {
         let wallet_balance = log_errs_and_ok::<_, T>(
             timed_request_base(
@@ -288,6 +317,16 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
         )
         .flatten();
 
+        let bitcoin_fee_rate_sat_vb = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_bitcoin_fee_rate",
+                get_bitcoin_fee_rate(rpc, config),
+            )
+            .await,
+            "getting bitcoin fee rate",
+        );
+
         Ok(L1SyncStatus {
             wallet_balance,
             rpc_tip_height,
@@ -296,6 +335,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             tx_sender_synced_height,
             finalized_synced_height,
             state_manager_next_height,
+            bitcoin_fee_rate_sat_vb,
         })
     }
 }
@@ -414,6 +454,13 @@ mod tests {
                                 .expect("state_manager_next_height is None")
                                 > 0
                         );
+                        assert!(status.wallet_balance.is_some());
+                        assert!(
+                            status
+                                .btc_fee_rate_sat_vb
+                                .expect("btc_fee_rate_sat_vb is None")
+                                > 0
+                        );
                     }
                     #[cfg(not(feature = "automation"))]
                     {
@@ -442,6 +489,13 @@ mod tests {
                                 > 0
                         );
                         assert!(status.state_manager_next_height.is_none());
+                        assert!(status.wallet_balance.is_some());
+                        assert!(
+                            status
+                                .btc_fee_rate_sat_vb
+                                .expect("bitcoin_fee_rate_sat_vb is None")
+                                > 0
+                        );
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
