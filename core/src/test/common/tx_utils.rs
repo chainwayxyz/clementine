@@ -339,7 +339,7 @@ pub async fn create_tx_sender(
     use bitcoin::secp256k1::SecretKey;
 
     let sk = SecretKey::new(&mut rand::thread_rng());
-    let network = bitcoin::Network::Regtest;
+    let network = config.protocol_paramset().network;
     let actor: Actor = Actor::new(sk, network);
 
     let config = {

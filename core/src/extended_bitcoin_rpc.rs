@@ -776,7 +776,7 @@ impl ExtendedBitcoinRpc {
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
-    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg. Reorg will cause chain size to increase by number of reorgedd blocks in addition to block_num.
+    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionally perform a reorg. Reorg will cause chain size to increase by number of reorged blocks in addition to block_num.
     #[cfg(test)]
     pub async fn mine_blocks_while_synced<C: CitreaClientT>(
         &self,
