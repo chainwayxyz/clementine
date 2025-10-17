@@ -776,6 +776,7 @@ impl ExtendedBitcoinRpc {
     }
 
     /// A helper fn to safely mine blocks while waiting for all actors to be synced
+    /// If CitreaE2EData is provided and there are multiple DA nodes, it will additionaly perform a reorg.
     #[cfg(test)]
     pub async fn mine_blocks_while_synced<C: CitreaClientT>(
         &self,
@@ -827,7 +828,7 @@ impl ExtendedBitcoinRpc {
                     .wait_for_sync(None)
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
-                while mined_blocks.len() != (reorg_blocks + 1 + block_num) as usize {
+                while mined_blocks.len() != (std::cmp::max(reorg_blocks + 1, block_num)) as usize {
                     if !are_all_state_managers_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
