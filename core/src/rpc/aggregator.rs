@@ -39,7 +39,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::{self, Signature};
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
@@ -941,20 +941,13 @@ impl ClementineAggregator for AggregatorServer {
                 self.config.protocol_paramset(),
             )?;
 
-            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
-                0,
-                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-            )?;
+            let sighash = opt_payout_txhandler
+                .calculate_pubkey_spend_sighash(0, input_signature.sighash_type)?;
 
             let message = Message::from_digest(sighash.to_byte_array());
 
-            let sig =
-                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
-                    Status::internal("Failed to parse signature from optimistic payout tx witness")
-                })?;
-
-            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
-                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
+            SECP.verify_schnorr(&input_signature.signature, &message, &user_xonly_pk)
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx. Ensure the signature uses SinglePlusAnyoneCanPay sighash type."))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
@@ -1557,12 +1550,16 @@ impl ClementineAggregator for AggregatorServer {
     ) -> Result<Response<AggregatorWithdrawResponse>, Status> {
         tracing::warn!("Withdraw rpc called");
         let request = request.into_inner();
-        let (withdraw_params, operator_xonly_pks) = (
+        let (withdraw_params_with_sig, operator_xonly_pks) = (
             request.withdrawal.ok_or(Status::invalid_argument(
                 "withdrawalParamsWithSig is missing",
             ))?,
             request.operator_xonly_pks,
         );
+        let withdraw_params = withdraw_params_with_sig
+            .clone()
+            .withdrawal
+            .ok_or(Status::invalid_argument("withdrawalParams is missing"))?;
 
         // convert rpc xonly pks to bitcoin xonly pks
         let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
@@ -1582,6 +1579,11 @@ impl ClementineAggregator for AggregatorServer {
                 .map(|pk| pk.to_string())
                 .collect::<Vec<_>>()
         );
+
+        // parse_withdrawal_sig_params is called to check if the inputs can be parsed correctly
+        // and check if input sighash type is SinglePlusAnyoneCanPay
+        let (withdrawal_id, _, _, _, _) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
 
         // check if all given operator xonly pubkeys are a valid operator xonly pubkey, to warn the caller if
         // something is wrong with the given operator xonly pubkeys
@@ -1608,7 +1610,7 @@ impl ClementineAggregator for AggregatorServer {
             })
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
-                let params = withdraw_params.clone();
+                let params = withdraw_params_with_sig.clone();
                 let mut request = Request::new(params);
                 request.set_timeout(WITHDRAWAL_TIMEOUT);
                 async move { (operator.withdraw(request).await, operator_xonly_pk) }
@@ -1617,8 +1619,8 @@ impl ClementineAggregator for AggregatorServer {
         // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
         tracing::warn!(
-            "Withdraw rpc completed successfully for withdrawal params: {:?}, operator xonly pks: {:?}, responses: {:?}",
-            withdraw_params,
+            "Withdraw rpc completed successfully for withdrawal id: {}, operator xonly pks: {:?}, responses: {:?}",
+            withdrawal_id,
             operator_xonly_pks_from_rpc
                 .iter()
                 .map(|pk| pk.to_string())

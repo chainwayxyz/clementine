@@ -11,8 +11,7 @@
 use alloy::primitives::PrimitiveSignature;
 use alloy::sol_types::Eip712Domain;
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::OutPoint;
+use bitcoin::{taproot, OutPoint};
 use bitcoin::{Amount, ScriptBuf};
 use eyre::{Context, Result};
 
@@ -21,22 +20,22 @@ use crate::errors::BridgeError;
 alloy_sol_types::sol! {
     #[derive(Debug)]
     struct OptimisticPayoutMessage {
-            uint32 withdrawal_id;
-            bytes input_signature;
-            bytes32 input_outpoint_txid;
-            uint32 input_outpoint_vout;
-            bytes output_script_pubkey;
-            uint64 output_amount;
+        uint32 withdrawal_id;
+        bytes input_signature;
+        bytes32 input_outpoint_txid;
+        uint32 input_outpoint_vout;
+        bytes output_script_pubkey;
+        uint64 output_amount;
     }
 
     #[derive(Debug)]
     struct OperatorWithdrawalMessage  {
-            uint32 withdrawal_id;
-            bytes input_signature;
-            bytes32 input_outpoint_txid;
-            uint32 input_outpoint_vout;
-            bytes output_script_pubkey;
-            uint64 output_amount;
+        uint32 withdrawal_id;
+        bytes input_signature;
+        bytes32 input_outpoint_txid;
+        uint32 input_outpoint_vout;
+        bytes output_script_pubkey;
+        uint64 output_amount;
     }
 }
 
@@ -48,7 +47,7 @@ pub static CLEMENTINE_EIP712_DOMAIN: Eip712Domain = alloy_sol_types::eip712_doma
 pub trait WithdrawalMessage {
     fn new(
         deposit_id: u32,
-        input_signature: Signature,
+        input_signature: taproot::Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
@@ -58,7 +57,7 @@ pub trait WithdrawalMessage {
 impl WithdrawalMessage for OptimisticPayoutMessage {
     fn new(
         deposit_id: u32,
-        input_signature: Signature,
+        input_signature: taproot::Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
@@ -77,7 +76,7 @@ impl WithdrawalMessage for OptimisticPayoutMessage {
 impl WithdrawalMessage for OperatorWithdrawalMessage {
     fn new(
         deposit_id: u32,
-        input_signature: Signature,
+        input_signature: taproot::Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
@@ -109,7 +108,7 @@ impl WithdrawalMessage for OperatorWithdrawalMessage {
 /// - The address recovered from the signature
 pub fn recover_address_from_ecdsa_signature<M: WithdrawalMessage + alloy_sol_types::SolStruct>(
     deposit_id: u32,
-    input_signature: Signature,
+    input_signature: taproot::Signature,
     input_outpoint: OutPoint,
     output_script_pubkey: ScriptBuf,
     output_amount: Amount,

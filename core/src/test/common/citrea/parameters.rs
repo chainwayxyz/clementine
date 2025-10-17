@@ -15,7 +15,7 @@ use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr;
+use bitcoin::taproot;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
@@ -183,7 +183,7 @@ pub async fn get_citrea_safe_withdraw_params(
     rpc: &ExtendedBitcoinRpc,
     withdrawal_dust_utxo: UTXO,
     payout_output: bitcoin::TxOut,
-    sig: schnorr::Signature,
+    sig: taproot::Signature,
 ) -> Result<
     (
         CitreaTransaction,
@@ -245,12 +245,7 @@ pub async fn get_citrea_safe_withdraw_params(
         .add_output(unspent_txout.clone())
         .finalize();
 
-    let taproot_signature = bitcoin::taproot::Signature {
-        signature: sig,
-        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-    };
-
-    tx.set_p2tr_key_spend_witness(&taproot_signature, 0)?;
+    tx.set_p2tr_key_spend_witness(&sig, 0)?;
 
     let payout_transaction = tx.get_cached_tx();
 
