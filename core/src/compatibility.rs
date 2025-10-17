@@ -1,7 +1,10 @@
 //! # Compatibility Module
 //! This module contains the logic for checking compatibility between actors in the system.
 
+use std::cmp::Ordering;
+
 use eyre::Context;
+use semver::VersionReq;
 
 use crate::aggregator::Aggregator;
 use crate::bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE};
@@ -69,9 +72,15 @@ impl CompatibilityParams {
             "Failed to parse other Clementine version {}",
             other.clementine_version
         ))?;
-        // allow different patch versions, but require major and minor versions to match for compatibility
-        // This ensures that only compatible protocol changes are accepted, while allowing bugfixes.
-        if own_version.major != other_version.major || own_version.minor != other_version.minor {
+        let (min_version, max_version) = match own_version.cmp(&other_version) {
+            Ordering::Less | Ordering::Equal => (own_version.clone(), other_version.clone()),
+            Ordering::Greater => (other_version.clone(), own_version.clone()),
+        };
+        let version_req =
+            VersionReq::parse(format!("^{min_version}").as_str()).wrap_err(format!(
+                "Failed to parse version requirement for Clementine version mismatch: self={own_version:?}, other={other_version:?}",
+            ))?;
+        if !version_req.matches(&max_version) {
             reasons.push(format!(
                 "Clementine version mismatch: self={own_version:?}, other={other_version:?}",
             ));
@@ -195,6 +204,81 @@ mod tests {
     };
     use bitcoin::XOnlyPublicKey;
     use std::str::FromStr;
+
+    #[allow(dead_code)]
+    struct MockActorWithConfig {
+        config: BridgeConfig,
+    }
+
+    impl ActorWithConfig for MockActorWithConfig {
+        fn get_config(&self) -> &BridgeConfig {
+            &self.config
+        }
+    }
+
+    #[test]
+    fn test_mock_actor_get_compatibility_params() {
+        let config = BridgeConfig::default();
+        let actor = MockActorWithConfig { config };
+
+        let params = actor.get_compatibility_params().unwrap();
+
+        assert_eq!(
+            params.protocol_paramset,
+            actor.config.protocol_paramset.clone()
+        );
+        assert_eq!(params.security_council, actor.config.security_council);
+        assert_eq!(params.citrea_chain_id, actor.config.citrea_chain_id);
+        assert_eq!(
+            params.bridge_circuit_constant,
+            *actor
+                .config
+                .protocol_paramset
+                .bridge_circuit_constant()
+                .unwrap()
+        );
+        assert_eq!(
+            params.sha256_bitvm_cache,
+            BITVM_CACHE
+                .get_or_init(load_or_generate_bitvm_cache)
+                .sha256_bitvm_cache
+        );
+        assert_eq!(
+            params.clementine_version,
+            env!("CARGO_PKG_VERSION").to_string()
+        );
+    }
+
+    #[test]
+    fn test_mock_actor_is_compatible_success() {
+        let config = BridgeConfig::default();
+        let actor = MockActorWithConfig { config };
+
+        let own = actor.get_compatibility_params().unwrap();
+        let others = vec![
+            ("aggregator".to_string(), own.clone()),
+            ("verifier".to_string(), own),
+        ];
+        assert!(actor.is_compatible(others).is_ok());
+    }
+
+    #[test]
+    fn test_mock_actor_is_compatible_failure() {
+        let config = BridgeConfig::default();
+        let actor = MockActorWithConfig { config };
+
+        let mut other = actor.get_compatibility_params().unwrap();
+        // introduce mismatches
+        other.citrea_chain_id += 1;
+        other.security_council = create_test_security_council_different();
+
+        let result = actor.is_compatible(vec![("verifier-1".to_string(), other)]);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("verifier-1:"));
+        assert!(msg.contains("Citrea chain ID mismatch"));
+        assert!(msg.contains("Security council mismatch"));
+    }
 
     #[tokio::test]
     async fn test_get_compatibility_data_from_entities() {
@@ -511,16 +595,29 @@ mod tests {
         // Create two sets of compatible params
         let params1 = create_test_compatibility_params("1.2.3");
         let params2 = create_test_compatibility_params("1.2.5");
-        let params3 = create_test_compatibility_params("1.2.7");
-
-        let others = vec![
-            ("actor1".to_string(), params2),
-            ("actor2".to_string(), params3),
-        ];
+        let params3 = create_test_compatibility_params("1.3.7");
+        let params4 = create_test_compatibility_params("2.0.1");
 
         // Test the is_compatible method on the params
-        let result = params1.is_compatible(&others[0].1);
+        let result = params1.is_compatible(&params2);
         assert!(result.is_ok());
+        let result = params1.is_compatible(&params3);
+        assert!(result.is_ok());
+        let result = params1.is_compatible(&params4);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Clementine version mismatch"));
+
+        let params5 = create_test_compatibility_params("0.6.8");
+        let params6 = create_test_compatibility_params("0.6.7");
+        let params7 = create_test_compatibility_params("0.7.0");
+
+        let result = params5.is_compatible(&params6);
+        assert!(result.is_ok());
+        let result = params5.is_compatible(&params7);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Clementine version mismatch"));
     }
 
     #[test]
