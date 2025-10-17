@@ -572,13 +572,7 @@ async fn get_fee_rate_from_mempool_space(
         _ => return Err(eyre!("Unsupported network for mempool.space: {:?}", network).into()),
     };
 
-    let retry_config = RetryConfig::new(
-        Duration::from_millis(250),
-        Duration::from_secs(5),
-        4,
-        2,
-        true,
-    );
+    let retry_config = RetryConfig::new(250, Duration::from_secs(5), 4, 2, true);
 
     let retry_strategy = retry_config.get_strategy();
 
