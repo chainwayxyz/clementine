@@ -435,6 +435,9 @@ impl SpendableScript for PreimageRevealScript {
 
     fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
+            .push_opcode(OP_SIZE)
+            .push_int(20)
+            .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_HASH160)
             .push_slice(self.1)
             .push_opcode(OP_EQUALVERIFY)
@@ -636,12 +639,15 @@ mod tests {
         assert!(others.is_some(), "OtherSpendable not found");
 
         // Print found items.
-        println!("CheckSig: {:?}", checksig.unwrap().1);
+        let checksig_val = checksig.unwrap().1;
+        println!("CheckSig: {checksig_val:?}");
         // println!("WinternitzCommit: {:?}", winternitz.unwrap().1);
-        println!("TimelockScript: {:?}", timelock.unwrap().1);
+        let timelock_val = timelock.unwrap().1;
+        println!("TimelockScript: {timelock_val:?}");
         // println!("PreimageRevealScript: {:?}", preimage.unwrap().1);
         // println!("DepositScript: {:?}", deposit.unwrap().1);
-        println!("OtherSpendable: {:?}", others.unwrap().1);
+        let others_val = others.unwrap().1;
+        println!("OtherSpendable: {others_val:?}");
     }
 
     #[test]
@@ -660,8 +666,8 @@ mod tests {
             .expect("");
 
         let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
-        println!("{:?}", otherspendable);
-        println!("{:?}", checksig);
+        println!("{otherspendable:?}");
+        println!("{checksig:?}");
     }
 
     #[test]
@@ -708,7 +714,7 @@ mod tests {
                 ("BaseDepositScript", ScriptKind::BaseDepositScript(_)) => (),
                 ("ReplacementDepositScript", ScriptKind::ReplacementDepositScript(_)) => (),
                 ("Other", ScriptKind::Other(_)) => (),
-                (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
+                (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {s}"),
             }
         }
     }
@@ -968,6 +974,35 @@ mod tests {
         rpc.send_raw_transaction(final_tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
+
+        // preimage lengths other than 20 bytes should fail
+
+        let preimage = [1; 21];
+        let hash = bitcoin::hashes::hash160::Hash::hash(&preimage);
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(PreimageRevealScript::new(xonly_pk, hash.to_byte_array()));
+        let scripts = vec![script];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        signer
+            .tx_sign_preimage(&mut tx, preimage)
+            .expect("failed to sign preimage reveal");
+
+        let final_tx = tx
+            .promote()
+            .expect("the transaction should be fully signed");
+
+        assert!(rpc
+            .send_raw_transaction(final_tx.get_cached_tx())
+            .await
+            .is_err());
     }
 
     #[tokio::test]

@@ -1,17 +1,35 @@
 use super::test_actors::TestActors;
 use super::{mine_once_after_in_mempool, poll_until_condition};
-use crate::builder::transaction::TransactionType as TxType;
+use crate::actor::Actor;
+#[cfg(feature = "automation")]
+use crate::bitcoin_syncer::BitcoinSyncer;
+use crate::builder;
+use crate::builder::script::SpendPath;
+use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::{TransactionType as TxType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::CitreaClientT;
+#[cfg(feature = "automation")]
 use crate::config::BridgeConfig;
+use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::database::Database;
+use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::rpc::clementine::SignedTxsWithType;
+use crate::rpc::clementine::tagged_signature::SignatureId;
+use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
+use crate::task::{IntoTask, TaskExt};
+use crate::test::common::citrea::CitreaE2EData;
+#[cfg(feature = "automation")]
+use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
-use bitcoin::{block, OutPoint, Transaction, Txid};
+use bitcoin::transaction::Version;
+use bitcoin::{block, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use std::time::Duration;
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 
 pub fn get_tx_from_signed_txs_with_type(
@@ -23,7 +41,7 @@ pub fn get_tx_from_signed_txs_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .to_owned()
-        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
+        .unwrap_or_else(|| panic!("expected tx of type: {tx_type:?} not found"))
         .to_owned()
         .raw_tx;
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
@@ -33,6 +51,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
     rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
     actors: &TestActors<C>,
+    e2e: Option<&CitreaE2EData<'_>>,
 ) -> Result<(), eyre::Error> {
     let mut max_blocks_to_mine = 1000;
     while match rpc
@@ -42,7 +61,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
         Err(_) => true,
         Ok(val) => val.is_some(),
     } {
-        rpc.mine_blocks_while_synced(1, actors).await?;
+        rpc.mine_blocks_while_synced(1, actors, e2e).await?;
         max_blocks_to_mine -= 1;
 
         if max_blocks_to_mine == 0 {
@@ -104,8 +123,9 @@ pub async fn get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync<C: C
     rpc: &ExtendedBitcoinRpc,
     utxo: OutPoint,
     actors: &TestActors<C>,
+    e2e: Option<&CitreaE2EData<'_>>,
 ) -> Result<Txid, eyre::Error> {
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(rpc, utxo, actors).await?;
+    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(rpc, utxo, actors, e2e).await?;
     let remaining_block_count = 30;
     // look for the txid in the last 30 blocks
     for i in 0..remaining_block_count {
@@ -277,12 +297,7 @@ pub async fn ensure_outpoint_spent(
         None,
     )
     .await
-    .wrap_err_with(|| {
-        format!(
-            "Timed out while waiting for outpoint {:?} to be spent",
-            outpoint
-        )
-    })?;
+    .wrap_err_with(|| format!("Timed out while waiting for outpoint {outpoint:?} to be spent"))?;
 
     rpc.get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
@@ -304,26 +319,169 @@ pub async fn send_tx_with_type(
         .unwrap();
     send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
         .await
-        .context(format!("failed to send {:?} transaction", tx_type))?;
+        .context(format!("failed to send {tx_type:?} transaction"))?;
     Ok(())
 }
 
 #[cfg(feature = "automation")]
 pub async fn create_tx_sender(
-    config: &BridgeConfig,
+    config: BridgeConfig,
     verifier_index: u32,
-) -> Result<(crate::tx_sender::TxSenderClient, Database)> {
-    let verifier_config = {
+) -> (
+    TxSender,
+    BitcoinSyncer,
+    ExtendedBitcoinRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
+    use crate::bitcoin_syncer::BitcoinSyncer;
+    use bitcoin::secp256k1::SecretKey;
+
+    let sk = SecretKey::new(&mut rand::thread_rng());
+    let network = config.protocol_paramset().network;
+    let actor: Actor = Actor::new(sk, network);
+
+    let config = {
         let mut config = config.clone();
         config.db_name += &verifier_index.to_string();
         config
     };
-    let db = Database::new(&verifier_config).await?;
-    let tx_sender = crate::tx_sender::TxSenderClient::new(
+
+    let rpc = ExtendedBitcoinRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let db = Database::new(&config).await.unwrap();
+
+    let tx_sender = TxSender::new(
+        actor.clone(),
+        rpc.clone(),
         db.clone(),
-        format!("tx_sender_test_{}", verifier_index),
+        format!("tx_sender_test_{verifier_index}"),
+        config.clone(),
     );
-    Ok((tx_sender, db))
+
+    (
+        tx_sender,
+        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap(),
+        rpc,
+        db,
+        actor,
+        network,
+    )
+}
+
+#[cfg(feature = "automation")]
+pub async fn create_bg_tx_sender(
+    config: BridgeConfig,
+) -> (
+    TxSenderClient,
+    TxSender,
+    Vec<oneshot::Sender<()>>,
+    ExtendedBitcoinRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
+    use crate::test::common::initialize_database;
+
+    // create the db for the tx sender
+    let mut new_config = config.clone();
+    new_config.db_name += "0";
+    initialize_database(&new_config).await;
+    let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(config, 0).await;
+
+    let sender_task = tx_sender.clone().into_task().cancelable_loop();
+    sender_task.0.into_bg();
+
+    let syncer_task = syncer.into_task().cancelable_loop();
+    syncer_task.0.into_bg();
+
+    (
+        tx_sender.client(),
+        tx_sender,
+        vec![sender_task.1, syncer_task.1],
+        rpc,
+        db,
+        actor,
+        network,
+    )
+}
+
+#[cfg(feature = "automation")]
+pub async fn create_bumpable_tx(
+    rpc: &ExtendedBitcoinRpc,
+    signer: &Actor,
+    network: bitcoin::Network,
+    fee_paying_type: FeePayingType,
+    requires_rbf_signing_info: bool,
+) -> Result<Transaction, BridgeError> {
+    let (address, spend_info) =
+        builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
+
+    let amount = Amount::from_sat(100000);
+    let outpoint = rpc.send_to_address(&address, amount).await?;
+    rpc.mine_blocks(1).await?;
+
+    let version = match fee_paying_type {
+        FeePayingType::CPFP => NON_STANDARD_V3,
+        FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
+    };
+
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+        .with_version(version)
+        .add_input(
+            match fee_paying_type {
+                FeePayingType::CPFP => {
+                    SignatureId::from(NormalSignatureKind::OperatorSighashDefault)
+                }
+                FeePayingType::RBF if !requires_rbf_signing_info => {
+                    NormalSignatureKind::Challenge.into()
+                }
+                FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+                FeePayingType::NoFunding => {
+                    unreachable!("AlreadyFunded should not be used for bumpable txs")
+                }
+            },
+            SpendableTxIn::new(
+                outpoint,
+                TxOut {
+                    value: amount,
+                    script_pubkey: address.script_pubkey(),
+                },
+                vec![],
+                Some(spend_info),
+            ),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: amount
+                - match fee_paying_type {
+                    FeePayingType::CPFP => Amount::from_sat(0), // for cpfp create a 0 fee tx
+                    FeePayingType::RBF | FeePayingType::NoFunding => MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                },
+            script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
+        }))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(Amount::from_sat(0)),
+        ))
+        .finalize();
+
+    signer
+        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+        .unwrap();
+
+    let tx = txhandler.get_cached_tx().clone();
+    Ok(tx)
 }
 
 #[cfg(feature = "automation")]

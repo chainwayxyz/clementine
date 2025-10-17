@@ -78,6 +78,8 @@ security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace
 
 socket_path = "/"
 
+tx_sender_fee_rate_hard_cap = 100
+
 [telemetry]
 host = "0.0.0.0"
 port = 8081

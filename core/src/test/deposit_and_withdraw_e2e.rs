@@ -50,6 +50,7 @@ use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -58,6 +59,7 @@ use citrea_e2e::{
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -94,6 +96,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -127,7 +130,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
         tracing::info!("Starting Citrea");
 
-        let (sequencer, full_node, lc_prover, batch_prover, da) =
+        let (sequencer, full_node, lc_prover, batch_prover, bitcoin_nodes) =
             start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
@@ -137,12 +140,20 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            bitcoin_nodes.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
                 lc_prover.config.rollup.rpc.bind_port,
             )),
+        );
+
+        tracing::info!(
+            "config bitcoin rpc data: url: {}, user: {:?},
+            citrea rpc url: {},",
+            config.bitcoin_rpc_url,
+            config.bitcoin_rpc_user,
+            config.citrea_rpc_url,
         );
 
         let rpc = ExtendedBitcoinRpc::connect(
@@ -193,7 +204,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,
@@ -408,7 +419,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             if res.is_ok() {
                 break;
             }
-            rpc.mine_blocks_while_synced(1, &actors).await.unwrap();
+            rpc.mine_blocks_while_synced(1, &actors, Some(&citrea_e2e_data))
+                .await
+                .unwrap();
         }
 
         // wait for all past kickoff reimburse connectors to be spent
@@ -418,6 +431,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &rpc,
                 *reimburse_connector,
                 &actors,
+                Some(&citrea_e2e_data),
             )
             .await
             .unwrap();
@@ -438,6 +452,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .is_err());
+
+        //tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
     }
@@ -530,7 +546,7 @@ async fn mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, verifiers_public_keys) =
+    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
             .await
             .unwrap();
@@ -651,35 +667,18 @@ async fn mock_citrea_run_truthful() {
         config
     };
 
-    let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
     let db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-
-    // wait until payout part is not null
-    poll_until_condition(
-        async || {
-            Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
-                .await?
-                .is_some())
-        },
-        Some(Duration::from_secs(20 * 60)),
-        Some(Duration::from_millis(200)),
-    )
-    .await
-    .wrap_err("Timed out while waiting for payout to be added to unhandled list")
-    .unwrap();
 
     tracing::info!("Waiting until payout is handled");
     // wait until payout is handled
     poll_until_condition(
         async || {
             Ok(db
-                .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
+                .get_handled_payout_kickoff_txid(None, payout_txid)
                 .await?
-                .is_none())
+                .is_some())
         },
         Some(Duration::from_secs(20 * 60)),
         Some(Duration::from_millis(200)),
@@ -1764,43 +1763,72 @@ async fn concurrent_deposits_and_withdrawals() {
 
     let withdrawal_input_outpoints = withdrawal_utxos.clone();
     let actors_ref = &actors;
+    let rpc_ref = &rpc;
 
     poll_get(
         async move || {
-            let mut operator0s = (0..count)
-                .map(|_| actors_ref.get_operator_client_by_index(0))
+            let mut operators = (0..count)
+                .map(|_| {
+                    (
+                        actors_ref.get_operator_client_by_index(0),
+                        actors_ref.get_operator_client_by_index(1),
+                    )
+                })
                 .collect::<Vec<_>>();
-            let mut withdrawal_requests = Vec::new();
+            let mut tries = 0;
+            loop {
+                let mut withdrawal_requests = Vec::new();
+                let mut spent_withdrawals = 0;
+                for (i, (operator0, operator1)) in operators.iter_mut().enumerate() {
+                    // if already spent, skip
+                    if rpc_ref.is_utxo_spent(&withdrawal_utxos[i]).await.unwrap() {
+                        spent_withdrawals += 1;
+                        continue;
+                    }
+                    let withdraw_params = WithdrawParams {
+                        withdrawal_id: i as u32,
+                        input_signature: sigs[i].serialize().to_vec(),
+                        input_outpoint: Some(withdrawal_utxos[i].into()),
+                        output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
+                        output_amount: payout_txouts[i].value.to_sat(),
+                    };
+                    let verification_signature = sign_withdrawal_verification_signature::<
+                        OperatorWithdrawalMessage,
+                    >(
+                        &config, withdraw_params.clone()
+                    );
 
-            for (i, operator) in operator0s.iter_mut().enumerate() {
-                let withdraw_params = WithdrawParams {
-                    withdrawal_id: i as u32,
-                    input_signature: sigs[i].serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxos[i].into()),
-                    output_script_pubkey: payout_txouts[i].script_pubkey.to_bytes(),
-                    output_amount: payout_txouts[i].value.to_sat(),
-                };
-                let verification_signature = sign_withdrawal_verification_signature::<
-                    OperatorWithdrawalMessage,
-                >(&config, withdraw_params.clone());
+                    let verification_signature_str = verification_signature.to_string();
 
-                let verification_signature_str = verification_signature.to_string();
+                    withdrawal_requests.push(operator0.withdraw(WithdrawParamsWithSig {
+                        withdrawal: Some(withdraw_params.clone()),
+                        verification_signature: Some(verification_signature_str.clone()),
+                    }));
 
-                withdrawal_requests.push(operator.withdraw(WithdrawParamsWithSig {
-                    withdrawal: Some(withdraw_params.clone()),
-                    verification_signature: Some(verification_signature_str.clone()),
-                }));
-            }
-
-            let withdrawal_txids = match try_join_all(withdrawal_requests).await {
-                Ok(txids) => txids,
-                Err(e) => {
-                    tracing::error!("Error while processing withdrawals: {:?}", e);
-                    return Err(eyre::eyre!("Error while processing withdrawals: {:?}", e));
+                    withdrawal_requests.push(operator1.withdraw(WithdrawParamsWithSig {
+                        withdrawal: Some(withdraw_params.clone()),
+                        verification_signature: Some(verification_signature_str.clone()),
+                    }));
                 }
-            };
-
-            Ok(Some(withdrawal_txids))
+                if withdrawal_requests.is_empty() {
+                    return Ok(Some(()));
+                }
+                tracing::info!(
+                    "Withdrawal req replies: {:?}",
+                    futures::future::join_all(withdrawal_requests).await
+                );
+                rpc_ref.mine_blocks(1).await.unwrap();
+                tries += 1;
+                tracing::info!(
+                    "Tries: {:?}, spent_withdrawals: {:?}",
+                    tries,
+                    spent_withdrawals
+                );
+                // count number of tries shouldd work at worst case (only 1 withdrawal mined for each try)
+                if tries > count + 1 {
+                    return Err(eyre::eyre!("Failed to process withdrawals concurrently"));
+                }
+            }
         },
         Some(Duration::from_secs(240)),
         None,

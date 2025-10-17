@@ -50,12 +50,11 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_txids
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_activate_try_to_send_txids AS tap
             SET seen_block_id = $1
             WHERE tap.txid IN (SELECT txid FROM relevant_txs)
-            AND tap.seen_block_id IS NULL",
-            common_ctes
+            AND tap.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -63,12 +62,11 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_outpoints
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_activate_try_to_send_outpoints AS tap
             SET seen_block_id = $1
             WHERE (tap.txid, tap.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND tap.seen_block_id IS NULL",
-            common_ctes
+            AND tap.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -76,12 +74,11 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_txids
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_cancel_try_to_send_txids AS ctt
             SET seen_block_id = $1
             WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
-            AND ctt.seen_block_id IS NULL",
-            common_ctes
+            AND ctt.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -89,12 +86,11 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_outpoints
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
             SET seen_block_id = $1
             WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND cto.seen_block_id IS NULL",
-            common_ctes
+            AND cto.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -102,12 +98,11 @@ impl Database {
 
         // Update tx_sender_fee_payer_utxos
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_fee_payer_utxos AS fpu
             SET seen_block_id = $1
             WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
-            AND fpu.seen_block_id IS NULL",
-            common_ctes
+            AND fpu.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -115,12 +110,11 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
+            AND txs.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -128,12 +122,11 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
         sqlx::query(&format!(
-            "{}
+            "{common_ctes}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
+            AND txs.seen_block_id IS NULL"
         ))
         .bind(block_id)
         .execute(tx.deref_mut())
@@ -144,12 +137,10 @@ impl Database {
         tokio::spawn(async move {
             // Get confirmed direct transactions for debugging
             let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
-                "{}
+                "{common_ctes}
             SELECT txs.id, txs.txid
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL",
-                common_ctes
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)",
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)
@@ -161,12 +152,10 @@ impl Database {
 
             // Get confirmed RBF transactions for debugging
             let Ok(confirmed_rbf_txs): Result<Vec<(i32,)>, _> = sqlx::query_as(&format!(
-                "{}
+                "{common_ctes}
             SELECT txs.id
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL",
-                common_ctes
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)",
             ))
             .bind(block_id)
             .fetch_all(&bg_db.connection)
@@ -339,7 +328,65 @@ impl Database {
     }
 
     /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
-    /// Replaced (bumped) fee payers are not included.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
+    ///
+    /// # Parameters
+    ///
+    /// # Returns
+    ///
+    /// A vector of unconfirmed fee payer transaction details, including:
+    ///
+    /// - [`u32`]: Id of the fee payer transaction.
+    /// - [`u32`]: Id of the bumped transaction.
+    /// - [`Txid`]: Txid of the fee payer transaction.
+    /// - [`u32`]: Output index of the UTXO.
+    /// - [`Amount`]: Amount in satoshis.
+    pub async fn get_all_unconfirmed_fee_payer_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, i32, TxidDB, i32, i64, Option<i32>)>(
+            "
+            SELECT fpu.id, fpu.bumped_id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.replacement_of_id
+            FROM tx_sender_fee_payer_utxos fpu
+            WHERE fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tx_sender_fee_payer_utxos x
+                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                    AND x.seen_block_id IS NOT NULL
+              )
+            ",
+        );
+
+        let results: Vec<(i32, i32, TxidDB, i32, i64, Option<i32>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .iter()
+            .map(
+                |(id, bumped_id, fee_payer_txid, vout, amount, replacement_of_id)| {
+                    Ok((
+                        u32::try_from(*id).wrap_err("Failed to convert id to u32")?,
+                        u32::try_from(*bumped_id).wrap_err("Failed to convert bumped id to u32")?,
+                        fee_payer_txid.0,
+                        u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
+                        Amount::from_sat(
+                            u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
+                        ),
+                        replacement_of_id
+                            .map(u32::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert replacement of id to u32")?,
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
+    /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
     ///
     /// # Parameters
     ///
@@ -364,15 +411,16 @@ impl Database {
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_id = $1
               AND fpu.seen_block_id IS NULL
+              AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
-                  FROM tx_sender_fee_payer_utxos replacement
-                  WHERE replacement.replacement_of_id = fpu.id
+                  FROM tx_sender_fee_payer_utxos x
+                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                    AND x.seen_block_id IS NOT NULL
               )
             ",
         )
         .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped id to i32")?);
-
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
@@ -389,6 +437,25 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Marks a fee payer utxo and all its replacements as evicted.
+    /// If it is marked as evicted, it will not be tried to be bumped again. (Because wallet can use same utxos for other txs)
+    pub async fn mark_fee_payer_utxo_as_evicted(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_fee_payer_utxos 
+                SET is_evicted = true 
+                WHERE id = $1 
+                OR replacement_of_id = $1",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn get_confirmed_fee_payer_utxos(
@@ -566,12 +633,12 @@ impl Database {
     /// - Not in the cancelled list
     /// - Transaction itself is not already confirmed
     /// - Transaction and UTXO timelocks must be passed
-    /// - Fee rate is lower than the provided fee rate or null (deprecated)
+    /// - Fee rate is lower than the provided maximum fee rate (previous sends had a lower fee rate) or null (transaction wasn't sent before) OR the transaction was sent before, but the chain height increased since then, and the transaction is still not confirmed (accomplished by calling this fn with u32::MAX fee rate)
     ///
     /// # Parameters
     ///
     /// - `tx`: Optional database transaction
-    /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
+    /// - `fee_rate`: Current fee rate of bitcoin or u32::MAX to retrieve all active txs
     /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
     ///   for checking timelocks
     ///
@@ -845,7 +912,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         tx_id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, bool)>(
             r#"
             SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
             FROM tx_sender_fee_payer_utxos
@@ -854,7 +921,7 @@ impl Database {
         )
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
 
-        let results: Vec<(TxidDB, i32, i64, Option<i32>)> =
+        let results: Vec<(TxidDB, i32, i64, bool)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         results
@@ -866,7 +933,7 @@ impl Database {
                     Amount::from_sat(
                         u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
                     ),
-                    confirmed.is_some(),
+                    *confirmed,
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
@@ -1128,6 +1195,7 @@ mod tests {
         // Test getting sendable txs
         let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
         let current_tip_height = 100;
+
         let sendable_txs = db
             .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
@@ -1151,18 +1219,17 @@ mod tests {
         assert_eq!(sendable_txs.len(), 1);
         assert!(sendable_txs.contains(&id2));
 
-        // Update tx1's effective fee rate to be higher than the query fee rate
-        let higher_fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
-        db.update_effective_fee_rate(Some(&mut dbtx), id1, higher_fee_rate)
-            .await
-            .unwrap();
-
-        // Now only tx2 should be sendable since tx1's effective fee rate is higher than the query fee rate
+        // increase fee rate, all should be sendable again
         let sendable_txs = db
-            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .get_sendable_txs(
+                Some(&mut dbtx),
+                FeeRate::from_sat_per_vb(4).unwrap(),
+                current_tip_height + 1,
+            )
             .await
             .unwrap();
-        assert_eq!(sendable_txs.len(), 1);
+        assert_eq!(sendable_txs.len(), 2);
+        assert!(sendable_txs.contains(&id1));
         assert!(sendable_txs.contains(&id2));
 
         dbtx.commit().await.unwrap();

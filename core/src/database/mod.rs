@@ -9,9 +9,9 @@
 use std::time::Duration;
 
 use crate::{config::BridgeConfig, errors::BridgeError};
-use alloy::transports::http::reqwest::Url;
 use eyre::Context;
 use secrecy::ExposeSecret;
+use sqlx::migrate::Migrator;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
@@ -71,9 +71,14 @@ impl Database {
     ///
     /// Returns a [`BridgeError`] if database is not accessible.
     pub async fn new(config: &BridgeConfig) -> Result<Self, BridgeError> {
-        let url = Database::get_postgresql_database_url(config);
-        let url = Url::parse(&url).wrap_err("Failed to parse database URL")?;
-        let mut opt = PgConnectOptions::from_url(&url).map_err(BridgeError::DatabaseError)?;
+        let mut opt = PgConnectOptions::default();
+        opt = opt.host(config.db_host.as_str());
+        opt = opt.port(
+            u16::try_from(config.db_port).wrap_err("Failed to convert database port to u16")?,
+        );
+        opt = opt.username(config.db_user.expose_secret());
+        opt = opt.password(config.db_password.expose_secret());
+        opt = opt.database(config.db_name.as_str());
         // Change default sqlx warnings from Warn to Debug
         // These logs really clutter our CI logs, and they were never useful.
         // But in the future if we fix slow statements (if they are actually a problem?), we can revert this.
@@ -149,31 +154,18 @@ impl Database {
             }
         }
 
+        // Apply embedded SQLx migrations from the migrations folder
+        // This looks for SQL files under core/src/database/migrations at compile time
+        // SQL files in migration folder will be applied in lexicographical order of their filenames
+        static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
+
+        MIGRATOR
+            .run(&database.connection)
+            .await
+            .wrap_err("Failed to run migrations")?;
+
         database.close().await;
         Ok(())
-    }
-
-    /// Prepares a valid PostgreSQL URL.
-    ///
-    /// URL contains user, password, host and port fields, which are picked from
-    /// the given configuration.
-    pub fn get_postgresql_url(config: &BridgeConfig) -> String {
-        "postgresql://".to_owned()
-            + config.db_user.expose_secret()
-            + ":"
-            + config.db_password.expose_secret()
-            + "@"
-            + &config.db_host
-            + ":"
-            + &config.db_port.to_string()
-    }
-
-    /// Prepares a valid PostgreSQL URL to a specific database.
-    ///
-    /// URL contains user, password, host, port and database name fields, which
-    /// are picked from the given configuration.
-    pub fn get_postgresql_database_url(config: &BridgeConfig) -> String {
-        Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 
     /// Starts a database transaction.
@@ -182,7 +174,7 @@ impl Database {
     /// database will rollback every operation done after that call.
     pub async fn begin_transaction(
         &self,
-    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BridgeError> {
         Ok(self.connection.begin().await?)
     }
 }
@@ -210,36 +202,5 @@ mod tests {
         config.db_port = 123;
 
         Database::new(&config).await.unwrap();
-    }
-
-    #[test]
-    fn get_postgresql_url() {
-        let mut config = BridgeConfig::new();
-
-        config.db_password = "sofun".to_string().into();
-        config.db_port = 45;
-        config.db_user = "iam".to_string().into();
-        config.db_host = "parties".to_string();
-
-        assert_eq!(
-            &Database::get_postgresql_url(&config),
-            "postgresql://iam:sofun@parties:45"
-        );
-    }
-
-    #[test]
-    fn get_postgresql_database_url() {
-        let mut config = BridgeConfig::new();
-
-        config.db_name = "times".to_string();
-        config.db_password = "funnier".to_string().into();
-        config.db_port = 45;
-        config.db_user = "butyouare".to_string().into();
-        config.db_host = "parties".to_string();
-
-        assert_eq!(
-            &Database::get_postgresql_database_url(&config),
-            "postgresql://butyouare:funnier@parties:45/times"
-        );
     }
 }

@@ -155,8 +155,9 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
                 }
             } else {
                 Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}",
-                    entity.entity_id
+                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                    entity.entity_id,
+                    entity.status_result
                 ))
             }
         })
@@ -191,7 +192,7 @@ pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     // get the current finalized chain height
-    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth);
+    let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     // assume synced if state manager is not running
     let state_manager_running = actors
         .aggregator
@@ -219,14 +220,7 @@ pub async fn mine_once_after_in_mempool(
     let timeout = timeout.unwrap_or(60);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
-
-    if rpc
-        .get_transaction(&txid, None)
-        .await
-        .is_ok_and(|tx| tx.info.blockhash.is_some())
-    {
-        return Err(eyre::eyre!("{} is already mined", tx_name).into());
-    }
+    tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
 
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
@@ -235,9 +229,21 @@ pub async fn mine_once_after_in_mempool(
             );
         }
 
-        if rpc.get_mempool_entry(&txid).await.is_ok() {
+        // if in mempool or already mined, break
+        if rpc.get_mempool_entry(&txid).await.is_ok()
+            || rpc
+                .get_raw_transaction_info(&txid, None)
+                .await
+                .is_ok_and(|tx| tx.blockhash.is_some())
+        {
             break;
         };
+
+        tracing::info!(
+            "{} is not in mempool, mempool size: {}",
+            tx_name,
+            rpc.mempool_size().await?
+        );
 
         // mine if there are some txs in mempool
         if rpc.mempool_size().await? > 0 {
@@ -245,6 +251,11 @@ pub async fn mine_once_after_in_mempool(
         }
 
         tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
+        tracing::info!(
+            "Rpc info about tx {}: {:?}",
+            tx_name,
+            rpc.get_raw_transaction_info(&txid, None).await
+        );
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 
@@ -308,7 +319,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await?;
-        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 1, &actors)
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 1, &actors, None)
             .await?;
 
         let deposit_info = DepositInfo {
@@ -483,7 +494,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
                     }
                     wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
                         .await?;
-                    rpc.mine_blocks_while_synced(1, &actors).await?;
+                    rpc.mine_blocks_while_synced(1, &actors, None).await?;
                     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
                 }
             }
@@ -651,7 +662,8 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
         wait_for_fee_payer_utxos_to_be_in_mempool(rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks_while_synced(1, &current_actors).await?;
+        rpc.mine_blocks_while_synced(1, &current_actors, None)
+            .await?;
         mine_once_after_in_mempool(rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
@@ -739,9 +751,10 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
         old_nofn_xonly_pk,
     )?;
 
-    let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;
+    let (tx_sender, _, _, tx_sender_db, _, _) = create_tx_sender(config.clone(), 0).await;
     let mut db_commit = tx_sender_db.begin_transaction().await?;
     tx_sender
+        .client()
         .insert_try_to_send(
             &mut db_commit,
             None,
@@ -792,10 +805,9 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Failed to generate certificates: {}", stderr);
+                eprintln!("Failed to generate certificates: {stderr}");
                 return Err(std::io::Error::other(format!(
-                    "Certificate generation failed: {}",
-                    stderr
+                    "Certificate generation failed: {stderr}"
                 )));
             }
 

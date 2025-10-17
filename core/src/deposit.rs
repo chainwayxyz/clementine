@@ -4,6 +4,7 @@
 //! and security council configurations. The module also provides functionality for managing different types
 //! of deposits (base and replacement) and deriving the necessary scripts these deposits must have.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::builder::script::{
@@ -35,8 +36,7 @@ pub struct KickoffData {
 /// - nofn_xonly_pk is cached to avoid recomputing it each time.
 /// - deposit includes the actual information about the deposit.
 /// - actors includes the public keys of the actors that will participate in the deposit.
-/// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit
-///     in case a bug is found in the bridge.
+/// - security_council includes the public keys of the security council that can unlock the deposit to create a replacement deposit in case a bug is found in the bridge.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Eq)]
 pub struct DepositData {
     /// Cached nofn xonly public key used for deposit.
@@ -207,6 +207,24 @@ impl DepositData {
             }
         }
     }
+
+    /// Checks if all verifiers are unique.
+    pub fn are_all_verifiers_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.verifiers.iter().collect();
+        set.len() == self.actors.verifiers.len()
+    }
+
+    /// Checks if all watchtowers are unique.
+    pub fn are_all_watchtowers_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.watchtowers.iter().collect();
+        set.len() == self.actors.watchtowers.len()
+    }
+
+    /// Checks if all operators are unique.
+    pub fn are_all_operators_unique(&self) -> bool {
+        let set: HashSet<_> = self.actors.operators.iter().collect();
+        set.len() == self.actors.operators.len()
+    }
 }
 
 /// Data structure to represent the actors public keys that participate in the deposit.
@@ -302,7 +320,7 @@ impl std::fmt::Display for SecurityCouncil {
             .map(|pk| hex::encode(pk.serialize()))
             .collect::<Vec<_>>()
             .join(",");
-        write!(f, "{}", pks_str)
+        write!(f, "{pks_str}")
     }
 }
 
