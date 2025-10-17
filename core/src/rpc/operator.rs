@@ -121,8 +121,9 @@ where
             .get_num_required_operator_sigs(&deposit_data);
 
         let mut deposit_signatures_rx = self.operator.deposit_sign(deposit_data).await?;
+        let monitor_err_sender = tx.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut sent_sigs = 0;
             while let Some(sig) = deposit_signatures_rx.recv().await {
                 let sig = sig?;
@@ -145,6 +146,8 @@ where
             }
             Ok::<(), Status>(())
         });
+
+        monitor_standalone_task(handle, "Operator deposit sign", monitor_err_sender);
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
