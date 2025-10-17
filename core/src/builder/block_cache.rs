@@ -1,4 +1,4 @@
-use bitcoin::{hashes::Hash, Block, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{Block, OutPoint, Transaction, Txid, Witness};
 use std::collections::HashMap;
 
 /// Block cache to optimize Txid and UTXO lookups for a block

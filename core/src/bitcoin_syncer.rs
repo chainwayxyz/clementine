@@ -547,8 +547,9 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
                 let mut new_tip = false;
 
                 // Update states to catch up to finalized chain
-                while new_block_height >= self.paramset.finality_depth
-                    && new_next_height <= new_block_height - self.paramset.finality_depth + 1
+                while self
+                    .paramset
+                    .is_block_finalized(new_next_height, new_block_height)
                 {
                     new_tip = true;
 
