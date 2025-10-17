@@ -1,8 +1,6 @@
 //! # Compatibility Module
 //! This module contains the logic for checking compatibility between actors in the system.
 
-use std::cmp::Ordering;
-
 use eyre::Context;
 use semver::VersionReq;
 
@@ -72,15 +70,13 @@ impl CompatibilityParams {
             "Failed to parse other Clementine version {}",
             other.clementine_version
         ))?;
-        let (min_version, max_version) = match own_version.cmp(&other_version) {
-            Ordering::Less | Ordering::Equal => (own_version.clone(), other_version.clone()),
-            Ordering::Greater => (other_version.clone(), own_version.clone()),
-        };
+        let min_version = std::cmp::min(&own_version, &other_version);
+        let max_version = std::cmp::max(&own_version, &other_version);
         let version_req =
-            VersionReq::parse(format!("^{min_version}").as_str()).wrap_err(format!(
+            VersionReq::parse(&format!("^{min_version}")).wrap_err(format!(
                 "Failed to parse version requirement for Clementine version mismatch: self={own_version:?}, other={other_version:?}",
             ))?;
-        if !version_req.matches(&max_version) {
+        if !version_req.matches(max_version) {
             reasons.push(format!(
                 "Clementine version mismatch: self={own_version:?}, other={other_version:?}",
             ));
