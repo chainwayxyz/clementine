@@ -92,7 +92,7 @@ impl HeaderChainProver {
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
-        if config
+        if !config
             .protocol_paramset()
             .is_block_finalized(config.protocol_paramset().start_height, tip_height)
         {
