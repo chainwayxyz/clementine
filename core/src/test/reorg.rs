@@ -106,9 +106,7 @@ impl TestCase for TxSenderReorgBehavior {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.protocol_paramset,
-            None,
-            None,
+            config.clone(),
         );
         let tx_sender_client = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
@@ -189,8 +187,7 @@ impl TestCase for TxSenderReorgBehavior {
 
         assert!(
             block_diff <= DEFAULT_FINALITY_DEPTH,
-            "difference between da0 and da1 is too large: {}",
-            block_diff
+            "difference between da0 and da1 is too large: {block_diff}",
         );
 
         // Make the second branch longer and perform a reorg.
@@ -449,8 +446,7 @@ impl TestCase for ReorgOnDeposit {
 
         assert!(
             block_diff <= DEFAULT_FINALITY_DEPTH,
-            "difference between da0 and da1 is too large: {}",
-            block_diff
+            "difference between da0 and da1 is too large: {block_diff}",
         );
 
         // Make the second branch longer and perform a reorg.
