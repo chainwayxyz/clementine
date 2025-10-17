@@ -22,7 +22,7 @@ use bitcoin::{
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, ScriptBuf, TapSighash, TapTweakHash,
 };
-use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
+use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
@@ -59,9 +59,25 @@ impl WinternitzDerivationPath {
         }
     }
 
+    fn get_network_prefix(&self) -> u8 {
+        let paramset = match self {
+            WinternitzDerivationPath::Kickoff(.., paramset) => paramset,
+            WinternitzDerivationPath::BitvmAssert(.., paramset) => paramset,
+            WinternitzDerivationPath::ChallengeAckHash(.., paramset) => paramset,
+        };
+        match paramset.network {
+            Network::Regtest => 0u8,
+            Network::Testnet4 => 1u8,
+            Network::Signet => 2u8,
+            Network::Bitcoin => 3u8,
+            // currently only testnet is unsupported
+            _ => panic!("Unsupported network {:?}", paramset.network),
+        }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
         let type_id = self.get_type_id();
-        let mut bytes = vec![type_id];
+        let mut bytes = vec![type_id, self.get_network_prefix()];
 
         match self {
             WinternitzDerivationPath::Kickoff(round_idx, kickoff_idx, _) => {
@@ -195,7 +211,6 @@ pub fn verify_schnorr(
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
@@ -203,18 +218,13 @@ pub struct Actor {
 
 impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
-    pub fn new(
-        sk: SecretKey,
-        winternitz_secret_key: Option<SecretKey>,
-        network: bitcoin::Network,
-    ) -> Self {
+    pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let keypair = Keypair::from_secret_key(&SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&SECP, xonly, None, network);
 
         Actor {
             keypair,
-            winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
@@ -279,11 +289,7 @@ impl Actor {
         &self,
         path: WinternitzDerivationPath,
     ) -> Result<winternitz::SecretKey, BridgeError> {
-        let wsk = self
-            .winternitz_secret_key
-            .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
-
-        let hk = Hkdf::<Sha256>::new(None, wsk.as_ref());
+        let hk = Hkdf::<Sha256>::new(None, self.keypair.secret_key().as_ref());
         let path_bytes = path.to_bytes();
         let mut derived_key = vec![0u8; 32];
         hk.expand(&path_bytes, &mut derived_key)
@@ -602,6 +608,11 @@ impl Actor {
                 .map(|s| s.sighash_type())?
                 .unwrap_or(TapSighashType::Default);
 
+            // Common calculations across all spend paths
+            let signature_id = spt.get_signature_id();
+            let sig = Self::get_saved_signature(signature_id, signatures);
+            let sighash = calc_sighash(sighash_type)?;
+
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
@@ -609,7 +620,6 @@ impl Actor {
                         .get_scripts()
                         .get(script_idx)
                         .ok_or(TxError::NoScriptAtIndex(script_idx))?;
-                    let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
 
                     let sig = sig.map(|sig| taproot::Signature {
                         signature: sig,
@@ -622,10 +632,19 @@ impl Actor {
                     let mut witness: Witness = match script.kind() {
                         Kind::BaseDepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
-                                (Some(sig), _) => script.generate_script_inputs(&sig),
+                                (Some(sig), _) => {
+                                    Self::verify_signature(
+                                        &sig.signature,
+                                        sighash,
+                                        script.0,
+                                        TapTweakData::ScriptPath,
+                                        &signature_id,
+                                    )?;
+                                    script.generate_script_inputs(&sig)
+                                }
                                 (None, true) => {
                                     script.generate_script_inputs(&taproot::Signature {
-                                        signature: self.sign(calc_sighash(sighash_type)?),
+                                        signature: self.sign(sighash),
                                         sighash_type,
                                     })
                                 }
@@ -636,10 +655,19 @@ impl Actor {
                         }
                         Kind::ReplacementDepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
-                                (Some(sig), _) => script.generate_script_inputs(&sig),
+                                (Some(sig), _) => {
+                                    Self::verify_signature(
+                                        &sig.signature,
+                                        sighash,
+                                        script.0,
+                                        TapTweakData::ScriptPath,
+                                        &signature_id,
+                                    )?;
+                                    script.generate_script_inputs(&sig)
+                                }
                                 (None, true) => {
                                     script.generate_script_inputs(&taproot::Signature {
-                                        signature: self.sign(calc_sighash(sighash_type)?),
+                                        signature: self.sign(sighash),
                                         sighash_type,
                                     })
                                 }
@@ -649,10 +677,19 @@ impl Actor {
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
-                            (Some(sig), Some(_)) => script.generate_script_inputs(Some(&sig)),
+                            (Some(sig), Some(xonly_pk)) => {
+                                Self::verify_signature(
+                                    &sig.signature,
+                                    sighash,
+                                    xonly_pk,
+                                    TapTweakData::ScriptPath,
+                                    &signature_id,
+                                )?;
+                                script.generate_script_inputs(Some(&sig))
+                            }
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => script
                                 .generate_script_inputs(Some(&taproot::Signature {
-                                    signature: self.sign(calc_sighash(sighash_type)?),
+                                    signature: self.sign(sighash),
                                     sighash_type,
                                 })),
                             (None, Some(_)) => {
@@ -661,10 +698,19 @@ impl Actor {
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
-                            (Some(sig), _) => script.generate_script_inputs(&sig),
+                            (Some(sig), _) => {
+                                Self::verify_signature(
+                                    &sig.signature,
+                                    sighash,
+                                    script.0,
+                                    TapTweakData::ScriptPath,
+                                    &signature_id,
+                                )?;
+                                script.generate_script_inputs(&sig)
+                            }
 
                             (None, true) => script.generate_script_inputs(&taproot::Signature {
-                                signature: self.sign(calc_sighash(sighash_type)?),
+                                signature: self.sign(sighash),
                                 sighash_type,
                             }),
                             (None, false) => return Err(TxError::SignatureNotFound(tx_type).into()),
@@ -685,14 +731,20 @@ impl Actor {
                 }
                 SpendPath::KeySpend => {
                     let xonly_public_key = spendinfo.internal_key();
-
-                    let sighash = calc_sighash(sighash_type)?;
-                    let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
                     let sig = match sig {
-                        Some(sig) => taproot::Signature {
-                            signature: sig,
-                            sighash_type,
-                        },
+                        Some(sig) => {
+                            Self::verify_signature(
+                                &sig,
+                                sighash,
+                                xonly_public_key,
+                                TapTweakData::KeyPath(spendinfo.merkle_root()),
+                                &signature_id,
+                            )?;
+                            taproot::Signature {
+                                signature: sig,
+                                sighash_type,
+                            }
+                        }
                         None => {
                             if xonly_public_key == self.xonly_public_key {
                                 taproot::Signature {
@@ -718,48 +770,25 @@ impl Actor {
         Ok(())
     }
 
-    /// Generates an auth token using the hash of the public key
-    /// and a verifiable signature of the hash.
-    pub fn get_auth_token(&self) -> String {
-        let pk_hash = bitcoin::hashes::sha256::Hash::hash(&self.xonly_public_key.serialize());
-        // sign pk_hash
-        let sig = SECP.sign_schnorr(
-            &Message::from_digest(pk_hash.to_byte_array()),
-            &self.keypair,
-        );
-
-        // encode sig and sk_hash
-        let mut all_bytes = Vec::new();
-        all_bytes.extend(pk_hash.to_byte_array());
-        all_bytes.extend(sig.serialize());
-
-        hex::encode(all_bytes)
-    }
-
-    /// Verifies an auth token using the provided public key.
-    pub fn verify_auth_token(
-        &self,
-        token: &str,
-        pk: &XOnlyPublicKey,
-    ) -> Result<(), VerificationError> {
-        let Ok(bytes) = hex::decode(token) else {
-            return Err(VerificationError::InvalidHex);
-        };
-
-        if bytes.len() != 32 + 64 {
-            return Err(VerificationError::InvalidLength);
-        }
-
-        let sk_hash = &bytes[..32];
-        let sig = &bytes[32..];
-
-        let message = Message::from_digest(sk_hash.try_into().expect("checked length"));
-        SECP.verify_schnorr(
-            &schnorr::Signature::from_slice(sig).expect("checked length"),
-            &message,
-            pk,
+    /// Verifies a schnorr signature with the given parameters and wraps errors with signature ID context.
+    fn verify_signature(
+        sig: &schnorr::Signature,
+        sighash: TapSighash,
+        xonly_public_key: XOnlyPublicKey,
+        tweak_data: TapTweakData,
+        signature_id: &SignatureId,
+    ) -> Result<(), BridgeError> {
+        verify_schnorr(
+            sig,
+            &Message::from(sighash),
+            xonly_public_key,
+            tweak_data,
+            None,
         )
-        .map_err(|_| VerificationError::InvalidSignature)
+        .wrap_err(format!(
+            "Failed to verify signature from DB for signature {signature_id:?} for signer xonly pk {xonly_public_key}"
+        ))
+        .map_err(Into::into)
     }
 }
 
@@ -886,7 +915,7 @@ mod tests {
     #[test]
     fn test_actor_key_spend_verification() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (utxo, mut txhandler) = create_key_spend_tx_handler(&actor);
 
         // Actor signs the key spend input.
@@ -904,7 +933,7 @@ mod tests {
     #[test]
     fn test_actor_script_spend_tx_valid() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (prevutxo, mut txhandler) = create_script_spend_tx_handler(&actor);
 
         // Actor performs a partial sign for script spend.
@@ -924,7 +953,7 @@ mod tests {
     #[test]
     fn test_actor_script_spend_sig_valid() {
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
         let (_, mut txhandler) = create_script_spend_tx_handler(&actor);
 
         // Actor performs a partial sign for script spend.
@@ -959,7 +988,7 @@ mod tests {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         assert_eq!(sk.public_key(&SECP), actor.public_key);
         assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
@@ -969,7 +998,7 @@ mod tests {
     fn sign_taproot_pubkey_spend() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
@@ -989,7 +1018,7 @@ mod tests {
     fn sign_taproot_pubkey_spend_tx_with_sighash() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, None, network);
+        let actor = Actor::new(sk, network);
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
@@ -1004,11 +1033,7 @@ mod tests {
     async fn derive_winternitz_pk_uniqueness() {
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let config = create_test_config_with_thread_name().await;
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            Network::Regtest,
-        );
+        let actor = Actor::new(config.secret_key, Network::Regtest);
 
         let mut params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
@@ -1092,24 +1117,17 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
-        let config = create_test_config_with_thread_name().await;
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let actor = Actor::new(
-            config.secret_key,
-            Some(
-                SecretKey::from_str(
-                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
-                )
+            SecretKey::from_str("451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F")
                 .unwrap(),
-            ),
             Network::Regtest,
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            192, 121, 127, 229, 19, 208, 80, 49, 82, 134, 237, 242, 142, 162, 143, 232, 12, 231,
-            114, 175,
+            73, 53, 43, 45, 238, 155, 231, 105, 47, 74, 113, 101, 251, 132, 43, 7, 175, 51, 68, 145,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1123,8 +1141,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            218, 227, 228, 186, 246, 108, 123, 3, 33, 207, 96, 230, 46, 129, 189, 62, 72, 179, 83,
-            181,
+            8, 75, 251, 125, 222, 137, 90, 239, 56, 44, 57, 182, 103, 241, 45, 102, 102, 255, 36,
+            65,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1133,7 +1151,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            179, 152, 124, 47, 40, 83, 205, 159, 21, 85, 233, 82, 128, 55, 176, 166, 37, 43, 80, 0,
+            14, 33, 117, 176, 169, 8, 223, 186, 169, 194, 66, 220, 100, 85, 160, 85, 250, 16, 167,
+            162,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1144,16 +1163,7 @@ mod tests {
     #[tokio::test]
     async fn sign_winternitz_signature() {
         let config = create_test_config_with_thread_name().await;
-        let actor = Actor::new(
-            config.secret_key,
-            Some(
-                SecretKey::from_str(
-                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
-                )
-                .unwrap(),
-            ),
-            Network::Regtest,
-        );
+        let actor = Actor::new(config.secret_key, Network::Regtest);
 
         let data = "iwantporscheasagiftpls".as_bytes().to_vec();
         let message_len = data.len() as u32 * 2;
@@ -1199,7 +1209,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let sk = SecretKey::new(&mut thread_rng());
-        let actor = Actor::new(sk, None, Network::Regtest);
+        let actor = Actor::new(sk, Network::Regtest);
 
         // Create a UTXO controlled by the actor's key spend path
         let (tap_addr, spend_info) =
@@ -1294,14 +1304,5 @@ mod tests {
             "Transaction should be allowed in mempool. Rejection reason: {:?}",
             mempool_accept_result[0].reject_reason.as_ref().unwrap()
         );
-    }
-
-    #[tokio::test]
-    async fn test_auth_token() {
-        let actor = Actor::new(SecretKey::new(&mut thread_rng()), None, Network::Regtest);
-        let token = actor.get_auth_token();
-        assert!(actor
-            .verify_auth_token(&token, &actor.xonly_public_key)
-            .is_ok());
     }
 }

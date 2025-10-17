@@ -23,7 +23,7 @@ pub fn get_tx_from_signed_txs_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .to_owned()
-        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
+        .unwrap_or_else(|| panic!("expected tx of type: {tx_type:?} not found"))
         .to_owned()
         .raw_tx;
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
@@ -277,12 +277,7 @@ pub async fn ensure_outpoint_spent(
         None,
     )
     .await
-    .wrap_err_with(|| {
-        format!(
-            "Timed out while waiting for outpoint {:?} to be spent",
-            outpoint
-        )
-    })?;
+    .wrap_err_with(|| format!("Timed out while waiting for outpoint {outpoint:?} to be spent"))?;
 
     rpc.get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
@@ -304,7 +299,7 @@ pub async fn send_tx_with_type(
         .unwrap();
     send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
         .await
-        .context(format!("failed to send {:?} transaction", tx_type))?;
+        .context(format!("failed to send {tx_type:?} transaction"))?;
     Ok(())
 }
 
@@ -321,7 +316,7 @@ pub async fn create_tx_sender(
     let db = Database::new(&verifier_config).await?;
     let tx_sender = crate::tx_sender::TxSenderClient::new(
         db.clone(),
-        format!("tx_sender_test_{}", verifier_index),
+        format!("tx_sender_test_{verifier_index}"),
     );
     Ok((tx_sender, db))
 }
