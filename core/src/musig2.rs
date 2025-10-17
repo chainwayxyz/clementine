@@ -121,7 +121,7 @@ fn create_key_agg_cache(
                     .finalize();
 
                 musig_key_agg_cache
-                    .pubkey_ec_tweak_add(
+                    .pubkey_xonly_tweak_add(
                         SECP256K1,
                         &Scalar::from_be_bytes(xonly_tweak.into())
                             .wrap_err("Failed to create scalar from xonly tweak bytes")?,
@@ -418,6 +418,8 @@ mod tests {
 
         let final_signature: Result<schnorr::Signature, BridgeError> =
             super::aggregate_partial_signatures(pks, None, agg_nonce, &partial_sigs, message);
+
+        println!("final_signature: {final_signature:?}");
 
         assert!(final_signature.is_err());
     }

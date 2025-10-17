@@ -42,8 +42,8 @@ pub struct BridgeCircuitHostParams {
     pub network: CircuitNetwork,
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey>,
-    pub watchtower_challenge_connector_start_idx: u16,
-    pub payout_input_index: u16,
+    pub watchtower_challenge_connector_start_idx: u32,
+    pub payout_input_index: u32,
 }
 
 /// Errors that can occur when constructing or validating bridge circuit host parameters.
@@ -81,8 +81,6 @@ pub enum BridgeCircuitHostParamsError {
     MissingKickoffOutputs,
     #[error("Invalid deposit storage proof")]
     InvalidDepositStorageProof,
-    #[error("Round transaction ID mismatch")]
-    RoundTxidMismatch,
     #[error("Failed to verify bridge circuit proof")]
     ProofVerificationFailed,
 }
@@ -116,8 +114,8 @@ impl BridgeCircuitHostParams {
         network: Network,
         watchtower_inputs: Vec<WatchtowerInput>,
         all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
-        watchtower_challenge_connector_start_idx: u16,
-        payout_input_index: u16,
+        watchtower_challenge_connector_start_idx: u32,
+        payout_input_index: u32,
     ) -> Self {
         let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
             all_tweaked_watchtower_pubkeys
@@ -180,7 +178,7 @@ impl BridgeCircuitHostParams {
         storage_proof: StorageProof,
         network: Network,
         watchtower_contexts: &[WatchtowerContext],
-        watchtower_challenge_connector_start_idx: u16,
+        watchtower_challenge_connector_start_idx: u32,
     ) -> Result<Self, BridgeCircuitHostParamsError> {
         let watchtower_inputs = get_wt_inputs(
             kickoff_tx.compute_txid(),
@@ -281,20 +279,20 @@ impl BridgeCircuitHostParams {
 ///
 /// # Returns
 ///
-/// Returns a `Result` containing the input index as `u16` or an error.
+/// Returns a `Result` containing the input index as `u32` or an error.
 ///
 /// # Errors
 ///
 /// This function will return an error if:
 /// - The withdrawal transaction ID is not found in any input
-/// - The input index is too large to fit in a `u16`
+/// - The input index is too large to fit in a `u32`
 fn get_payout_input_index(
     wd_txid: Txid,
     payout_tx: &Transaction,
-) -> Result<u16, BridgeCircuitHostParamsError> {
+) -> Result<u32, BridgeCircuitHostParamsError> {
     for (index, input) in payout_tx.input.iter().enumerate() {
         if input.previous_output.txid == wd_txid {
-            return u16::try_from(index).map_err(|_| {
+            return u32::try_from(index).map_err(|_| {
                 // This should never happen
                 BridgeCircuitHostParamsError::PayoutInputIndexTooLarge(index)
             });
@@ -321,7 +319,7 @@ fn get_payout_input_index(
 fn get_wt_inputs(
     kickoff_tx_id: Txid,
     watchtower_contexts: &[WatchtowerContext],
-    watchtower_challenge_connector_start_idx: u16,
+    watchtower_challenge_connector_start_idx: u32,
 ) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
     watchtower_contexts
         .iter()
@@ -356,7 +354,7 @@ fn get_wt_inputs(
 /// - The transaction structure is invalid
 pub fn get_all_pubkeys(
     kickoff_tx: &Transaction,
-    watchtower_challenge_connector_start_idx: u16,
+    watchtower_challenge_connector_start_idx: u32,
 ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
     let start_index = watchtower_challenge_connector_start_idx as usize;
     let end_index = kickoff_tx
@@ -497,16 +495,7 @@ fn host_deposit_constant(
         .txid
         .to_byte_array();
 
-    if input.kickoff_tx.input[0]
-        .previous_output
-        .txid
-        .to_byte_array()
-        != round_txid
-    {
-        return Err(BridgeCircuitHostParamsError::RoundTxidMismatch);
-    }
-
-    let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
+    let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&first_op_return_output.script_pubkey)
         .ok_or(BridgeCircuitHostParamsError::InvalidOperatorPubkey)?
@@ -521,7 +510,7 @@ fn host_deposit_constant(
         &input.all_tweaked_watchtower_pubkeys,
         deposit_value_bytes,
         round_txid,
-        kickff_round_vout,
+        kickoff_round_vout,
         input.hcp.genesis_state_hash,
     ))
 }

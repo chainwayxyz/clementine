@@ -184,10 +184,7 @@ impl CitreaClientT for MockCitreaClient {
         _paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         Ok(Some((
-            LightClientProof {
-                lc_journal: vec![],
-                l2_height: l1_height.to_string(),
-            },
+            LightClientProof { lc_journal: vec![] },
             borsh::from_slice(include_bytes!(
                 "../../../../../circuits-lib/test_data/lcp_receipt.bin"
             ))

@@ -10,12 +10,15 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
+use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
+use bridge_circuit_host::utils::is_dev_mode;
+use circuits_lib::bridge_circuit::constants::is_test_vk;
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -152,6 +155,10 @@ pub struct BridgeConfig {
     /// gRPC client/server limits
     #[serde(default = "default_grpc_limits")]
     pub grpc: GrpcLimits,
+
+    /// Hard cap on tx sender fee rate (sat/vB).
+    #[serde(default = "default_tx_sender_limits")]
+    pub tx_sender_limits: TxSenderLimits,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -172,6 +179,25 @@ fn default_grpc_limits() -> GrpcLimits {
         req_concurrency_limit: 300, // 100 deposits at the same time
         ratelimit_req_count: 1000,
         ratelimit_req_interval_secs: 60,
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TxSenderLimits {
+    pub fee_rate_hard_cap: u64,
+    pub mempool_fee_rate_multiplier: u64,
+    pub mempool_fee_rate_offset_sat_kvb: u64,
+    /// The time to wait before bumping the fee of a fee payer UTXO
+    /// We wait a bit because after bumping the fee, the unconfirmed change utxo that is in the bumped tx will not be able to be spent (so won't be used to create new fee payer utxos) until that fee payer tx confirms
+    pub cpfp_fee_payer_bump_wait_time_seconds: u64,
+}
+
+fn default_tx_sender_limits() -> TxSenderLimits {
+    TxSenderLimits {
+        fee_rate_hard_cap: 100,
+        mempool_fee_rate_multiplier: 1,
+        mempool_fee_rate_offset_sat_kvb: 0,
+        cpfp_fee_payer_bump_wait_time_seconds: 60 * 60, // 1 hour in seconds
     }
 }
 
@@ -213,6 +239,57 @@ impl BridgeConfig {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
+    }
+
+    /// Checks various variables if they are correct for mainnet deployment.
+    pub fn check_mainnet_requirements(&self, actor_type: cli::Actors) -> Result<(), BridgeError> {
+        if self.protocol_paramset().network != Network::Bitcoin {
+            return Ok(());
+        }
+
+        let mut misconfigs = Vec::new();
+
+        if actor_type == cli::Actors::Operator {
+            if !self.client_verification {
+                misconfigs.push("client_verification=false".to_string());
+            }
+            if self.operator_collateral_funding_outpoint.is_none() {
+                misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+            }
+        }
+
+        if actor_type == cli::Actors::Verifier && !self.client_verification {
+            misconfigs.push("client_verification=false".to_string());
+        }
+
+        /// Checks if an env var is set to a non 0 value.
+        fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
+            if let Ok(var) = std::env::var(env_var) {
+                if var == "0" || var.eq_ignore_ascii_case("false") {
+                    return;
+                }
+
+                misconfigs.push(format!("{env_var}={var}"));
+            }
+        }
+
+        check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
+
+        if is_dev_mode() {
+            misconfigs.push("Risc0 dev mode is enabled".to_string());
+        }
+
+        if is_test_vk() {
+            misconfigs.push("use-test-vk feature is enabled".to_string());
+        }
+
+        if !misconfigs.is_empty() {
+            return Err(BridgeError::ConfigError(format!(
+                "Following configs can't be used on Mainnet: {misconfigs:?}",
+            )));
+        }
+
+        Ok(())
     }
 }
 
@@ -340,6 +417,7 @@ impl Default for BridgeConfig {
 
             // New hardening parameters, optional so they don't break existing configs.
             grpc: default_grpc_limits(),
+            tx_sender_limits: default_tx_sender_limits(),
         }
     }
 }
@@ -370,6 +448,8 @@ impl TelemetryConfig {
 #[cfg(test)]
 mod tests {
     use super::BridgeConfig;
+    use crate::{cli, config::protocol::REGTEST_PARAMSET};
+    use bitcoin::{hashes::Hash, Network, OutPoint, Txid};
     use std::{
         fs::{self, File},
         io::Write,
@@ -393,7 +473,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/src/test/data/bridge_config.toml", base_path);
+        let config_path = format!("{base_path}/src/test/data/bridge_config.toml");
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -427,5 +507,67 @@ mod tests {
     fn test_test_config_parseable() {
         let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
+    }
+
+    pub const INVALID_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
+        network: Network::Bitcoin,
+        ..REGTEST_PARAMSET
+    };
+    #[ignore = "Fails if bridge-circuit-host has use-test-vk feature! Which it will, if --all-features is specified at Cargo invocation."]
+    #[serial_test::serial]
+    #[test]
+    fn check_mainnet_reqs() {
+        let env_vars = vec!["DISABLE_NOFN_CHECK", "RISC0_DEV_MODE"];
+
+        // Nothing illegal is set.
+        for var in env_vars.clone() {
+            std::env::remove_var(var);
+        }
+        let mainnet_config = BridgeConfig {
+            protocol_paramset: &INVALID_PARAMSET,
+            client_verification: true,
+            operator_collateral_funding_outpoint: Some(OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            }),
+            ..Default::default()
+        };
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Nothing illegal is set while illegal env vars set to 0 specifically.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "0");
+        }
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_ok());
+
+        // Illegal configs, no illegal env vars.
+        let incorrect_mainnet_config = BridgeConfig {
+            client_verification: false,
+            operator_collateral_funding_outpoint: None,
+            ..mainnet_config.clone()
+        };
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // No illegal configs, illegal env vars.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
+
+        // Illegal everything.
+        for var in env_vars.clone() {
+            std::env::set_var(var, "1");
+        }
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        println!("checks: {checks:?}");
+        assert!(checks.is_err());
     }
 }

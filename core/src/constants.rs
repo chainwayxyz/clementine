@@ -10,6 +10,10 @@ pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
 pub const DEFAULT_CHANNEL_SIZE: usize = 1280;
 
+/// Maximum extra watchtowers that can be added to the deposit (in addition to verifiers).
+/// It is limited because each extra watchtower requires 2 additional utxos in the kickoff tx.
+pub const MAX_EXTRA_WATCHTOWERS: usize = 5;
+
 /// The maximum number of nonces that can be generated in a single nonce generation session.
 /// A single nonce takes 132 (musig2 secret nonce) bytes. We calculate NUM_NONCES so that a nonce
 /// session takes at maximum 150MB.
@@ -68,7 +72,7 @@ mod timeout {
     pub const SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
     pub const DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(2400); // 40 minutes
 
-    pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(60);
+    pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(120);
 
     pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 

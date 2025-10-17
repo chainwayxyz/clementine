@@ -144,7 +144,7 @@ pub fn parse_deposit_sign_session(
             "Verifier with index {verifier_idx} and public key of {verifier_pk} doesn't exists in nonce_gen_first_responses!"
         )))?
         .id.parse()
-        .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {}", e)))?;
+        .map_err(|e| Status::invalid_argument(format!("Invalid nonce session id: {e}")))?;
 
     Ok((deposit_data, session_id))
 }
@@ -206,8 +206,7 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
         }
         _ => {
             return Err(Status::internal(format!(
-                "Expected SchnorrSig, got {:?}",
-                sig
+                "Expected SchnorrSig, got {sig:?}",
             )));
         }
     };
@@ -231,8 +230,7 @@ pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
                 .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
         _ => Err(Status::internal(format!(
-            "Expected MoveTxAggNonce, got {:?}",
-            sig
+            "Expected MoveTxAggNonce, got {sig:?}",
         ))),
     }
 }
@@ -253,8 +251,7 @@ pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
             .map_err(invalid_argument("AggregatedNonce", "failed to parse"))?)
         }
         _ => Err(Status::internal(format!(
-            "Expected EmergencyStopAggNonce, got {:?}",
-            sig
+            "Expected EmergencyStopAggNonce, got {sig:?}",
         ))),
     }
 }
