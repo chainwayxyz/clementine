@@ -1,7 +1,7 @@
 use crate::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
-    task::{BufferedErrors, IntoTask, TaskErrorHandler, TaskVariant, WithDelay},
+    task::{BufferedErrors, IntoTask, RecoverableTask, TaskVariant, WithDelay},
 };
 use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
@@ -161,7 +161,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 }
 
 #[async_trait]
-impl<T: Owner + std::fmt::Debug + 'static> TaskErrorHandler for MessageConsumerTask<T> {
+impl<T: Owner + std::fmt::Debug + 'static> RecoverableTask for MessageConsumerTask<T> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
         // in case of any error, reload the state machines from the database
         self.inner.reload_state_manager_from_db().await

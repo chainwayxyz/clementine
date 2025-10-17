@@ -9,7 +9,7 @@ use crate::{
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
-    task::{IntoTask, Task, TaskErrorHandler, TaskExt, TaskVariant, WithDelay},
+    task::{IntoTask, RecoverableTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
@@ -595,7 +595,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 }
 
 #[async_trait]
-impl<H: BlockHandler> TaskErrorHandler for FinalizedBlockFetcherTask<H> {
+impl<H: BlockHandler> RecoverableTask for FinalizedBlockFetcherTask<H> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
         // for now errors are handled in the task itself
         Ok(())

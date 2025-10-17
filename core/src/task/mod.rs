@@ -178,14 +178,14 @@ impl<T: Task + Sized> Task for CancelableLoop<T> {
 /// Tasks that want to use `into_buffered_errors()` must implement this trait
 /// to define how they recover from errors.
 #[async_trait]
-pub trait TaskErrorHandler: Send + Sync {
+pub trait RecoverableTask: Task + Send + Sync {
     /// Recover from an error by attempting to handle it.
     /// If the error is handled, the task will continue running if error overflow limit is not reached.
     async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError>;
 }
 
 #[derive(Debug)]
-pub struct BufferedErrors<T: TaskErrorHandler + Task + Sized>
+pub struct BufferedErrors<T: RecoverableTask + Sized>
 where
     T::Output: Default,
 {
@@ -195,7 +195,7 @@ where
     handle_error_attempts: usize,
 }
 
-impl<T: TaskErrorHandler + Task + Sized> BufferedErrors<T>
+impl<T: RecoverableTask + Sized> BufferedErrors<T>
 where
     T::Output: Default,
 {
@@ -210,7 +210,7 @@ where
 }
 
 #[async_trait]
-impl<T: TaskErrorHandler + Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
+impl<T: RecoverableTask + Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
 where
     T: Send,
     T::Output: Default,
@@ -349,7 +349,7 @@ pub trait TaskExt: Task + Sized {
         handle_error_attempts: usize,
     ) -> BufferedErrors<Self>
     where
-        Self: TaskErrorHandler,
+        Self: RecoverableTask,
         Self::Output: Default;
 
     /// Maps the task's `Ok()` output using the given function.
@@ -399,7 +399,7 @@ impl<T: Task + Sized> TaskExt for T {
         handle_error_attempts: usize,
     ) -> BufferedErrors<Self>
     where
-        Self: TaskErrorHandler,
+        Self: RecoverableTask,
         Self::Output: Default,
     {
         BufferedErrors::new(self, error_overflow_limit, handle_error_attempts)

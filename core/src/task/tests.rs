@@ -6,7 +6,7 @@ use tokio::time::sleep;
 
 use crate::errors::BridgeError;
 use crate::task::manager::TaskStatus;
-use crate::task::TaskErrorHandler;
+use crate::task::RecoverableTask;
 
 use super::manager::BackgroundTaskManager;
 use super::{CancelableResult, Task, TaskExt, TaskVariant};
@@ -106,7 +106,7 @@ impl Task for CounterTask {
 }
 
 #[tonic::async_trait]
-impl TaskErrorHandler for CounterTask {
+impl RecoverableTask for CounterTask {
     async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError> {
         if format!("{error:?}").contains("Handle error fail") {
             return Err(eyre::eyre!("Handle error failed").into());
