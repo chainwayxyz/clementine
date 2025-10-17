@@ -828,9 +828,9 @@ impl ExtendedBitcoinRpc {
                     .wait_for_sync(None)
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
-                // mined blocks has to be block_num higher than reorg_blocks, because this callers of this fn expects
+                // mined blocks has to be block_num higher than reorg_blocks + 1, because this callers of this fn expects
                 // chain size to increase by at least block_num starting from where cpfp fee payer is in mempool.
-                while mined_blocks.len() != (reorg_blocks + block_num) as usize {
+                while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
                     if !are_all_state_managers_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
