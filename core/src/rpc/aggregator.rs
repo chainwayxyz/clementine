@@ -19,12 +19,12 @@ use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
     KEY_DISTRIBUTION_TIMEOUT, NONCE_STREAM_CREATION_TIMEOUT, OPERATOR_SIGS_STREAM_CREATION_TIMEOUT,
-    OPERATOR_SIGS_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT, PARTIAL_SIG_STREAM_CREATION_TIMEOUT,
-    PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT, SETUP_COMPLETION_TIMEOUT,
-    WITHDRAWAL_TIMEOUT,
+    OPERATOR_SIGS_TIMEOUT, OPTIMISTIC_PAYOUT_TIMEOUT, OVERALL_DEPOSIT_TIMEOUT,
+    PARTIAL_SIG_STREAM_CREATION_TIMEOUT, PIPELINE_COMPLETION_TIMEOUT, SEND_OPERATOR_SIGS_TIMEOUT,
+    SETUP_COMPLETION_TIMEOUT, WITHDRAWAL_TIMEOUT,
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
-use crate::errors::ResultExt;
+use crate::errors::{ErrorExt, ResultExt};
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
@@ -46,6 +46,7 @@ use bitcoin::secp256k1::schnorr::{self, Signature};
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
+use futures::future::join_all;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
@@ -1145,7 +1146,7 @@ impl ClementineAggregator for AggregatorServer {
             // send the agg nonce to the verifiers to sign the optimistic payout tx
             let payout_sigs = participating_verifiers
                 .clients()
-                .into_iter()
+                .iter()
                 .zip(first_responses)
                 .map(|(client, first_response)| {
                     let mut client = client.clone();
@@ -1153,18 +1154,40 @@ impl ClementineAggregator for AggregatorServer {
                     {
                         let agg_nonce_serialized = agg_nonce_bytes.clone();
                         async move {
-                            client
-                                .optimistic_payout_sign(OptimisticPayoutParams {
-                                    opt_withdrawal: Some(opt_withdraw_params),
-                                    agg_nonce: agg_nonce_serialized,
-                                    nonce_gen: Some(first_response),
-                                })
-                                .await
+                            let mut request = Request::new(OptimisticPayoutParams {
+                                opt_withdrawal: Some(opt_withdraw_params),
+                                agg_nonce: agg_nonce_serialized,
+                                nonce_gen: Some(first_response),
+                            });
+                            request.set_timeout(OPTIMISTIC_PAYOUT_TIMEOUT);
+                            client.optimistic_payout_sign(request).await
                         }
                     }
                 })
                 .collect::<Vec<_>>();
 
+            // get signatures and check for any errors
+            let opt_payout_resps = join_all(payout_sigs).await;
+            let mut payout_sigs = Vec::new();
+            let mut errors = Vec::new();
+            for (resp, verifier_id) in opt_payout_resps
+                .into_iter()
+                .zip(participating_verifiers.ids())
+            {
+                match resp {
+                    Ok(res) => {
+                        payout_sigs.push(res.into_inner());
+                    }
+                    Err(e) => {
+                        errors.push(format!("{verifier_id} optimistic payout sign failed: {e}"));
+                    }
+                }
+            }
+            if !errors.is_empty() {
+                return Err(eyre::eyre!("{errors:?}").into_status());
+            }
+
+            // calculate final sig
             // txin at index 1 is deposited utxo in movetx
             let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
                 1,
@@ -1172,16 +1195,11 @@ impl ClementineAggregator for AggregatorServer {
                 bitcoin::TapSighashType::Default,
             )?;
 
-            // calculate final sig
-            let payout_sig = try_join_all(payout_sigs).await?;
-
-            let musig_partial_sigs = payout_sig
-                .iter()
+            let musig_partial_sigs = payout_sigs
+                .into_iter()
                 .map(|sig| {
                     PartialSignature::from_byte_array(
-                        &sig.get_ref()
-                            .partial_sig
-                            .clone()
+                        &sig.partial_sig
                             .try_into()
                             .map_err(|_| secp256k1::musig::ParseError::MalformedArg)?,
                     )
