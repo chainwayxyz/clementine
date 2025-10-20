@@ -453,7 +453,7 @@ where
             )
             .await
             .wrap_err_with(|| {
-                format!("While waiting for {nonce_idx} + 1th sig out of {num_required_nofn_sigs} ")
+                format!("While waiting for the {}th signature out of {}", nonce_idx + 1, num_required_nofn_sigs)
             })
             .map_to_status()?
             {
