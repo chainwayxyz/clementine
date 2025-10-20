@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::common::citrea::get_bridge_params;
 use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
@@ -16,6 +18,7 @@ use async_trait::async_trait;
 use bitcoin::OutPoint;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -54,6 +57,7 @@ impl TestCase for AdditionalDisproveTest {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -118,7 +122,7 @@ impl TestCase for AdditionalDisproveTest {
 
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
-            da,
+            da.get(0).expect("There is a bitcoin node"),
             sequencer,
             Some((
                 lc_prover.config.rollup.rpc.bind_host.as_str(),
@@ -149,7 +153,7 @@ impl TestCase for AdditionalDisproveTest {
             full_node,
             lc_prover,
             batch_prover,
-            da,
+            bitcoin_nodes: da,
             config: config.clone(),
             citrea_client: &citrea_client,
             rpc: &rpc,
@@ -173,6 +177,7 @@ impl TestCase for AdditionalDisproveTest {
             &rpc,
             disprove_outpoint,
             &actors,
+            Some(&citrea_e2e_data),
         )
         .await
         .unwrap();
