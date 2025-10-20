@@ -969,7 +969,7 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate_sat_kwu = current_fee_sat as f64 / tx_weight as f64 * 1000.0;
+        let current_fee_rate_sat_kwu = current_fee_sat as f64 * 1000.0 / tx_weight as f64;
 
         tracing::trace!(
             "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
