@@ -73,6 +73,7 @@ use bitcoin::{secp256k1::PublicKey, OutPoint, Txid, XOnlyPublicKey};
 use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
+use http::StatusCode;
 use thiserror::Error;
 use tonic::Status;
 
@@ -178,6 +179,20 @@ pub enum BridgeError {
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FeeErr {
+    #[error("request timed out")]
+    Timeout,
+    #[error("transport/decode error: {0}")]
+    Transport(#[from] reqwest::Error),
+    #[error("http status {0}")]
+    Status(StatusCode),
+    #[error("json decode error: {0}")]
+    JsonDecode(reqwest::Error),
+    #[error("'fastestFee' field not found or invalid in API response")]
+    MissingField,
 }
 
 /// Extension traits for errors to easily convert them to eyre::Report and

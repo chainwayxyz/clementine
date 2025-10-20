@@ -270,6 +270,11 @@ impl BlockInclusionProof {
             level += 1;
             index /= 2;
         }
+        // If index is not zero here, the proof was invalid (didn't reach the root or indexing was off)
+        // We return [0u8; 32] to indicate an invalid proof
+        if index != 0 {
+            return [0u8; 32];
+        }
         calculate_sha256(&combined_hash) // This should be the Bitcoin block's Merkle root
     }
 }
@@ -463,5 +468,48 @@ mod tests {
         let idx_path = mid_state_tree.get_idx_path(4); // Get from real index 4
         let false_proof = BlockInclusionProof::new(6, idx_path);
         verify_merkle_proof(transactions[4].mid_state_txid(), &false_proof, tree_root);
+    }
+
+    #[test]
+    /// Test that get_root returns [0u8; 32] when index doesn't reach 0
+    /// This tests the security check against malicious index manipulation
+    fn test_get_root_invalid_index_returns_zeros() {
+        let mut transactions: Vec<CircuitTransaction> = vec![];
+        for i in 0u8..4u8 {
+            let tx = Transaction {
+                version: Version::non_standard(i as i32),
+                lock_time: LockTime::ZERO,
+                input: vec![],
+                output: vec![],
+            };
+            transactions.push(CircuitTransaction(tx));
+        }
+        let mid_state_tree = BitcoinMerkleTree::new_mid_state(&transactions);
+
+        for idx in 0..4 {
+            // Get a valid proof for index
+            let valid_idx_path = mid_state_tree.get_idx_path(idx);
+
+            // Create a malicious proof with an index that has extra bits (index + 4)
+            // This simulates an attacker trying to add bits to make the index larger
+            let malicious_index = idx + 4; // This would be index 5, but using proof for index 1
+            let malicious_proof = BlockInclusionProof::new(malicious_index, valid_idx_path.clone());
+
+            // The get_root method should return [0u8; 32] for this invalid proof
+            let result = malicious_proof.get_root(transactions[idx as usize].mid_state_txid());
+            assert_eq!(
+                result, [0u8; 32],
+                "get_root should return all zeros for invalid index"
+            );
+
+            // Test with an even more malicious index (much larger)
+            let malicious_index = 16 + idx; // Way larger than valid for this tree
+            let malicious_proof = BlockInclusionProof::new(malicious_index, valid_idx_path);
+            let result2 = malicious_proof.get_root(transactions[idx as usize].mid_state_txid());
+            assert_eq!(
+                result2, [0u8; 32],
+                "get_root should return all zeros for very large invalid index"
+            );
+        }
     }
 }

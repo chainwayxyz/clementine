@@ -107,7 +107,7 @@ impl CircuitGroth16WithTotalWork {
 
         let prepared_vk: &[u8] = get_prepared_vk();
 
-        let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
+        let prepared_vk: PreparedVerifyingKey<Bn254> =
             CanonicalDeserialize::deserialize_uncompressed(prepared_vk).unwrap();
 
         let output_digest = create_output_digest(&WorkOnlyCircuitOutput {
@@ -130,7 +130,7 @@ impl CircuitGroth16WithTotalWork {
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
         ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-            .unwrap()
+            .unwrap_or(false)
     }
 }
 

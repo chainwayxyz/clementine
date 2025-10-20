@@ -24,6 +24,7 @@ use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use eyre::Context;
 use futures::TryFutureExt;
 use std::str::FromStr;
 use tokio::sync::mpsc;
@@ -342,15 +343,18 @@ where
             .payout_blockhash
             .clone()
             .try_into()
-            .expect("Failed to convert payout blockhash to [u8; 32]");
-        let deposit_outpoint = request
+            .map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Failed to convert payout blockhash to [u8; 32]: {:?}",
+                    e
+                ))
+            })?;
+        let deposit_outpoint: OutPoint = request
             .get_ref()
             .deposit_outpoint
             .clone()
-            .expect("Failed to get deposit outpoint");
-        let deposit_outpoint: OutPoint = deposit_outpoint
-            .try_into()
-            .expect("Failed to convert deposit outpoint to OutPoint");
+            .ok_or(Status::invalid_argument("Failed to get deposit outpoint"))?
+            .try_into()?;
 
         let mut dbtx = self.operator.db.begin_transaction().await?;
         let kickoff_txid = self
@@ -361,7 +365,10 @@ where
                 BlockHash::from_byte_array(payout_blockhash),
             )
             .await?;
-        dbtx.commit().await.expect("Failed to commit transaction");
+        dbtx.commit()
+            .await
+            .wrap_err("Failed to commit transaction")
+            .map_to_status()?;
 
         Ok(Response::new(kickoff_txid.into()))
     }
@@ -373,11 +380,16 @@ where
     ) -> Result<Response<Empty>, Status> {
         #[cfg(feature = "automation")]
         {
+            use eyre::Context;
+
             let mut dbtx = self.operator.db.begin_transaction().await?;
 
             self.operator.end_round(&mut dbtx).await?;
 
-            dbtx.commit().await.expect("Failed to commit transaction");
+            dbtx.commit()
+                .await
+                .wrap_err("Failed to commit transaction")
+                .map_to_status()?;
             Ok(Response::new(Empty {}))
         }
 

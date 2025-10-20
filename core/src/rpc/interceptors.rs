@@ -16,7 +16,6 @@ fn is_internal(req: &Request<()>) -> bool {
         tracing::error!("Missing grpc-method header in request");
         return false;
     };
-
     path.as_bytes().starts_with(b"Internal")
 }
 

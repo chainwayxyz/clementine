@@ -73,7 +73,9 @@ impl SignatureId {
                 use NormalSignatureKind::*;
                 match normal_sig_type {
                     OperatorSighashDefault => Ok(Own(SighashDefault)),
-                    NormalSignatureUnknown => Ok(NotOwned),
+                    NormalSignatureUnknown => {
+                        Err(eyre::eyre!("Signature type is unknown, possible bad data").into())
+                    }
                     Challenge => Ok(OperatorSharedDeposit(SinglePlusAnyoneCanPay)),
                     DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     Disprove2 => Ok(OperatorSharedDeposit(SighashDefault)),
@@ -102,7 +104,10 @@ impl SignatureId {
                 match numbered_sig_type {
                     OperatorChallengeNack1 => Ok(NofnSharedDeposit(SighashDefault)),
                     OperatorChallengeNack2 => Ok(NofnSharedDeposit(SighashDefault)),
-                    NumberedSignatureUnknown => Ok(NotOwned),
+                    NumberedSignatureUnknown => Err(eyre::eyre!(
+                        "Numbered signature type is unknown, possible bad data"
+                    )
+                    .into()),
                     NumberedNotStored => Ok(Own(SighashDefault)),
                     OperatorChallengeNack3 => Ok(OperatorSharedDeposit(SighashDefault)),
                     AssertTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
