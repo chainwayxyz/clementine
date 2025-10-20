@@ -408,7 +408,8 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
-    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() + MIN_TAPROOT_AMOUNT {
+    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() + MIN_TAPROOT_AMOUNT
+    {
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
