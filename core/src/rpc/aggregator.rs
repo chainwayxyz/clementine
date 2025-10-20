@@ -1144,7 +1144,7 @@ impl ClementineAggregator for AggregatorServer {
 
             let agg_nonce_bytes = agg_nonce.serialize().to_vec();
             // send the agg nonce to the verifiers to sign the optimistic payout tx
-            let payout_sigs = participating_verifiers
+            let opt_payout_sign_futures = participating_verifiers
                 .clients()
                 .iter()
                 .zip(first_responses)
@@ -1167,7 +1167,7 @@ impl ClementineAggregator for AggregatorServer {
                 .collect::<Vec<_>>();
 
             // get signatures and check for any errors
-            let opt_payout_resps = join_all(payout_sigs).await;
+            let opt_payout_resps = join_all(opt_payout_sign_futures).await;
             let mut payout_sigs = Vec::new();
             let mut errors = Vec::new();
             for (resp, verifier_id) in opt_payout_resps
