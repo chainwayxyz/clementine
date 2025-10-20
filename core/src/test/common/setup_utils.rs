@@ -13,6 +13,7 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::{sighash, taproot};
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
@@ -238,11 +239,14 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
 
-    let config = BridgeConfig {
+    let mut config = BridgeConfig {
         db_name: handle.to_string(),
         citrea_rpc_url: handle.to_string(),
         ..Default::default()
     };
+    let mut new_paramset = config.protocol_paramset().clone();
+    new_paramset.finality_depth = DEFAULT_FINALITY_DEPTH as u32;
+    config.protocol_paramset = Box::leak(Box::new(new_paramset));
 
     initialize_database(&config).await;
 
