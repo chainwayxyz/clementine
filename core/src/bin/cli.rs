@@ -180,6 +180,22 @@ enum AggregatorCommands {
         #[arg(long)]
         operator_xonly_pks: Option<Vec<String>>,
     },
+    NewOptimisticWithdrawal {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+        #[arg(long)]
+        verification_signature: Option<String>,
+    },
     /// Get the status of all entities (operators and verifiers)
     GetEntityStatuses {
         #[arg(long)]
@@ -557,6 +573,52 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     );
                 }
             }
+        }
+        AggregatorCommands::NewOptimisticWithdrawal {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+            verification_signature,
+        } => {
+            println!("Processing withdrawal with id {withdrawal_id}");
+
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
+            input_outpoint_txid_bytes.reverse();
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature_bytes,
+                input_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: input_outpoint_txid_bytes,
+                    }),
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey_bytes,
+                output_amount,
+            };
+
+            let withdraw_params_with_sig =
+                clementine_core::rpc::clementine::OptimisticWithdrawParams {
+                    withdrawal: Some(params),
+                    verification_signature: verification_signature.clone(),
+                };
+
+            let response = aggregator
+                .optimistic_payout(Request::new(withdraw_params_with_sig))
+                .await
+                .expect("Failed to make a request");
+            println!("Tx: {}", hex::encode(response.get_ref().raw_tx.clone()));
         }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
@@ -936,8 +998,6 @@ async fn handle_print_addresses() {
             return;
         }
     };
-
-    println!("Bitcoin RPC URL: {bitcoin_rpc_url}");
 
     // Get network from environment or default to regtest
     let network = match std::env::var("NETWORK") {
