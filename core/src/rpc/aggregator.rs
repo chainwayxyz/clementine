@@ -13,6 +13,7 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
+use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
@@ -24,8 +25,8 @@ use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::ResultExt;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
-    VerifierDepositSignParams,
+    operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
+    EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
@@ -817,6 +818,27 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for AggregatorServer {
+    async fn get_compatibility_params(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<CompatibilityParamsRpc>, Status> {
+        let params = self.aggregator.get_compatibility_params()?;
+        Ok(Response::new(params.try_into().map_to_status()?))
+    }
+
+    async fn get_compatibility_data_from_entities(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<EntitiesCompatibilityData>, Status> {
+        let data = self
+            .aggregator
+            .get_compatibility_data_from_entities()
+            .await?;
+        Ok(Response::new(EntitiesCompatibilityData {
+            entities_compatibility_data: data,
+        }))
+    }
+
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
@@ -852,6 +874,9 @@ impl ClementineAggregator for AggregatorServer {
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
         tracing::info!("Parsed optimistic payout rpc params, deposit id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}, verification signature: {:?}", deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount, opt_withdraw_params.verification_signature);
+
+        // check compatibility with verifiers only
+        self.check_compatibility_with_actors(true, false).await?;
 
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
@@ -1122,6 +1147,7 @@ impl ClementineAggregator for AggregatorServer {
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
         tracing::info!("Setup rpc called");
+        self.check_compatibility_with_actors(true, true).await?;
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1219,6 +1245,8 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
         tracing::info!("New deposit rpc called");
+        self.check_compatibility_with_actors(true, true).await?;
+
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
             let deposit_info: DepositInfo = request.into_inner().try_into()?;
             tracing::info!(
@@ -1556,6 +1584,9 @@ impl ClementineAggregator for AggregatorServer {
             ))?,
             request.operator_xonly_pks,
         );
+        // check compatibility with operators only
+        self.check_compatibility_with_actors(false, true).await?;
+
         let withdraw_params = withdraw_params_with_sig
             .clone()
             .withdrawal

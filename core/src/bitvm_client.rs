@@ -16,6 +16,7 @@ use bitvm::chunk::api::{
 use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+use sha2::{Digest, Sha256};
 use std::fs;
 use tokio::sync::Mutex;
 
@@ -54,9 +55,14 @@ lazy_static::lazy_static! {
 /// # Usage
 /// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
 /// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
-pub static BITVM_CACHE: OnceLock<BitvmCache> = OnceLock::new();
+pub static BITVM_CACHE: OnceLock<BitvmCacheWithMetadata> = OnceLock::new();
 
-pub fn load_or_generate_bitvm_cache() -> BitvmCache {
+pub struct BitvmCacheWithMetadata {
+    pub bitvm_cache: BitvmCache,
+    pub sha256_bitvm_cache: [u8; 32],
+}
+
+pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
     let start = Instant::now();
 
     let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
@@ -93,7 +99,21 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCache {
     };
 
     tracing::debug!("BitVM initialization took: {:?}", start.elapsed());
-    bitvm_cache
+
+    // calculate sha256 of disprove scripts, to be used in compatibility checks
+    let mut hasher = Sha256::new();
+    hasher.update(
+        borsh::to_vec(&bitvm_cache)
+            .expect("Failed to serialize BitVM cache, the cache might be stale, consider deleting the cache file.")
+            .as_slice(),
+    );
+    let sha256_bitvm_cache: [u8; 32] = hasher.finalize().into();
+    tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
+
+    BitvmCacheWithMetadata {
+        bitvm_cache,
+        sha256_bitvm_cache,
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -592,7 +612,9 @@ pub fn replace_disprove_scripts(
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
-    let cache = BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
+    let cache = &BITVM_CACHE
+        .get_or_init(load_or_generate_bitvm_cache)
+        .bitvm_cache;
     let replacement_places = &cache.replacement_places;
 
     // Calculate estimated operations to prevent DoS attacks
