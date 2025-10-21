@@ -111,6 +111,8 @@ impl RecoverableTask for CounterTask {
         if format!("{error:?}").contains("Handle error fail") {
             return Err(eyre::eyre!("Handle error failed").into());
         }
+        // set flag to true so that next time the task runs, it doesn't fail
+        self.already_handled_error_successfully = true;
         Ok(())
     }
 }
@@ -361,10 +363,13 @@ async fn test_buffered_errors_with_handle_error_attempts_and_success() {
     for _ in 0..3 {
         assert!(buffered_task.run_once().await.is_ok());
     }
-    // fourth run should fail, but not panic as it can be handled successfully
+    assert_eq!(*counter.lock().await, 3);
+    // fourth run should fail, but not panic as it can be handled successfully, but counter should not increase
     assert!(buffered_task.run_once().await.is_ok());
-    // fifth run shouldn't fail
+    assert_eq!(*counter.lock().await, 3);
+    // fifth run shouldn't fail and should increase counter by 1
     assert!(buffered_task.run_once().await.is_ok());
+    assert_eq!(*counter.lock().await, 4);
 }
 
 #[tokio::test]
