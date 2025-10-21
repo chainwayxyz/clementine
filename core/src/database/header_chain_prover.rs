@@ -681,7 +681,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+        let batch_size = config.header_chain_proof_batch_size;
 
         assert!(db
             .get_next_n_non_proven_block(batch_size)

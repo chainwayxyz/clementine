@@ -174,32 +174,52 @@ impl<T: Task + Sized> Task for CancelableLoop<T> {
     }
 }
 
+/// A trait for tasks that can handle errors, required for BufferedErrors.
+/// Tasks that want to use `into_buffered_errors()` must implement this trait
+/// to define how they recover from errors.
+#[async_trait]
+pub trait RecoverableTask: Task + Send + Sync {
+    /// Recover from an error by attempting to handle it.
+    /// If the error is handled, the task will continue running if error overflow limit is not reached.
+    async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError>;
+}
+
 #[derive(Debug)]
-pub struct BufferedErrors<T: Task + Sized>
+pub struct BufferedErrors<T: RecoverableTask + Sized>
 where
     T::Output: Default,
 {
     inner: T,
     buffer: Vec<BridgeError>,
     error_overflow_limit: usize,
+    handle_error_attempts: usize,
+    wait_between_recover_attempts: Duration,
 }
 
-impl<T: Task + Sized> BufferedErrors<T>
+impl<T: RecoverableTask + Sized> BufferedErrors<T>
 where
     T::Output: Default,
 {
-    pub fn new(inner: T, error_overflow_limit: usize) -> Self {
+    pub fn new(
+        inner: T,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
+    ) -> Self {
         Self {
             inner,
             buffer: Vec::new(),
             error_overflow_limit,
+            handle_error_attempts,
+            wait_between_recover_attempts,
         }
     }
 }
 
 #[async_trait]
-impl<T: Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
+impl<T: RecoverableTask + Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
 where
+    T: Send,
     T::Output: Default,
 {
     type Output = T::Output;
@@ -214,7 +234,32 @@ where
                 Ok(output)
             }
             Err(e) => {
-                tracing::error!("Task error, suppressing due to buffer: {e:?}");
+                tracing::error!(
+                    "Task {:?} error, attempting to recover: {e:?}",
+                    Self::VARIANT
+                );
+                // handle the error
+                for attempt in 1..=self.handle_error_attempts {
+                    let result = self.inner.recover_from_error(&e).await;
+                    match result {
+                        Ok(()) => break,
+                        Err(e) => {
+                            tracing::error!(
+                                "Task {:?} error, failed to recover (attempt {attempt}): {e:?}",
+                                Self::VARIANT,
+                            );
+                            if attempt == self.handle_error_attempts {
+                                // this will only close the task thread
+                                return Err(eyre::eyre!(
+                                    "Failed to recover from task {:?} error after {attempt} attempts, aborting...",
+                                    Self::VARIANT
+                                ).into());
+                            }
+                            // wait for the configured duration (self.wait_between_recover_attempts) before trying again
+                            tokio::time::sleep(self.wait_between_recover_attempts).await;
+                        }
+                    }
+                }
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
                     let mut base_error: eyre::Report =
@@ -307,8 +352,16 @@ pub trait TaskExt: Task + Sized {
 
     /// Buffers consecutive errors until the task succeeds, emits all errors when there are
     /// more than `error_overflow_limit` consecutive errors.
-    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
+    /// If the task fails, error will be tried to be handled up to `handle_error_attempts` times.
+    /// After each attempt, the task will wait for `wait_between_recover_attempts` before trying again.
+    fn into_buffered_errors(
+        self,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
+    ) -> BufferedErrors<Self>
     where
+        Self: RecoverableTask,
         Self::Output: Default;
 
     /// Maps the task's `Ok()` output using the given function.
@@ -352,11 +405,22 @@ impl<T: Task + Sized> TaskExt for T {
         })
     }
 
-    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
+    fn into_buffered_errors(
+        self,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
+    ) -> BufferedErrors<Self>
     where
+        Self: RecoverableTask,
         Self::Output: Default,
     {
-        BufferedErrors::new(self, error_overflow_limit)
+        BufferedErrors::new(
+            self,
+            error_overflow_limit,
+            handle_error_attempts,
+            wait_between_recover_attempts,
+        )
     }
 
     fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(

@@ -15,6 +15,7 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
+use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
@@ -27,8 +28,8 @@ use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::errors::{ErrorExt, ResultExt};
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    operator_withrawal_response, AggregatorWithdrawalInput, OperatorWithrawalResponse,
-    VerifierDepositSignParams,
+    operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
+    EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
@@ -42,7 +43,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::schnorr::{self, Signature};
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
@@ -963,6 +964,27 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for AggregatorServer {
+    async fn get_compatibility_params(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<CompatibilityParamsRpc>, Status> {
+        let params = self.aggregator.get_compatibility_params()?;
+        Ok(Response::new(params.try_into().map_to_status()?))
+    }
+
+    async fn get_compatibility_data_from_entities(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<EntitiesCompatibilityData>, Status> {
+        let data = self
+            .aggregator
+            .get_compatibility_data_from_entities()
+            .await?;
+        Ok(Response::new(EntitiesCompatibilityData {
+            entities_compatibility_data: data,
+        }))
+    }
+
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
@@ -998,6 +1020,9 @@ impl ClementineAggregator for AggregatorServer {
         let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
         tracing::info!("Parsed optimistic payout rpc params, deposit id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}, verification signature: {:?}", deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount, opt_withdraw_params.verification_signature);
+
+        // check compatibility with verifiers only
+        self.check_compatibility_with_actors(true, false).await?;
 
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
@@ -1087,20 +1112,13 @@ impl ClementineAggregator for AggregatorServer {
                 self.config.protocol_paramset(),
             )?;
 
-            let sighash = opt_payout_txhandler.calculate_pubkey_spend_sighash(
-                0,
-                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-            )?;
+            let sighash = opt_payout_txhandler
+                .calculate_pubkey_spend_sighash(0, input_signature.sighash_type)?;
 
             let message = Message::from_digest(sighash.to_byte_array());
 
-            let sig =
-                schnorr::Signature::from_slice(&input_signature.serialize()).map_err(|_| {
-                    Status::internal("Failed to parse signature from optimistic payout tx witness")
-                })?;
-
-            SECP.verify_schnorr(&sig, &message, &user_xonly_pk)
-                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx"))?;
+            SECP.verify_schnorr(&input_signature.signature, &message, &user_xonly_pk)
+                .map_err(|_| Status::internal("Invalid signature for optimistic payout tx. Ensure the signature uses SinglePlusAnyoneCanPay sighash type."))?;
 
             // get which verifiers participated in the deposit to collect the optimistic payout tx signature
             let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
@@ -1293,6 +1311,7 @@ impl ClementineAggregator for AggregatorServer {
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
         tracing::info!("Setup rpc called");
+        self.check_compatibility_with_actors(true, true).await?;
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1425,6 +1444,8 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
         tracing::info!("New deposit rpc called");
+        self.check_compatibility_with_actors(true, true).await?;
+
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
             let deposit_info: DepositInfo = request.into_inner().try_into()?;
             tracing::info!(
@@ -1783,12 +1804,19 @@ impl ClementineAggregator for AggregatorServer {
     ) -> Result<Response<AggregatorWithdrawResponse>, Status> {
         tracing::warn!("Withdraw rpc called");
         let request = request.into_inner();
-        let (withdraw_params, operator_xonly_pks) = (
+        let (withdraw_params_with_sig, operator_xonly_pks) = (
             request.withdrawal.ok_or(Status::invalid_argument(
                 "withdrawalParamsWithSig is missing",
             ))?,
             request.operator_xonly_pks,
         );
+        // check compatibility with operators only
+        self.check_compatibility_with_actors(false, true).await?;
+
+        let withdraw_params = withdraw_params_with_sig
+            .clone()
+            .withdrawal
+            .ok_or(Status::invalid_argument("withdrawalParams is missing"))?;
 
         // convert rpc xonly pks to bitcoin xonly pks
         let operator_xonly_pks_from_rpc: Vec<XOnlyPublicKey> = operator_xonly_pks
@@ -1808,6 +1836,11 @@ impl ClementineAggregator for AggregatorServer {
                 .map(|pk| pk.to_string())
                 .collect::<Vec<_>>()
         );
+
+        // parse_withdrawal_sig_params is called to check if the inputs can be parsed correctly
+        // and check if input sighash type is SinglePlusAnyoneCanPay
+        let (withdrawal_id, _, _, _, _) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params)?;
 
         // check if all given operator xonly pubkeys are a valid operator xonly pubkey, to warn the caller if
         // something is wrong with the given operator xonly pubkeys
@@ -1834,7 +1867,7 @@ impl ClementineAggregator for AggregatorServer {
             })
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
-                let params = withdraw_params.clone();
+                let params = withdraw_params_with_sig.clone();
                 let mut request = Request::new(params);
                 request.set_timeout(WITHDRAWAL_TIMEOUT);
                 async move { (operator.withdraw(request).await, operator_xonly_pk) }
@@ -1843,8 +1876,8 @@ impl ClementineAggregator for AggregatorServer {
         // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
         tracing::warn!(
-            "Withdraw rpc completed successfully for withdrawal params: {:?}, operator xonly pks: {:?}, responses: {:?}",
-            withdraw_params,
+            "Withdraw rpc completed successfully for withdrawal id: {}, operator xonly pks: {:?}, responses: {:?}",
+            withdrawal_id,
             operator_xonly_pks_from_rpc
                 .iter()
                 .map(|pk| pk.to_string())

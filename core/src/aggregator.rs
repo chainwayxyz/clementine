@@ -2,17 +2,20 @@ use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
-    ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT,
-    RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+    ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
+    PUBLIC_KEY_COLLECTION_TIMEOUT, RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::rpc::clementine::entity_data_with_id::DataResult;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
-use crate::rpc::clementine::EntityId as RPCEntityId;
 use crate::rpc::clementine::{
-    self, DepositParams, Empty, EntityStatusWithId, EntityType, OperatorKeysWithDeposit,
+    self, CompatibilityParamsRpc, DepositParams, Empty, EntityStatusWithId, EntityType,
+    OperatorKeysWithDeposit,
 };
+use crate::rpc::clementine::{EntityDataWithId, EntityId as RPCEntityId};
 use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY;
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
@@ -65,6 +68,7 @@ pub struct Aggregator {
 pub enum EntityId {
     Verifier(VerifierId),
     Operator(OperatorId),
+    Aggregator,
 }
 
 /// Wrapper struct that renders the verifier id in the logs.
@@ -78,6 +82,7 @@ pub struct OperatorId(pub XOnlyPublicKey);
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            EntityId::Aggregator => write!(f, "Aggregator"),
             EntityId::Verifier(id) => write!(f, "{id}"),
             EntityId::Operator(id) => write!(f, "{id}"),
         }
@@ -584,6 +589,48 @@ impl Aggregator {
         Ok(ParticipatingOperators::new(participating_operators))
     }
 
+    /// Helper function to fetch keys for both operators and verifiers.
+    /// Returns (operator_keys, verifier_keys) without failing if some entities are unreachable.
+    async fn fetch_all_entity_keys(&self) -> (Vec<Option<XOnlyPublicKey>>, Vec<Option<PublicKey>>) {
+        // Try to reach all operators and verifiers to collect keys, but do not return err if some can't be reached
+        let _ = self.fetch_operator_keys().await;
+        let _ = self.fetch_verifier_keys().await;
+
+        let operator_keys = self.operator_keys.read().await.clone();
+        let verifier_keys = self.verifier_keys.read().await.clone();
+
+        (operator_keys, verifier_keys)
+    }
+
+    /// Helper function to add error entries for entities where keys couldn't be collected.
+    fn add_unreachable_entity_errors<T, F>(
+        results: &mut Vec<T>,
+        operator_keys: &[Option<XOnlyPublicKey>],
+        verifier_keys: &[Option<PublicKey>],
+        error_constructor: F,
+    ) where
+        F: Fn(EntityType, String, String) -> T,
+    {
+        for (index, key) in operator_keys.iter().enumerate() {
+            if key.is_none() {
+                results.push(error_constructor(
+                    EntityType::Operator,
+                    format!("Index {index} in config (0-based)"),
+                    "Operator key was not able to be collected".to_string(),
+                ));
+            }
+        }
+        for (index, key) in verifier_keys.iter().enumerate() {
+            if key.is_none() {
+                results.push(error_constructor(
+                    EntityType::Verifier,
+                    format!("Index {index} in config (0-based)"),
+                    "Verifier key was not able to be collected".to_string(),
+                ));
+            }
+        }
+    }
+
     /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
     /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
     pub async fn get_entity_statuses(
@@ -596,23 +643,17 @@ impl Aggregator {
         let verifier_clients = self.get_verifier_clients();
         tracing::debug!("Operator clients: {:?}", operator_clients.len());
 
-        // try to reach all operators and verifiers to collect keys, but do not return err if some of them can't be reached
-        let _ = self.fetch_operator_keys().await;
-        let _ = self.fetch_verifier_keys().await;
+        let (operator_keys, verifier_keys) = self.fetch_all_entity_keys().await;
 
-        let operator_keys = self.operator_keys.read().await.clone();
-        let verifier_keys = self.verifier_keys.read().await.clone();
-
-        // we will only ask status of entities that we could collect keys for, others are unreachable
-
+        // Query operators for status
         let operator_status = join_all(
             operator_clients
                 .iter()
                 .zip(operator_keys.iter())
-                // filter out operators that have None as key
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting operator status for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -636,13 +677,15 @@ impl Aggregator {
         )
         .await;
 
+        // Query verifiers for status
         let verifier_status = join_all(
             verifier_clients
                 .iter()
                 .zip(verifier_keys.iter())
-                .filter_map(|(client, key)| key.map(|key| (client, key)))
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
                 .map(|(client, key)| {
                     let mut client = client.clone();
+                    let key = *key;
                     async move {
                         tracing::debug!("Getting verifier status for {:?}", key);
                         let mut request = Request::new(Empty {});
@@ -666,11 +709,11 @@ impl Aggregator {
         )
         .await;
 
-        // Combine operator and verifier status into a single vector
+        // Combine results
         let mut entity_statuses = operator_status;
         entity_statuses.extend(verifier_status);
 
-        // try to restart background tasks if needed, with a timeout
+        // try to restart background tasks if requested, with a timeout
         if restart_tasks {
             let operator_tasks = operator_clients
                 .iter()
@@ -726,7 +769,204 @@ impl Aggregator {
                 }
             }
         }
+
+        // Add error entries for unreachable entities
+        Self::add_unreachable_entity_errors(
+            &mut entity_statuses,
+            &operator_keys,
+            &verifier_keys,
+            |entity_type, id, error_msg| EntityStatusWithId {
+                entity_id: Some(RPCEntityId {
+                    kind: entity_type as i32,
+                    id,
+                }),
+                status_result: Some(StatusResult::Err(clementine::EntityError {
+                    error: error_msg,
+                })),
+            },
+        );
+
         Ok(entity_statuses)
+    }
+
+    pub async fn get_compatibility_data_from_entities(
+        &self,
+    ) -> Result<Vec<EntityDataWithId>, BridgeError> {
+        let operator_clients = self.get_operator_clients();
+        let verifier_clients = self.get_verifier_clients();
+
+        let (operator_keys, verifier_keys) = self.fetch_all_entity_keys().await;
+
+        // Query operators for compatibility data
+        let operator_comp_data = join_all(
+            operator_clients
+                .iter()
+                .zip(operator_keys.iter())
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    let key = *key;
+                    async move {
+                        tracing::debug!("Getting operator compatibility data for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_COMP_DATA_POLL_TIMEOUT);
+                        let response = client.get_compatibility_params(request).await;
+
+                        EntityDataWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Operator as i32,
+                                id: key.to_string(),
+                            }),
+                            data_result: match response {
+                                Ok(response) => Some(DataResult::Data(response.into_inner())),
+                                Err(e) => Some(DataResult::Error(e.to_string())),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        // Query verifiers for compatibility data
+        let verifier_comp_data = join_all(
+            verifier_clients
+                .iter()
+                .zip(verifier_keys.iter())
+                .filter_map(|(client, key)| key.as_ref().map(|k| (client, k)))
+                .map(|(client, key)| {
+                    let mut client = client.clone();
+                    let key = *key;
+                    async move {
+                        tracing::debug!("Getting verifier compatibility data for {:?}", key);
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(ENTITY_COMP_DATA_POLL_TIMEOUT);
+                        let response = client.get_compatibility_params(request).await;
+
+                        EntityDataWithId {
+                            entity_id: Some(RPCEntityId {
+                                kind: EntityType::Verifier as i32,
+                                id: key.to_string(),
+                            }),
+                            data_result: match response {
+                                Ok(response) => Some(DataResult::Data(response.into_inner())),
+                                Err(e) => Some(DataResult::Error(e.to_string())),
+                            },
+                        }
+                    }
+                }),
+        )
+        .await;
+
+        // Combine results
+        let mut entities_comp_data = operator_comp_data;
+        entities_comp_data.extend(verifier_comp_data);
+
+        // add aggregators own data
+        let aggregator_comp_data = EntityDataWithId {
+            entity_id: Some(RPCEntityId {
+                kind: EntityType::Aggregator as i32,
+                id: "Aggregator".to_string(),
+            }),
+            data_result: {
+                let compatibility_params: Result<CompatibilityParamsRpc, eyre::Report> =
+                    self.get_compatibility_params()?.try_into();
+                match compatibility_params {
+                    Ok(compatibility_params) => Some(DataResult::Data(compatibility_params)),
+                    Err(e) => Some(DataResult::Error(e.to_string())),
+                }
+            },
+        };
+
+        entities_comp_data.push(aggregator_comp_data);
+
+        // Add error entries for unreachable entities
+        Self::add_unreachable_entity_errors(
+            &mut entities_comp_data,
+            &operator_keys,
+            &verifier_keys,
+            |entity_type, id, error_msg| EntityDataWithId {
+                entity_id: Some(RPCEntityId {
+                    kind: entity_type as i32,
+                    id,
+                }),
+                data_result: Some(DataResult::Error(error_msg)),
+            },
+        );
+
+        Ok(entities_comp_data)
+    }
+
+    /// Checks compatibility with other actors.
+    /// Returns an error if aggregator is not compatible with any of the other actors, or any other actor returns an error.
+    pub async fn check_compatibility_with_actors(
+        &self,
+        verifiers_included: bool,
+        operators_included: bool,
+    ) -> Result<(), BridgeError> {
+        let mut other_errors = Vec::new();
+        let mut actors_compat_params = Vec::new();
+
+        if operators_included {
+            let operator_keys = self.fetch_operator_keys().await?;
+            for (operator_id, operator_client) in operator_keys
+                .into_iter()
+                .map(OperatorId)
+                .zip(self.operator_clients.iter())
+            {
+                let mut operator_client = operator_client.clone();
+
+                let res = {
+                    let compatibility_params: CompatibilityParams = operator_client
+                        .get_compatibility_params(Empty {})
+                        .await?
+                        .into_inner()
+                        .try_into()?;
+                    actors_compat_params.push((operator_id.to_string(), compatibility_params));
+                    Ok::<_, BridgeError>(())
+                };
+                if let Err(e) = res {
+                    other_errors.push(format!(
+                        "{operator_id} error while retrieving compatibility params: {e}",
+                    ));
+                }
+            }
+        }
+
+        if verifiers_included {
+            let verifier_keys = self.fetch_verifier_keys().await?;
+            for (verifier_id, verifier_client) in verifier_keys
+                .into_iter()
+                .map(VerifierId)
+                .zip(self.verifier_clients.iter())
+            {
+                let mut verifier_client = verifier_client.clone();
+
+                let res = {
+                    let compatibility_params: CompatibilityParams = verifier_client
+                        .get_compatibility_params(Empty {})
+                        .await?
+                        .into_inner()
+                        .try_into()?;
+                    actors_compat_params.push((verifier_id.to_string(), compatibility_params));
+                    Ok::<_, BridgeError>(())
+                };
+                if let Err(e) = res {
+                    other_errors.push(format!(
+                        "{verifier_id} error while retrieving compatibility params: {e}",
+                    ));
+                }
+            }
+        }
+
+        // Combine compatibility error and other errors (ex: connection) into a single message
+        if let Err(e) = self.is_compatible(actors_compat_params) {
+            other_errors.push(format!("Clementine not compatible with some actors: {e}"));
+        }
+        if !other_errors.is_empty() {
+            return Err(eyre::eyre!(other_errors.join("; ")).into());
+        }
+
+        Ok(())
     }
 }
 

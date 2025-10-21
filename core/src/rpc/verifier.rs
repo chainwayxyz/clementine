@@ -10,9 +10,10 @@ use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
+use crate::compatibility::ActorWithConfig;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::errors::ResultExt as _;
-use crate::rpc::clementine::VerifierDepositFinalizeResponse;
+use crate::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
@@ -34,6 +35,14 @@ impl<C> ClementineVerifier for VerifierServer<C>
 where
     C: CitreaClientT,
 {
+    async fn get_compatibility_params(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<CompatibilityParamsRpc>, Status> {
+        let params = self.verifier.get_compatibility_params()?;
+        Ok(Response::new(params.try_into().map_to_status()?))
+    }
+
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))

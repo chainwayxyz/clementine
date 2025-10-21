@@ -152,6 +152,8 @@ pub enum BridgeError {
     InvalidECDSAVerificationSignature,
     #[error("Withdrawal ECDSA verification signature missing")]
     ECDSAVerificationSignatureMissing,
+    #[error("Clementine versions or configs are not compatible: {0}")]
+    ClementineNotCompatible(String),
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]
