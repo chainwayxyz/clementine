@@ -193,18 +193,25 @@ where
     buffer: Vec<BridgeError>,
     error_overflow_limit: usize,
     handle_error_attempts: usize,
+    wait_between_recover_attempts: Duration,
 }
 
 impl<T: RecoverableTask + Sized> BufferedErrors<T>
 where
     T::Output: Default,
 {
-    pub fn new(inner: T, error_overflow_limit: usize, handle_error_attempts: usize) -> Self {
+    pub fn new(
+        inner: T,
+        error_overflow_limit: usize,
+        handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
+    ) -> Self {
         Self {
             inner,
             buffer: Vec::new(),
             error_overflow_limit,
             handle_error_attempts,
+            wait_between_recover_attempts,
         }
     }
 }
@@ -227,7 +234,10 @@ where
                 Ok(output)
             }
             Err(e) => {
-                tracing::error!("Task error, suppressing due to buffer: {e:?}");
+                tracing::error!(
+                    "Task {:?} error, attempting to recover: {e:?}",
+                    Self::VARIANT
+                );
                 // handle the error
                 for attempt in 1..=self.handle_error_attempts {
                     let result = self.inner.recover_from_error(&e).await;
@@ -235,18 +245,18 @@ where
                         Ok(()) => break,
                         Err(e) => {
                             tracing::error!(
-                                "Task {:?} error handle attempt {attempt} failed: {e:?}",
+                                "Task {:?} error, failed to recover (attempt {attempt}): {e:?}",
                                 Self::VARIANT,
                             );
                             if attempt == self.handle_error_attempts {
                                 // this will only close the task thread
-                                panic!(
-                                    "Failed to handle task {:?} error after {attempt} attempts",
+                                return Err(eyre::eyre!(
+                                    "Failed to recover from task {:?} error after {attempt} attempts, aborting...",
                                     Self::VARIANT
-                                );
+                                ).into());
                             }
                             // wait 10 seconds before trying again
-                            tokio::time::sleep(Duration::from_secs(10)).await;
+                            tokio::time::sleep(self.wait_between_recover_attempts).await;
                         }
                     }
                 }
@@ -343,10 +353,12 @@ pub trait TaskExt: Task + Sized {
     /// Buffers consecutive errors until the task succeeds, emits all errors when there are
     /// more than `error_overflow_limit` consecutive errors.
     /// If the task fails, error will be tried to be handled up to `handle_error_attempts` times.
+    /// After each attempt, the task will wait for `wait_between_recover_attempts` before trying again.
     fn into_buffered_errors(
         self,
         error_overflow_limit: usize,
         handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
     ) -> BufferedErrors<Self>
     where
         Self: RecoverableTask,
@@ -397,12 +409,18 @@ impl<T: Task + Sized> TaskExt for T {
         self,
         error_overflow_limit: usize,
         handle_error_attempts: usize,
+        wait_between_recover_attempts: Duration,
     ) -> BufferedErrors<Self>
     where
         Self: RecoverableTask,
         Self::Output: Default,
     {
-        BufferedErrors::new(self, error_overflow_limit, handle_error_attempts)
+        BufferedErrors::new(
+            self,
+            error_overflow_limit,
+            handle_error_attempts,
+            wait_between_recover_attempts,
+        )
     }
 
     fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(

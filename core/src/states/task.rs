@@ -178,7 +178,7 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_buffered_errors(10, 3)
+        .into_buffered_errors(10, 3, Duration::from_secs(10))
         .with_delay(POLL_DELAY)
     }
 }
@@ -190,7 +190,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(
             BlockFetcherTask::<T>::new_finalized_block_fetcher_task(self.db.clone(), self.paramset)
                 .await?
-                .into_buffered_errors(20, 3)
+                .into_buffered_errors(20, 3, Duration::from_secs(10))
                 .with_delay(POLL_DELAY),
         )
     }

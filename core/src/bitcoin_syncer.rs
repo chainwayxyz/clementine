@@ -492,7 +492,7 @@ pub struct FinalizedBlockFetcherTask<H: BlockHandler> {
     db: Database,
     btc_syncer_consumer_id: String,
     paramset: &'static ProtocolParamset,
-    next_height: u32,
+    next_finalized_height: u32,
     handler: H,
 }
 
@@ -501,14 +501,14 @@ impl<H: BlockHandler> FinalizedBlockFetcherTask<H> {
         db: Database,
         btc_syncer_consumer_id: String,
         paramset: &'static ProtocolParamset,
-        next_height: u32,
+        next_finalized_height: u32,
         handler: H,
     ) -> Self {
         Self {
             db,
             btc_syncer_consumer_id,
             paramset,
-            next_height,
+            next_finalized_height,
             handler,
         }
     }
@@ -532,7 +532,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
             dbtx.commit().await?;
             return Ok(false);
         };
-        let mut new_next_height = self.next_height;
+        let mut expected_next_finalized = self.next_finalized_height;
 
         // Process the event
         let did_find_new_block = match event {
@@ -544,42 +544,52 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
                     .ok_or(eyre::eyre!("Block not found in BlockFetcherTask",))?
                     .1;
 
+                // whether there's a new finalized block, can be false if reorged to the same height
                 let mut new_tip = false;
+                let mut warned = false;
 
                 // Update states to catch up to finalized chain
                 while self
                     .paramset
-                    .is_block_finalized(new_next_height, new_block_height)
+                    .is_block_finalized(expected_next_finalized, new_block_height)
                 {
+                    if new_tip && !warned {
+                        warned = true;
+                        // this event is multiple blocks away, report
+                        tracing::warn!("Received event with multiple finalized blocks, expected 1 for ordered events. Got a new block with height {new_block_height}, expected next finalized block {}", self.next_finalized_height);
+                    }
                     new_tip = true;
 
                     let block = self
                         .db
-                        .get_full_block(Some(&mut dbtx), new_next_height)
+                        .get_full_block(Some(&mut dbtx), expected_next_finalized)
                         .await?
                         .ok_or(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            new_next_height, new_block_height
+                            expected_next_finalized, new_block_height
                         ))?;
 
                     let new_block_id = self
                         .db
-                        .get_canonical_block_id_from_height(Some(&mut dbtx), new_next_height)
+                        .get_canonical_block_id_from_height(
+                            Some(&mut dbtx),
+                            expected_next_finalized,
+                        )
                         .await?;
 
                     let Some(new_block_id) = new_block_id else {
-                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", new_next_height, new_block_height);
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", expected_next_finalized, new_block_height);
                         return Err(eyre::eyre!(
                             "Block at height {} not found in BlockFetcherTask, current tip height is {}",
-                            new_next_height, new_block_height
+                            expected_next_finalized, new_block_height
                         ).into());
                     };
 
                     self.handler
-                        .handle_new_block(&mut dbtx, new_block_id, block, new_next_height)
+                        .handle_new_block(&mut dbtx, new_block_id, block, expected_next_finalized)
                         .await?;
 
-                    new_next_height += 1;
+                    expected_next_finalized += 1;
                 }
 
                 new_tip
@@ -589,7 +599,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 
         dbtx.commit().await?;
         // update next height only after db commit is successful so next_height is consistent with state in DB
-        self.next_height = new_next_height;
+        self.next_finalized_height = expected_next_finalized;
         // Return whether we found new blocks
         Ok(did_find_new_block)
     }
@@ -598,7 +608,8 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 #[async_trait]
 impl<H: BlockHandler> RecoverableTask for FinalizedBlockFetcherTask<H> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
-        // for now errors are handled in the task itself
+        // No action needed. Errors will cause a rollback and the task will retry on the next run.
+        // In-memory data remains in sync (as it's only updated after db commit is successful).
         Ok(())
     }
 }

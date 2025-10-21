@@ -545,8 +545,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// The state machines are updated until all of them stabilize in their state (ie.
     /// the block does not generate any new events)
     ///
-    /// Returns the next height to process after processing the block.
-    ///
     /// # Errors
     /// If the state machines do not stabilize after some iterations, we return an error.
     pub async fn process_block_parallel(

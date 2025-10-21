@@ -260,7 +260,7 @@ async fn test_into_bg() {
 async fn test_buffered_errors() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_error(Arc::clone(&counter), 5, None, None, None);
-    let mut buffered_task = task.into_buffered_errors(3, 3);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
 
     // First two errors should be buffered
     for _ in 0..2 {
@@ -291,7 +291,7 @@ async fn test_buffered_errors() {
 async fn test_buffered_errors_without_consecutive_errors() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_error(Arc::clone(&counter), 5, Some(2), None, None);
-    let mut buffered_task = task.into_buffered_errors(3, 3);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
 
     // First two errors should be buffered, then an Ok should reset and the next
     // two should also be buffered
@@ -343,7 +343,7 @@ async fn test_ignore_error() {
 async fn test_buffered_errors_with_handle_error_attempts() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, Some(2), None);
-    let mut buffered_task = task.into_buffered_errors(3, 3);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
     // first two runs shouldn't error
     for _ in 0..2 {
         assert!(buffered_task.run_once().await.is_ok());
@@ -356,7 +356,7 @@ async fn test_buffered_errors_with_handle_error_attempts() {
 async fn test_buffered_errors_with_handle_error_attempts_and_success() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, None, Some(3));
-    let mut buffered_task = task.into_buffered_errors(3, 3);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
     // first three runs shouldn't error
     for _ in 0..3 {
         assert!(buffered_task.run_once().await.is_ok());
