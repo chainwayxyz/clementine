@@ -33,7 +33,7 @@ use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
+use bitcoin::{taproot, Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
@@ -602,17 +602,17 @@ where
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,
-        in_signature: schnorr::Signature,
+        in_signature: taproot::Signature,
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
     ) -> Result<Transaction, BridgeError> {
         tracing::info!(
-            "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
+            "Withdrawing with index: {}, in_signature: {:?}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
-            in_signature.to_string(),
+            in_signature,
             in_outpoint,
-            out_script_pubkey.to_string(),
+            out_script_pubkey,
             out_amount
         );
 
@@ -669,15 +669,14 @@ where
 
         // tracing::info!("Payout txhandler: {:?}", hex::encode(bitcoin::consensus::serialize(&payout_txhandler.get_cached_tx())));
 
-        let sighash = payout_txhandler
-            .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)?;
+        let sighash = payout_txhandler.calculate_sighash_txin(0, in_signature.sighash_type)?;
 
         SECP.verify_schnorr(
-            &in_signature,
+            &in_signature.signature,
             &Message::from_digest(*sighash.as_byte_array()),
             user_xonly_pk,
         )
-        .wrap_err("Failed to verify signature received from user for payout txin")?;
+        .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
         // send payout tx using RBF
         let funded_tx = self
@@ -2124,7 +2123,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?;
             }
@@ -2225,7 +2224,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_finalizer_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?
                 {

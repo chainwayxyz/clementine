@@ -202,7 +202,9 @@ impl TxSender {
                         let threshold_sat = multiplier
                             .checked_mul(rpc_amt_sat)
                             .and_then(|v| v.checked_add(offset))
-                            .unwrap_or(u64::MAX);
+                            .ok_or_else(|| {
+                                eyre!("Overflow when calculating threshold_sat in fee selection ({multiplier} * {rpc_amt_sat} + {offset})")
+                            })?;
 
                         let threshold = Amount::from_sat(threshold_sat);
 

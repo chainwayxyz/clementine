@@ -59,7 +59,7 @@ use bitcoin::key::Secp256k1;
 use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::taproot::TaprootBuilder;
+use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
@@ -340,7 +340,7 @@ where
                         next_height,
                         self.verifier.clone(),
                     )
-                    .into_buffered_errors(50)
+                    .into_buffered_errors(20, 3, Duration::from_secs(10))
                     .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
                 .await;
@@ -1331,7 +1331,7 @@ where
         nonce_session_id: u128,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
-        input_signature: Signature,
+        input_signature: taproot::Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
@@ -2907,10 +2907,12 @@ mod states {
                     let mut db_cache =
                         ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
 
-                    let txhandlers = create_txhandlers(
-                        TransactionType::Disprove,
-                        context,
-                        &mut TxHandlerCache::new(),
+                    let mut tx_handler_cache = TxHandlerCache::new();
+
+                    let mut txhandlers = create_txhandlers(
+                        TransactionType::AllNeededForDeposit,
+                        context.clone(),
+                        &mut tx_handler_cache,
                         &mut db_cache,
                     )
                     .await?;
@@ -2962,9 +2964,20 @@ mod states {
                                     kickoff_data.operator_xonly_pk
                                 );
 
+                                tx_handler_cache.store_for_next_kickoff(&mut txhandlers)?;
+
+                                // Only this one creates a tx handler in which scripts exist, other txhandlers only include scripts as hidden nodes.
+                                let txhandlers_with_disprove = create_txhandlers(
+                                    TransactionType::Disprove,
+                                    context,
+                                    &mut tx_handler_cache,
+                                    &mut db_cache,
+                                )
+                                .await?;
+
                                 self.send_disprove_tx(
                                     dbtx,
-                                    &txhandlers,
+                                    &txhandlers_with_disprove,
                                     kickoff_data,
                                     deposit_data,
                                     (index, disprove_script),
@@ -3200,7 +3213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_address_from_signature() {
-        let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
+        let input_signature = taproot::Signature::from_slice(&hex::decode("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b10264300").unwrap())
 		.unwrap();
         let input_outpoint = OutPoint::from_str(
             "0000000000000000000000000000000000000000000000000000000000000000:0",

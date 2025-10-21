@@ -454,6 +454,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
                 self.send_operator_asserts_if_ready(context).await;
+                self.disprove_if_ready(context).await;
                 Handled
             }
             // When an operator assert is detected in Bitcoin,

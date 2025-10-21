@@ -128,13 +128,27 @@ pub struct StateManager<T: Owner> {
     next_height_to_process: u32,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
-    last_finalized_block: Arc<BlockCache>,
+    last_finalized_block: Option<Arc<BlockCache>>,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Returns message queue name for the state manager.
     pub fn queue_name() -> String {
         format!("{}_state_mgr_events", T::ENTITY_NAME)
+    }
+
+    pub fn clone_without_machines(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            queue: self.queue.clone(),
+            owner: self.owner.clone(),
+            round_machines: Vec::new(),
+            kickoff_machines: Vec::new(),
+            paramset: self.paramset,
+            next_height_to_process: self.next_height_to_process,
+            rpc: self.rpc.clone(),
+            last_finalized_block: self.last_finalized_block.clone(),
+        }
     }
 
     /// Warning: This is costly due to the calculation of the block_cache, use a
@@ -179,43 +193,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
-        // Get the owner type from the context
-        let owner_type = T::ENTITY_NAME;
-        // First, check if we have any state saved
-        let status = db.get_next_height_to_process(None, owner_type).await?;
-
-        // If no state is saved, return early
-        let next_height_to_process = match status {
-            Some(block_height) => {
-                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
-            }
-            None => {
-                tracing::info!("No state machines found in the database");
-                paramset.start_height
-            }
-        };
-
-        let last_height = next_height_to_process.saturating_sub(1);
-
         let mut mgr = Self {
-            last_finalized_block: Arc::new(BlockCache::from_block(
-                match db.get_full_block(None, last_height).await? {
-                    Some(block) => block,
-                    None => rpc.get_block_by_height(last_height.into()).await?,
-                },
-                last_height,
-            )),
+            last_finalized_block: None,
             db,
             owner,
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            next_height_to_process,
+            next_height_to_process: paramset.start_height,
             rpc,
         };
 
-        mgr.load_machines_from_db().await?;
+        mgr.reload_state_manager_from_db().await?;
         Ok(mgr)
     }
 
@@ -230,29 +220,65 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         }
     }
 
-    /// Loads the state machines from the database.
+    /// Loads the state manager and its state machines from the database.
     /// This method should be called when initializing the StateManager.
     ///
     /// # Errors
     /// Returns a `BridgeError` if the database operation fails
-    pub async fn load_machines_from_db(&mut self) -> Result<(), BridgeError> {
+    pub async fn reload_state_manager_from_db(&mut self) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        let owner_type = T::ENTITY_NAME;
+        let status = self
+            .db
+            .get_next_height_to_process(Some(&mut dbtx), owner_type)
+            .await?;
+
+        // If no state is saved, return early
+        let next_height_to_process = match status {
+            Some(block_height) => {
+                u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
+            }
+            None => {
+                tracing::info!("No state machines found in the database");
+                self.paramset.start_height
+            }
+        };
+
         tracing::info!(
             "Loading state machines from block height {}",
             self.next_height_to_process.saturating_sub(1)
         );
 
-        let owner_type = T::ENTITY_NAME;
+        let last_height = next_height_to_process.saturating_sub(1);
+
+        self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
+            match self.db.get_full_block(None, last_height).await? {
+                Some(block) => block,
+                None => self.rpc.get_block_by_height(last_height.into()).await?,
+            },
+            last_height,
+        )));
 
         // Load kickoff machines
-        let kickoff_machines = self.db.load_kickoff_machines(None, owner_type).await?;
+        let kickoff_machines = self
+            .db
+            .load_kickoff_machines(Some(&mut dbtx), owner_type)
+            .await?;
 
         // Load round machines
-        let round_machines = self.db.load_round_machines(None, owner_type).await?;
+        let round_machines = self
+            .db
+            .load_round_machines(Some(&mut dbtx), owner_type)
+            .await?;
 
-        let init_dbtx = Arc::new(Mutex::new(self.db.begin_transaction().await?));
+        let init_dbtx = Arc::new(Mutex::new(dbtx));
 
-        let mut ctx = self
-            .new_context_with_block_cache(init_dbtx.clone(), self.last_finalized_block.clone())?;
+        let mut ctx = self.new_context_with_block_cache(
+            init_dbtx.clone(),
+            self.last_finalized_block
+                .clone()
+                .expect("Initialized before"),
+        )?;
 
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
@@ -486,7 +512,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         start_height: u32,
     ) -> Result<(), eyre::Report> {
         // create a temporary state manager that only includes the new states
-        let mut temporary_manager = self.clone();
+        let mut temporary_manager = self.clone_without_machines();
         temporary_manager.round_machines = new_round_machines;
         temporary_manager.kickoff_machines = new_kickoff_machines;
 
@@ -527,13 +553,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let block_height = context.cache.block_height;
 
-        // Store the original machines to revert to in case of an error happens during processing
-        // If an error is encountered, the block processing will retry. If we don't store and revert all
-        // state machines during processing, some state machines can be left in an invalid state
-        // depending on where the error occurred. To be safe, we revert to the original machines.
-        let kickoff_machines_checkpoint = self.kickoff_machines.clone();
-        let round_machines_checkpoint = self.round_machines.clone();
-
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
@@ -566,9 +585,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if !all_errors.is_empty() {
-                // revert state machines to the saved state as the content of the machines might be changed before the error occurred
-                self.kickoff_machines = kickoff_machines_checkpoint;
-                self.round_machines = round_machines_checkpoint;
                 // Return first error or create a combined error
                 return Err(eyre::eyre!(
                     "Multiple errors occurred during state processing: {:?}",
@@ -604,9 +620,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             //
             // Something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is possibly a safe value
             if iterations > 100000 {
-                // revert state machines to the previous state first before returning an error
-                self.kickoff_machines = kickoff_machines_checkpoint;
-                self.round_machines = round_machines_checkpoint;
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
@@ -650,6 +663,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
+
         self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
 
         Ok(())

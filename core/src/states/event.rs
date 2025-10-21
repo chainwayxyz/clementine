@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::Witness;
+use eyre::OptionExt;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
@@ -96,8 +97,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 height,
             } => {
                 if self.next_height_to_process != height {
-                    tracing::warn!("Finalized block arrived to state manager out of order. Ignoring block. This can happen for some blocks during restarts. Otherwise it might be due to an error. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height);
-                    return Ok(());
+                    return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
                 }
 
                 let mut context = self.new_context(dbtx.clone(), &block, height)?;
@@ -118,7 +118,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 self.process_block_parallel(&mut context).await?;
 
-                self.last_finalized_block = context.cache.clone();
+                self.last_finalized_block = Some(context.cache.clone());
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -218,10 +218,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 )
                 .await?;
             }
-        }
+        };
 
-        let mut context =
-            self.new_context_with_block_cache(dbtx, self.last_finalized_block.clone())?;
+        let mut context = self.new_context_with_block_cache(
+            dbtx,
+            self.last_finalized_block.clone().ok_or_eyre(
+                "Last finalized block not found, should always be Some after initialization",
+            )?,
+        )?;
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
