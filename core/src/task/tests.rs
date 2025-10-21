@@ -341,7 +341,6 @@ async fn test_ignore_error() {
 }
 
 #[tokio::test]
-#[should_panic = "Failed to handle"]
 async fn test_buffered_errors_with_handle_error_attempts() {
     let counter = Arc::new(Mutex::new(0));
     let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, Some(2), None);
@@ -350,8 +349,8 @@ async fn test_buffered_errors_with_handle_error_attempts() {
     for _ in 0..2 {
         assert!(buffered_task.run_once().await.is_ok());
     }
-    // third run should fail, and panic as it cannot be handled successfully
-    let _ = buffered_task.run_once().await;
+    // third run should fail, and return an error as it cannot be handled successfully
+    assert!(buffered_task.run_once().await.is_err());
 }
 
 #[tokio::test]
