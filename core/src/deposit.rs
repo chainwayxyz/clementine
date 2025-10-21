@@ -216,8 +216,8 @@ impl DepositData {
 
     /// Checks if all watchtowers are unique.
     pub fn are_all_watchtowers_unique(&self) -> bool {
-        let set: HashSet<_> = self.actors.watchtowers.iter().collect();
-        set.len() == self.actors.watchtowers.len()
+        let set: HashSet<_> = self.get_watchtowers().into_iter().collect();
+        set.len() == self.get_num_watchtowers()
     }
 
     /// Checks if all operators are unique.
