@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use bitcoin::{
-    address::NetworkUnchecked, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
-    XOnlyPublicKey,
+    address::NetworkUnchecked, secp256k1::schnorr::Signature, taproot, Address, Amount, OutPoint,
+    ScriptBuf, TapSighashType, XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
 use eyre::Context;
@@ -161,9 +161,30 @@ pub async fn parse_schnorr_sig(
 #[allow(clippy::result_large_err)]
 pub fn parse_withdrawal_sig_params(
     params: WithdrawParams,
-) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
-    let input_signature = Signature::from_slice(&params.input_signature)
-        .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
+) -> Result<(u32, taproot::Signature, OutPoint, ScriptBuf, Amount), Status> {
+    let mut input_signature =
+        taproot::Signature::from_slice(&params.input_signature).map_err(|e| {
+            Status::invalid_argument(format!("Can't convert input to taproot Signature - {e}"))
+        })?;
+
+    // If the Taproot sighash type is Default (no explicit type attached; i.e. a 64-byte
+    // signature without a sighash flag), normalize it to SinglePlusAnyoneCanPay.
+    // Prior to v0.5 this was Clementine's implicit behavior; we retain it here for
+    // backwards compatibility when a 64-byte signature is provided.
+    if input_signature.sighash_type == TapSighashType::Default {
+        tracing::warn!(
+            "Input signature for withdrawal {} has sighash type default, setting to SinglePlusAnyoneCanPay", params.withdrawal_id,
+        );
+        input_signature.sighash_type = TapSighashType::SinglePlusAnyoneCanPay;
+    }
+
+    // enforce sighash type here
+    if input_signature.sighash_type != TapSighashType::SinglePlusAnyoneCanPay {
+        return Err(Status::invalid_argument(format!(
+            "Input signature has wrong sighash type, SinglePlusAnyoneCanPay expected, got {}",
+            input_signature.sighash_type
+        )));
+    }
 
     let input_outpoint: OutPoint = params
         .input_outpoint

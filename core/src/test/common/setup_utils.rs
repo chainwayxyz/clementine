@@ -12,7 +12,7 @@ use crate::{
     extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
-use bitcoin::secp256k1::schnorr;
+use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
@@ -343,7 +343,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     rpc: &ExtendedBitcoinRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
-) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
+) -> (UTXO, bitcoin::TxOut, taproot::Signature) {
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
@@ -385,14 +385,21 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .finalize();
 
     let sighash = tx
-        .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
+        .calculate_sighash_txin(0, sighash::TapSighashType::SinglePlusAnyoneCanPay)
         .expect("Failed to calculate sighash");
 
     let sig = signer
         .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
         .expect("Failed to sign");
 
-    (dust_utxo, txout, sig)
+    (
+        dust_utxo,
+        txout,
+        taproot::Signature {
+            signature: sig,
+            sighash_type: sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        },
+    )
 }
 
 /// Helper to get a dynamically assigned free port.
