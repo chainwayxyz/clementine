@@ -255,7 +255,7 @@ where
                                     Self::VARIANT
                                 ).into());
                             }
-                            // wait 10 seconds before trying again
+                            // wait for the configured duration (self.wait_between_recover_attempts) before trying again
                             tokio::time::sleep(self.wait_between_recover_attempts).await;
                         }
                     }
