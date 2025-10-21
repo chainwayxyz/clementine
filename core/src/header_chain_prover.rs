@@ -92,9 +92,9 @@ impl HeaderChainProver {
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
         let tip_height = rpc.get_current_chain_height().await.map_to_eyre()?;
-        if tip_height
-            < config.protocol_paramset().start_height + config.protocol_paramset().finality_depth
-                - 1
+        if !config
+            .protocol_paramset()
+            .is_block_finalized(config.protocol_paramset().start_height, tip_height)
         {
             return Err(eyre::eyre!(
                 "Start height is not finalized, reduce start height: {} < {}",
@@ -215,23 +215,13 @@ impl HeaderChainProver {
                     ))?;
 
             let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
-                rpc.clone(),
+                &rpc,
                 config.protocol_paramset().genesis_height.into(),
                 config.protocol_paramset().network,
             )
             .await
             .map_to_eyre()?;
             tracing::debug!("Genesis chain state (verbose): {:?}", genesis_chain_state);
-
-            let genesis_chain_state_hash = genesis_chain_state.to_hash();
-            if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
-                return Err(eyre::eyre!(
-                    "Genesis chain state hash mismatch: {} != {}",
-                    hex::encode(genesis_chain_state_hash),
-                    hex::encode(config.protocol_paramset().genesis_chain_state_hash)
-                )
-                .into());
-            }
 
             let proof = HeaderChainProver::prove_genesis_block(
                 genesis_chain_state,
@@ -264,7 +254,7 @@ impl HeaderChainProver {
     }
 
     pub async fn get_chain_state_from_height(
-        rpc: ExtendedBitcoinRpc,
+        rpc: &ExtendedBitcoinRpc,
         height: u64,
         network: Network,
     ) -> Result<ChainState, HeaderChainProverError> {
@@ -774,13 +764,10 @@ mod tests {
         // Save some initial blocks.
         let headers = mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), num_blocks).await;
 
-        let chain_state = HeaderChainProver::get_chain_state_from_height(
-            rpc.clone(),
-            num_blocks,
-            Network::Regtest,
-        )
-        .await
-        .unwrap();
+        let chain_state =
+            HeaderChainProver::get_chain_state_from_height(&rpc, num_blocks, Network::Regtest)
+                .await
+                .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
         expected_chain_state.apply_block_headers(
@@ -824,13 +811,10 @@ mod tests {
             headers.push(header);
         }
 
-        let chain_state = HeaderChainProver::get_chain_state_from_height(
-            rpc.clone(),
-            num_blocks,
-            Network::Testnet4,
-        )
-        .await
-        .unwrap();
+        let chain_state =
+            HeaderChainProver::get_chain_state_from_height(&rpc, num_blocks, Network::Testnet4)
+                .await
+                .unwrap();
 
         let mut expected_chain_state = ChainState::genesis_state();
         expected_chain_state.apply_block_headers(

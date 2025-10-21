@@ -16,7 +16,7 @@ use crate::test::common::mine_once_after_in_mempool;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
-use bitcoin::{OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 
 use super::test_actors::TestActors;
@@ -36,7 +36,7 @@ pub async fn payout_and_start_kickoff(
     withdrawal_id: u32,
     withdrawal_utxo: &OutPoint,
     payout_txout: &TxOut,
-    sig: &bitcoin::secp256k1::schnorr::Signature,
+    sig: &taproot::Signature,
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
 ) -> OutPoint {
@@ -138,7 +138,7 @@ pub async fn reimburse_with_optimistic_payout(
     withdrawal_id: u32,
     withdrawal_utxo: &OutPoint,
     payout_txout: &TxOut,
-    sig: &bitcoin::secp256k1::schnorr::Signature,
+    sig: &taproot::Signature,
     e2e: &CitreaE2EData<'_>,
     move_txid: Txid,
 ) -> eyre::Result<()> {

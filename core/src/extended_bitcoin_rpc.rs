@@ -1041,7 +1041,7 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate_sat_kwu = current_fee_sat as f64 / tx_weight as f64 * 1000.0;
+        let current_fee_rate_sat_kwu = current_fee_sat as f64 * 1000.0 / tx_weight as f64;
 
         tracing::trace!(
             "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
@@ -1188,13 +1188,13 @@ impl ExtendedBitcoinRpc {
         match network {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {
-                tracing::debug!("Using fixed fee rate of 1 sat/vB for {} network", network);
+                tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
             Network::Bitcoin | Network::Testnet4 | Network::Signet => {
-                tracing::debug!("Fetching fee rate for {} network...", network);
+                tracing::debug!("Fetching fee rate for {network} network...");
 
                 // Fetch fees from both mempool.space and Bitcoin Core RPC
                 let mempool_fee = get_fee_rate_from_mempool_space(
@@ -1227,7 +1227,9 @@ impl ExtendedBitcoinRpc {
                         let threshold_sat = multiplier
                             .checked_mul(rpc_amt_sat)
                             .and_then(|v| v.checked_add(offset))
-                            .unwrap_or(u64::MAX);
+                            .ok_or_else(|| {
+                                eyre!("Overflow when calculating threshold_sat in fee selection ({multiplier} * {rpc_amt_sat} + {offset})")
+                            })?;
 
                         let threshold = Amount::from_sat(threshold_sat);
 
