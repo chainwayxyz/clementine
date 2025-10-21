@@ -1411,7 +1411,7 @@ impl ClementineAggregator for AggregatorServer {
         )
         .await?;
 
-        check_task_results(
+        flatten_join_named_results(
             vec!["Get operator params", "Set operator params"],
             task_outputs,
         )?;
@@ -1705,7 +1705,7 @@ impl ClementineAggregator for AggregatorServer {
             )
             .await?;
 
-            check_task_results(
+            flatten_join_named_results(
                 vec!["Nonce distribution", "Signature aggregation", "Signature distribution"],
                 task_outputs,
             )?;
@@ -2089,9 +2089,9 @@ impl ClementineAggregator for AggregatorServer {
 
 /// Checks task results and returns an error if any task failed.
 ///
-/// Takes separate iterators for task names and task results where each result is a nested Result.
+/// Takes separate iterators for task names and task results where each result is a nested Result. (For example tokio::task::spawn results)
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn check_task_results<T, E1, E2, S>(
+fn flatten_join_named_results<T, E1, E2, S>(
     task_names: Vec<S>,
     task_results: Vec<Result<Result<T, E1>, E2>>,
 ) -> Result<(), BridgeError>
