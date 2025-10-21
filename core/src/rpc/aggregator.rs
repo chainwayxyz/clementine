@@ -135,7 +135,6 @@ async fn nonce_aggregator(
         );
     }
 
-    // We assume the sighash stream returns the correct number of items.
     while let Some(msg) = sighash_stream.next().await {
         let (sighash, siginfo) = msg.wrap_err("Sighash stream failed")?;
 
@@ -144,7 +143,7 @@ async fn nonce_aggregator(
         let pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
             .await
             .wrap_err_with(|| {
-                format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
+                format!("Failed to get nonces from verifiers for sighash #{total_sigs} with siginfo: {siginfo:?}")
             })?;
 
         tracing::trace!(
@@ -168,6 +167,7 @@ async fn nonce_aggregator(
     }
     tracing::trace!(tmp_debug = 1, "Sent {total_sigs} to agg_nonce stream");
 
+    // Sanity check, should never happen
     if total_sigs != needed_nofn_sigs {
         let err_msg = format!(
             "Expected {needed_nofn_sigs} nofn signatures, got {total_sigs} from sighash stream",
@@ -176,56 +176,27 @@ async fn nonce_aggregator(
         return Err(eyre::eyre!(err_msg).into());
     }
     // aggregate nonces for the movetx signature
-    let movetx_pub_nonces = try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
-        |(s, id)| async move {
-            s.next()
-                .await
-                .transpose()
-                .wrap_err(format!("Failed to get movetx nonce from {id}",))? // Return the inner error if it exists
-                .ok_or_else(|| -> eyre::Report {
-                    AggregatorError::InputStreamEndedEarlyUnknownSize {
-                        // Return an early end error if the stream is empty
-                        stream_name: format!("Movetx nonce stream for verifier {id}"),
-                    }
-                    .into()
-                })
-        },
-    ))
-    .await
-    .wrap_err("Failed to aggregate nonces for the move tx")?;
+    let movetx_pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
+        .await
+        .wrap_err("Failed to get movetx public nonces from verifiers")?;
 
     tracing::trace!("Received nonces for movetx in nonce_aggregator");
 
     let move_tx_agg_nonce =
-        aggregate_nonces(movetx_pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
+        aggregate_nonces(movetx_pub_nonces.iter().collect::<Vec<_>>().as_slice())
+            .wrap_err("Failed to aggregate movetx nonces")?;
 
-    let emergency_stop_pub_nonces =
-        try_join_all(nonce_streams.iter_mut().zip(verifiers_ids.iter()).map(
-            |(s, id)| async move {
-                s.next()
-                    .await
-                    .transpose()
-                    .wrap_err(format!(
-                        "Failed to get emergency stop nonce from verifier {id}"
-                    ))? // Return the inner error if it exists
-                    .ok_or_else(|| -> eyre::Report {
-                        AggregatorError::InputStreamEndedEarlyUnknownSize {
-                            // Return an early end error if the stream is empty
-                            stream_name: format!("Emergency stop nonce stream for verifier {id}"),
-                        }
-                        .into()
-                    })
-            },
-        ))
+    let emergency_stop_pub_nonces = get_next_pub_nonces(&mut nonce_streams, &verifiers_ids)
         .await
-        .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+        .wrap_err("Failed to get emergency stop tx public nonces from verifiers")?;
 
     let emergency_stop_agg_nonce = aggregate_nonces(
         emergency_stop_pub_nonces
             .iter()
             .collect::<Vec<_>>()
             .as_slice(),
-    )?;
+    )
+    .wrap_err("Failed to aggregate emergency stop tx nonces")?;
 
     Ok((
         (move_tx_agg_nonce, movetx_pub_nonces),
@@ -417,22 +388,30 @@ async fn nonce_distributor(
     match result_1 {
         Ok(inner_result) => {
             if let Err(e) = inner_result {
-                task_errors.push(format!("Task crashed while distributing aggnonces: {e:#?}"));
+                task_errors.push(format!(
+                    "Task returned error while distributing aggnonces: {e:#?}"
+                ));
             }
         }
         Err(e) => {
-            task_errors.push(format!("Failed to distribute aggnonces: {e:#?}"));
+            task_errors.push(format!(
+                "Task panicked while distributing aggnonces: {e:#?}"
+            ));
         }
     }
 
     match result_2 {
         Ok(inner_result) => {
             if let Err(e) = inner_result {
-                task_errors.push(format!("Task crashed while receiving partial sigs: {e:#?}"));
+                task_errors.push(format!(
+                    "Task returned error while receiving partial sigs: {e:#?}"
+                ));
             }
         }
         Err(e) => {
-            task_errors.push(format!("Failed to receive partial sigs: {e:#?}"));
+            task_errors.push(format!(
+                "Task panicked while receiving partial sigs: {e:#?}"
+            ));
         }
     }
 
@@ -1413,7 +1392,10 @@ impl ClementineAggregator for AggregatorServer {
         )
         .await?;
 
-        check_task_results(["Get operator params", "Set operator params"], task_outputs)?;
+        check_task_results(
+            vec!["Get operator params", "Set operator params"],
+            task_outputs,
+        )?;
 
         Ok(Response::new(VerifierPublicKeys::from(verifier_pks)))
     }
@@ -1703,7 +1685,7 @@ impl ClementineAggregator for AggregatorServer {
             .await?;
 
             check_task_results(
-                ["Nonce distribution", "Signature aggregation", "Signature distribution"],
+                vec!["Nonce distribution", "Signature aggregation", "Signature distribution"],
                 task_outputs,
             )?;
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
@@ -2076,41 +2058,41 @@ impl ClementineAggregator for AggregatorServer {
 ///
 /// Takes separate iterators for task names and task results where each result is a nested Result.
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn check_task_results<T, E1, E2, S, N, R>(task_names: N, task_results: R) -> Result<(), BridgeError>
+fn check_task_results<T, E1, E2, S>(
+    task_names: Vec<S>,
+    task_results: Vec<Result<Result<T, E1>, E2>>,
+) -> Result<(), BridgeError>
 where
-    N: IntoIterator<Item = S>,
-    R: IntoIterator<Item = Result<Result<T, E1>, E2>>,
     S: AsRef<str>,
     E1: std::fmt::Display,
     E2: std::fmt::Display,
 {
     let mut task_errors = Vec::new();
-
-    let names: Vec<_> = task_names.into_iter().collect();
-    let results: Vec<_> = task_results.into_iter().collect();
-
     // show an error if the number of task names does not match the number of task results, for development
-    if names.len() != results.len() {
-        let err_msg = if names.len() > results.len() {
-            let missing_names: Vec<_> = names[results.len()..].iter().map(|n| n.as_ref()).collect();
+    if task_names.len() != task_results.len() {
+        let err_msg = if task_names.len() > task_results.len() {
+            let missing_names: Vec<_> = task_names[task_results.len()..]
+                .iter()
+                .map(|n| n.as_ref())
+                .collect();
             format!(
                 "Task names count ({}) does not match task results count ({}). Missing results for tasks: {:?}",
-                names.len(),
-                results.len(),
+                task_names.len(),
+                task_results.len(),
                 missing_names
             )
         } else {
             format!(
                 "Task names count ({}) does not match task results count ({}). {} unnamed task results",
-                names.len(),
-                results.len(),
-                results.len() - names.len()
+                task_names.len(),
+                task_results.len(),
+                task_results.len() - task_names.len()
             )
         };
         task_errors.push(err_msg);
     }
 
-    for (task_name, task_output) in names.into_iter().zip(results.into_iter()) {
+    for (task_name, task_output) in task_names.into_iter().zip(task_results.into_iter()) {
         match task_output {
             Ok(inner_result) => {
                 if let Err(e) = inner_result {
