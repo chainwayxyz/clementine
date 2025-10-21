@@ -2123,7 +2123,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?;
             }
@@ -2224,7 +2224,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_finalizer_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?
                 {

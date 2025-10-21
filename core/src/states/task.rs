@@ -1,7 +1,7 @@
 use crate::{
     bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
     database::{Database, DatabaseTransaction},
-    task::{BufferedErrors, IntoTask, TaskVariant, WithDelay},
+    task::{BufferedErrors, IntoTask, RecoverableTask, TaskVariant, WithDelay},
 };
 use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
@@ -152,12 +152,19 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .wrap_err("Deleting event from queue")?;
 
             dbtx.commit().await?;
-
             Ok(true)
         }
         .await?;
 
         Ok(new_event_received)
+    }
+}
+
+#[async_trait]
+impl<T: Owner + std::fmt::Debug + 'static> RecoverableTask for MessageConsumerTask<T> {
+    async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
+        // in case of any error, reload the state machines from the database
+        self.inner.reload_state_manager_from_db().await
     }
 }
 
@@ -171,7 +178,7 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_buffered_errors(20)
+        .into_buffered_errors(10, 3, Duration::from_secs(10))
         .with_delay(POLL_DELAY)
     }
 }
@@ -183,7 +190,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(
             BlockFetcherTask::<T>::new_finalized_block_fetcher_task(self.db.clone(), self.paramset)
                 .await?
-                .into_buffered_errors(20)
+                .into_buffered_errors(20, 3, Duration::from_secs(10))
                 .with_delay(POLL_DELAY),
         )
     }

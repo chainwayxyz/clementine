@@ -340,7 +340,7 @@ where
                         next_height,
                         self.verifier.clone(),
                     )
-                    .into_buffered_errors(50)
+                    .into_buffered_errors(20, 3, Duration::from_secs(10))
                     .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
                 .await;

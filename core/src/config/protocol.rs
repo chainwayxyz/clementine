@@ -234,6 +234,16 @@ impl ProtocolParamset {
         }
     }
 
+    /// Checks if a block is finalized. In clementine and citrea, finality depth means the amount of confirmations needed for a block to be considered finalized.
+    /// The chain tip has 1 confirmation.
+    pub fn is_block_finalized(&self, block_height: u32, chain_tip_height: u32) -> bool {
+        if block_height > chain_tip_height {
+            return false;
+        }
+
+        chain_tip_height - block_height + 1 >= self.finality_depth
+    }
+
     pub fn bridge_circuit_constant(&self) -> Result<&[u8; 32], BridgeError> {
         match self.network {
             Network::Regtest => {
