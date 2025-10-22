@@ -1414,9 +1414,7 @@ impl ClementineAggregator for AggregatorServer {
         let task_names = ["Get operator params", "Set operator params"];
         debug_assert_eq!(task_names.len(), task_outputs.len());
 
-        flatten_join_named_results(
-            task_names.into_iter().zip(task_outputs.into_iter()),
-        )?;
+        flatten_join_named_results(task_names.into_iter().zip(task_outputs.into_iter()))?;
 
         Ok(Response::new(VerifierPublicKeys::from(verifier_pks)))
     }
@@ -1713,7 +1711,7 @@ impl ClementineAggregator for AggregatorServer {
 
             flatten_join_named_results(
                 task_names.into_iter().zip(task_outputs.into_iter()),
-            )?; 
+            )?;
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
 
             tracing::debug!("Pipeline tasks completed");
@@ -2096,9 +2094,7 @@ impl ClementineAggregator for AggregatorServer {
 ///
 /// Takes tuple of task names and task nested results. (For example tokio::task::spawn results)
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn flatten_join_named_results<T, E1, E2, S, R>(
-    task_results: R,
-) -> Result<(), BridgeError>
+fn flatten_join_named_results<T, E1, E2, S, R>(task_results: R) -> Result<(), BridgeError>
 where
     R: IntoIterator<Item = (S, Result<Result<T, E1>, E2>)>,
     S: AsRef<str>,
