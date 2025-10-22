@@ -266,6 +266,8 @@ impl From<BridgeError> for tonic::Status {
 
 #[cfg(test)]
 mod tests {
+    use eyre::Context;
+
     use super::*;
     #[test]
     fn test_downcast() {
@@ -284,14 +286,17 @@ mod tests {
 
     #[test]
     fn test_status_shows_all_errors_in_chain() {
-        let err: BridgeError = eyre::eyre!("Some problem")
-            .wrap_err(tonic::Status::deadline_exceeded("Error A"))
-            .wrap_err("Error B")
-            .into();
+        let err: BridgeError = Err::<(), BridgeError>(BridgeError::BitcoinRPC(
+            BitcoinRPCError::TransactionNotConfirmed,
+        ))
+        .wrap_err(tonic::Status::deadline_exceeded("Error A"))
+        .wrap_err("Error B")
+        .unwrap_err()
+        .into();
 
-        let status: Status = err.into_status();
+        let status: Status = err.into();
         assert!(status.message().contains("Error A"));
         assert!(status.message().contains("Error B"));
-        assert!(status.message().contains("Some problem"));
+        assert!(status.message().contains("Bitcoin"));
     }
 }
