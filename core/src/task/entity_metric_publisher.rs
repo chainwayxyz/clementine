@@ -25,14 +25,16 @@ pub const ENTITY_METRIC_PUBLISHER_INTERVAL: Duration = Duration::from_secs(120);
 pub struct EntityMetricPublisher<T: NamedEntity> {
     db: Database,
     rpc: ExtendedBitcoinRpc,
+    config: crate::config::BridgeConfig,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: NamedEntity> EntityMetricPublisher<T> {
-    pub fn new(db: Database, rpc: ExtendedBitcoinRpc) -> Self {
+    pub fn new(db: Database, rpc: ExtendedBitcoinRpc, config: crate::config::BridgeConfig) -> Self {
         Self {
             db,
             rpc,
+            config,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -49,7 +51,7 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
             return Ok(false);
         }
 
-        let l1_status = match T::get_l1_status(&self.db, &self.rpc).await {
+        let l1_status = match T::get_l1_status(&self.db, &self.rpc, &self.config).await {
             Ok(l1_status) => l1_status,
             Err(e) => {
                 tracing::error!(
@@ -85,6 +87,9 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
         metric
             .state_manager_next_height
             .set(l1_status.state_manager_next_height.unwrap_or(0) as f64);
+        metric
+            .bitcoin_fee_rate_sat_vb
+            .set(l1_status.bitcoin_fee_rate_sat_vb.unwrap_or(0) as f64);
 
         Ok(false)
     }

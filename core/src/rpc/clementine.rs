@@ -288,6 +288,8 @@ pub struct EntityStatus {
     pub bitcoin_syncer_synced_height: ::core::option::Option<u32>,
     #[prost(uint32, optional, tag = "9")]
     pub state_manager_next_height: ::core::option::Option<u32>,
+    #[prost(uint64, optional, tag = "10")]
+    pub btc_fee_rate_sat_vb: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityId {
