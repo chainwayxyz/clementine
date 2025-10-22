@@ -840,12 +840,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     bitcoin_syncer_synced_height,
                                     state_manager_next_height,
                                     stopped_tasks,
+                                    btc_fee_rate_sat_vb,
                                 } = &status;
                                 println!("  Automation: {automation}");
                                 let wallet_balance = wallet_balance
                                     .as_ref()
                                     .map_or("N/A".to_string(), |s| s.clone());
                                 println!("  Wallet balance: {wallet_balance}");
+                                let btc_fee_rate_sat_vb = btc_fee_rate_sat_vb
+                                    .map_or("N/A".to_string(), |r| r.to_string());
+                                println!("  BTC fee rate: {btc_fee_rate_sat_vb} sat/vB");
                                 let tx_sender_height = tx_sender_synced_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  TX sender synced height: {tx_sender_height}");
