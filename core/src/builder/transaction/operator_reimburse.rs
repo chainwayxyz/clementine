@@ -32,10 +32,9 @@ use crate::rpc::clementine::NormalSignatureKind;
 use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{TxOut, Txid};
+use bitcoin::{taproot, TxOut, Txid};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -63,7 +62,7 @@ pub enum DisprovePath<'a> {
 /// 3. Reimburse connector (to be used in reimburse transaction)
 /// 4. Disprove output (Taproot, for BitVM disprove path)
 /// 5. Latest blockhash output (for latest blockhash assertion using winternitz signatures)
-/// 6. Multiple assert outputs (for BitVM assertions, currently 33)
+/// 6. Multiple assert outputs (for BitVM assertions, currently 36)
 /// 7. For each watchtower 2 outputs:
 ///     - Watchtower challenge output
 ///     - Operator challenge ack/nack output
@@ -407,13 +406,9 @@ pub fn create_payout_txhandler(
     input_utxo: UTXO,
     output_txout: TxOut,
     operator_xonly_pk: XOnlyPublicKey,
-    user_sig: Signature,
+    user_sig: taproot::Signature,
     _network: bitcoin::Network,
 ) -> Result<TxHandler<Signed>, BridgeError> {
-    let user_sig_wrapped = bitcoin::taproot::Signature {
-        signature: user_sig,
-        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-    };
     let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
 
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
@@ -434,7 +429,7 @@ pub fn create_payout_txhandler(
         )))
         .add_output(UnspentTxOut::from_partial(op_return_txout))
         .finalize();
-    txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
+    txhandler.set_p2tr_key_spend_witness(&user_sig, 0)?;
     txhandler.promote()
 }
 
@@ -463,14 +458,10 @@ pub fn create_optimistic_payout_txhandler(
     deposit_data: &mut DepositData,
     input_utxo: UTXO,
     output_txout: TxOut,
-    user_sig: Signature,
+    user_sig: taproot::Signature,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let move_txhandler: TxHandler = create_move_to_vault_txhandler(deposit_data, paramset)?;
-    let user_sig_wrapped = bitcoin::taproot::Signature {
-        signature: user_sig,
-        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-    };
     let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
 
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
@@ -494,6 +485,6 @@ pub fn create_optimistic_payout_txhandler(
             builder::transaction::non_ephemeral_anchor_output(),
         ))
         .finalize();
-    txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
+    txhandler.set_p2tr_key_spend_witness(&user_sig, 0)?;
     Ok(txhandler)
 }

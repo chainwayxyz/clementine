@@ -6,6 +6,7 @@ use tokio::time::sleep;
 
 use crate::errors::BridgeError;
 use crate::task::manager::TaskStatus;
+use crate::task::RecoverableTask;
 
 use super::manager::BackgroundTaskManager;
 use super::{CancelableResult, Task, TaskExt, TaskVariant};
@@ -17,7 +18,10 @@ struct CounterTask {
     work_to_do: u32,
     current_work: u32,
     one_time_fix_at: Option<u32>,
-    should_error: bool,
+    should_always_err: bool,
+    handle_error_fail_at: Option<u32>,
+    handle_error_success_at: Option<u32>,
+    already_handled_error_successfully: bool,
 }
 
 impl CounterTask {
@@ -26,18 +30,48 @@ impl CounterTask {
             counter,
             work_to_do,
             current_work: 0,
-            should_error: false,
+            should_always_err: false,
             one_time_fix_at: None,
+            handle_error_fail_at: None,
+            handle_error_success_at: None,
+            already_handled_error_successfully: false,
         }
     }
 
-    fn with_error(counter: Arc<Mutex<u32>>, work_to_do: u32, one_time_fix_at: Option<u32>) -> Self {
+    fn with_error(
+        counter: Arc<Mutex<u32>>,
+        work_to_do: u32,
+        one_time_fix_at: Option<u32>,
+        handle_error_fail_at: Option<u32>,
+        handle_error_success_at: Option<u32>,
+    ) -> Self {
         Self {
             counter,
             work_to_do,
             current_work: 0,
-            should_error: true,
+            should_always_err: true,
             one_time_fix_at,
+            handle_error_fail_at,
+            handle_error_success_at,
+            already_handled_error_successfully: false,
+        }
+    }
+
+    fn with_handled_error(
+        counter: Arc<Mutex<u32>>,
+        work_to_do: u32,
+        handle_error_fail_at: Option<u32>,
+        handle_error_success_at: Option<u32>,
+    ) -> Self {
+        Self {
+            counter,
+            work_to_do,
+            current_work: 0,
+            should_always_err: false,
+            one_time_fix_at: None,
+            handle_error_fail_at,
+            handle_error_success_at,
+            already_handled_error_successfully: false,
         }
     }
 }
@@ -48,7 +82,15 @@ impl Task for CounterTask {
     const VARIANT: TaskVariant = TaskVariant::Counter;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        if self.should_error && self.one_time_fix_at != Some(*self.counter.lock().await) {
+        if self.handle_error_fail_at == Some(*self.counter.lock().await) {
+            return Err(eyre::eyre!("Handle error fail").into());
+        }
+        if self.handle_error_success_at == Some(*self.counter.lock().await)
+            && !self.already_handled_error_successfully
+        {
+            return Err(eyre::eyre!("Handle error success").into());
+        }
+        if self.should_always_err && self.one_time_fix_at != Some(*self.counter.lock().await) {
             return Err(eyre::eyre!("Task error").into());
         }
 
@@ -60,6 +102,18 @@ impl Task for CounterTask {
         } else {
             Ok(false) // no work to do
         }
+    }
+}
+
+#[tonic::async_trait]
+impl RecoverableTask for CounterTask {
+    async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError> {
+        if format!("{error:?}").contains("Handle error fail") {
+            return Err(eyre::eyre!("Handle error failed").into());
+        }
+        // set flag to true so that next time the task runs, it doesn't fail
+        self.already_handled_error_successfully = true;
+        Ok(())
     }
 }
 
@@ -207,8 +261,8 @@ async fn test_into_bg() {
 #[tokio::test]
 async fn test_buffered_errors() {
     let counter = Arc::new(Mutex::new(0));
-    let task = CounterTask::with_error(Arc::clone(&counter), 5, None);
-    let mut buffered_task = task.into_buffered_errors(3);
+    let task = CounterTask::with_error(Arc::clone(&counter), 5, None, None, None);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
 
     // First two errors should be buffered
     for _ in 0..2 {
@@ -238,8 +292,8 @@ async fn test_buffered_errors() {
 #[tokio::test]
 async fn test_buffered_errors_without_consecutive_errors() {
     let counter = Arc::new(Mutex::new(0));
-    let task = CounterTask::with_error(Arc::clone(&counter), 5, Some(2));
-    let mut buffered_task = task.into_buffered_errors(3);
+    let task = CounterTask::with_error(Arc::clone(&counter), 5, Some(2), None, None);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
 
     // First two errors should be buffered, then an Ok should reset and the next
     // two should also be buffered
@@ -277,13 +331,44 @@ async fn test_buffered_errors_without_consecutive_errors() {
 #[tokio::test]
 async fn test_ignore_error() {
     let counter = Arc::new(Mutex::new(0));
-    let task = CounterTask::with_error(Arc::clone(&counter), 5, None);
+    let task = CounterTask::with_error(Arc::clone(&counter), 5, None, None, None);
     let mut ignore_task = task.ignore_error();
 
     // Task errors should be ignored
     let result = ignore_task.run_once().await;
     assert!(result.is_ok());
     assert!(!result.unwrap()); // default value when error is ignored
+}
+
+#[tokio::test]
+async fn test_buffered_errors_with_handle_error_attempts() {
+    let counter = Arc::new(Mutex::new(0));
+    let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, Some(2), None);
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
+    // first two runs shouldn't error
+    for _ in 0..2 {
+        assert!(buffered_task.run_once().await.is_ok());
+    }
+    // third run should fail, and return an error as it cannot be handled successfully
+    assert!(buffered_task.run_once().await.is_err());
+}
+
+#[tokio::test]
+async fn test_buffered_errors_with_handle_error_attempts_and_success() {
+    let counter = Arc::new(Mutex::new(0));
+    let task = CounterTask::with_handled_error(Arc::clone(&counter), 5, None, Some(3));
+    let mut buffered_task = task.into_buffered_errors(3, 3, Duration::from_millis(100));
+    // first three runs shouldn't error
+    for _ in 0..3 {
+        assert!(buffered_task.run_once().await.is_ok());
+    }
+    assert_eq!(*counter.lock().await, 3);
+    // fourth run should fail, but not panic as it can be handled successfully, but counter should not increase
+    assert!(buffered_task.run_once().await.is_ok());
+    assert_eq!(*counter.lock().await, 3);
+    // fifth run shouldn't fail and should increase counter by 1
+    assert!(buffered_task.run_once().await.is_ok());
+    assert_eq!(*counter.lock().await, 4);
 }
 
 #[tokio::test]

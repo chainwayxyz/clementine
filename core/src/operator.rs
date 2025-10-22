@@ -1,5 +1,5 @@
 use ark_ff::PrimeField;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
+use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
@@ -33,7 +33,7 @@ use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
+use bitcoin::{taproot, Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid};
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
@@ -205,6 +205,7 @@ where
                 EntityMetricPublisher::<Operator<C>>::new(
                     self.operator.db.clone(),
                     self.operator.rpc.clone(),
+                    self.operator.config.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -228,8 +229,12 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status =
-            Operator::<C>::get_l1_status(&self.operator.db, &self.operator.rpc).await?;
+        let sync_status = Operator::<C>::get_l1_status(
+            &self.operator.db,
+            &self.operator.rpc,
+            &self.operator.config,
+        )
+        .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
@@ -243,6 +248,7 @@ where
             bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
 
@@ -602,17 +608,17 @@ where
     pub async fn withdraw(
         &self,
         withdrawal_index: u32,
-        in_signature: schnorr::Signature,
+        in_signature: taproot::Signature,
         in_outpoint: OutPoint,
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
     ) -> Result<Transaction, BridgeError> {
         tracing::info!(
-            "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
+            "Withdrawing with index: {}, in_signature: {:?}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
             withdrawal_index,
-            in_signature.to_string(),
+            in_signature,
             in_outpoint,
-            out_script_pubkey.to_string(),
+            out_script_pubkey,
             out_amount
         );
 
@@ -669,15 +675,14 @@ where
 
         // tracing::info!("Payout txhandler: {:?}", hex::encode(bitcoin::consensus::serialize(&payout_txhandler.get_cached_tx())));
 
-        let sighash = payout_txhandler
-            .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)?;
+        let sighash = payout_txhandler.calculate_sighash_txin(0, in_signature.sighash_type)?;
 
         SECP.verify_schnorr(
-            &in_signature,
+            &in_signature.signature,
             &Message::from_digest(*sighash.as_byte_array()),
             user_xonly_pk,
         )
-        .wrap_err("Failed to verify signature received from user for payout txin")?;
+        .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
         // send payout tx using RBF
         let funded_tx = self
@@ -1288,6 +1293,12 @@ where
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
 
+        #[cfg(test)]
+        self.config
+            .test_params
+            .maybe_save_kickoff_and_wtc_txs(kickoff_tx, &watchtower_challenges, 1, &self.rpc)
+            .await?;
+
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(Some(dbtx), move_txid)
@@ -1504,7 +1515,7 @@ where
         }
 
         let watchtower_challenge_connector_start_idx =
-            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u32;
+            (FIRST_FIVE_OUTPUTS + ClementineBitVMPublicKeys::number_of_assert_txs()) as u32;
 
         let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
             kickoff_tx.clone(),
@@ -2124,7 +2135,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?;
             }
@@ -2225,7 +2236,7 @@ where
                         dbtx.as_deref_mut(),
                         kickoff_finalizer_utxo,
                         current_chain_height,
-                        self.config.protocol_paramset().finality_depth,
+                        self.config.protocol_paramset(),
                     )
                     .await?
                 {

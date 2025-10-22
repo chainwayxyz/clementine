@@ -15,6 +15,7 @@ use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::BlockHash;
 use bitcoin::FeeRate;
+use bitcoin::Network;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
@@ -25,12 +26,15 @@ use bitcoincore_rpc::RpcApi;
 use eyre::eyre;
 use eyre::Context;
 use eyre::OptionExt;
+use http::StatusCode;
+use reqwest;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use std::iter::Take;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::timeout;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::RetryIf;
 
@@ -42,7 +46,7 @@ use crate::builder::transaction::TransactionType;
 use crate::builder::transaction::TxHandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, FeeErr};
 use crate::operator::RoundIndex;
 
 #[cfg(test)]
@@ -1055,7 +1059,7 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate_sat_kwu = current_fee_sat as f64 / tx_weight as f64 * 1000.0;
+        let current_fee_rate_sat_kwu = current_fee_sat as f64 * 1000.0 / tx_weight as f64;
 
         tracing::trace!(
             "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
@@ -1180,6 +1184,227 @@ impl ExtendedBitcoinRpc {
             .await
             .wrap_err("Failed to get block by height")?)
     }
+
+    /// Gets the current recommended fee rate in sat/vb from Mempool Space and Bitcoin Core and selects the minimum.
+    /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
+    /// # Logic
+    /// *   **Regtest:** Uses a fixed fee rate of 1 sat/vB for simplicity.
+    /// *   **Mainnet, Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
+    /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
+    /// # Fallbacks
+    /// *   If one source fails, it uses the other.
+    /// *   If both fail, it falls back to a default of 1 sat/vB.
+    pub async fn get_fee_rate(
+        &self,
+        network: Network,
+        mempool_api_host: &Option<String>,
+        mempool_api_endpoint: &Option<String>,
+        mempool_fee_rate_multiplier: u64,
+        mempool_fee_rate_offset_sat_kvb: u64,
+        fee_rate_hard_cap: u64,
+    ) -> Result<FeeRate> {
+        match network {
+            // Regtest use a fixed, low fee rate.
+            Network::Regtest => {
+                tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
+                Ok(FeeRate::from_sat_per_vb_unchecked(1))
+            }
+
+            // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
+            Network::Bitcoin | Network::Testnet4 | Network::Signet => {
+                tracing::debug!("Fetching fee rate for {network} network...");
+
+                // Fetch fees from both mempool.space and Bitcoin Core RPC
+                let mempool_fee = get_fee_rate_from_mempool_space(
+                    mempool_api_host,
+                    mempool_api_endpoint,
+                    network,
+                )
+                .await;
+
+                let rpc_fee = timeout(Duration::from_secs(30), self.estimate_smart_fee(1, None))
+                    .await
+                    .map_err(|_| eyre!("RPC estimate_smart_fee timed out after 30 seconds"))
+                    .and_then(|result| {
+                        result.wrap_err("Failed to estimate smart fee using Bitcoin Core RPC")
+                    })
+                    .and_then(|estimate| {
+                        estimate.fee_rate.ok_or_else(|| {
+                            eyre!("Failed to extract fee rate from Bitcoin Core RPC response")
+                        })
+                    });
+
+                // Use the minimum of both fee sources, with fallback logic, carefully avoiding overflow
+                let selected_fee_amount = match (mempool_fee, rpc_fee) {
+                    (Ok(mempool_amt), Ok(rpc_amt)) => {
+                        // Use checked arithmetic to avoid overflow
+                        let multiplier = mempool_fee_rate_multiplier;
+                        let offset = mempool_fee_rate_offset_sat_kvb;
+                        let rpc_amt_sat = rpc_amt.to_sat();
+
+                        let threshold_sat = multiplier
+                            .checked_mul(rpc_amt_sat)
+                            .and_then(|v| v.checked_add(offset))
+                            .ok_or_else(|| {
+                                eyre!("Overflow when calculating threshold_sat in fee selection ({multiplier} * {rpc_amt_sat} + {offset})")
+                            })?;
+
+                        let threshold = Amount::from_sat(threshold_sat);
+
+                        if mempool_amt <= threshold {
+                            tracing::debug!(
+                                "Selected mempool.space fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                mempool_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            mempool_amt
+                        } else {
+                            tracing::debug!(
+                                "Selected Bitcoin Core RPC fee rate: {} sat/kvB (mempool: {}, rpc: {}, threshold: {})",
+                                rpc_amt.to_sat(),
+                                mempool_amt.to_sat(),
+                                rpc_amt.to_sat(),
+                                threshold
+                            );
+                            rpc_amt
+                        }
+                    }
+                    (Ok(mempool_amt), Err(rpc_err)) => {
+                        tracing::warn!(
+                            "RPC fee estimation failed, using mempool.space: {:#}",
+                            rpc_err
+                        );
+                        mempool_amt
+                    }
+                    (Err(mempool_err), Ok(rpc_amt)) => {
+                        tracing::warn!(
+                            "Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}",
+                            mempool_err
+                        );
+                        rpc_amt
+                    }
+                    (Err(mempool_err), Err(rpc_err)) => {
+                        tracing::warn!(
+                            "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
+                            mempool_err, rpc_err
+                        );
+                        Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
+                    }
+                };
+
+                // Convert sat/kvB to sat/vB and apply hard cap
+                let mut fee_sat_kvb = selected_fee_amount.to_sat();
+
+                // Apply hard cap from config
+                if fee_sat_kvb > fee_rate_hard_cap * 1000 {
+                    tracing::warn!(
+                        "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
+                        fee_sat_kvb,
+                        fee_rate_hard_cap * 1000
+                    );
+                    fee_sat_kvb = fee_rate_hard_cap * 1000;
+                }
+
+                tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
+            }
+
+            // All other network types are unsupported.
+            _ => Err(eyre!(
+                "Fee rate estimation is not supported for network: {:?}",
+                network
+            )
+            .into()),
+        }
+    }
+}
+
+/// Fetches the current recommended fee rate from the provider. Currently only supports
+/// Mempool Space API.
+/// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
+/// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
+async fn get_fee_rate_from_mempool_space(
+    url: &Option<String>,
+    endpoint: &Option<String>,
+    network: Network,
+) -> Result<Amount> {
+    let url = url
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate API host is not configured"))?;
+
+    let endpoint = endpoint
+        .as_ref()
+        .ok_or_else(|| eyre!("Fee rate API endpoint is not configured"))?;
+
+    let url = match network {
+        Network::Bitcoin => format!(
+            // If the variables are not, return Error to fallback to Bitcoin Core RPC.
+            "{url}{endpoint}",
+        ),
+        Network::Testnet4 => format!("{url}testnet4/{endpoint}"),
+        // Return early with error for unsupported networks
+        Network::Signet => {
+            tracing::warn!("You should use Citrea signet url for mempool.space");
+            format!("{url}{endpoint}")
+        }
+        _ => return Err(eyre!("Unsupported network for mempool.space: {network:?}").into()),
+    };
+
+    let retry_config = RetryConfig::new(
+        Duration::from_millis(250),
+        Duration::from_secs(5),
+        4,
+        2,
+        true,
+    );
+
+    let retry_strategy = retry_config.get_strategy();
+
+    // Retry predicate: only retry on timeouts, connect errors, and 5xx/429 statuses.
+    let should_retry = |e: &FeeErr| match e {
+        FeeErr::Timeout => true,
+        FeeErr::Transport(req_err) => req_err.is_timeout() || req_err.is_connect(),
+        FeeErr::Status(code) => code.is_server_error() || *code == StatusCode::TOO_MANY_REQUESTS,
+        FeeErr::JsonDecode(_) | FeeErr::MissingField => false,
+    };
+
+    let fee_sat_per_vb: u64 = RetryIf::spawn(
+        retry_strategy,
+        || {
+            let url = url.clone();
+            async move {
+                let resp = timeout(Duration::from_secs(5), reqwest::get(&url))
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::Transport)?;
+
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(FeeErr::Status(status));
+                }
+
+                let json: serde_json::Value = timeout(Duration::from_secs(5), resp.json())
+                    .await
+                    .map_err(|_| FeeErr::Timeout)?
+                    .map_err(FeeErr::JsonDecode)?;
+
+                json.get("fastestFee")
+                    .and_then(|fee| fee.as_u64())
+                    .ok_or(FeeErr::MissingField)
+            }
+        },
+        should_retry,
+    )
+    .await
+    .map_err(|e| eyre::eyre!(e))
+    .wrap_err_with(|| format!("Failed to fetch/parse fees from {url}"))?;
+
+    // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
+    let fee_rate = Amount::from_sat(fee_sat_per_vb * 1000);
+
+    Ok(fee_rate)
 }
 
 #[async_trait]

@@ -21,6 +21,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -407,7 +408,8 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
-    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() {
+    if !paramset.bridge_nonstandard && input_amount >= paramset.anchor_amount() + MIN_TAPROOT_AMOUNT
+    {
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if we use nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
@@ -440,7 +442,7 @@ mod tests {
         let input_amount = Amount::from_sat(10000000000);
         let pubkeys = KickoffWinternitzKeys::new(
             vec![
-                vec![[0u8; 20]; 44];
+                vec![[0u8; 20]; 43];
                 (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
             ],
             paramset.num_kickoffs_per_round,

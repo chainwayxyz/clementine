@@ -14,11 +14,14 @@ use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
 use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::constants::is_test_vk;
+use eyre::Context;
 use protocol::ProtocolParamset;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -86,6 +89,8 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 
     /// Security council.
     pub security_council: SecurityCouncil,
@@ -241,6 +246,61 @@ impl BridgeConfig {
         }
     }
 
+    /// Check general requirements for the configuration irrespective of the network.
+    pub async fn check_general_requirements(&self) -> Result<(), BridgeError> {
+        // check genesis state hash
+        let rpc = ExtendedBitcoinRpc::connect(
+            self.bitcoin_rpc_url.clone(),
+            self.bitcoin_rpc_user.clone(),
+            self.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        .wrap_err("Failed to connect to Bitcoin RPC while checking general requirements")?;
+
+        let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
+            &rpc,
+            self.protocol_paramset().genesis_height.into(),
+            self.protocol_paramset().network,
+        )
+        .await
+        .wrap_err("Failed to get genesis chain state while checking general requirements")?;
+
+        let mut reasons = Vec::new();
+
+        if genesis_chain_state.to_hash() != self.protocol_paramset().genesis_chain_state_hash {
+            reasons.push(format!(
+                "Genesis chain state hash mismatch, state hash generated from Bitcoin RPC ({}) does not match value in config ({})",
+                hex::encode(genesis_chain_state.to_hash()),
+                hex::encode(self.protocol_paramset().genesis_chain_state_hash)
+            ));
+        }
+
+        if self.protocol_paramset().start_height < self.protocol_paramset().genesis_height {
+            reasons.push(format!(
+                "Start height is less than genesis height: {} < {}",
+                self.protocol_paramset().start_height,
+                self.protocol_paramset().genesis_height
+            ));
+        }
+
+        if self.protocol_paramset().finality_depth < 1 {
+            reasons.push(format!(
+                "Finality depth ({}) cannot be less than 1",
+                self.protocol_paramset().finality_depth
+            ));
+        }
+
+        if !reasons.is_empty() {
+            return Err(BridgeError::ConfigError(format!(
+                "Invalid configuration due to: {}",
+                reasons.join(" - ")
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Checks various variables if they are correct for mainnet deployment.
     pub fn check_mainnet_requirements(&self, actor_type: cli::Actors) -> Result<(), BridgeError> {
         if self.protocol_paramset().network != Network::Bitcoin {
@@ -371,6 +431,7 @@ impl Default for BridgeConfig {
             citrea_request_timeout: None,
 
             header_chain_proof_path: None,
+            header_chain_proof_batch_size: 100,
 
             operator_reimbursement_address: None,
             operator_collateral_funding_outpoint: None,
@@ -569,5 +630,52 @@ mod tests {
         let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_general_requirements_ok() {
+        use crate::test::common::{create_regtest_rpc, create_test_config_with_thread_name};
+
+        let mut config = create_test_config_with_thread_name().await;
+        // Point config to an isolated regtest bitcoind
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        // Should pass with proper paramset and node
+        config
+            .check_general_requirements()
+            .await
+            .expect("general requirements should pass on regtest");
+    }
+
+    #[tokio::test]
+    async fn test_check_general_requirements_multiple_errors() {
+        use crate::test::common::{create_regtest_rpc, create_test_config_with_thread_name};
+
+        // Paramset that intentionally violates multiple constraints to aggregate errors
+        pub const BAD_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
+            // Force hash mismatch
+            genesis_chain_state_hash: [1u8; 32],
+            // Make start height lower than genesis height to trigger that error
+            start_height: 0,
+            genesis_height: 1,
+            // Make finality depth invalid
+            finality_depth: 0,
+            ..REGTEST_PARAMSET
+        };
+
+        let mut config = create_test_config_with_thread_name().await;
+        // Use regtest node but set wrong/invalid paramset values to trigger multiple errors
+        let _regtest = create_regtest_rpc(&mut config).await;
+        config.protocol_paramset = &BAD_PARAMSET;
+
+        let res = config.check_general_requirements().await;
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(
+            err.contains("Genesis chain state hash"),
+            "unexpected error: {err}"
+        );
+        assert!(err.contains("Start height"), "unexpected error: {err}");
+        assert!(err.contains("Finality depth"), "unexpected error: {err}");
     }
 }

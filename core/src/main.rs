@@ -45,6 +45,11 @@ async fn main() {
         }
     }
 
+    config
+        .check_general_requirements()
+        .await
+        .expect("Configuration is invalid");
+
     // Load the BitVM cache on startup.
     tracing::info!("Loading BitVM cache...");
     BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);

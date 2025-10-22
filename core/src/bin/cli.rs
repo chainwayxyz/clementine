@@ -13,9 +13,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty, EntityStatus,
-        GetEntityStatusesRequest, Outpoint, ReplacementDeposit, SendMoveTxRequest,
-        VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
+        entity_data_with_id::DataResult, Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit,
+        Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
+        SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -94,6 +94,10 @@ enum OperatorCommands {
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
+    /// Get compatibility parameters
+    GetCompatibilityParams,
+    /// Get entity status
+    GetEntityStatus,
     // Add other operator commands as needed
 }
 
@@ -106,6 +110,10 @@ enum VerifierCommands {
         #[arg(long)]
         num_nonces: u32,
     },
+    /// Get compatibility parameters
+    GetCompatibilityParams,
+    /// Get entity status
+    GetEntityStatus,
     /// Get vergen build information
     Vergen,
     // /// Set verifier public keys
@@ -180,6 +188,22 @@ enum AggregatorCommands {
         #[arg(long)]
         operator_xonly_pks: Option<Vec<String>>,
     },
+    NewOptimisticWithdrawal {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+        #[arg(long)]
+        verification_signature: Option<String>,
+    },
     /// Get the status of all entities (operators and verifiers)
     GetEntityStatuses {
         #[arg(long)]
@@ -191,6 +215,8 @@ enum AggregatorCommands {
         /// A comma-separated list of move txids
         move_txids: String,
     },
+    /// Get compatibility parameters for all entities
+    GetCompatibilityParamsFromAll,
     /// Get vergen build information
     Vergen,
 }
@@ -413,6 +439,20 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 println!("Tx type: {tx_type:?}, Tx hex: {hex_tx:?}");
             }
         }
+        OperatorCommands::GetCompatibilityParams => {
+            let params = operator
+                .get_compatibility_params(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Compatibility params:\n{params:#?}");
+        }
+        OperatorCommands::GetEntityStatus => {
+            let params = operator
+                .get_current_status(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Entity status:\n{params:#?}");
+        }
     }
 }
 
@@ -454,6 +494,20 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let response_msg = response.into_inner().response;
             println!("Vergen response:\n{response_msg}");
         }
+        VerifierCommands::GetCompatibilityParams => {
+            let params = verifier
+                .get_compatibility_params(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Compatibility params:\n{params:#?}");
+        }
+        VerifierCommands::GetEntityStatus => {
+            let params = verifier
+                .get_current_status(Empty {})
+                .await
+                .expect("Failed to make a request");
+            println!("Entity status:\n{params:#?}");
+        }
     }
 }
 
@@ -477,6 +531,39 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("{setup:?}");
+        }
+        AggregatorCommands::GetCompatibilityParamsFromAll => {
+            let params = aggregator
+                .get_compatibility_data_from_entities(Empty {})
+                .await
+                .expect("Failed to make a request");
+            let params = params.into_inner();
+            println!("Compatibility params from all entities:");
+            for entity in params.entities_compatibility_data {
+                match entity.entity_id {
+                    Some(entity_id) => {
+                        let kind = EntityType::try_from(entity_id.kind)
+                            .expect("Failed to convert kind to entity type");
+                        println!("Entity: {:?}, ID: {:?}", kind, entity_id.id);
+                    }
+                    None => {
+                        println!("No entity id received");
+                    }
+                }
+                match entity.data_result {
+                    Some(data_result) => match data_result {
+                        DataResult::Data(data) => {
+                            println!("{data:#?}");
+                        }
+                        DataResult::Error(error) => {
+                            println!("Error: {error}");
+                        }
+                    },
+                    None => {
+                        println!("No data");
+                    }
+                }
+            }
         }
         AggregatorCommands::NewDeposit {
             deposit_outpoint_txid,
@@ -557,6 +644,52 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     );
                 }
             }
+        }
+        AggregatorCommands::NewOptimisticWithdrawal {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+            verification_signature,
+        } => {
+            println!("Processing withdrawal with id {withdrawal_id}");
+
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
+            input_outpoint_txid_bytes.reverse();
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature_bytes,
+                input_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid {
+                        txid: input_outpoint_txid_bytes,
+                    }),
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey_bytes,
+                output_amount,
+            };
+
+            let withdraw_params_with_sig =
+                clementine_core::rpc::clementine::OptimisticWithdrawParams {
+                    withdrawal: Some(params),
+                    verification_signature: verification_signature.clone(),
+                };
+
+            let response = aggregator
+                .optimistic_payout(Request::new(withdraw_params_with_sig))
+                .await
+                .expect("Failed to make a request");
+            println!("Tx: {}", hex::encode(response.get_ref().raw_tx.clone()));
         }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
@@ -825,9 +958,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             for entity_status in &response.get_ref().entity_statuses {
                 match &entity_status.entity_id {
                     Some(entity_id) => {
-                        let kind = entity_id.kind;
-                        let id = &entity_id.id;
-                        println!("Entity: {kind} - {id}");
+                        let kind = EntityType::try_from(entity_id.kind)
+                            .expect("Failed to convert kind to entity type");
+                        println!("Entity: {:?}, ID: {:?}", kind, entity_id.id);
                         match &entity_status.status_result {
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
                                 let EntityStatus {
@@ -840,12 +973,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     bitcoin_syncer_synced_height,
                                     state_manager_next_height,
                                     stopped_tasks,
+                                    btc_fee_rate_sat_vb,
                                 } = &status;
                                 println!("  Automation: {automation}");
                                 let wallet_balance = wallet_balance
                                     .as_ref()
                                     .map_or("N/A".to_string(), |s| s.clone());
                                 println!("  Wallet balance: {wallet_balance}");
+                                let btc_fee_rate_sat_vb = btc_fee_rate_sat_vb
+                                    .map_or("N/A".to_string(), |r| r.to_string());
+                                println!("  BTC fee rate: {btc_fee_rate_sat_vb} sat/vB");
                                 let tx_sender_height = tx_sender_synced_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  TX sender synced height: {tx_sender_height}");
@@ -936,8 +1073,6 @@ async fn handle_print_addresses() {
             return;
         }
     };
-
-    println!("Bitcoin RPC URL: {bitcoin_rpc_url}");
 
     // Get network from environment or default to regtest
     let network = match std::env::var("NETWORK") {

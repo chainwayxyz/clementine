@@ -59,7 +59,7 @@ use bitcoin::key::Secp256k1;
 use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::taproot::TaprootBuilder;
+use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
@@ -340,7 +340,7 @@ where
                         next_height,
                         self.verifier.clone(),
                     )
-                    .into_buffered_errors(50)
+                    .into_buffered_errors(20, 3, Duration::from_secs(10))
                     .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
                 )
                 .await;
@@ -359,8 +359,12 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Verifier<C>>::new(self.verifier.db.clone(), rpc.clone())
-                    .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
+                EntityMetricPublisher::<Verifier<C>>::new(
+                    self.verifier.db.clone(),
+                    rpc.clone(),
+                    self.verifier.config.clone(),
+                )
+                .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
             .await;
 
@@ -372,8 +376,12 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let l1_sync_status =
-            Verifier::<C>::get_l1_status(&self.verifier.db, &self.verifier.rpc).await?;
+        let l1_sync_status = Verifier::<C>::get_l1_status(
+            &self.verifier.db,
+            &self.verifier.rpc,
+            &self.verifier.config,
+        )
+        .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
@@ -387,6 +395,7 @@ where
             bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: l1_sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
 
@@ -1331,7 +1340,7 @@ where
         nonce_session_id: u128,
         agg_nonce: AggregatedNonce,
         deposit_id: u32,
-        input_signature: Signature,
+        input_signature: taproot::Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
@@ -2264,27 +2273,43 @@ where
             tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
         }
 
-        let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
+        // take only winternitz signatures from the witness
+
+        let latest_blockhash = extract_winternitz_commits_with_sigs(
+            latest_blockhash.clone(),
+            &[ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+                deposit_outpoint,
+                paramset,
+            )],
+            self.config.protocol_paramset(),
+        )?;
+
+        let payout_blockhash = extract_winternitz_commits_with_sigs(
+            payout_blockhash.clone(),
+            &[
+                ClementineBitVMPublicKeys::get_payout_tx_blockhash_derivation(
+                    deposit_outpoint,
+                    paramset,
+                ),
+            ],
+            self.config.protocol_paramset(),
+        )?;
 
         let mut latest_blockhash_new = Witness::new();
-        for element in latest_blockhash {
+        for element in latest_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             latest_blockhash_new.push(element);
         }
 
-        let payout_blockhash: Vec<Vec<u8>> = payout_blockhash
-            .iter()
-            .skip(1)
-            .take(88)
-            .map(|x| x.to_vec())
-            .collect();
-
         let mut payout_blockhash_new = Witness::new();
-        for element in payout_blockhash {
+        for element in payout_blockhash
+            .into_iter()
+            .next()
+            .expect("Must have one element")
+        {
             payout_blockhash_new.push(element);
         }
 
@@ -2466,6 +2491,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         db_cache: &mut ReimburseDbCache<'_, '_>,
     ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+        use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
 
         let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
@@ -2476,9 +2502,9 @@ where
 
         // Pre-allocate commit vectors. Initializing with known sizes or empty vectors
         // is slightly more efficient as it can prevent reallocations.
-        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 1];
-        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 14];
-        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; 363];
+        let mut g16_public_input_commit: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_PUBS];
+        let mut num_u256_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_U256];
+        let mut intermediate_value_commits: Vec<Vec<Vec<u8>>> = vec![vec![vec![]]; NUM_HASH];
 
         tracing::info!("Number of operator asserts: {}", operator_asserts.len());
 
@@ -2494,7 +2520,7 @@ where
         for i in 0..operator_asserts.len() {
             let witness = operator_asserts
                 .get(&i)
-                .expect("indexed from 0 to 32")
+                .ok_or_eyre(format!("Expected operator assert at index {i}, got None"))?
                 .clone();
 
             let mut commits = extract_winternitz_commits_with_sigs(
@@ -2516,31 +2542,33 @@ where
                     // Assign specific commits to their respective arrays by removing from the end.
                     // This is slightly more efficient than removing from arbitrary indices.
                     g16_public_input_commit[0] = commits.remove(len - 1);
-                    num_u256_commits[12] = commits.remove(len - 2);
-                    num_u256_commits[13] = commits.remove(len - 3);
-                    intermediate_value_commits[360] = commits.remove(len - 4);
-                    intermediate_value_commits[361] = commits.remove(len - 5);
-                    intermediate_value_commits[362] = commits.remove(len - 6);
+                    num_u256_commits[10] = commits.remove(len - 2);
+                    num_u256_commits[11] = commits.remove(len - 3);
+                    num_u256_commits[12] = commits.remove(len - 4);
+                    num_u256_commits[13] = commits.remove(len - 5);
                 }
                 1 | 2 => {
                     // Handles i = 1 and i = 2
-                    for j in 0..6 {
-                        num_u256_commits[6 * (i - 1) + j] = commits
+                    for j in 0..5 {
+                        num_u256_commits[5 * (i - 1) + j] = commits
                             .pop()
                             .expect("Should not panic: `num_u256_commits` index out of bounds");
                     }
                 }
-                3..=32 => {
-                    // Handles i from 3 to 32
-                    for j in 0..12 {
-                        intermediate_value_commits[12 * (i - 3) + j] = commits.pop().expect(
+                _ if i >= 3 && i < ClementineBitVMPublicKeys::number_of_assert_txs() => {
+                    // Handles i from 3 to number_of_assert_txs() - 1
+                    for j in 0..11 {
+                        intermediate_value_commits[11 * (i - 3) + j] = commits.pop().expect(
                             "Should not panic: `intermediate_value_commits` index out of bounds",
                         );
                     }
                 }
                 _ => {
                     // Catch-all for any other 'i' values
-                    panic!("Unexpected operator assert index: {i}; expected 0 to 32.");
+                    panic!(
+                        "Unexpected operator assert index: {i}; expected 0 to {}.",
+                        ClementineBitVMPublicKeys::number_of_assert_txs() - 1
+                    );
                 }
             }
         }
@@ -2576,16 +2604,16 @@ where
             Ok(())
         };
 
-        let mut first_box = Box::new([[[0u8; 21]; 68]; 1]);
+        let mut first_box = Box::new([[[0u8; 21]; 67]; NUM_PUBS]);
         fill_from_commits(&g16_public_input_commit[0], &mut first_box[0])?;
 
-        let mut second_box = Box::new([[[0u8; 21]; 68]; 14]);
-        for i in 0..14 {
+        let mut second_box = Box::new([[[0u8; 21]; 67]; NUM_U256]);
+        for i in 0..NUM_U256 {
             fill_from_commits(&num_u256_commits[i], &mut second_box[i])?;
         }
 
-        let mut third_box = Box::new([[[0u8; 21]; 36]; 363]);
-        for i in 0..363 {
+        let mut third_box = Box::new([[[0u8; 21]; 35]; NUM_HASH]);
+        for i in 0..NUM_HASH {
             fill_from_commits(&intermediate_value_commits[i], &mut third_box[i])?;
         }
 
@@ -3213,7 +3241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_address_from_signature() {
-        let input_signature = Signature::from_str("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b102643")
+        let input_signature = taproot::Signature::from_slice(&hex::decode("e8b82defd5e7745731737d210ad3f649541fd1e3173424fe6f9152b11cf8a1f9e24a176690c2ab243fb80ccc43369b2aba095b011d7a3a7c2a6953ef6b10264300").unwrap())
 		.unwrap();
         let input_outpoint = OutPoint::from_str(
             "0000000000000000000000000000000000000000000000000000000000000000:0",
