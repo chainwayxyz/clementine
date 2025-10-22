@@ -283,15 +283,15 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "BridgeError to Status casting changed to included all of the eyre chain"]
-    fn test_status_in_chain_cast_properly() {
+    fn test_status_shows_all_errors_in_chain() {
         let err: BridgeError = eyre::eyre!("Some problem")
-            .wrap_err(tonic::Status::deadline_exceeded("Some timer expired"))
-            .wrap_err("Something else went wrong")
+            .wrap_err(tonic::Status::deadline_exceeded("Error A"))
+            .wrap_err("Error B")
             .into();
 
         let status: Status = err.into_status();
-        assert_eq!(status.code(), tonic::Code::DeadlineExceeded);
-        assert_eq!(status.message(), "Some timer expired");
+        assert!(status.message().contains("Error A"));
+        assert!(status.message().contains("Error B"));
+        assert!(status.message().contains("Some problem"));
     }
 }
