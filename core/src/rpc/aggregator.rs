@@ -1411,9 +1411,11 @@ impl ClementineAggregator for AggregatorServer {
         )
         .await?;
 
+        let task_names = ["Get operator params", "Set operator params"];
+        debug_assert_eq!(task_names.len(), task_outputs.len());
+
         flatten_join_named_results(
-            vec!["Get operator params", "Set operator params"],
-            task_outputs,
+            task_names.into_iter().zip(task_outputs.into_iter()),
         )?;
 
         Ok(Response::new(VerifierPublicKeys::from(verifier_pks)))
@@ -1705,10 +1707,13 @@ impl ClementineAggregator for AggregatorServer {
             )
             .await?;
 
+            let task_names = ["Nonce distribution", "Signature aggregation", "Signature distribution"];
+
+            debug_assert_eq!(task_names.len(), task_outputs.len());
+
             flatten_join_named_results(
-                vec!["Nonce distribution", "Signature aggregation", "Signature distribution"],
-                task_outputs,
-            )?;
+                task_names.into_iter().zip(task_outputs.into_iter()),
+            )?; 
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
 
             tracing::debug!("Pipeline tasks completed");
@@ -2089,43 +2094,20 @@ impl ClementineAggregator for AggregatorServer {
 
 /// Checks task results and returns an error if any task failed.
 ///
-/// Takes separate iterators for task names and task results where each result is a nested Result. (For example tokio::task::spawn results)
+/// Takes tuple of task names and task nested results. (For example tokio::task::spawn results)
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn flatten_join_named_results<T, E1, E2, S>(
-    task_names: Vec<S>,
-    task_results: Vec<Result<Result<T, E1>, E2>>,
+fn flatten_join_named_results<T, E1, E2, S, R>(
+    task_results: R,
 ) -> Result<(), BridgeError>
 where
+    R: IntoIterator<Item = (S, Result<Result<T, E1>, E2>)>,
     S: AsRef<str>,
     E1: std::fmt::Display,
     E2: std::fmt::Display,
 {
     let mut task_errors = Vec::new();
-    // show an error if the number of task names does not match the number of task results, for development
-    if task_names.len() != task_results.len() {
-        let err_msg = if task_names.len() > task_results.len() {
-            let missing_names: Vec<_> = task_names[task_results.len()..]
-                .iter()
-                .map(|n| n.as_ref())
-                .collect();
-            format!(
-                "Task names count ({}) does not match task results count ({}). Missing results for tasks: {:?}",
-                task_names.len(),
-                task_results.len(),
-                missing_names
-            )
-        } else {
-            format!(
-                "Task names count ({}) does not match task results count ({}). {} unnamed task results",
-                task_names.len(),
-                task_results.len(),
-                task_results.len() - task_names.len()
-            )
-        };
-        task_errors.push(err_msg);
-    }
 
-    for (task_name, task_output) in task_names.into_iter().zip(task_results.into_iter()) {
+    for (task_name, task_output) in task_results.into_iter() {
         match task_output {
             Ok(inner_result) => {
                 if let Err(e) = inner_result {
