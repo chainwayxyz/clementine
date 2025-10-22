@@ -24,7 +24,7 @@ pub const REGTEST_LC_IMAGE_ID: [u8; 32] =
     hex!("e02f42a01d0cb5a6dbc2f5d26b28a9881808a3023c8330a5aea2a0bea754c216");
 
 pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("868e65191b05cdc0b1138983b3e0fd65326448fdba00092c4ddfbea58b081944");
+    hex!("418fd1ca90a3ea9e9d99626078e618750aa6209261c645fb456bf0e8293c368a");
 
 pub const TESTNET4_LC_IMAGE_ID: [u8; 32] =
     hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
