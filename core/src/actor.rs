@@ -357,7 +357,7 @@ impl Actor {
         let pk_vec = self.derive_winternitz_pk(
             ClementineBitVMPublicKeys::get_latest_blockhash_derivation(deposit_outpoint, paramset),
         )?;
-        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<43>(&pk_vec);
         let pk_vec = self.derive_winternitz_pk(
             ClementineBitVMPublicKeys::get_challenge_sending_watchtowers_derivation(
                 deposit_outpoint,
@@ -365,7 +365,7 @@ impl Actor {
             ),
         )?;
         pks.challenge_sending_watchtowers_pk =
-            ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+            ClementineBitVMPublicKeys::vec_to_array::<43>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
@@ -374,7 +374,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<67>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
@@ -384,7 +384,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<67>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
@@ -394,7 +394,7 @@ impl Actor {
                 deposit_outpoint,
                 paramset,
             ))?;
-            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<36>(&pk_vec);
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<35>(&pk_vec);
         }
 
         Ok(pks)
@@ -1127,7 +1127,8 @@ mod tests {
         // check only first digit
         let params = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset);
         let expected_pk = vec![
-            73, 53, 43, 45, 238, 155, 231, 105, 47, 74, 113, 101, 251, 132, 43, 7, 175, 51, 68, 145,
+            101, 197, 179, 64, 250, 67, 109, 29, 241, 138, 5, 24, 94, 33, 175, 150, 152, 91, 168,
+            177,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1141,8 +1142,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            8, 75, 251, 125, 222, 137, 90, 239, 56, 44, 57, 182, 103, 241, 45, 102, 102, 255, 36,
-            65,
+            175, 225, 87, 0, 121, 25, 91, 88, 22, 210, 26, 117, 146, 84, 228, 150, 199, 181, 186,
+            33,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -1151,8 +1152,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            14, 33, 117, 176, 169, 8, 223, 186, 169, 194, 66, 220, 100, 85, 160, 85, 250, 16, 167,
-            162,
+            247, 46, 220, 228, 70, 245, 147, 30, 64, 207, 189, 137, 222, 217, 244, 96, 68, 114,
+            243, 13,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),

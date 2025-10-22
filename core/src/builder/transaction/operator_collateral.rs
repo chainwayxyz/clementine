@@ -442,7 +442,7 @@ mod tests {
         let input_amount = Amount::from_sat(10000000000);
         let pubkeys = KickoffWinternitzKeys::new(
             vec![
-                vec![[0u8; 20]; 44];
+                vec![[0u8; 20]; 43];
                 (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
             ],
             paramset.num_kickoffs_per_round,

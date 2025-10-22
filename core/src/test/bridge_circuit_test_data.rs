@@ -32,6 +32,7 @@ pub enum BridgeCircuitTestDataVariant {
     InsufficientTotalWork,
     Valid,
     FirstTwoValid,
+    GenerateKickoffAndWtcTx,
 }
 
 struct BridgeCircuitTestData {
@@ -127,6 +128,9 @@ impl TestCase for BridgeCircuitTestData {
                     .test_params
                     .generate_varying_total_works_first_two_valid = true;
             }
+            BridgeCircuitTestDataVariant::GenerateKickoffAndWtcTx => {
+                config.test_params.generate_kickoff_and_wtc_txs = true;
+            }
         }
 
         citrea::update_config_with_citrea_e2e_values(
@@ -173,6 +177,17 @@ impl TestCase for BridgeCircuitTestData {
 
         Ok(())
     }
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes"]
+async fn bridge_circuit_test_data_generate_kickoff_and_wtc_tx() -> Result<()> {
+    initialize_logger(None).expect("Failed to initialize logger");
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    let bridge_circuit_test_data = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::GenerateKickoffAndWtcTx,
+    };
+    TestCaseRunner::new(bridge_circuit_test_data).run().await
 }
 
 #[tokio::test]
