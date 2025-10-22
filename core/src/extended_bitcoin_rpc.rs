@@ -79,7 +79,7 @@ impl RetryConfig {
         // The crate use is confusing. ExponentialBackoff::from_millis defines the base,
         // given the backoff_multiplier (this is supposed to be the initial delay), the
         // starting factor becomes backoff_multiplier / initial_delay_millis.
-        let base: u64 = initial_delay_millis / backoff_multiplier;
+        let factor: u64 = initial_delay_millis / backoff_multiplier;
 
         let max_attempts = std::cmp::min(max_attempts, MAX_RETRY_ATTEMPTS);
 
@@ -87,7 +87,7 @@ impl RetryConfig {
         let base_strategy = Arc::new(
             ExponentialBackoff::from_millis(backoff_multiplier)
                 .max_delay(max_delay)
-                .factor(base)
+                .factor(factor)
                 .take(max_attempts),
         );
 
