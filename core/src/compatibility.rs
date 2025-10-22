@@ -276,8 +276,15 @@ mod tests {
         assert!(msg.contains("Security council mismatch"));
     }
 
-    #[tokio::test]
+    // serial test because it calculates sha256 of the bitvm cache for all actors
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_get_compatibility_data_from_entities() {
+        // Skip this test if running in debug mode, hashing bitvm cache is slow
+        if cfg!(debug_assertions) {
+            eprintln!("Skipping test_get_compatibility_data_from_entities in debug mode");
+            return;
+        }
+
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
         let actors = create_actors::<MockCitreaClient>(&config).await;

@@ -857,7 +857,7 @@ where
         mut deposit_data: DepositData,
         session_id: u128,
         mut agg_nonce_rx: mpsc::Receiver<AggregatedNonce>,
-    ) -> Result<mpsc::Receiver<PartialSignature>, BridgeError> {
+    ) -> Result<mpsc::Receiver<Result<PartialSignature, BridgeError>>, BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -878,6 +878,7 @@ where
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
         let verifiers_public_keys = deposit_data.get_verifiers();
+        let monitor_sender = partial_sig_tx.clone();
 
         let deposit_blockhash = self
             .rpc
@@ -909,7 +910,7 @@ where
                     "Expected nonce count to be {} (num_required_sigs + 2, for movetx & emergency stop), got {}",
                     num_required_sigs + 2,
                     session.nonces.len()
-                ));
+                ).into());
             }
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
@@ -934,7 +935,7 @@ where
                 )?;
 
                 partial_sig_tx
-                    .send(partial_sig)
+                    .send(Ok(partial_sig))
                     .await
                     .wrap_err("Failed to send partial signature")?;
 
@@ -952,17 +953,17 @@ where
 
             if session.nonces.len() != 2 {
                 return Err(eyre::eyre!(
-                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
+                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}, indicating aggregated nonce stream ended prematurely",
                     session.nonces.len()
-                ));
+                ).into());
             }
 
             let mut session_map = verifier.nonces.lock().await;
             session_map.add_new_session_with_id(session, session_id)?;
 
-            Ok::<(), eyre::Report>(())
+            Ok::<(), BridgeError>(())
         });
-        monitor_standalone_task(handle, "Verifier deposit_sign");
+        monitor_standalone_task(handle, "Verifier deposit_sign", monitor_sender);
 
         Ok(partial_sig_rx)
     }

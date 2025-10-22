@@ -390,9 +390,14 @@ pub fn get_vergen_response() -> VergenResponse {
 
 /// Monitors a [`tokio::task::JoinHandle`] in the background and logs it's end
 /// result.
-pub fn monitor_standalone_task<T: Send + 'static, E: Debug + Send + 'static>(
+pub fn monitor_standalone_task<
+    T: Send + 'static,
+    E: Debug + Send + 'static + From<BridgeError>,
+    C: Send + 'static,
+>(
     task_handle: tokio::task::JoinHandle<Result<T, E>>,
     task_name: &str,
+    monitor_err_sender: tokio::sync::mpsc::Sender<Result<C, E>>,
 ) {
     let task_name = task_name.to_string();
 
@@ -403,15 +408,38 @@ pub fn monitor_standalone_task<T: Send + 'static, E: Debug + Send + 'static>(
                 tracing::debug!("Task {} completed successfully", task_name);
             }
             Ok(Err(e)) => {
-                tracing::error!("Task {} throw an error: {:?}", task_name, e);
+                tracing::error!("Task {} threw an error: {:?}", task_name, e);
+                let _ = monitor_err_sender.send(Err(e)).await.inspect_err(|e| {
+                    tracing::error!("Failed to send error to monitoring channel: {:?}", e)
+                });
             }
             Err(e) => {
                 if e.is_cancelled() {
                     // Task was cancelled, which is expected during cleanup
-                    tracing::debug!("Task {} has cancelled", task_name);
+                    tracing::debug!("Task {} has been cancelled", task_name);
+                    let _ = monitor_err_sender
+                        .send(Err(Into::<BridgeError>::into(eyre::eyre!(
+                            "Task was cancelled due to: {:?}",
+                            e
+                        ))
+                        .into()))
+                        .await
+                        .inspect_err(|e| {
+                            tracing::error!("Failed to send error to monitoring channel: {:?}", e)
+                        });
                     return;
                 }
                 tracing::error!("Task {} has panicked: {:?}", task_name, e);
+                let _ = monitor_err_sender
+                    .send(Err(Into::<BridgeError>::into(eyre::eyre!(
+                        "Task has panicked due to: {:?}",
+                        e
+                    ))
+                    .into()))
+                    .await
+                    .inspect_err(|e| {
+                        tracing::error!("Failed to send error to monitoring channel: {:?}", e)
+                    });
             }
         }
     });

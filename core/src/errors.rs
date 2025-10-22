@@ -252,27 +252,22 @@ impl From<Status> for BridgeError {
 
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
-        let eyre_report = val.into_eyre();
-
-        // eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
-        eyre_report.downcast::<Status>().unwrap_or_else(|report| {
-            // We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
-            tracing::error!(
-                "Returning internal error on RPC call, full error: {:?}",
-                report
-            );
-
-            let mut status = tonic::Status::internal(report.to_string());
-            status.set_source(Into::into(
-                Into::<Box<dyn std::error::Error + Send + Sync>>::into(report),
-            ));
-            status
-        })
+        let err = format!("{val:#}");
+        // delete escape characters
+        let flattened = err
+            .replace("\\n", " ") // remove escaped newlines
+            .replace("\n", " ") // remove real newlines
+            .replace("\"", "") // delete quotes
+            .replace("\\", ""); // remove any remaining backslashes
+        let whitespace_removed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
+        tonic::Status::internal(whitespace_removed)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use eyre::Context;
+
     use super::*;
     #[test]
     fn test_downcast() {
@@ -290,14 +285,18 @@ mod tests {
     }
 
     #[test]
-    fn test_status_in_chain_cast_properly() {
-        let err: BridgeError = eyre::eyre!("Some problem")
-            .wrap_err(tonic::Status::deadline_exceeded("Some timer expired"))
-            .wrap_err("Something else went wrong")
-            .into();
+    fn test_status_shows_all_errors_in_chain() {
+        let err: BridgeError = Err::<(), BridgeError>(BridgeError::BitcoinRPC(
+            BitcoinRPCError::TransactionNotConfirmed,
+        ))
+        .wrap_err(tonic::Status::deadline_exceeded("Error A"))
+        .wrap_err("Error B")
+        .unwrap_err()
+        .into();
 
-        let status: Status = err.into_status();
-        assert_eq!(status.code(), tonic::Code::DeadlineExceeded);
-        assert_eq!(status.message(), "Some timer expired");
+        let status: Status = err.into();
+        assert!(status.message().contains("Error A"));
+        assert!(status.message().contains("Error B"));
+        assert!(status.message().contains("Bitcoin"));
     }
 }

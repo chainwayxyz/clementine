@@ -65,16 +65,20 @@ mod timeout {
     pub const OPERATOR_SIGS_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
     pub const DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
 
+    pub const SETUP_COMPLETION_TIMEOUT: Duration = Duration::from_secs(1800); // 30 minutes
+
     pub const PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(3600); // 60 minutes
     pub const OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(1200); // 20 minutes
     pub const SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(600); // 10 minutes
     pub const DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(2400); // 40 minutes
 
+    pub const OPTIMISTIC_PAYOUT_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+
     pub const RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(120);
 
     pub const ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 
-    pub const ENTITY_COMP_DATA_POLL_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes
+    pub const ENTITY_COMP_DATA_POLL_TIMEOUT: Duration = Duration::from_secs(240); // 4 minutes
 
     pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(30);
 
