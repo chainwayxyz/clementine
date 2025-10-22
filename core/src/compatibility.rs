@@ -276,7 +276,9 @@ mod tests {
         assert!(msg.contains("Security council mismatch"));
     }
 
-    #[tokio::test]
+    // serial test because it calculates sha256 of the bitvm cache for all actors
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_get_compatibility_data_from_entities() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
