@@ -1,5 +1,5 @@
 use ark_ff::PrimeField;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
+use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
@@ -1293,6 +1293,12 @@ where
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
 
+        #[cfg(test)]
+        self.config
+            .test_params
+            .maybe_save_kickoff_and_wtc_txs(kickoff_tx, &watchtower_challenges, 1, &self.rpc)
+            .await?;
+
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(Some(dbtx), move_txid)
@@ -1509,7 +1515,7 @@ where
         }
 
         let watchtower_challenge_connector_start_idx =
-            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u32;
+            (FIRST_FIVE_OUTPUTS + ClementineBitVMPublicKeys::number_of_assert_txs()) as u32;
 
         let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
             kickoff_tx.clone(),

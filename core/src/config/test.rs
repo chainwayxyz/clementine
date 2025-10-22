@@ -2,15 +2,21 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::TxHandlerBuilder;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::deposit::DepositData;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::blockdata::block::BlockHash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::ScriptBuf;
+use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitvm::chunk::api::Assertions;
+use circuits_lib::bridge_circuit::structs::CircuitWitness;
+use circuits_lib::bridge_circuit::structs::{CircuitTxOut, WatchtowerInput};
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,6 +88,9 @@ pub struct TestParams {
 
     /// A flag to enable mining of 0-fee transactions. It's used so that we do not need to CPFP for no-automation to make tests easier.
     pub mine_0_fee_txs: bool,
+
+    /// A flag to enable generating and saving a kickoff and watchtower challenge transaction.
+    pub generate_kickoff_and_wtc_txs: bool,
 
     pub timeout_params: TimeoutTestParams,
 }
@@ -378,6 +387,70 @@ impl TestParams {
 
         Ok(())
     }
+
+    /// Saves the kickoff and watchtower challenge transactions to a file.
+    pub async fn maybe_save_kickoff_and_wtc_txs(
+        &self,
+        kickoff_tx: &Transaction,
+        wtc_tx: &HashMap<usize, Transaction>,
+        watchtower_idx: usize,
+        rpc: &ExtendedBitcoinRpc,
+    ) -> eyre::Result<()> {
+        if self.generate_kickoff_and_wtc_txs {
+            let path = std::path::PathBuf::from("../circuits-lib/test_data");
+            std::fs::create_dir_all(&path)
+                .map_err(|e| eyre::eyre!("Failed to create directory for output file: {}", e))?;
+            std::fs::write(
+                path.join("kickoff_raw_tx.bin"),
+                bitcoin::consensus::encode::serialize(&kickoff_tx),
+            )?;
+            let wtc_tx = wtc_tx.get(&watchtower_idx).ok_or_else(|| {
+                eyre::eyre!(
+                    "Watchtower transaction not found for index {}",
+                    watchtower_idx
+                )
+            })?;
+            let prevouts = rpc.get_prevout_txs(wtc_tx).await?;
+            let prevouts = wtc_tx
+                .input
+                .iter()
+                .map(|input| {
+                    CircuitTxOut::from(
+                        prevouts
+                            .iter()
+                            .find(|prevout| prevout.compute_txid() == input.previous_output.txid)
+                            .expect("Previous transaction not found")
+                            .output[input.previous_output.vout as usize]
+                            .clone(),
+                    )
+                })
+                .collect::<Vec<CircuitTxOut>>();
+            let wt_save_data = WatchtowerInput {
+                watchtower_idx: watchtower_idx as u32,
+                watchtower_challenge_input_idx: 0,
+                watchtower_challenge_utxos: prevouts,
+                watchtower_challenge_tx: CircuitTransaction::from(wtc_tx.clone()),
+                watchtower_challenge_witness: CircuitWitness::from(wtc_tx.input[0].witness.clone()),
+                annex_digest: None,
+            };
+            std::fs::write(
+                path.join("wt_raw_tx.bin"),
+                borsh::to_vec(&wt_save_data).expect("Failed to serialize watchtower tx data"),
+            )?;
+            // print watchtower challenge pubkey
+            let wtv_vout = wtc_tx.input[0].previous_output.vout;
+            tracing::warn!(
+                "Watchtower challenge pubkey: {:?}",
+                hex::encode(
+                    &kickoff_tx.output[wtv_vout as usize]
+                        .script_pubkey
+                        .as_bytes()
+                        .to_vec()[2..34]
+                )
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -518,6 +591,7 @@ impl Default for TestParams {
             generate_varying_total_works_insufficient_total_work: false,
             generate_varying_total_works: false,
             generate_varying_total_works_first_two_valid: false,
+            generate_kickoff_and_wtc_txs: false,
             aggregator_verification_secret_key: Some(
                 alloy::signers::k256::ecdsa::SigningKey::from_slice(
                     &hex::decode(

@@ -200,8 +200,8 @@ impl TestCase for AdditionalDisproveTest {
 
         assert_eq!(
             add_disprove_tx.input[0].witness.len(),
-            562,
-            "Additional disprove tx input witness length is not 562"
+            554,
+            "Additional disprove tx input witness length is not 554"
         );
 
         tracing::info!("Additional disprove transaction is onchain");
