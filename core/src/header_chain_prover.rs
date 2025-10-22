@@ -782,11 +782,11 @@ mod tests {
         assert_eq!(chain_state, expected_chain_state);
     }
 
-    #[ignore = "This test is requires env var at build time & testnet4, but it works, try it out"]
+    #[ignore = "This test requires env var at build time & testnet4, but it works, try it out"]
     #[tokio::test]
     #[serial_test::serial]
     async fn test_generate_chain_state_from_height_testnet4() {
-        // set BITCOIN_NETWORK to regtest
+        // set BITCOIN_NETWORK to testnet4
         std::env::set_var("BITCOIN_NETWORK", "testnet4");
         let rpc = ExtendedBitcoinRpc::connect(
             "http://127.0.0.1:48332".to_string(),
