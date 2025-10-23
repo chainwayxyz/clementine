@@ -55,7 +55,7 @@ lazy_static::lazy_static! {
 /// Global BitVM cache wrapped in a OnceLock.
 ///
 /// # Usage
-/// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
+/// Use with `BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
 /// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
 pub static BITVM_CACHE: OnceCell<BitvmCacheWithMetadata> = OnceCell::new();
 

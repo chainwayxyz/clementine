@@ -284,7 +284,7 @@ mod tests {
         let _regtest = create_regtest_rpc(&mut config).await;
         let actors = create_actors::<MockCitreaClient>(&config).await;
         let mut aggregator = actors.get_aggregator();
-        // load cache here to calculate sha256 of the bitvm cache for all actors before get_compatibility call to avoid timeout in debug mode
+        // Load cache here to calculate sha256 of the bitvm cache for all actors before get_compatibility call to avoid timeout in debug mode
         BITVM_CACHE
             .get_or_try_init(load_or_generate_bitvm_cache)
             .unwrap();
