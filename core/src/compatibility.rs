@@ -277,18 +277,14 @@ mod tests {
     }
 
     // serial test because it calculates sha256 of the bitvm cache for all actors
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn test_get_compatibility_data_from_entities() {
-        // Skip this test if running in debug mode, hashing bitvm cache is slow
-        if cfg!(debug_assertions) {
-            eprintln!("Skipping test_get_compatibility_data_from_entities in debug mode");
-            return;
-        }
-
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
         let actors = create_actors::<MockCitreaClient>(&config).await;
         let mut aggregator = actors.get_aggregator();
+        // load cache here to calculate sha256 of the bitvm cache for all actors before get_compatibility call to avoid timeout in debug mode
+        BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
         let entity_comp_data = aggregator
             .get_compatibility_data_from_entities(Empty {})
             .await
