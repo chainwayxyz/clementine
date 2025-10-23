@@ -141,7 +141,7 @@ pub trait ActorWithConfig {
             clementine_version: env!("CARGO_PKG_VERSION").to_string(),
             bridge_circuit_constant: *config.protocol_paramset.bridge_circuit_constant()?,
             sha256_bitvm_cache: BITVM_CACHE
-                .get_or_init(load_or_generate_bitvm_cache)
+                .get_or_try_init(load_or_generate_bitvm_cache)?
                 .sha256_bitvm_cache,
         })
     }
@@ -236,7 +236,8 @@ mod tests {
         assert_eq!(
             params.sha256_bitvm_cache,
             BITVM_CACHE
-                .get_or_init(load_or_generate_bitvm_cache)
+                .get_or_try_init(load_or_generate_bitvm_cache)
+                .unwrap()
                 .sha256_bitvm_cache
         );
         assert_eq!(
@@ -284,7 +285,9 @@ mod tests {
         let actors = create_actors::<MockCitreaClient>(&config).await;
         let mut aggregator = actors.get_aggregator();
         // load cache here to calculate sha256 of the bitvm cache for all actors before get_compatibility call to avoid timeout in debug mode
-        BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache);
+        BITVM_CACHE
+            .get_or_try_init(load_or_generate_bitvm_cache)
+            .unwrap();
         let entity_comp_data = aggregator
             .get_compatibility_data_from_entities(Empty {})
             .await

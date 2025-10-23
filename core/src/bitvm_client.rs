@@ -16,12 +16,14 @@ use bitvm::chunk::api::{
 use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+use eyre::Context;
 use sha2::{Digest, Sha256};
 use std::fs;
 use tokio::sync::Mutex;
 
+use once_cell::sync::OnceCell;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 /// Replacing bitvm scripts require cloning the scripts, which can be ~4GB. And this operation is done every deposit.
@@ -55,14 +57,14 @@ lazy_static::lazy_static! {
 /// # Usage
 /// Use with `BITVM_CACHE.get_or_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
 /// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
-pub static BITVM_CACHE: OnceLock<BitvmCacheWithMetadata> = OnceLock::new();
+pub static BITVM_CACHE: OnceCell<BitvmCacheWithMetadata> = OnceCell::new();
 
 pub struct BitvmCacheWithMetadata {
     pub bitvm_cache: BitvmCache,
     pub sha256_bitvm_cache: [u8; 32],
 }
 
-pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
+pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeError> {
     let start = Instant::now();
 
     let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
@@ -101,19 +103,18 @@ pub fn load_or_generate_bitvm_cache() -> BitvmCacheWithMetadata {
     tracing::debug!("BitVM initialization took: {:?}", start.elapsed());
 
     // calculate sha256 of disprove scripts, to be used in compatibility checks
-    let mut hasher = Sha256::new();
-    hasher.update(
-        borsh::to_vec(&bitvm_cache)
-            .expect("Failed to serialize BitVM cache, the cache might be stale, consider deleting the cache file.")
-            .as_slice(),
+    let sha256_start = Instant::now();
+    let sha256_bitvm_cache = bitvm_cache.calculate_sha256()?;
+    tracing::info!(
+        "Time taken to calculate SHA256 of bitvm cache: {:?}",
+        sha256_start.elapsed()
     );
-    let sha256_bitvm_cache: [u8; 32] = hasher.finalize().into();
     tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
 
-    BitvmCacheWithMetadata {
+    Ok(BitvmCacheWithMetadata {
         bitvm_cache,
         sha256_bitvm_cache,
-    }
+    })
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
@@ -147,6 +148,15 @@ impl BitvmCache {
             tracing::error!("Failed to deserialize BitVM cache: {}", e);
             BridgeError::ConfigError("Failed to deserialize BitVM cache".to_string())
         })
+    }
+
+    fn calculate_sha256(&self) -> Result<[u8; 32], BridgeError> {
+        let mut hasher = Sha256::new();
+        hasher.update(
+            borsh::to_vec(&self)
+                .wrap_err("Failed to serialize BitVM cache while calculating sha256")?,
+        );
+        Ok(hasher.finalize().into())
     }
 }
 
@@ -643,7 +653,7 @@ pub fn replace_disprove_scripts(
     tracing::info!("Starting script replacement");
 
     let cache = &BITVM_CACHE
-        .get_or_init(load_or_generate_bitvm_cache)
+        .get_or_try_init(load_or_generate_bitvm_cache)?
         .bitvm_cache;
     let replacement_places = &cache.replacement_places;
 
@@ -814,5 +824,17 @@ mod tests {
         bitvm_cache
             .save_to_file("bitvm_cache_new.bin")
             .expect("Failed to save BitVM cache");
+    }
+
+    #[tokio::test]
+    async fn test_bitvm_cache_matches_generated_data() {
+        if cfg!(debug_assertions) {
+            // only run this test in release mode
+            return;
+        }
+        let bitvm_cache = load_or_generate_bitvm_cache().unwrap();
+        let generated_data = generate_fresh_data();
+        let fresh_data_sha256 = generated_data.calculate_sha256().unwrap();
+        assert_eq!(bitvm_cache.sha256_bitvm_cache, fresh_data_sha256);
     }
 }
