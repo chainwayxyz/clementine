@@ -64,16 +64,21 @@ pub struct BitvmCacheWithMetadata {
     pub sha256_bitvm_cache: [u8; 32],
 }
 
-pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeError> {
-    let start = Instant::now();
-
-    let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
+/// Returns the BitVM cache file path from `BITVM_CACHE_PATH` env var or a default based on RISC0 dev/prod mode.
+fn get_cache_path() -> String {
+    std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
         if is_dev_mode() {
             "bitvm_cache_dev.bin".to_string()
         } else {
             "bitvm_cache.bin".to_string()
         }
-    });
+    })
+}
+
+pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeError> {
+    let start = Instant::now();
+
+    let cache_path = get_cache_path();
 
     let bitvm_cache = {
         tracing::debug!("Attempting to load BitVM cache from file: {}", cache_path);
@@ -832,9 +837,10 @@ mod tests {
             // only run this test in release mode
             return;
         }
-        let bitvm_cache = load_or_generate_bitvm_cache().unwrap();
+        let bitvm_cache = BitvmCache::load_from_file(&get_cache_path()).unwrap();
+        let sha256_bitvm_cache = bitvm_cache.calculate_sha256().unwrap();
         let generated_data = generate_fresh_data();
         let fresh_data_sha256 = generated_data.calculate_sha256().unwrap();
-        assert_eq!(bitvm_cache.sha256_bitvm_cache, fresh_data_sha256);
+        assert_eq!(sha256_bitvm_cache, fresh_data_sha256);
     }
 }
