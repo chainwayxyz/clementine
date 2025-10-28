@@ -234,7 +234,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .await?;
 
         // If no state is saved, return early
-        let next_height_to_process = match status {
+        self.next_height_to_process = match status {
             Some(block_height) => {
                 u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
             }
@@ -249,7 +249,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             self.next_height_to_process.saturating_sub(1)
         );
 
-        let last_height = next_height_to_process.saturating_sub(1);
+        let last_height = self.next_height_to_process.saturating_sub(1);
 
         self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
             match self.db.get_full_block(None, last_height).await? {
