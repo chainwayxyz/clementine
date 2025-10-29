@@ -27,7 +27,7 @@ pub const DEVNET_LC_IMAGE_ID: [u8; 32] =
     hex!("418fd1ca90a3ea9e9d99626078e618750aa6209261c645fb456bf0e8293c368a");
 
 pub const TESTNET4_LC_IMAGE_ID: [u8; 32] =
-    hex!("7eae7a3d628b6e383a23d1d3504b06b146c6a9d67a04515aba1dbbfdca7de6ca");
+    hex!("217bc300c2023f1697bedaf84d4397f91b569c5c8ad3ddacb03943fc123acdee");
 
 // MAINNET LC_IMAGE_ID is not yet provided by CITREA, so we use a placeholder.
 pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
