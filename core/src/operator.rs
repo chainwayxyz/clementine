@@ -695,6 +695,26 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
+        let fee_rate_result = self
+            .rpc
+            .get_fee_rate(
+                self.config.protocol_paramset.network,
+                &self.config.mempool_api_host,
+                &self.config.mempool_api_endpoint,
+                self.config.tx_sender_limits.mempool_fee_rate_multiplier,
+                self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
+                self.config.tx_sender_limits.fee_rate_hard_cap,
+            )
+            .await;
+
+        let fee_rate_option = match fee_rate_result {
+            Ok(fee_rate) => Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
+            Err(e) => {
+                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:?}");
+                None
+            }
+        };
+
         // send payout tx using RBF
         let funded_tx = self
             .rpc
@@ -707,7 +727,7 @@ where
                     change_type: None,
                     include_watching: None,
                     lock_unspents: Some(false),
-                    fee_rate: None,
+                    fee_rate: fee_rate_option,
                     subtract_fee_from_outputs: None,
                     replaceable: None,
                     conf_target: None,
