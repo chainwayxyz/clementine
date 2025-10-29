@@ -35,13 +35,13 @@ pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
 
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("dd49d59b8032bd7127f78b482a82a60d80b7b8e270dc9832258947e835dedb80");
+    hex!("f922fa4f48dddcd3ad72344b5e76444cd0e1c8232e0a540314af2c8410c41f91");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("3f1eefa80ff8985ffa1ef1867a8e772ff2ee35f9d5c625ae89fb9fec1af91e73");
+    hex!("35e57549a9bb32dc4fd7c8cf6d909c905a79fd1a0e97308c32c3a0e0806c5d27");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("50d0d3e2193d83d7af5a61e291797ff7c5db37eb81cbd44652f4006357ebda8e");
+    hex!("49d82044e76b798efce15251096ea98f0edded1fd777fd29314a95d0995cb81a");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("8e61eecc10779b7fe9acc10da27d5acb64f51fb9d699a866a9d1d7aad044e6af");
+    hex!("f95c702219db28d9abd76084cf596b3913c4a8f2f75adadc474de98d84c6b861");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =
