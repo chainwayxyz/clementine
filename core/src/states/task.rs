@@ -187,12 +187,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(
         &self,
     ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(
-            BlockFetcherTask::<T>::new_finalized_block_fetcher_task(self.db.clone(), self.paramset)
-                .await?
-                .into_buffered_errors(20, 3, Duration::from_secs(10))
-                .with_delay(POLL_DELAY),
+        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
+            self.db.clone(),
+            self.config.protocol_paramset,
         )
+        .await?
+        .into_buffered_errors(20, 3, Duration::from_secs(10))
+        .with_delay(POLL_DELAY))
     }
 }
 
@@ -205,7 +206,7 @@ mod tests {
 
     use crate::{
         builder::transaction::{ContractContext, TransactionType, TxHandler},
-        config::{protocol::ProtocolParamsetName, BridgeConfig},
+        config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{block_cache, context::DutyResult, Duty},
@@ -272,10 +273,9 @@ mod tests {
         .await
         .expect("Failed to connect to Bitcoin RPC");
 
-        let state_manager =
-            StateManager::new(db, MockHandler, rpc, ProtocolParamsetName::Regtest.into())
-                .await
-                .unwrap();
+        let state_manager = StateManager::new(db, MockHandler, rpc, config.clone())
+            .await
+            .unwrap();
         let (t, shutdown) = state_manager.into_task().cancelable_loop();
         (t.into_bg(), shutdown)
     }

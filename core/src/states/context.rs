@@ -1,4 +1,4 @@
-use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData};
 use crate::operator::RoundIndex;
@@ -58,7 +58,7 @@ pub enum Duty {
     },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
-    /// This duty is sent after some time (paramset.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
+    /// This duty is sent after some time (config.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
     /// It denotes to the owner that it is time to send a watchtower challenge to the corresponding kickoff.
     WatchtowerChallenge {
         kickoff_data: KickoffData,
@@ -147,7 +147,7 @@ pub struct StateContext<T: Owner> {
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
-    pub paramset: &'static ProtocolParamset,
+    pub config: BridgeConfig,
     pub owner_type: String,
     pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
@@ -157,7 +157,7 @@ impl<T: Owner> StateContext<T> {
         shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
         owner: Arc<T>,
         cache: Arc<block_cache::BlockCache>,
-        paramset: &'static ProtocolParamset,
+        config: BridgeConfig,
     ) -> Self {
         // Get the owner type string from the owner instance
         let owner_type = T::ENTITY_NAME.to_string();
@@ -169,7 +169,7 @@ impl<T: Owner> StateContext<T> {
             new_round_machines: Vec::new(),
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
-            paramset,
+            config,
             owner_type,
         }
     }

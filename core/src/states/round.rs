@@ -184,7 +184,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     let contract_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         RoundIndex::Round(0),
-                        context.paramset,
+                        context.config.protocol_paramset,
                     );
 
                     let mut guard = context.shared_dbtx.lock().await;
@@ -363,13 +363,15 @@ impl<T: Owner> RoundStateMachine<T> {
                     // On the round after last round, do not care about anything,
                     // last round has index num_round_txs and is there only for reimbursement generators of previous round
                     // nothing is signed with them
-                    if *round_idx == RoundIndex::Round(context.paramset.num_round_txs) {
+                    if *round_idx
+                        == RoundIndex::Round(context.config.protocol_paramset.num_round_txs)
+                    {
                         Ok::<(), BridgeError>(())
                     } else {
                         let contract_context = ContractContext::new_context_for_round(
                             self.operator_data.xonly_pk,
                             *round_idx,
-                            context.paramset,
+                            context.config.protocol_paramset,
                         );
 
                         let mut guard = context.shared_dbtx.lock().await;
@@ -406,7 +408,7 @@ impl<T: Owner> RoundStateMachine<T> {
                             RoundEvent::OperatorExit,
                         );
                         // Add a matcher for each kickoff utxo in the round tx.
-                        for idx in 0..context.paramset.num_kickoffs_per_round {
+                        for idx in 0..context.config.protocol_paramset.num_kickoffs_per_round {
                             let outpoint = *round_txhandler
                                 .get_spendable_output(UtxoVout::Kickoff(idx))?
                                 .get_prev_outpoint();
@@ -464,7 +466,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         round_idx.next_round(),
-                        context.paramset,
+                        context.config.protocol_paramset,
                     );
 
                     let mut guard = context.shared_dbtx.lock().await;
@@ -490,7 +492,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     let current_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
                         *round_idx,
-                        context.paramset,
+                        context.config.protocol_paramset,
                     );
 
                     let mut guard = context.shared_dbtx.lock().await;

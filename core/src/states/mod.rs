@@ -19,7 +19,7 @@
 //!
 
 pub use crate::builder::block_cache;
-use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -124,7 +124,7 @@ pub struct StateManager<T: Owner> {
     owner: T,
     round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
-    paramset: &'static ProtocolParamset,
+    config: BridgeConfig,
     next_height_to_process: u32,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
@@ -144,7 +144,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             owner: self.owner.clone(),
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
-            paramset: self.paramset,
+            config: self.config.clone(),
             next_height_to_process: self.next_height_to_process,
             rpc: self.rpc.clone(),
             last_finalized_block: self.last_finalized_block.clone(),
@@ -164,7 +164,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             dbtx,
             Arc::new(self.owner.clone()),
             Arc::new(BlockCache::from_block(block.clone(), block_height)),
-            self.paramset,
+            self.config.clone(),
         ))
     }
 
@@ -177,7 +177,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             dbtx,
             Arc::new(self.owner.clone()),
             block_cache,
-            self.paramset,
+            self.config.clone(),
         ))
     }
 
@@ -185,7 +185,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         db: Database,
         owner: T,
         rpc: ExtendedBitcoinRpc,
-        paramset: &'static ProtocolParamset,
+        config: BridgeConfig,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
 
@@ -197,11 +197,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             last_finalized_block: None,
             db,
             owner,
-            paramset,
+            config: config.clone(),
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            next_height_to_process: paramset.start_height,
+            next_height_to_process: config.protocol_paramset.start_height,
             rpc,
         };
 
@@ -240,7 +240,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
             None => {
                 tracing::info!("No state machines found in the database");
-                self.paramset.start_height
+                self.config.protocol_paramset.start_height
             }
         };
 

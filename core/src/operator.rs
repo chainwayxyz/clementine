@@ -162,12 +162,11 @@ where
         // initialize and run state manager
         #[cfg(feature = "automation")]
         {
-            let paramset = self.operator.config.protocol_paramset();
             let state_manager = StateManager::new(
                 self.operator.db.clone(),
                 self.operator.clone(),
                 self.operator.rpc.clone(),
-                paramset,
+                self.operator.config.clone(),
             )
             .await?;
 

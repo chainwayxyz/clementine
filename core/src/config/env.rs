@@ -237,6 +237,10 @@ impl BridgeConfig {
             grpc: GrpcLimits::from_env()?,
             tx_sender_limits: TxSenderLimits::from_env()?,
 
+            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
+                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            )?,
+
             #[cfg(test)]
             test_params: super::TestParams::default(),
         };
@@ -514,10 +518,6 @@ mod tests {
             default_config
                 .watchtower_challenge_timeout_timelock
                 .to_string(),
-        );
-        std::env::set_var(
-            "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
-            default_config.time_to_send_watchtower_challenge.to_string(),
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());

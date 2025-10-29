@@ -114,8 +114,6 @@ pub struct ProtocolParamset {
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
     pub watchtower_challenge_timeout_timelock: u16,
-    /// Time to wait after a kickoff to send a watchtower challenge
-    pub time_to_send_watchtower_challenge: u16,
     /// Amount of depth a block should have from the current head to be considered finalized
     /// Also means finality_confirmations, how many confirmations are needed for a block to be considered finalized
     /// The chain tip has 1 confirmation. Minimum value should be 1.
@@ -188,9 +186,6 @@ impl ProtocolParamset {
             )?,
             watchtower_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
                 "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
-            )?,
-            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
-                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
@@ -322,7 +317,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: 4 * BLOCKS_PER_HOUR * 4,
     operator_reimburse_timelock: 2,
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
-    time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 5, // citrea e2e finality depth
     start_height: 190,
@@ -353,7 +347,6 @@ pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: 4 * BLOCKS_PER_HOUR * 4,
     operator_reimburse_timelock: 2,
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
-    time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 92700,

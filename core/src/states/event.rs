@@ -133,7 +133,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 // Initialize context using the block just before the start height
                 // so subsequent processing can begin from start_height
-                let prev_height = self.paramset.start_height.saturating_sub(1);
+                let prev_height = self.config.protocol_paramset.start_height.saturating_sub(1);
                 let init_block = {
                     let mut guard = dbtx.lock().await;
                     self.get_block(Some(&mut *guard), prev_height).await?
@@ -158,7 +158,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     dbtx.clone(),
                     vec![operator_machine],
                     vec![],
-                    self.paramset.start_height,
+                    self.config.protocol_paramset.start_height,
                 )
                 .await?;
             }

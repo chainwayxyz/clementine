@@ -385,6 +385,7 @@ mod tests {
         env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER", "1");
         env::set_var("TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB", "0");
         env::set_var("TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS", "3600");
+        env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
     }
 
     // Helper to set up all environment variables needed for protocol paramset
@@ -407,7 +408,6 @@ mod tests {
         env::set_var("ASSERT_TIMEOUT_TIMELOCK", "576");
         env::set_var("OPERATOR_REIMBURSE_TIMELOCK", "12");
         env::set_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK", "288");
-        env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
         env::set_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK", "360");
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
@@ -447,6 +447,7 @@ mod tests {
         env::remove_var("SECURITY_COUNCIL");
         env::remove_var("TELEMETRY_HOST");
         env::remove_var("TELEMETRY_PORT");
+        env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
     }
 
     // Helper to clean up all protocol paramset environment variables
@@ -469,7 +470,6 @@ mod tests {
         env::remove_var("ASSERT_TIMEOUT_TIMELOCK");
         env::remove_var("OPERATOR_REIMBURSE_TIMELOCK");
         env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
-        env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
         env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");
