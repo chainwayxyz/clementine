@@ -240,7 +240,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                         // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
                         self.matchers.insert(
                             Matcher::BlockHeight(
-                                context.cache.block_height + context.paramset.finality_depth - 1,
+                                context.cache.block_height
+                                    + context.config.protocol_paramset.finality_depth
+                                    - 1,
                             ),
                             KickoffEvent::TimeToSendLatestBlockhash,
                         );
@@ -381,7 +383,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     self.matchers.insert(
                         Matcher::BlockHeight(
                             self.kickoff_height
-                                + context.paramset.time_to_send_watchtower_challenge as u32,
+                                + context.config.time_to_send_watchtower_challenge as u32,
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
@@ -582,7 +584,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         let contract_context = ContractContext::new_context_for_kickoff(
             self.kickoff_data,
             self.deposit_data.clone(),
-            context.paramset,
+            context.config.protocol_paramset,
         );
         let mut txhandlers = {
             let mut guard = context.shared_dbtx.lock().await;

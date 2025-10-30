@@ -2,7 +2,7 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::CitreaClientT;
-use crate::config::{protocol::ProtocolParamset, BridgeConfig};
+use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
@@ -104,14 +104,10 @@ impl<C: CitreaClientT> TestVerifier<C> {
         {
             // Generate a new protocol paramset for each verifier
             // to ensure diverse total works.
-            let mut paramset = config_with_new_db.protocol_paramset().clone();
-            paramset.time_to_send_watchtower_challenge = paramset
+            config_with_new_db.time_to_send_watchtower_challenge = config_with_new_db
                 .time_to_send_watchtower_challenge
                 .checked_add(index as u16)
                 .expect("Failed to add time to send watchtower challenge");
-            let paramset_ref: &'static ProtocolParamset = Box::leak(Box::new(paramset));
-
-            config_with_new_db.protocol_paramset = paramset_ref;
         }
 
         let (socket_path, shutdown_tx) =

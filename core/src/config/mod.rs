@@ -12,6 +12,7 @@
 
 use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
+use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -152,6 +153,9 @@ pub struct BridgeConfig {
 
     /// The X25519 public key that will be used to encrypt the emergency stop message.
     pub emergency_stop_encryption_public_key: Option<[u8; 32]>,
+
+    /// Time to wait after a kickoff to send a watchtower challenge
+    pub time_to_send_watchtower_challenge: u16,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -472,6 +476,8 @@ impl Default for BridgeConfig {
             ),
 
             telemetry: Some(TelemetryConfig::default()),
+
+            time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
 
             #[cfg(test)]
             test_params: test::TestParams::default(),

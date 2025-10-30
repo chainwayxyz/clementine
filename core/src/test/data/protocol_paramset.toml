@@ -16,7 +16,6 @@ disprove_timeout_timelock = 720 # BLOCKS_PER_DAY * 5
 assert_timeout_timelock = 576 # BLOCKS_PER_DAY * 4
 operator_reimburse_timelock = 12 # BLOCKS_PER_HOUR * 2
 watchtower_challenge_timeout_timelock = 288 # BLOCKS_PER_DAY * 2
-time_to_send_watchtower_challenge = 216 # BLOCKS_PER_DAY * 3 / 2
 latest_blockhash_timeout_timelock = 360 # BLOCKS_PER_DAY * 5 / 2
 finality_depth = 1
 start_height = 190

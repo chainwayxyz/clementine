@@ -78,6 +78,8 @@ tx_sender_fee_rate_hard_cap = 100
 tx_sender_mempool_fee_rate_multiplier = 1
 tx_sender_mempool_fee_rate_offset_sat_kvb = 0
 
+time_to_send_watchtower_challenge = 216
+
 [telemetry]
 host = "0.0.0.0"
 port = 8081
