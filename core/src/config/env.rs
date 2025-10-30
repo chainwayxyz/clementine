@@ -435,6 +435,11 @@ mod tests {
             default_config.header_chain_proof_batch_size.to_string(),
         );
 
+        std::env::set_var(
+            "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            default_config.time_to_send_watchtower_challenge.to_string(),
+        );
+
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
 
