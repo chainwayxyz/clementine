@@ -58,7 +58,12 @@
             inherit version buildInputs;
             nativeBuildInputs = nativeBuildInputs ++ [ rustToolchain ];
 
-            src = ./.;
+            src = pkgs.lib.cleanSourceWith {
+              src = pkgs.lib.cleanSource ./.;
+              filter = path: type:
+                let baseName = baseNameOf (toString path);
+                in baseName != "docs" && baseName != "scripts";
+            };
 
             cargoLock = {
               lockFile = ./Cargo.lock;
