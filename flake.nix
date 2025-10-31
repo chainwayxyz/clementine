@@ -62,7 +62,7 @@
               src = pkgs.lib.cleanSource ./.;
               filter = path: type:
                 let baseName = baseNameOf (toString path);
-                in baseName != "docs" && baseName != "scripts";
+                in baseName != "docs";
             };
 
             cargoLock = {
