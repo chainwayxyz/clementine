@@ -21,3 +21,6 @@ logs
 out.json*
 
 core/certs/
+
+.cache/
+result

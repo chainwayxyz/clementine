@@ -14,6 +14,28 @@ The repository includes:
 > be used in production under any circumstances. It also requires a full BitVM
 > implementation to be run fully on-chain.
 
+## Reproducible Builds
+
+Clementine supports fully reproducible builds using Nix, ensuring that anyone can verify that published binaries match the source code exactly. This is crucial for bridge operators and verifiers who need to trust the software they're running.
+
+### Quick Start with Nix
+
+```bash
+# Install Nix with flakes support
+sh <(curl -L https://nixos.org/nix/install) --daemon
+
+# Build Clementine (without automation)
+nix build .#clementine-cli
+
+# Build with automation feature
+nix build .#clementine-cli-automation
+
+# The binary will be in result/bin/
+./result/bin/clementine-cli --version
+```
+
+For detailed instructions, verification procedures, and multi-platform builds, see [docs/reproducible-builds.md](docs/reproducible-builds.md).
+
 ## Documentation
 
 High level documentations are in [docs/](docs). These documentations explains
