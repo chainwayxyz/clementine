@@ -1,5 +1,5 @@
 # Default owners for all files
-* @chainwayxyz/bridge-writers
+* @chainwayxyz/bridge-bdfl
 # Owners for CI/CD and infrastructure files
 /.github/** @chainwayxyz/devops-writers
 /.gitsecret/** @chainwayxyz/devops-writers
