@@ -33,7 +33,7 @@ use crate::errors::{BridgeError, TxError};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
-use crate::operator::RoundIndex;
+use crate::operator::{Operator, RoundIndex};
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
@@ -63,6 +63,7 @@ use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoin_script::builder::StructuredScript;
+use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
@@ -1046,8 +1047,11 @@ where
             } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx.to_index()]
-                    .push((kickoff_txid, kickoff_utxo_idx));
+                kickoff_txids[operator_idx][round_idx.to_index()].push((
+                    kickoff_txid
+                        .expect("Kickoff txid must be Some with YieldKickoffTxid signature kind"),
+                    kickoff_utxo_idx,
+                ));
                 continue;
             }
 
@@ -1298,16 +1302,6 @@ where
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
-                    if kickoff_txid.is_none() {
-                        return Err(eyre::eyre!(
-                            "Kickoff txid not found for {}, {}, {}",
-                            operator_xonly_pk,
-                            round_idx, // rounds start from 1
-                            kickoff_idx
-                        )
-                        .into());
-                    }
-
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
                         operator_xonly_pk,
@@ -1323,16 +1317,99 @@ where
                             operator_xonly_pk,
                             RoundIndex::from_index(round_idx),
                             *kickoff_idx,
-                            kickoff_txid.expect("Kickoff txid must be Some"),
+                            *kickoff_txid,
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
                         )
                         .await?;
                 }
             }
         }
+        // check if kickoffs are already in the chain, if so do necessary operations for ensuring resync
+        self.ensure_kickoffs_in_state_manager(deposit_data, &mut dbtx, kickoff_txids)
+            .await?;
         dbtx.commit().await?;
 
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
+    }
+
+    async fn ensure_kickoffs_in_state_manager(
+        &self,
+        deposit_data: &DepositData,
+        dbtx: DatabaseTransaction<'_, '_>,
+        kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
+    ) -> Result<(), BridgeError> {
+        for (operator_idx, operator_xonly_pk) in
+            deposit_data.get_operators().into_iter().enumerate()
+        {
+            for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
+            {
+                for (kickoff_txid, kickoff_idx) in
+                    &kickoff_txids[operator_idx][round_idx.to_index()]
+                {
+                    // check if kickoff tx is in the chain
+                    let res = self.rpc.get_raw_transaction_info(kickoff_txid, None).await;
+                    match res {
+                        Ok(tx_info) => {
+                            match &tx_info.blockhash {
+                                Some(blockhash) => {
+                                    let block_height = self
+                                        .rpc
+                                        .get_block_info(blockhash)
+                                        .await
+                                        .wrap_err(format!(
+                                            "Failed to get block info for block hash: {blockhash}",
+                                        ))?
+                                        .height;
+                                    let tx: bitcoin::Transaction =
+                                        bitcoin::consensus::encode::deserialize(&tx_info.hex)
+                                            .wrap_err(format!(
+                                                "Failed to deserialize kickoff tx: {kickoff_txid}"
+                                            ))?;
+                                    let witness = tx.input[0].witness.clone();
+                                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                                        self.db.clone(),
+                                        dbtx,
+                                        KickoffData {
+                                            operator_xonly_pk,
+                                            round_idx,
+                                            kickoff_idx: *kickoff_idx as u32,
+                                        },
+                                        block_height as u32,
+                                        deposit_data.clone(),
+                                        witness.clone(),
+                                    )
+                                    .await?;
+                                    // send it to operator state manager too, the event will be ignored if an operator with automation enabled
+                                    // doesn't exist
+                                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
+                                        self.db.clone(),
+                                        dbtx,
+                                        KickoffData {
+                                            operator_xonly_pk,
+                                            round_idx,
+                                            kickoff_idx: *kickoff_idx as u32,
+                                        },
+                                        block_height as u32,
+                                        deposit_data.clone(),
+                                        witness.clone(),
+                                    )
+                                    .await?;
+                                }
+                                None => {
+                                    // kickoff tx is in mempool, do not add to anything
+                                    continue;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // TODO: do not err if tx doesn't exist on chain
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use bitcoin::Witness;
 use eyre::OptionExt;
-use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
 
@@ -47,8 +46,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         tx: DatabaseTransaction<'_, '_>,
         operator_data: OperatorData,
     ) -> Result<(), eyre::Report> {
-        let queue_name = StateManager::<T>::queue_name();
-        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        let queue = Self::create_or_connect_to_pgmq_queue(&db, Some(tx)).await?;
+        let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewOperator { operator_data };
         queue
@@ -67,8 +66,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         deposit_data: DepositData,
         payout_blockhash: Witness,
     ) -> Result<(), eyre::Report> {
-        let queue_name = StateManager::<T>::queue_name();
-        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        let queue = Self::create_or_connect_to_pgmq_queue(&db, Some(tx)).await?;
+        let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewKickoff {
             kickoff_data,
@@ -169,6 +168,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                // reject NewKickoff without error if the kickoff height is less than the next height to process
+                // this can happen if we are resyncing, we will detect the kickoff later so it is fine to reject it.
+                // this is a protection so that only finalized kickoffs are processed (kickoff_height cna change if kickoff is added while not finalized)
+                if kickoff_height < self.next_height_to_process {
+                    return Ok(());
+                }
+
                 // Initialize context using the block just before the kickoff height
                 // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
