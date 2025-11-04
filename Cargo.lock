@@ -1679,7 +1679,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=138e3b8f7b1128c1b0d17ba3ab145c57d2635bd2#138e3b8f7b1128c1b0d17ba3ab145c57d2635bd2"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=dc6ffd0495d8c9f49af17348a834b8e7fbdf4928#dc6ffd0495d8c9f49af17348a834b8e7fbdf4928"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
