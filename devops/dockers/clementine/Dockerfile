@@ -57,9 +57,7 @@ RUN echo "CLEMENTINE_CORE_PATH: $CLEMENTINE_CORE_PATH" \
 
 # --- Entrypoint Setup ---
 # Copy the entrypoint script into the container to $DOCKER_APP_PATH
-COPY devops/dockers/clementine/entrypoint.sh $DOCKER_APP_PATH/entrypoint.sh
-# Make it executable
-RUN chmod +x $DOCKER_APP_PATH/entrypoint.sh
+COPY entrypoint.sh $DOCKER_APP_PATH/entrypoint.sh
 
 # Set the entrypoint to our script
 ENTRYPOINT ["/bin/bash", "-c", "$DOCKER_APP_PATH/entrypoint.sh"]

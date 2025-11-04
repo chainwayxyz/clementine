@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Usage: ./pre-build.sh <service_name> <network> <release> <platform>
-# Example: ./pre-build.sh aggregator v0.5.0 dev-net linux-amd64
+# Example: ./pre-build.sh aggregator v0.5.0-rc.3 dev-net linux-amd64
 
 set -euo pipefail
 
@@ -83,8 +83,7 @@ CLEMENTINE_CLI_PATH=clementine-cli
 PARAM=$SERVICE
 EOF
 
-
-
+chmod +x entrypoint.sh
 
 
 
