@@ -149,7 +149,7 @@ pub fn stark_to_bitvm2_g16(
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d")
+        .arg("chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
