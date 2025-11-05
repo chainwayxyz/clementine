@@ -13,7 +13,6 @@ SCRIPT_DIR="$(temp=$( realpath "$0"  ) && dirname "$temp")"
 REPO="chainwayxyz/clementine"
 BITVM_CACHE_BIN_DOWNLOAD_PATH="clementine/conf/bitvm_cache.bin"
 BASE_URL="https://static.citrea.xyz"
-BITVM_CACHE_BIN_DOWNLOAD_PATH="clementine/conf/bitvm_cache.bin"
 
 # Validate service name
 case "$SERVICE" in
@@ -84,8 +83,3 @@ PARAM=$SERVICE
 EOF
 
 chmod +x entrypoint.sh
-
-
-
-
-
