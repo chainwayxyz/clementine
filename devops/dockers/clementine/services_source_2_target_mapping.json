@@ -21,15 +21,15 @@
       "clementine-operator"
     ]
   },
-    "Aggregator": {
-      "Dev-Net": [
-        "clementine-aggregator"
-      ],
-      "Test-Net": [
-        "clementine-aggregator"
-      ],
-      "Main-Net": [
-        "clementine-aggregator"
-      ]
-    }
+  "Aggregator": {
+    "Dev-Net": [
+      "clementine-aggregator"
+    ],
+    "Test-Net": [
+      "clementine-aggregator"
+    ],
+    "Main-Net": [
+      "clementine-aggregator"
+    ]
   }
+}
