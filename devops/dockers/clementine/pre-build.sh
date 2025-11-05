@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./pre-build.sh <service_name> <network> <release> <platform>
+# Usage: ./pre-build.sh <service_name> <release> <network> <platform>
 # Example: ./pre-build.sh aggregator v0.5.0-rc.3 dev-net linux-amd64
 
 set -euo pipefail
