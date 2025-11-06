@@ -144,7 +144,6 @@ pub fn stark_to_bitvm2_g16(
 
     let output = Command::new("podman")
         .arg("run")
-        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
@@ -322,7 +321,6 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
 
     let output = Command::new("podman")
         .arg("run")
-        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
@@ -473,7 +471,6 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
 
     let output = Command::new("podman")
         .arg("run")
-        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform

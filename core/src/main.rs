@@ -51,10 +51,10 @@ async fn main() {
         .expect("Configuration is invalid");
 
     // Load the BitVM cache on startup.
-    tracing::info!("Loading BitVM cache...");
-    BITVM_CACHE
-        .get_or_try_init(load_or_generate_bitvm_cache)
-        .expect("Failed to load BitVM cache");
+    // tracing::info!("Loading BitVM cache...");
+    // BITVM_CACHE
+    //     .get_or_try_init(load_or_generate_bitvm_cache)
+    //     .expect("Failed to load BitVM cache");
 
     Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await

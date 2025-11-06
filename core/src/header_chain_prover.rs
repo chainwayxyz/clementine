@@ -238,9 +238,19 @@ impl HeaderChainProver {
                 )
                 .await;
 
-            db.set_block_proof(None, genesis_block_hash, proof)
+            db.set_block_proof(None, genesis_block_hash, proof.clone())
                 .await
                 .map_to_eyre()?;
+
+            let hcp_prover = HeaderChainProver {
+                db,
+                batch_size: config.header_chain_proof_batch_size.into(),
+                network: config.protocol_paramset().network,
+            };
+            let (receipt, work_output) = hcp_prover.prove_work_only(proof)?;
+            tracing::warn!("Work output: {work_output:?}");
+            tracing::warn!("Receipt: {receipt:?}");
+            panic!("Test panic");
         }
 
         Ok(HeaderChainProver {
