@@ -2156,8 +2156,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
+        let actors = create_actors::<MockCitreaClient>(&config).await;
         let _unused =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
                 .await?;
 
         Ok(())

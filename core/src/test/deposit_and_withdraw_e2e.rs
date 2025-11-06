@@ -195,9 +195,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
+        let mut actors = create_actors(&config).await;
+
         // do 2 deposits
-        let (mut actors, _deposit_infos, move_txids, _deposit_blockhashs, _) =
-            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
+        let (_deposit_infos, move_txids, _deposit_blockhashs, _) =
+            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, &actors).await?;
 
         let citrea_e2e_data = CitreaE2EData {
             sequencer,
@@ -275,14 +277,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // do 3 more deposits
         tracing::info!("Running 3 more deposits");
-        let (
-            mut actors,
-            _new_deposit_infos,
-            new_move_txids,
-            _deposit_blockhashs,
-            _verifiers_public_keys,
-        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, Some(actors))
-            .await?;
+        let (_new_deposit_infos, new_move_txids, _deposit_blockhashs, _verifiers_public_keys) =
+            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, &actors).await?;
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
@@ -375,20 +371,16 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // replace the deposit
         tracing::info!("Replacing deposit");
-        let (
-            mut actors,
-            _replacement_deposit_info,
-            replacement_move_txid,
-            _replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(
-            &mut config,
-            &rpc,
-            new_move_txids[2],
-            actors,
-            old_nofn_xonly_pk,
-        )
-        .await
-        .unwrap();
+        let (_replacement_deposit_info, replacement_move_txid, _replacement_deposit_blockhash) =
+            run_single_replacement_deposit(
+                &mut config,
+                &rpc,
+                new_move_txids[2],
+                &actors,
+                old_nofn_xonly_pk,
+            )
+            .await
+            .unwrap();
 
         tracing::info!("Registering replacement deposit to Citrea");
         register_replacement_deposit_to_citrea(
@@ -447,15 +439,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .secret_key;
         actors.remove_operator(1).await.unwrap();
         // try to do a deposit, it should fail.
-        // assert!(run_single_deposit::<CitreaClient>(
-        //     &mut config,
-        //     rpc.clone(),
-        //     None,
-        //     Some(actors),
-        //     None
-        // )
-        // .await
-        // .is_err());
+        assert!(
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, &actors, None)
+                .await
+                .is_err()
+        );
 
         // spend the operator's collateral then try a deposit, it should work now as operator existed the protocol
         let op1_actor = Actor::new(op1_secret_key, config.protocol_paramset().network);
@@ -500,15 +488,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // check if collateral is spent
         assert!(rpc.is_utxo_spent(&op1_collateral).await.unwrap());
         // try a deposit, it should work now
-        assert!(run_single_deposit::<CitreaClient>(
-            &mut config,
-            rpc.clone(),
-            None,
-            Some(actors),
-            None
-        )
-        .await
-        .is_ok());
+        assert!(
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, &actors, None)
+                .await
+                .is_ok()
+        );
         //tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
@@ -601,8 +585,9 @@ async fn mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (_deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 
@@ -860,12 +845,13 @@ async fn testnet4_mock_citrea_run_truthful() {
         .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
         .await;
 
-    let (actors, _deposit_infos, _move_txid, _deposit_blockhash, _verifiers_public_keys) =
+    let actors = create_actors(&config).await;
+    let (_deposit_infos, _move_txid, _deposit_blockhash, _verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(
             &mut config,
             rpc.clone(),
             None,
-            None,
+            &actors,
             Some(OutPoint {
                 // use previous deposit outpoint so that we don't need to create a new one
                 txid: Txid::from_str(
@@ -1055,8 +1041,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (_deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 
@@ -1230,8 +1217,9 @@ async fn mock_citrea_run_malicious() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (deposit_info, move_txid, _deposit_blockhash, _) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
     let db = Database::new(&BridgeConfig {
@@ -1427,8 +1415,9 @@ async fn mock_citrea_run_malicious_after_exit() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 

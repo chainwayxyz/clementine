@@ -1375,8 +1375,9 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (actors, deposit_params, _, deposit_blockhash, _) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let (deposit_params, _, deposit_blockhash, _) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
                 .await
                 .unwrap();
 
@@ -1389,8 +1390,9 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (mut actors, _deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+        let mut actors = create_actors::<MockCitreaClient>(&config).await;
+        let (_deposit_info, old_move_txid, _deposit_blockhash, _verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
                 .await
                 .unwrap();
 
@@ -1398,20 +1400,16 @@ mod tests {
         // remove 1 verifier then run a replacement deposit
         actors.remove_verifier(2).await.unwrap();
 
-        let (
-            actors,
-            replacement_deposit_info,
-            _replacement_move_txid,
-            replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(
-            &mut config,
-            rpc,
-            old_move_txid,
-            actors,
-            old_nofn_xonly_pk,
-        )
-        .await
-        .unwrap();
+        let (replacement_deposit_info, _replacement_move_txid, replacement_deposit_blockhash) =
+            run_single_replacement_deposit(
+                &mut config,
+                rpc,
+                old_move_txid,
+                &actors,
+                old_nofn_xonly_pk,
+            )
+            .await
+            .unwrap();
 
         check_if_signable(
             actors,
