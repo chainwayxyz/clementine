@@ -445,7 +445,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 .is_err()
         );
 
-        // spend the operator's collateral then try a deposit, it should work now as operator existed the protocol
+        // spend the operator's collateral then try a deposit, it should work now as operator exited the protocol
         let op1_actor = Actor::new(op1_secret_key, config.protocol_paramset().network);
         let op1_xonly_pk = op1_actor.xonly_public_key;
         let op1_collateral = new_operator_db
@@ -520,7 +520,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// but it is one of the nofn in deposit 4
 /// * A replacement deposit is performed for deposit 4
 /// * Optimistic payout for deposit 4 is performed with the new replacement deposit
-/// * Remove operator 1, then spend its collateral and try a deposit, it should work as operator existed the protocol.
+/// * Remove operator 1, then spend its collateral and try a deposit, it should work as operator exited the protocol.
 /// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
 ///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
 ///     always work if the collected signatures are correct from start)
