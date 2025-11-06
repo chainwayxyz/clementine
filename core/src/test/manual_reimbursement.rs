@@ -10,7 +10,8 @@ use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::test_actors::TestActors;
 use crate::test::common::{
-    create_regtest_rpc, generate_withdrawal_transaction_and_signature, poll_until_condition,
+    create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
+    poll_until_condition,
 };
 use crate::test::common::{create_test_config_with_thread_name, run_single_deposit};
 use crate::test::sign::sign_withdrawal_verification_signature;
@@ -60,8 +61,9 @@ async fn deposit_and_get_reimbursement(
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, actors, None)
+    let actors = create_actors::<MockCitreaClient>(config).await;
+    let (deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 
