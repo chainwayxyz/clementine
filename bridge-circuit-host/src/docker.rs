@@ -142,14 +142,15 @@ pub fn stark_to_bitvm2_g16(
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("docker")
+    let output = Command::new("podman")
         .arg("run")
+        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d")
+        .arg("docker.io/chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -319,14 +320,15 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("docker")
+    let output = Command::new("podman")
         .arg("run")
+        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
+        .arg("docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -469,14 +471,15 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("docker")
+    let output = Command::new("podman")
         .arg("run")
+        .arg("--userns=keep-id")
         .arg("--pull=always")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7")
+        .arg("docker.io/ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
