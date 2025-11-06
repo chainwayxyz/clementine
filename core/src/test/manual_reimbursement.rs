@@ -42,26 +42,24 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
     .unwrap();
 
     // do 2 deposits and get reimbursements
-    let actors =
-        deposit_and_get_reimbursement(&mut config, None, &rpc, &mut citrea_client, 0).await;
-    let _actors =
-        deposit_and_get_reimbursement(&mut config, Some(actors), &rpc, &mut citrea_client, 1).await;
+    let actors = create_actors::<MockCitreaClient>(&config).await;
+    deposit_and_get_reimbursement(&mut config, &actors, &rpc, &mut citrea_client, 0).await;
+    deposit_and_get_reimbursement(&mut config, &actors, &rpc, &mut citrea_client, 1).await;
 }
 
 async fn deposit_and_get_reimbursement(
     config: &mut BridgeConfig,
-    actors: Option<TestActors<MockCitreaClient>>,
+    actors: &TestActors<MockCitreaClient>,
     rpc: &ExtendedBitcoinRpc,
     citrea_client: &mut MockCitreaClient,
     withdrawal_id: u32,
-) -> TestActors<MockCitreaClient> {
+) {
     tracing::info!("Running deposit");
 
     tracing::info!(
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let actors = create_actors::<MockCitreaClient>(config).await;
     let (deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None, &actors, None)
             .await
@@ -281,6 +279,4 @@ async fn deposit_and_get_reimbursement(
     }
 
     assert!(rpc.is_utxo_spent(&reimburse_connector).await.unwrap());
-
-    actors
 }
