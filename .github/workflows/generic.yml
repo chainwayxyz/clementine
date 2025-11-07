@@ -23,7 +23,7 @@ on:
         default: Dev-Net
 
 env:
-  DOCKER_PATH: "devops/dockers/clementine/"
+  DOCKER_PATH: "devops/dockers/clementine"
   DOCKER_CTX_PATH: "."
 
 permissions:
