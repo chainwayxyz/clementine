@@ -319,18 +319,74 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("podman")
+    let image = "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len:latest";
+    let container_name = "risc0_prover";
+    let udocker_path = "udocker";
+
+    // let output = Command::new("udocker")
+    //     .arg("run")
+    //     .arg("--pull=always")
+    //     .arg("--rm")
+    //     .arg("--platform=linux/amd64") // Force linux/amd64 platform
+    //     .arg("-v")
+    //     .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
+    //     .arg("docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
+    //     .stdout(Stdio::piped())
+    //     .stderr(Stdio::piped())
+    //     .output()
+    //     .wrap_err("Failed to execute docker command")?;
+
+    // 1. Pull the image
+    let output = Command::new(udocker_path)
+        .arg("--allow-root")
+        .arg("pull")
+        .arg(image)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("Failed to pull udocker image")?;
+
+    if !output.status.success() {
+        return Err(eyre!("udocker pull failed {:?}", output));
+    }
+
+    // 2. Create the container with P2 exec mode
+    let _output = Command::new(udocker_path)
+        .arg("--allow-root")
+        .arg("create")
+        .arg(format!("--name={container_name}"))
+        .arg(image)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("Failed to create udocker container")?;
+
+    let setup_output = Command::new(udocker_path)
+        .arg("--allow-root")
+        .arg("setup")
+        .arg("--execmode=P2")
+        .arg(container_name)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("Failed to setup udocker container")?;
+
+    if !setup_output.status.success() {
+        return Err(eyre!("udocker setup failed {:?}", setup_output));
+    }
+
+    // 3. Run the container with volume mount
+    let output = Command::new(udocker_path)
+        .arg("--allow-root")
         .arg("run")
-        .arg("--pull=always")
         .arg("--rm")
-        .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .arg(container_name)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .output()
-        .wrap_err("Failed to execute docker command")?;
+        .context("Failed to run udocker container")?;
 
     if !output.status.success() {
         return Err(eyre!(
