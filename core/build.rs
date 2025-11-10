@@ -66,27 +66,58 @@ fn compile_protobuf() {
 
 fn main() {
     compile_protobuf();
-    let build = BuildBuilder::all_build().expect("Failed to build build instructions");
-    let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
-    let git2 = Git2Builder::default()
-        .all()
-        .repo_path(PathBuf::from("..").into()) // .git folder is in the workspace folder
-        .build()
-        .expect("Failed to build git2 instructions");
-    let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
-    let si = SysinfoBuilder::all_sysinfo().expect("Failed to build sysinfo instructions");
 
-    Emitter::default()
-        .add_instructions(&build)
-        .expect("Failed to add build instructions")
-        .add_instructions(&cargo)
-        .expect("Failed to add cargo instructions")
-        .add_instructions(&git2)
-        .expect("Failed to add git instructions")
-        .add_instructions(&rustc)
-        .expect("Failed to add rustc instructions")
-        .add_instructions(&si)
-        .expect("Failed to add sysinfo instructions")
-        .emit()
-        .expect("Failed to emit vergen");
+    // For reproducible builds, check if SOURCE_DATE_EPOCH is set
+    let use_deterministic_build = env::var("SOURCE_DATE_EPOCH").is_ok();
+
+    if use_deterministic_build {
+        println!("cargo:warning=Building in reproducible mode (SOURCE_DATE_EPOCH set)");
+
+        // In reproducible mode, skip BuildBuilder (contains build timestamp)
+        // and SysinfoBuilder (contains system info) as they are non-deterministic
+        let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
+        let git2 = Git2Builder::default()
+            .all()
+            .repo_path(PathBuf::from("..").into()) // .git folder is in the workspace folder
+            .build()
+            .expect("Failed to build git2 instructions");
+        let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
+
+        Emitter::default()
+            .add_instructions(&cargo)
+            .expect("Failed to add cargo instructions")
+            .add_instructions(&git2)
+            .expect("Failed to add git instructions")
+            .add_instructions(&rustc)
+            .expect("Failed to add rustc instructions")
+            .emit()
+            .expect("Failed to emit vergen");
+    } else {
+        println!("cargo:warning=Building in non-reproducible mode (including build timestamp)");
+
+        // Normal build with all metadata including timestamps
+        let build = BuildBuilder::all_build().expect("Failed to build build instructions");
+        let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
+        let git2 = Git2Builder::default()
+            .all()
+            .repo_path(PathBuf::from("..").into()) // .git folder is in the workspace folder
+            .build()
+            .expect("Failed to build git2 instructions");
+        let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
+        let si = SysinfoBuilder::all_sysinfo().expect("Failed to build sysinfo instructions");
+
+        Emitter::default()
+            .add_instructions(&build)
+            .expect("Failed to add build instructions")
+            .add_instructions(&cargo)
+            .expect("Failed to add cargo instructions")
+            .add_instructions(&git2)
+            .expect("Failed to add git instructions")
+            .add_instructions(&rustc)
+            .expect("Failed to add rustc instructions")
+            .add_instructions(&si)
+            .expect("Failed to add sysinfo instructions")
+            .emit()
+            .expect("Failed to emit vergen");
+    }
 }
