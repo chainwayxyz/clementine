@@ -319,50 +319,85 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     )
     .wrap_err("Failed to write seal file")?;
 
-    // let output = Command::new("udocker")
-    //     .arg("run")
-    //     .arg("--pull=always")
-    //     .arg("--rm")
-    //     .arg("--platform=linux/amd64") // Force linux/amd64 platform
-    //     .arg("-v")
-    //     .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-    //     .arg("docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb")
-    //     .stdout(Stdio::piped())
-    //     .stderr(Stdio::piped())
-    //     .output()
-    //     .wrap_err("Failed to execute docker command")?;
-
     let image_digest = "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb";
     let container_name = "risc0_prover";
-    let udocker_path = "udocker";
+    let tar_file_path = format!("{}.tar", &container_name);
+    let tar_file = std::path::Path::new(tar_file_path.as_str());
 
-    // 1. Pull image by digest with Docker
-    let output = Command::new("docker")
-        .arg("pull")
-        .arg(image_digest)
+    // 1. Get remote config digest
+    let remote_config_digest_output = Command::new("skopeo")
+        .arg("inspect")
+        .arg(format!("docker://{image_digest}"))
+        .arg("--raw")
         .output()
-        .context("Failed to pull docker image by digest")?;
-    if !output.status.success() {
-        return Err(eyre!("docker pull failed {:?}", output));
+        .context("Failed to inspect remote image raw manifest")?;
+    if !remote_config_digest_output.status.success() {
+        return Err(eyre::eyre!(
+            "skopeo inspect remote failed: {:?}",
+            remote_config_digest_output
+        ));
+    }
+    let remote_config_digest_json = String::from_utf8(remote_config_digest_output.stdout)?;
+    let remote_config_digest: String =
+        serde_json::from_str::<serde_json::Value>(&remote_config_digest_json)?
+            .get("config")
+            .and_then(|c| c.get("digest"))
+            .and_then(|d| d.as_str())
+            .ok_or_else(|| eyre::eyre!("Failed to get remote config digest"))?
+            .to_string();
+
+    // 2. Inspect local tar digest if it exists
+    let mut need_pull = true;
+    if tar_file.exists() {
+        let local_config_digest_output = Command::new("skopeo")
+            .arg("inspect")
+            .arg("--raw")
+            .arg(format!("docker-archive:{}", tar_file.to_string_lossy()))
+            .output()
+            .context("Failed to inspect local tar raw manifest")?;
+        if local_config_digest_output.status.success() {
+            let local_config_digest_json = String::from_utf8(local_config_digest_output.stdout)?;
+            let local_config_digest: String =
+                serde_json::from_str::<serde_json::Value>(&local_config_digest_json)?
+                    .get("config")
+                    .and_then(|c| c.get("digest"))
+                    .and_then(|d| d.as_str())
+                    .ok_or_else(|| eyre::eyre!("Failed to get local config digest"))?
+                    .to_string();
+
+            if local_config_digest == remote_config_digest {
+                tracing::info!("Local tar config digest matches remote, skipping pull");
+                need_pull = false;
+            } else {
+                tracing::warn!("Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}", local_config_digest, remote_config_digest);
+                fs::remove_file(tar_file).context("Failed to delete local tar")?;
+            }
+        } else {
+            tracing::warn!("Failed to inspect local tar config digest, re-pulling");
+            fs::remove_file(tar_file).ok();
+        }
     }
 
-    // 3. Save the tagged image to tar
-    let output = Command::new("docker")
-        .arg("save")
-        .arg("-o")
-        .arg("image-digest.tar")
-        .arg(image_digest)
-        .output()
-        .context("Failed to save docker image to tar")?;
-    if !output.status.success() {
-        return Err(eyre!("docker save failed {:?}", output));
+    // 3. Pull with skopeo if needed
+    if need_pull {
+        tracing::info!("Pulling image via skopeo...");
+        let pull_output = Command::new("skopeo")
+            .arg("copy")
+            .arg(format!("docker://{image_digest}"))
+            .arg(format!("docker-archive:{}", tar_file.to_string_lossy()))
+            .output()
+            .context("Failed to copy image with skopeo")?;
+        if !pull_output.status.success() {
+            return Err(eyre::eyre!("skopeo copy failed: {:?}", pull_output));
+        }
     }
 
     // 4. Load tar into udocker
-    let output = Command::new(udocker_path)
+    let output = Command::new("udocker")
+        .arg("--allow-root")
         .arg("load")
         .arg("-i")
-        .arg("image-digest.tar")
+        .arg(tar_file_path)
         .output()
         .context("Failed to load image into udocker")?;
     if !output.status.success() {
@@ -370,29 +405,64 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     }
 
     let output_str = String::from_utf8(output.stdout)?;
+    tracing::warn!("udocker load output: {:?}", output_str);
     let image_id_line = output_str
         .lines()
         .last()
         .ok_or_else(|| eyre!("No output lines from udocker load"))?;
-    let image_id = image_id_line
+    let udocker_image_id = image_id_line
         .trim_matches(&['[', ']', '\'', ' '][..])
         .to_string();
-    tracing::info!("Loaded udocker image id: {image_id}");
+    tracing::warn!("Loaded udocker image id: {udocker_image_id}");
+
+    // Guard to ensure udocker image and container are cleaned up after everything ends or on error
+    // struct UdockerCleanupGuard {
+    //     container_name: String,
+    //     image_id: String,
+    // }
+    // impl Drop for UdockerCleanupGuard {
+    //     fn drop(&mut self) {
+    //         // Remove container if it exists
+    //         let _ = Command::new("udocker")
+    //             .arg("--allow-root")
+    //             .arg("rm")
+    //             .arg(&self.container_name)
+    //             .output();
+
+    //         // Remove image if it exists
+    //         let _ = Command::new("udocker")
+    //             .arg("--allow-root")
+    //             .arg("rmi")
+    //             .arg(&self.image_id)
+    //             .output();
+
+    //         tracing::debug!(
+    //             "Cleaned up udocker container {} and image {}",
+    //             self.container_name,
+    //             self.image_id
+    //         );
+    //     }
+    // }
+    // let _udocker_guard = UdockerCleanupGuard {
+    //     container_name: container_name.to_string(),
+    //     image_id: udocker_image_id.clone(),
+    // };
 
     // 5. Create the container with P2 exec mode
-    let create_output = Command::new(udocker_path)
+    let create_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("create")
         .arg(format!("--name={container_name}"))
-        .arg(image_id)
+        .arg(&udocker_image_id)
         .output()
         .context("Failed to create udocker container")?;
     if !create_output.status.success() {
         return Err(eyre!("udocker create failed {:?}", create_output));
     }
+    tracing::warn!("udocker create output: {:?}", create_output);
 
     // 6. Setup execmode
-    let setup_output = Command::new(udocker_path)
+    let setup_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("setup")
         .arg("--execmode=P2")
@@ -404,7 +474,7 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     }
 
     // 7. Run container with volume mount
-    let output = Command::new(udocker_path)
+    let output = Command::new("udocker")
         .arg("--allow-root")
         .arg("run")
         .arg("--rm")
