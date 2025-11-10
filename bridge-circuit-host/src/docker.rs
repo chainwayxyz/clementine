@@ -319,10 +319,6 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     )
     .wrap_err("Failed to write seal file")?;
 
-    let image = "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len:latest";
-    let container_name = "risc0_prover";
-    let udocker_path = "udocker";
-
     // let output = Command::new("udocker")
     //     .arg("run")
     //     .arg("--pull=always")
@@ -336,46 +332,78 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     //     .output()
     //     .wrap_err("Failed to execute docker command")?;
 
-    // 1. Pull the image
-    let output = Command::new(udocker_path)
-        .arg("--allow-root")
-        .arg("pull")
-        .arg(image)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .output()
-        .context("Failed to pull udocker image")?;
+    let image_digest = "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb";
+    let container_name = "risc0_prover";
+    let udocker_path = "udocker";
 
+    // 1. Pull image by digest with Docker
+    let output = Command::new("docker")
+        .arg("pull")
+        .arg(image_digest)
+        .output()
+        .context("Failed to pull docker image by digest")?;
     if !output.status.success() {
-        return Err(eyre!("udocker pull failed {:?}", output));
+        return Err(eyre!("docker pull failed {:?}", output));
     }
 
-    // 2. Create the container with P2 exec mode
-    let _output = Command::new(udocker_path)
+    // 3. Save the tagged image to tar
+    let output = Command::new("docker")
+        .arg("save")
+        .arg("-o")
+        .arg("image-digest.tar")
+        .arg(image_digest)
+        .output()
+        .context("Failed to save docker image to tar")?;
+    if !output.status.success() {
+        return Err(eyre!("docker save failed {:?}", output));
+    }
+
+    // 4. Load tar into udocker
+    let output = Command::new(udocker_path)
+        .arg("load")
+        .arg("-i")
+        .arg("image-digest.tar")
+        .output()
+        .context("Failed to load image into udocker")?;
+    if !output.status.success() {
+        return Err(eyre!("udocker load failed {:?}", output));
+    }
+
+    let output_str = String::from_utf8(output.stdout)?;
+    let image_id_line = output_str
+        .lines()
+        .last()
+        .ok_or_else(|| eyre!("No output lines from udocker load"))?;
+    let image_id = image_id_line
+        .trim_matches(&['[', ']', '\'', ' '][..])
+        .to_string();
+    tracing::info!("Loaded udocker image id: {image_id}");
+
+    // 5. Create the container with P2 exec mode
+    let create_output = Command::new(udocker_path)
         .arg("--allow-root")
         .arg("create")
         .arg(format!("--name={container_name}"))
-        .arg(image)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .arg(image_id)
         .output()
         .context("Failed to create udocker container")?;
+    if !create_output.status.success() {
+        return Err(eyre!("udocker create failed {:?}", create_output));
+    }
 
+    // 6. Setup execmode
     let setup_output = Command::new(udocker_path)
         .arg("--allow-root")
         .arg("setup")
         .arg("--execmode=P2")
         .arg(container_name)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
         .output()
         .context("Failed to setup udocker container")?;
-
     if !setup_output.status.success() {
         return Err(eyre!("udocker setup failed {:?}", setup_output));
     }
 
-    // 3. Run the container with volume mount
+    // 7. Run container with volume mount
     let output = Command::new(udocker_path)
         .arg("--allow-root")
         .arg("run")
@@ -383,11 +411,8 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
         .arg(container_name)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
         .output()
         .context("Failed to run udocker container")?;
-
     if !output.status.success() {
         return Err(eyre!(
             "STARK to SNARK prover docker image returned failure: {:?}",
