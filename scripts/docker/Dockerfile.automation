@@ -7,7 +7,7 @@ RUN cargo build --release --bin clementine-core --features=automation
 FROM debian:trixie-slim
 RUN \
   apt-get update \
-  && apt -y install gettext-base libssl-dev wget \
+  && apt -y install gettext-base libssl-dev wget curl \
   && apt clean \
   && apt install -y --no-install-recommends ca-certificates \
   && update-ca-certificates \
