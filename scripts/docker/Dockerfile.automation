@@ -4,7 +4,7 @@ WORKDIR /clementine
 COPY . .
 RUN cargo build --release --bin clementine-core --features=automation
 
-FROM debian:trixie-slim
+FROM debian:bookworm-slim
 RUN \
   apt-get update \
   && apt -y install gettext-base libssl-dev wget curl \
