@@ -8,18 +8,27 @@ use risc0_zkvm::{
 };
 use risc0_zkvm::{Groth16Receipt, Groth16ReceiptVerifierParameters, InnerReceipt, Receipt};
 use serde_json::Value;
-use std::{
-    env::consts::ARCH,
-    fs,
-    path::Path,
-    process::{Command, Stdio},
-};
+use std::{env::consts::ARCH, fs, path::Path, process::Command};
+use tar::{Archive, Builder};
 
 use eyre::{eyre, ContextCompat, Result, WrapErr};
 use tempfile::tempdir;
 use tracing;
 
 use crate::utils::to_json;
+
+const IMAGES_SUBDIR: &str = "images";
+const STARK_TO_BITVM2_IMAGE_DIGEST: &str =
+    "docker.io/chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d";
+const DEV_STARK_TO_BITVM2_IMAGE_DIGEST: &str =
+    "docker.io/ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7";
+const DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST: &str =
+    "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb";
+
+// NOTE: Keep container names unique to prevent udocker collisions between images.
+const STARK_TO_BITVM2_CONTAINER_NAME: &str = "clementine_mainnet_bitvm2_prover";
+const DEV_STARK_TO_BITVM2_CONTAINER_NAME: &str = "clementine_dev_bitvm2_prover";
+const DEV_STARK_TO_RISC0_G16_CONTAINER_NAME: &str = "clementine_dev_risc0_prover";
 
 /// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
 pub fn stark_to_bitvm2_g16(
@@ -40,9 +49,6 @@ pub fn stark_to_bitvm2_g16(
         return Err(eyre!(
             "stark_to_snark is only supported on x86 architecture"
         ));
-    }
-    if !is_docker_installed() {
-        return Err(eyre!("Please install docker first")); // Maybe check this at startup...
     }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
@@ -142,25 +148,11 @@ pub fn stark_to_bitvm2_g16(
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("podman")
-        .arg("run")
-        .arg("--pull=always")
-        .arg("--rm")
-        .arg("--platform=linux/amd64") // Force linux/amd64 platform
-        .arg("-v")
-        .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("docker.io/chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .wrap_err("Failed to execute docker command")?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "STARK to SNARK prover docker image returned failure: {:?}",
-            output
-        ));
-    }
+    run_prover_container(
+        STARK_TO_BITVM2_IMAGE_DIGEST,
+        STARK_TO_BITVM2_CONTAINER_NAME,
+        work_dir,
+    )?;
 
     tracing::debug!("proof_path: {:?}", proof_path);
     let proof_content =
@@ -221,6 +213,297 @@ const ID_BN254_FR_BITS: [&str; 254] = [
     "0", "0", "0", "0", "1", "0", "0",
 ];
 
+/// Repackages a Docker/OCI image tarball, removing symlinks and copies the files directly where symlinks would be.
+/// This is because udocker load has some issues if there are 2 identical layers in docker image (symlinks are used if there are identical layers)
+/// Related issue: https://github.com/indigo-dc/udocker/issues/361
+/// Overwrites the input tar file.
+fn remove_symlinks_from_image_tar(path: &Path) -> Result<()> {
+    // Create a temporary directory
+    let tmp_dir = tempdir().wrap_err(format!(
+        "Failed to create temporary directory for processing tar file: {path:?}"
+    ))?;
+    let tmp_path = tmp_dir.path();
+
+    // Extract tarball
+    let file =
+        fs::File::open(path).wrap_err(format!("Failed to open tar file for reading: {path:?}"))?;
+    let mut archive = Archive::new(file);
+    archive.unpack(tmp_path).wrap_err(format!(
+        "Failed to unpack tar archive to temporary directory: {tmp_path:?}"
+    ))?;
+
+    // Resolve symlinks in layer.tar
+    let read_dir = fs::read_dir(tmp_path).wrap_err(format!(
+        "Failed to read temporary directory after unpacking: {tmp_path:?}"
+    ))?;
+    for entry in read_dir {
+        let entry = entry.wrap_err(format!("Failed to read directory entry in: {tmp_path:?}"))?;
+        let dir_path = entry.path();
+
+        if dir_path.is_dir() {
+            let layer_tar = dir_path.join("layer.tar");
+            if layer_tar.exists() {
+                let symlink_metadata = fs::symlink_metadata(&layer_tar).wrap_err(format!(
+                    "Failed to get metadata for potential symlink: {layer_tar:?}"
+                ))?;
+                if symlink_metadata.file_type().is_symlink() {
+                    let target = fs::read_link(&layer_tar)
+                        .wrap_err(format!("Failed to read symlink target for: {layer_tar:?}"))?;
+                    fs::remove_file(&layer_tar)
+                        .wrap_err(format!("Failed to remove symlink: {layer_tar:?}"))?;
+                    // Resolve the target path relative to the directory containing the symlink
+                    let resolved_target = if target.is_absolute() {
+                        target
+                    } else {
+                        dir_path.join(&target)
+                    };
+                    fs::copy(&resolved_target, &layer_tar).wrap_err(format!(
+                        "Failed to copy symlink target {resolved_target:?} to {layer_tar:?}"
+                    ))?;
+                }
+            }
+        }
+    }
+
+    // Repack into the same file
+    let output_file = fs::File::create(path).wrap_err(format!(
+        "Failed to create output tar file (overwriting): {path:?}"
+    ))?;
+    let mut builder = Builder::new(output_file);
+
+    let read_dir_repack = fs::read_dir(tmp_path).wrap_err(format!(
+        "Failed to read temporary directory for repacking: {tmp_path:?}"
+    ))?;
+    for entry in read_dir_repack {
+        let entry = entry.wrap_err(format!(
+            "Failed to read directory entry during repacking in: {tmp_path:?}"
+        ))?;
+        let file_name = entry.file_name();
+        let entry_path = entry.path();
+        let metadata = entry
+            .metadata()
+            .wrap_err(format!("Failed to get metadata for entry: {entry_path:?}"))?;
+
+        if metadata.is_dir() {
+            builder
+                .append_dir_all(file_name, &entry_path)
+                .wrap_err(format!(
+                    "Failed to append directory {entry_path:?} to tar archive"
+                ))?;
+        } else if metadata.is_file() {
+            let mut file = fs::File::open(&entry_path).wrap_err(format!(
+                "Failed to open file for appending to tar: {entry_path:?}"
+            ))?;
+            builder.append_file(file_name, &mut file).wrap_err(format!(
+                "Failed to append file {entry_path:?} to tar archive"
+            ))?;
+        }
+        // Skip symlinks and other file types
+    }
+
+    builder
+        .finish()
+        .wrap_err(format!("Failed to finish writing tar archive: {path:?}"))?;
+    Ok(())
+}
+
+fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Path) -> Result<()> {
+    let current_dir =
+        std::env::current_dir().wrap_err("Failed to get current working directory")?;
+    let images_dir = current_dir.join(IMAGES_SUBDIR);
+    fs::create_dir_all(&images_dir).wrap_err(format!(
+        "Failed to create images directory for container tarballs: {images_dir:?}"
+    ))?;
+    let tar_file_path = images_dir.join(format!("{container_name}.tar"));
+
+    // 1. Get remote config digest
+    let remote_config_digest_output = Command::new("skopeo")
+        .arg("inspect")
+        .arg("--raw")
+        .arg(format!("docker://{image_digest}"))
+        .output()
+        .context("Failed to inspect remote image raw manifest")?;
+    if !remote_config_digest_output.status.success() {
+        return Err(eyre!(
+            "skopeo inspect remote failed: {:?}",
+            remote_config_digest_output
+        ));
+    }
+    let remote_config_digest_json = String::from_utf8(remote_config_digest_output.stdout)
+        .wrap_err("Failed to parse remote image manifest as UTF-8")?;
+    let remote_config_digest: String =
+        serde_json::from_str::<serde_json::Value>(&remote_config_digest_json)?
+            .get("config")
+            .and_then(|c| c.get("digest"))
+            .and_then(|d| d.as_str())
+            .ok_or_else(|| eyre!("Failed to get remote config digest"))?
+            .to_string();
+
+    // 2. Inspect local tar digest if it exists
+    let mut need_pull = true;
+    if tar_file_path.exists() {
+        let local_config_digest_output = Command::new("skopeo")
+            .arg("inspect")
+            .arg("--raw")
+            .arg(format!(
+                "docker-archive:{}",
+                tar_file_path.to_string_lossy()
+            ))
+            .output()
+            .context("Failed to inspect local tar raw manifest")?;
+        if local_config_digest_output.status.success() {
+            let local_config_digest_json = String::from_utf8(local_config_digest_output.stdout)
+                .wrap_err("Failed to parse local image manifest as UTF-8")?;
+            let local_config_digest: String =
+                serde_json::from_str::<serde_json::Value>(&local_config_digest_json)?
+                    .get("config")
+                    .and_then(|c| c.get("digest"))
+                    .and_then(|d| d.as_str())
+                    .ok_or_else(|| eyre!("Failed to get local config digest"))?
+                    .to_string();
+
+            if local_config_digest == remote_config_digest {
+                tracing::info!("Local tar config digest matches remote, skipping pull");
+                need_pull = false;
+            } else {
+                tracing::warn!(
+                    "Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}",
+                    local_config_digest,
+                    remote_config_digest
+                );
+                fs::remove_file(&tar_file_path).context("Failed to delete local tar")?;
+            }
+        } else {
+            tracing::warn!("Failed to inspect local tar config digest, re-pulling");
+            fs::remove_file(&tar_file_path).ok();
+        }
+    }
+
+    // 3. Pull with skopeo if needed
+    if need_pull {
+        tracing::info!("Pulling image via skopeo...");
+        let pull_output = Command::new("skopeo")
+            .arg("copy")
+            .arg(format!("docker://{image_digest}"))
+            .arg(format!(
+                "docker-archive:{}",
+                tar_file_path.to_string_lossy()
+            ))
+            .output()
+            .context("Failed to copy image with skopeo")?;
+        if !pull_output.status.success() {
+            return Err(eyre!("skopeo copy failed: {:?}", pull_output));
+        }
+    }
+
+    remove_symlinks_from_image_tar(&tar_file_path)?;
+
+    // 4. Load tar into udocker
+    let load_output = Command::new("udocker")
+        .arg("--allow-root")
+        .arg("load")
+        .arg("-i")
+        .arg(&tar_file_path)
+        .output()
+        .context("Failed to load image into udocker")?;
+    if !load_output.status.success() {
+        return Err(eyre!("udocker load failed {:?}", load_output));
+    }
+
+    let output_str = String::from_utf8(load_output.stdout)
+        .wrap_err("Failed to parse udocker load stdout as UTF-8")?;
+    let udocker_image_id = output_str
+        .lines()
+        .last()
+        .ok_or_else(|| eyre!("No output lines from udocker load"))?
+        .trim_matches(&['[', ']', '\'', ' '][..])
+        .to_string();
+    tracing::info!("Loaded udocker image id for {container_name}: {udocker_image_id}");
+
+    struct UdockerCleanupGuard {
+        container_name: String,
+        image_id: String,
+    }
+    impl Drop for UdockerCleanupGuard {
+        fn drop(&mut self) {
+            let _ = Command::new("udocker")
+                .arg("--allow-root")
+                .arg("rm")
+                .arg(&self.container_name)
+                .output();
+
+            let _ = Command::new("udocker")
+                .arg("--allow-root")
+                .arg("rmi")
+                .arg(&self.image_id)
+                .output();
+
+            tracing::debug!(
+                "Cleaned up udocker container {} and image {}",
+                self.container_name,
+                self.image_id
+            );
+        }
+    }
+    let _udocker_guard = UdockerCleanupGuard {
+        container_name: container_name.to_string(),
+        image_id: udocker_image_id.clone(),
+    };
+
+    // Remove any stale container with the same name before creating a new one.
+    let _ = Command::new("udocker")
+        .arg("--allow-root")
+        .arg("rm")
+        .arg(container_name)
+        .output();
+
+    // 5. Create the container with P2 exec mode
+    let create_output = Command::new("udocker")
+        .arg("--allow-root")
+        .arg("create")
+        .arg(format!("--name={container_name}"))
+        .arg(&udocker_image_id)
+        .output()
+        .context("Failed to create udocker container")?;
+    if !create_output.status.success() {
+        let stderr = String::from_utf8_lossy(&create_output.stderr);
+        if !stderr.contains("container name already exists") {
+            return Err(eyre!("udocker create failed: {}", stderr));
+        }
+    }
+
+    // 6. Setup execmode
+    let setup_output = Command::new("udocker")
+        .arg("--allow-root")
+        .arg("setup")
+        .arg("--execmode=P2")
+        .arg(container_name)
+        .output()
+        .context("Failed to setup udocker container")?;
+    if !setup_output.status.success() {
+        return Err(eyre!("udocker setup failed {:?}", setup_output));
+    }
+
+    // 7. Run container with volume mount
+    let run_output = Command::new("udocker")
+        .arg("--allow-root")
+        .arg("run")
+        .arg("--rm")
+        .arg("-v")
+        .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
+        .arg(container_name)
+        .output()
+        .context("Failed to run udocker container")?;
+    if !run_output.status.success() {
+        return Err(eyre!(
+            "STARK to SNARK prover docker image returned failure: {:?}",
+            run_output
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receipt> {
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt
@@ -234,9 +517,6 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
         return Err(eyre!(
             "stark_to_snark is only supported on x86 architecture"
         ));
-    }
-    if !is_docker_installed() {
-        return Err(eyre!("Please install docker first"));
     }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
@@ -319,176 +599,11 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     )
     .wrap_err("Failed to write seal file")?;
 
-    let image_digest = "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb";
-    let container_name = "risc0_prover";
-    let tar_file_path = format!("{}.tar", &container_name);
-    let tar_file = std::path::Path::new(tar_file_path.as_str());
-
-    // 1. Get remote config digest
-    let remote_config_digest_output = Command::new("skopeo")
-        .arg("inspect")
-        .arg(format!("docker://{image_digest}"))
-        .arg("--raw")
-        .output()
-        .context("Failed to inspect remote image raw manifest")?;
-    if !remote_config_digest_output.status.success() {
-        return Err(eyre::eyre!(
-            "skopeo inspect remote failed: {:?}",
-            remote_config_digest_output
-        ));
-    }
-    let remote_config_digest_json = String::from_utf8(remote_config_digest_output.stdout)?;
-    let remote_config_digest: String =
-        serde_json::from_str::<serde_json::Value>(&remote_config_digest_json)?
-            .get("config")
-            .and_then(|c| c.get("digest"))
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| eyre::eyre!("Failed to get remote config digest"))?
-            .to_string();
-
-    // 2. Inspect local tar digest if it exists
-    let mut need_pull = true;
-    if tar_file.exists() {
-        let local_config_digest_output = Command::new("skopeo")
-            .arg("inspect")
-            .arg("--raw")
-            .arg(format!("docker-archive:{}", tar_file.to_string_lossy()))
-            .output()
-            .context("Failed to inspect local tar raw manifest")?;
-        if local_config_digest_output.status.success() {
-            let local_config_digest_json = String::from_utf8(local_config_digest_output.stdout)?;
-            let local_config_digest: String =
-                serde_json::from_str::<serde_json::Value>(&local_config_digest_json)?
-                    .get("config")
-                    .and_then(|c| c.get("digest"))
-                    .and_then(|d| d.as_str())
-                    .ok_or_else(|| eyre::eyre!("Failed to get local config digest"))?
-                    .to_string();
-
-            if local_config_digest == remote_config_digest {
-                tracing::info!("Local tar config digest matches remote, skipping pull");
-                need_pull = false;
-            } else {
-                tracing::warn!("Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}", local_config_digest, remote_config_digest);
-                fs::remove_file(tar_file).context("Failed to delete local tar")?;
-            }
-        } else {
-            tracing::warn!("Failed to inspect local tar config digest, re-pulling");
-            fs::remove_file(tar_file).ok();
-        }
-    }
-
-    // 3. Pull with skopeo if needed
-    if need_pull {
-        tracing::info!("Pulling image via skopeo...");
-        let pull_output = Command::new("skopeo")
-            .arg("copy")
-            .arg(format!("docker://{image_digest}"))
-            .arg(format!("docker-archive:{}", tar_file.to_string_lossy()))
-            .output()
-            .context("Failed to copy image with skopeo")?;
-        if !pull_output.status.success() {
-            return Err(eyre::eyre!("skopeo copy failed: {:?}", pull_output));
-        }
-    }
-
-    // 4. Load tar into udocker
-    let output = Command::new("udocker")
-        .arg("--allow-root")
-        .arg("load")
-        .arg("-i")
-        .arg(tar_file_path)
-        .output()
-        .context("Failed to load image into udocker")?;
-    if !output.status.success() {
-        return Err(eyre!("udocker load failed {:?}", output));
-    }
-
-    let output_str = String::from_utf8(output.stdout)?;
-    tracing::warn!("udocker load output: {:?}", output_str);
-    let image_id_line = output_str
-        .lines()
-        .last()
-        .ok_or_else(|| eyre!("No output lines from udocker load"))?;
-    let udocker_image_id = image_id_line
-        .trim_matches(&['[', ']', '\'', ' '][..])
-        .to_string();
-    tracing::warn!("Loaded udocker image id: {udocker_image_id}");
-
-    // Guard to ensure udocker image and container are cleaned up after everything ends or on error
-    // struct UdockerCleanupGuard {
-    //     container_name: String,
-    //     image_id: String,
-    // }
-    // impl Drop for UdockerCleanupGuard {
-    //     fn drop(&mut self) {
-    //         // Remove container if it exists
-    //         let _ = Command::new("udocker")
-    //             .arg("--allow-root")
-    //             .arg("rm")
-    //             .arg(&self.container_name)
-    //             .output();
-
-    //         // Remove image if it exists
-    //         let _ = Command::new("udocker")
-    //             .arg("--allow-root")
-    //             .arg("rmi")
-    //             .arg(&self.image_id)
-    //             .output();
-
-    //         tracing::debug!(
-    //             "Cleaned up udocker container {} and image {}",
-    //             self.container_name,
-    //             self.image_id
-    //         );
-    //     }
-    // }
-    // let _udocker_guard = UdockerCleanupGuard {
-    //     container_name: container_name.to_string(),
-    //     image_id: udocker_image_id.clone(),
-    // };
-
-    // 5. Create the container with P2 exec mode
-    let create_output = Command::new("udocker")
-        .arg("--allow-root")
-        .arg("create")
-        .arg(format!("--name={container_name}"))
-        .arg(&udocker_image_id)
-        .output()
-        .context("Failed to create udocker container")?;
-    if !create_output.status.success() {
-        return Err(eyre!("udocker create failed {:?}", create_output));
-    }
-    tracing::warn!("udocker create output: {:?}", create_output);
-
-    // 6. Setup execmode
-    let setup_output = Command::new("udocker")
-        .arg("--allow-root")
-        .arg("setup")
-        .arg("--execmode=P2")
-        .arg(container_name)
-        .output()
-        .context("Failed to setup udocker container")?;
-    if !setup_output.status.success() {
-        return Err(eyre!("udocker setup failed {:?}", setup_output));
-    }
-
-    // 7. Run container with volume mount
-    let output = Command::new("udocker")
-        .arg("--allow-root")
-        .arg("run")
-        .arg("--rm")
-        .arg("-v")
-        .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg(container_name)
-        .output()
-        .context("Failed to run udocker container")?;
-    if !output.status.success() {
-        return Err(eyre!(
-            "STARK to SNARK prover docker image returned failure: {:?}",
-            output
-        ));
-    }
+    run_prover_container(
+        DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST,
+        DEV_STARK_TO_RISC0_G16_CONTAINER_NAME,
+        work_dir,
+    )?;
 
     tracing::debug!("proof_path: {:?}", proof_path);
     let contents = std::fs::read_to_string(proof_path).wrap_err("Failed to read proof file")?;
@@ -537,9 +652,6 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         return Err(eyre!(
             "stark_to_snark is only supported on x86 architecture"
         ));
-    }
-    if !is_docker_installed() {
-        return Err(eyre!("Please install docker first"));
     }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
@@ -620,25 +732,11 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     )
     .wrap_err("Failed to write seal file")?;
 
-    let output = Command::new("podman")
-        .arg("run")
-        .arg("--pull=always")
-        .arg("--rm")
-        .arg("--platform=linux/amd64") // Force linux/amd64 platform
-        .arg("-v")
-        .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("docker.io/ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .wrap_err("Failed to execute docker command")?;
-
-    if !output.status.success() {
-        return Err(eyre!(
-            "STARK to SNARK prover docker image returned failure: {:?}",
-            output
-        ));
-    }
+    run_prover_container(
+        DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
+        DEV_STARK_TO_BITVM2_CONTAINER_NAME,
+        work_dir,
+    )?;
 
     tracing::debug!("proof_path: {:?}", proof_path);
     let proof_content =
@@ -686,14 +784,6 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
             .map_err(|e| eyre!("Failed to convert proof JSON to Seal: {:?}", e))?,
         output_bytes,
     ))
-}
-
-fn is_docker_installed() -> bool {
-    Command::new("docker")
-        .arg("--version")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
 }
 
 fn is_x86_architecture() -> bool {

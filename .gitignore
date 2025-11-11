@@ -21,3 +21,4 @@ logs
 out.json*
 
 core/certs/
+core/images/
