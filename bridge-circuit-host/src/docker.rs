@@ -23,6 +23,7 @@ use tracing;
 
 use crate::utils::to_json;
 
+/// Image .tar files are stored in the ~/.clementine/IMAGES_SUBDIR directory.
 const IMAGES_SUBDIR: &str = "images";
 const STARK_TO_BITVM2_IMAGE_DIGEST: &str =
     "docker.io/chainwayxyz/mainnet-risc0-bitvm2-groth16-prover@sha256:84b810479a6e9482a1827ba6ba7ccbd81f0420a5a7a19c7d256078f144b7737d";
@@ -406,9 +407,10 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
 }
 
 fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Path) -> Result<()> {
-    let current_dir =
-        std::env::current_dir().wrap_err("Failed to get current working directory")?;
-    let images_dir = current_dir.join(IMAGES_SUBDIR);
+    let home_dir = std::env::var("HOME").wrap_err("Failed to get HOME directory")?;
+    let images_dir = PathBuf::from(home_dir)
+        .join(".clementine")
+        .join(IMAGES_SUBDIR);
     fs::create_dir_all(&images_dir).wrap_err(format!(
         "Failed to create images directory for container tarballs: {images_dir:?}"
     ))?;
