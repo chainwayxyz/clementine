@@ -21,7 +21,7 @@ use eyre::{eyre, ContextCompat, Result, WrapErr};
 use tempfile::tempdir;
 use tracing;
 
-use crate::utils::to_json;
+use crate::utils::{is_dev_mode, to_json};
 
 /// Image .tar files are stored in the ~/.clementine/IMAGES_SUBDIR directory.
 const IMAGES_SUBDIR: &str = "images";
@@ -31,9 +31,16 @@ const DEV_STARK_TO_BITVM2_IMAGE_DIGEST: &str =
     "docker.io/ozancw/dev-risc0-to-bitvm2-groth16-prover@sha256:9f1d8515b9c44a1280979bbcab327ec36041fae6dd0c4923997f084605f9f9e7";
 const DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST: &str =
     "docker.io/ozancw/dev-risc0-groth16-prover-const-digest-len@sha256:4e5c409998085a0edf37ebe4405be45178e8a7e78ea859d12c3d453e90d409cb";
+/// The config digests of the images
+const STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST: &str =
+    "sha256:d92388157eeffac9323a942d46e14c36da4cd60e963b38f322fd66a3f5bcec39";
+const DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST: &str =
+    "sha256:b2530a96a882132e407f7b75327c264aa68858bf68a431911642c655bd623091";
+const DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST: &str =
+    "sha256:b2cde230ad4c37c6f71b54ed3415bb7d20d99f9e9f71be0645a313a9a68dc40e";
 
 // NOTE: Keep container names unique to prevent udocker collisions between images.
-const STARK_TO_BITVM2_CONTAINER_NAME: &str = "clementine_mainnet_bitvm2_prover";
+const STARK_TO_BITVM2_CONTAINER_NAME: &str = "clementine_bitvm2_prover";
 const DEV_STARK_TO_BITVM2_CONTAINER_NAME: &str = "clementine_dev_bitvm2_prover";
 const DEV_STARK_TO_RISC0_G16_CONTAINER_NAME: &str = "clementine_dev_risc0_prover";
 
@@ -173,6 +180,7 @@ pub fn stark_to_bitvm2_g16(
     run_prover_container(
         STARK_TO_BITVM2_IMAGE_DIGEST,
         STARK_TO_BITVM2_CONTAINER_NAME,
+        STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
         work_dir,
     )?;
 
@@ -406,78 +414,69 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
     Ok(cached_tar_path)
 }
 
-fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Path) -> Result<()> {
-    let home_dir = std::env::var("HOME").wrap_err("Failed to get HOME directory")?;
-    let images_dir = PathBuf::from(home_dir)
-        .join(".clementine")
-        .join(IMAGES_SUBDIR);
+/// Gets the config digest of a local image tar file.
+fn get_local_image_config_digest(image_path: &Path) -> Result<String> {
+    let local_image_inspect_output = Command::new("skopeo")
+        .arg("inspect")
+        .arg("--raw")
+        .arg("--no-creds")
+        .arg(format!("docker-archive:{}", image_path.to_string_lossy()))
+        .output()
+        .wrap_err("skopeo inspect could not be executed")?;
+
+    if local_image_inspect_output.status.success() {
+        let local_image_config_digest_json =
+            String::from_utf8(local_image_inspect_output.stdout)
+                .wrap_err("Failed to parse local image manifest as UTF-8")?;
+        let local_image_config_digest: String =
+            serde_json::from_str::<serde_json::Value>(&local_image_config_digest_json)?
+                .get("config")
+                .and_then(|c| c.get("digest"))
+                .and_then(|d| d.as_str())
+                .ok_or_else(|| eyre!("Failed to get local config digest"))?
+                .to_string();
+        return Ok(local_image_config_digest);
+    }
+    Err(eyre!("Failed to get local config digest"))
+}
+
+/// Pulls the image or loads the image from the cache if it exists. It ensures the config digest matches the given digest, or repulls the image if it doesn't. Returns the path to the modified tar file which deleted the symlinks.
+fn pull_or_load_image(
+    image_digest: &str,
+    container_name: &str,
+    image_config_digest: &str,
+) -> Result<PathBuf> {
+    let home_dir = std::env::home_dir().ok_or_else(|| eyre!("Failed to get HOME directory"))?;
+    let images_dir = home_dir.join(".clementine").join(IMAGES_SUBDIR);
     fs::create_dir_all(&images_dir).wrap_err(format!(
         "Failed to create images directory for container tarballs: {images_dir:?}"
     ))?;
     let tar_file_path = images_dir.join(format!("{container_name}.tar"));
 
-    // 1. Get remote config digest
-    let remote_config_digest_output = Command::new("skopeo")
-        .arg("inspect")
-        .arg("--raw")
-        .arg("--no-creds")
-        .arg(format!("docker://{image_digest}"))
-        .output()
-        .wrap_err("skopeo inspect could not be executed")?;
-    if !remote_config_digest_output.status.success() {
-        return Err(eyre!(
-            "skopeo inspect remote failed: {:?}",
-            remote_config_digest_output
-        ));
-    }
-    let remote_config_digest_json = String::from_utf8(remote_config_digest_output.stdout)
-        .wrap_err("Failed to parse remote image manifest as UTF-8")?;
-    let remote_config_digest: String =
-        serde_json::from_str::<serde_json::Value>(&remote_config_digest_json)?
-            .get("config")
-            .and_then(|c| c.get("digest"))
-            .and_then(|d| d.as_str())
-            .ok_or_else(|| eyre!("Failed to get remote config digest"))?
-            .to_string();
-
     // 2. Inspect local tar digest if it exists
     let mut need_pull = true;
     if tar_file_path.exists() {
-        let local_config_digest_output = Command::new("skopeo")
-            .arg("inspect")
-            .arg("--raw")
-            .arg("--no-creds")
-            .arg(format!(
-                "docker-archive:{}",
-                tar_file_path.to_string_lossy()
-            ))
-            .output()
-            .wrap_err("skopeo inspect could not be executed")?;
-        if local_config_digest_output.status.success() {
-            let local_config_digest_json = String::from_utf8(local_config_digest_output.stdout)
-                .wrap_err("Failed to parse local image manifest as UTF-8")?;
-            let local_config_digest: String =
-                serde_json::from_str::<serde_json::Value>(&local_config_digest_json)?
-                    .get("config")
-                    .and_then(|c| c.get("digest"))
-                    .and_then(|d| d.as_str())
-                    .ok_or_else(|| eyre!("Failed to get local config digest"))?
-                    .to_string();
-
-            if local_config_digest == remote_config_digest {
-                tracing::info!("Local tar config digest matches remote, skipping pull");
-                need_pull = false;
-            } else {
-                tracing::warn!(
-                    "Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}",
-                    local_config_digest,
-                    remote_config_digest
-                );
-                fs::remove_file(&tar_file_path).wrap_err("Failed to delete local tar")?;
+        match get_local_image_config_digest(&tar_file_path) {
+            Ok(local_config_digest) => {
+                if local_config_digest == image_config_digest {
+                    tracing::info!("Local tar config digest matches remote, skipping pull");
+                    need_pull = false;
+                } else {
+                    tracing::warn!(
+                        "Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}",
+                        local_config_digest,
+                        image_config_digest
+                    );
+                    fs::remove_file(&tar_file_path).wrap_err("Failed to delete local tar")?;
+                }
             }
-        } else {
-            tracing::warn!("Failed to inspect local tar config digest, re-pulling");
-            fs::remove_file(&tar_file_path).ok();
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to read local tar config digest (file may be corrupted), deleting and re-pulling: {}",
+                    e
+                );
+                fs::remove_file(&tar_file_path).wrap_err("Failed to delete corrupted local tar")?;
+            }
         }
     }
 
@@ -497,11 +496,50 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         if !pull_output.status.success() {
             return Err(eyre!("skopeo copy failed: {:?}", pull_output));
         }
+        let pulled_image_config_digest = get_local_image_config_digest(&tar_file_path)?;
+        if pulled_image_config_digest != image_config_digest {
+            return Err(eyre!(
+                "Local tar config digest mismatch after pull, the constant of image digest is different from the digest received from the remote: received={pulled_image_config_digest}, constant={image_config_digest}",
+            ));
+        }
     }
 
     let modified_tar_path = remove_symlinks_from_image_tar(&tar_file_path)?;
 
-    // 4. Load tar into udocker
+    Ok(modified_tar_path)
+}
+
+/// Pulls or loads all the images needed for the prover.
+pub fn pull_or_load_all_images() -> Result<()> {
+    if is_dev_mode() {
+        pull_or_load_image(
+            DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
+            DEV_STARK_TO_BITVM2_CONTAINER_NAME,
+            DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
+        )?;
+        pull_or_load_image(
+            DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST,
+            DEV_STARK_TO_RISC0_G16_CONTAINER_NAME,
+            DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST,
+        )?;
+    } else {
+        pull_or_load_image(
+            STARK_TO_BITVM2_IMAGE_DIGEST,
+            STARK_TO_BITVM2_CONTAINER_NAME,
+            STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
+        )?;
+    }
+    Ok(())
+}
+
+fn run_prover_container(
+    image_digest: &str,
+    container_name: &str,
+    image_config_digest: &str,
+    work_dir: &Path,
+) -> Result<()> {
+    let modified_tar_path = pull_or_load_image(image_digest, container_name, image_config_digest)?;
+    // Load tar into udocker
     let load_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("load")
@@ -574,7 +612,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         }
     }
 
-    // 5. Create the container with P2 exec mode
+    // Create the container
     let create_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("create")
@@ -595,7 +633,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         }
     }
 
-    // 6. Setup execmode
+    // Setup container with P2 exec mode (doesn't require user namespaces or root privileges)
     let setup_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("setup")
@@ -607,7 +645,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         return Err(eyre!("udocker setup failed {:?}", setup_output));
     }
 
-    // 7. Run container with volume mount
+    // Run container with volume mount
     let run_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("run")
@@ -731,6 +769,7 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     run_prover_container(
         DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST,
         DEV_STARK_TO_RISC0_G16_CONTAINER_NAME,
+        DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST,
         work_dir,
     )?;
 
@@ -870,6 +909,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     run_prover_container(
         DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
         DEV_STARK_TO_BITVM2_CONTAINER_NAME,
+        DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
         work_dir,
     )?;
 
@@ -928,4 +968,75 @@ fn is_x86_architecture() -> bool {
 pub fn to_decimal(s: &str) -> Option<String> {
     let int = BigUint::from_str_radix(s, 16).ok();
     int.map(|n| n.to_str_radix(10))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that pull_or_load_image succeeds for the STARK_TO_BITVM2 image.
+    /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
+    #[test]
+    fn test_pull_or_load_image_mainnet_bitvm2() {
+        // Skip this test in debug mode, to not pull these images from remote on debug tests.
+        if cfg!(debug_assertions) {
+            return;
+        }
+        let result = pull_or_load_image(
+            STARK_TO_BITVM2_IMAGE_DIGEST,
+            STARK_TO_BITVM2_CONTAINER_NAME,
+            STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
+        );
+        assert!(
+            result.is_ok(),
+            "pull_or_load_image failed for mainnet bitvm2 image: {:?}",
+            result.as_ref().err()
+        );
+        let path = result.unwrap();
+        assert!(path.exists(), "Modified tar file should exist at {path:?}");
+    }
+
+    /// Test that pull_or_load_image succeeds for the DEV_STARK_TO_BITVM2 image.
+    /// This validates that DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
+    #[test]
+    fn test_pull_or_load_image_dev_bitvm2() {
+        // Skip this test in debug mode, to not pull these images from remote on debug tests.
+        if cfg!(debug_assertions) {
+            return;
+        }
+        let result = pull_or_load_image(
+            DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
+            DEV_STARK_TO_BITVM2_CONTAINER_NAME,
+            DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST,
+        );
+        assert!(
+            result.is_ok(),
+            "pull_or_load_image failed for dev bitvm2 image: {:?}",
+            result.as_ref().err()
+        );
+        let path = result.unwrap();
+        assert!(path.exists(), "Modified tar file should exist at {path:?}");
+    }
+
+    /// Test that pull_or_load_image succeeds for the DEV_STARK_TO_RISC0_G16 image.
+    /// This validates that DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST is correct.
+    #[test]
+    fn test_pull_or_load_image_dev_risc0_g16() {
+        // Skip this test in debug mode, to not pull these images from remote on debug tests.
+        if cfg!(debug_assertions) {
+            return;
+        }
+        let result = pull_or_load_image(
+            DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST,
+            DEV_STARK_TO_RISC0_G16_CONTAINER_NAME,
+            DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST,
+        );
+        assert!(
+            result.is_ok(),
+            "pull_or_load_image failed for dev risc0 groth16 image: {:?}",
+            result.as_ref().err()
+        );
+        let path = result.unwrap();
+        assert!(path.exists(), "Modified tar file should exist at {path:?}");
+    }
 }
