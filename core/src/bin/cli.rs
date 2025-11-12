@@ -1372,7 +1372,7 @@ async fn main() {
             handle_print_addresses().await;
         }
         Commands::LoadProverImages => {
-            pull_or_load_all_images().unwrap();
+            pull_or_load_all_images().expect("Failed to load prover images");
         }
     }
 }
