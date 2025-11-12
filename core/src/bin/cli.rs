@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
+use bridge_circuit_host::docker::pull_or_load_all_images;
 use clap::{Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
@@ -26,7 +27,7 @@ use tonic::Request;
 struct Cli {
     /// The URL of the service
     #[arg(short, long)]
-    node_url: String,
+    node_url: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -57,6 +58,8 @@ enum Commands {
     },
     /// Print actor's taproot address and bitcoin wallet's new address
     PrintAddresses,
+    /// Pull or load all prover images to ~/.clementine/images
+    LoadProverImages,
 }
 
 #[derive(Subcommand)]
@@ -1326,19 +1329,50 @@ async fn main() {
 
     match cli.command {
         Commands::Operator { command } => {
-            handle_operator_call(cli.node_url, command).await;
+            let node_url = match cli.node_url {
+                Some(url) => url,
+                None => {
+                    eprintln!("Error: Provide operator URL with --node-url");
+                    std::process::exit(1);
+                }
+            };
+            handle_operator_call(node_url, command).await;
         }
         Commands::Verifier { command } => {
-            handle_verifier_call(cli.node_url, command).await;
+            let node_url = match cli.node_url {
+                Some(url) => url,
+                None => {
+                    eprintln!("Error: Provide verifier URL with --node-url");
+                    std::process::exit(1);
+                }
+            };
+            handle_verifier_call(node_url, command).await;
         }
         Commands::Aggregator { command } => {
-            handle_aggregator_call(cli.node_url, command).await;
+            let node_url = match cli.node_url {
+                Some(url) => url,
+                None => {
+                    eprintln!("Error: Provide aggregator URL with --node-url");
+                    std::process::exit(1);
+                }
+            };
+            handle_aggregator_call(node_url, command).await;
         }
         Commands::Bitcoin { command } => {
-            handle_bitcoin_call(cli.node_url, command).await;
+            let node_url = match cli.node_url {
+                Some(url) => url,
+                None => {
+                    eprintln!("Error: Provide bitcoin RPC URL with --node-url");
+                    std::process::exit(1);
+                }
+            };
+            handle_bitcoin_call(node_url, command).await;
         }
         Commands::PrintAddresses => {
             handle_print_addresses().await;
+        }
+        Commands::LoadProverImages => {
+            pull_or_load_all_images().unwrap();
         }
     }
 }
