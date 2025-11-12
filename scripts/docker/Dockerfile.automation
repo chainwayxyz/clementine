@@ -7,7 +7,7 @@ RUN cargo build --release --bin clementine-core --features=automation
 FROM debian:bookworm-slim
 RUN \
   apt-get update \
-  && apt -y install gettext-base libssl-dev wget curl \
+  && apt -y install gettext-base libssl-dev wget \
   && apt clean \
   && apt install -y --no-install-recommends ca-certificates \
   && update-ca-certificates \
@@ -15,7 +15,7 @@ RUN \
 
 # Install python and udocker
 RUN apt-get update \
-  && apt-get install -y python3 python-is-python3 tar skopeo \
+  && apt-get install -y python3 python-is-python3 tar skopeo curl \
   && rm -rf /var/lib/apt/lists/* \
   && wget -q https://github.com/indigo-dc/udocker/releases/download/1.3.17/udocker-1.3.17.tar.gz \
   && tar -xzf udocker-1.3.17.tar.gz -C /opt/ \
