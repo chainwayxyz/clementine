@@ -244,7 +244,7 @@ const ID_BN254_FR_BITS: [&str; 254] = [
 ];
 
 /// Repackages a Docker/OCI image tarball, removing symlinks and copies the files directly where symlinks would be.
-/// This is because udocker load has some issues if there are 2 identical layers in Docker image (symlinks are used if there are identical layers)  
+/// This is because udocker load has some issues if there are 2 identical layers in Docker image (symlinks are used if there are identical layers)
 /// Related issue: https://github.com/indigo-dc/udocker/issues/361
 /// Creates a modified tar file in the images folder (cached) and returns its path.
 /// The original tar file is never modified. The cached file persists in the images folder.
@@ -414,6 +414,13 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
     Ok(cached_tar_path)
 }
 
+/// Creates an error from a failed command output, extracting stderr for the error message.
+fn command_output_error(output: &std::process::Output, error_prefix: &str) -> eyre::Error {
+    tracing::error!("{} failed {:?}", error_prefix, output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eyre!("{} failed: {}", error_prefix, stderr)
+}
+
 /// Gets the config digest of a local image tar file.
 fn get_local_image_config_digest(image_path: &Path) -> Result<String> {
     let local_image_inspect_output = Command::new("skopeo")
@@ -435,9 +442,15 @@ fn get_local_image_config_digest(image_path: &Path) -> Result<String> {
                 .and_then(|d| d.as_str())
                 .ok_or_else(|| eyre!("Failed to get local config digest"))?
                 .to_string();
-        return Ok(local_image_config_digest);
+        Ok(local_image_config_digest)
+    } else {
+        tracing::error!(
+            "Failed to get local config digest: {:?}",
+            local_image_inspect_output
+        );
+        let stderr = String::from_utf8_lossy(&local_image_inspect_output.stderr);
+        Err(eyre!("Failed to get local config digest: {}", stderr))
     }
-    Err(eyre!("Failed to get local config digest"))
 }
 
 /// Pulls the image or loads the image from the cache if it exists. It ensures the config digest matches the given digest, or repulls the image if it doesn't. Returns the path to the modified tar file which deleted the symlinks.
@@ -494,7 +507,7 @@ fn pull_or_load_image(
             .output()
             .wrap_err("skopeo copy could not be executed")?;
         if !pull_output.status.success() {
-            return Err(eyre!("skopeo copy failed: {:?}", pull_output));
+            return Err(command_output_error(&pull_output, "skopeo copy"));
         }
         let pulled_image_config_digest = get_local_image_config_digest(&tar_file_path)?;
         if pulled_image_config_digest != image_config_digest {
@@ -548,7 +561,7 @@ fn run_prover_container(
         .output()
         .wrap_err("udocker load could not be executed")?;
     if !load_output.status.success() {
-        return Err(eyre!("udocker load failed {:?}", load_output));
+        return Err(command_output_error(&load_output, "udocker load"));
     }
 
     // udocker load returns the image id of the loaded image on the last line of the stdout.
@@ -608,7 +621,7 @@ fn run_prover_container(
         let stderr = String::from_utf8_lossy(&rm_output.stderr);
         // Ignore error if container doesn't exist (we're just cleaning up stale containers)
         if !stderr.contains("invalid container id") && !stderr.contains("container not found") {
-            return Err(eyre!("udocker rm failed: {}", stderr));
+            return Err(eyre!("udocker rm {container_name} failed: {stderr}"));
         }
     }
 
@@ -629,7 +642,9 @@ fn run_prover_container(
                 stderr
             );
         } else {
-            return Err(eyre!("udocker create failed: {}", stderr));
+            return Err(eyre!(
+                "udocker create failed for {container_name}: {stderr}"
+            ));
         }
     }
 
@@ -642,7 +657,10 @@ fn run_prover_container(
         .output()
         .wrap_err("udocker setup could not be executed")?;
     if !setup_output.status.success() {
-        return Err(eyre!("udocker setup failed {:?}", setup_output));
+        return Err(command_output_error(
+            &setup_output,
+            format!("udocker setup {container_name}").as_str(),
+        ));
     }
 
     // Run container with volume mount
@@ -656,9 +674,9 @@ fn run_prover_container(
         .output()
         .wrap_err("udocker run could not be executed")?;
     if !run_output.status.success() {
-        return Err(eyre!(
-            "STARK to SNARK prover docker image returned failure: {:?}",
-            run_output
+        return Err(command_output_error(
+            &run_output,
+            format!("udocker run {container_name}").as_str(),
         ));
     }
 
