@@ -420,6 +420,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
     let remote_config_digest_output = Command::new("skopeo")
         .arg("inspect")
         .arg("--raw")
+        .arg("--no-creds")
         .arg(format!("docker://{image_digest}"))
         .output()
         .wrap_err("skopeo inspect could not be executed")?;
@@ -445,6 +446,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         let local_config_digest_output = Command::new("skopeo")
             .arg("inspect")
             .arg("--raw")
+            .arg("--no-creds")
             .arg(format!(
                 "docker-archive:{}",
                 tar_file_path.to_string_lossy()
@@ -485,6 +487,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         let pull_output = Command::new("skopeo")
             .arg("copy")
             .arg(format!("docker://{image_digest}"))
+            .arg("--src-no-creds")
             .arg(format!(
                 "docker-archive:{}",
                 tar_file_path.to_string_lossy()
