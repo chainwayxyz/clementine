@@ -235,7 +235,7 @@ const ID_BN254_FR_BITS: [&str; 254] = [
 ];
 
 /// Repackages a Docker/OCI image tarball, removing symlinks and copies the files directly where symlinks would be.
-/// This is because udocker load has some issues if there are 2 identical layers in docker image (symlinks are used if there are identical layers)
+/// This is because udocker load has some issues if there are 2 identical layers in Docker image (symlinks are used if there are identical layers)  
 /// Related issue: https://github.com/indigo-dc/udocker/issues/361
 /// Creates a modified tar file in the images folder (cached) and returns its path.
 /// The original tar file is never modified. The cached file persists in the images folder.
@@ -263,7 +263,7 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
         // Compare modification times - use cache if it's newer than original
         match (cached_metadata.modified(), original_metadata.modified()) {
             (Ok(cached_mtime), Ok(original_mtime)) => {
-                if cached_mtime > original_mtime {
+                if cached_mtime >= original_mtime {
                     tracing::debug!("Using cached no-symlinks tar file: {cached_tar_path:?}");
                     true
                 } else {
@@ -420,7 +420,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         .arg("--raw")
         .arg(format!("docker://{image_digest}"))
         .output()
-        .context("Failed to inspect remote image raw manifest")?;
+        .wrap_err("skopeo inspect could not be executed")?;
     if !remote_config_digest_output.status.success() {
         return Err(eyre!(
             "skopeo inspect remote failed: {:?}",
@@ -448,7 +448,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
                 tar_file_path.to_string_lossy()
             ))
             .output()
-            .context("Failed to inspect local tar raw manifest")?;
+            .wrap_err("skopeo inspect could not be executed")?;
         if local_config_digest_output.status.success() {
             let local_config_digest_json = String::from_utf8(local_config_digest_output.stdout)
                 .wrap_err("Failed to parse local image manifest as UTF-8")?;
@@ -469,7 +469,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
                     local_config_digest,
                     remote_config_digest
                 );
-                fs::remove_file(&tar_file_path).context("Failed to delete local tar")?;
+                fs::remove_file(&tar_file_path).wrap_err("Failed to delete local tar")?;
             }
         } else {
             tracing::warn!("Failed to inspect local tar config digest, re-pulling");
@@ -488,7 +488,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
                 tar_file_path.to_string_lossy()
             ))
             .output()
-            .context("Failed to copy image with skopeo")?;
+            .wrap_err("skopeo copy could not be executed")?;
         if !pull_output.status.success() {
             return Err(eyre!("skopeo copy failed: {:?}", pull_output));
         }
@@ -503,20 +503,23 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         .arg("-i")
         .arg(&modified_tar_path)
         .output()
-        .context("Failed to load image into udocker")?;
+        .wrap_err("udocker load could not be executed")?;
     if !load_output.status.success() {
         return Err(eyre!("udocker load failed {:?}", load_output));
     }
 
+    // udocker load returns the image id of the loaded image on the last line of the stdout.
+    // also this output is different everytime udocker load is run (even if the same .tar is used), so we need to parse the output to get the image id.
     let output_str = String::from_utf8(load_output.stdout)
         .wrap_err("Failed to parse udocker load stdout as UTF-8")?;
+    tracing::debug!("udocker load stdout: {:?}", output_str);
     let udocker_image_id = output_str
         .lines()
         .last()
         .ok_or_else(|| eyre!("No output lines from udocker load"))?
         .trim_matches(&['[', ']', '\'', ' '][..])
         .to_string();
-    tracing::info!("Loaded udocker image id for {container_name}: {udocker_image_id}");
+    tracing::debug!("Loaded udocker image id for {container_name}: {udocker_image_id}");
 
     struct UdockerCleanupGuard {
         container_name: String,
@@ -524,6 +527,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
     }
     impl Drop for UdockerCleanupGuard {
         fn drop(&mut self) {
+            // every udocker load creates a new container image (even if the same .tar is used), if we don't clean up the old container image, it will accumulate and consume disk space.
             let _ = Command::new("udocker")
                 .arg("--allow-root")
                 .arg("rm")
@@ -549,11 +553,21 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
     };
 
     // Remove any stale container with the same name before creating a new one.
-    let _ = Command::new("udocker")
+    // This is to prevent stale containers being used by previous versions. There might be better ways so that we don't do this if it's not necessary.
+    let rm_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("rm")
         .arg(container_name)
-        .output();
+        .output()
+        .wrap_err("udocker rm could not be executed")?;
+
+    if !rm_output.status.success() {
+        let stderr = String::from_utf8_lossy(&rm_output.stderr);
+        // Ignore error if container doesn't exist (we're just cleaning up stale containers)
+        if !stderr.contains("invalid container id") && !stderr.contains("container not found") {
+            return Err(eyre!("udocker rm failed: {}", stderr));
+        }
+    }
 
     // 5. Create the container with P2 exec mode
     let create_output = Command::new("udocker")
@@ -562,10 +576,16 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         .arg(format!("--name={container_name}"))
         .arg(&udocker_image_id)
         .output()
-        .context("Failed to create udocker container")?;
+        .wrap_err("udocker create could not be executed")?;
     if !create_output.status.success() {
         let stderr = String::from_utf8_lossy(&create_output.stderr);
-        if !stderr.contains("container name already exists") {
+        if stderr.contains("container name already exists") {
+            tracing::warn!(
+                "udocker create: container name '{}' already exists despite pre-cleanup. Error: {}",
+                container_name,
+                stderr
+            );
+        } else {
             return Err(eyre!("udocker create failed: {}", stderr));
         }
     }
@@ -577,7 +597,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         .arg("--execmode=P2")
         .arg(container_name)
         .output()
-        .context("Failed to setup udocker container")?;
+        .wrap_err("udocker setup could not be executed")?;
     if !setup_output.status.success() {
         return Err(eyre!("udocker setup failed {:?}", setup_output));
     }
@@ -591,7 +611,7 @@ fn run_prover_container(image_digest: &str, container_name: &str, work_dir: &Pat
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
         .arg(container_name)
         .output()
-        .context("Failed to run udocker container")?;
+        .wrap_err("udocker run could not be executed")?;
     if !run_output.status.success() {
         return Err(eyre!(
             "STARK to SNARK prover docker image returned failure: {:?}",

@@ -384,9 +384,9 @@ impl HeaderChainProver {
             }
         })
         .await
-        .map_err(|e| eyre::eyre!("Failed to join the prove_work_only task: {}", e))
-        .wrap_err("Failed to prove work only")??;
-        tracing::warn!("HCP work only proof proof generated for creating a watchtower challenge");
+        .map_err(|e| eyre::eyre!("Failed to join the prove_work_only task: {}", e))?
+        .wrap_err("Failed to prove work only")?;
+        tracing::warn!("HCP work only proof generated for creating a watchtower challenge");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
