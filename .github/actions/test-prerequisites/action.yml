@@ -3,11 +3,6 @@
 name: Clementine Test Services
 description: "Start services required for testing Clementine"
 
-inputs:
-  github_token:
-    description: "GitHub token for authentication"
-    required: true
-
 runs:
   using: "composite"
 
