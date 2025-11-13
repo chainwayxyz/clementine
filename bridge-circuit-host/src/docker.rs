@@ -589,6 +589,9 @@ fn pull_or_load_image(
 
 /// Pulls or loads all the images needed for the prover.
 pub fn pull_or_load_all_images() -> Result<()> {
+    let _guard = get_docker_mutex()
+        .lock()
+        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
     if is_dev_mode() {
         pull_or_load_image(
             DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
@@ -1070,6 +1073,10 @@ mod tests {
     /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_mainnet_bitvm2() {
+        let _guard = get_docker_mutex()
+            .lock()
+            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
+            .unwrap();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1092,6 +1099,10 @@ mod tests {
     /// This validates that DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_bitvm2() {
+        let _guard = get_docker_mutex()
+            .lock()
+            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
+            .unwrap();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1114,6 +1125,10 @@ mod tests {
     /// This validates that DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_risc0_g16() {
+        let _guard = get_docker_mutex()
+            .lock()
+            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
+            .unwrap();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
