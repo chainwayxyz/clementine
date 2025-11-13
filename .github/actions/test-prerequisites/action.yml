@@ -3,6 +3,11 @@
 name: Clementine Test Services
 description: "Start services required for testing Clementine"
 
+inputs:
+  github_token:
+    description: "GitHub token for authentication"
+    required: true
+
 runs:
   using: "composite"
 
@@ -75,6 +80,8 @@ runs:
 
     - name: Install risc0
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         curl -L https://risczero.com/install | bash
         export PATH="$PATH:$HOME/.risc0/bin"
