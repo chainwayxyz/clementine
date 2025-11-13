@@ -62,7 +62,7 @@ pub fn stark_to_bitvm2_g16(
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = get_docker_mutex()
         .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {}", e))?;
+        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
 
     let ident_receipt = risc0_zkvm::recursion::identity_p254(&succinct_receipt)
         .map_err(|e| eyre!("Failed to create identity receipt: {:?}", e))?;
@@ -616,7 +616,7 @@ pub fn pull_or_load_all_images() -> Result<()> {
 
 /// Runs the prover container.
 /// skopeo is used to pull images instead of udocker pull because udocker pull doesn't support pulling from a sha digest.
-/// udocker is used instead of docker itself because it requires docker-in-docker to be set up if entities are ran with docker.
+/// udocker is used instead of docker itself because it requires docker-in-docker to be set up if entities are run with docker.
 fn run_prover_container(
     image_digest: &str,
     container_name: &str,
@@ -703,7 +703,7 @@ fn run_prover_container(
         }
     }
 
-    // Create the container udocker rm
+    // Create the container using udocker create
     let create_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("create")
@@ -766,7 +766,7 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = get_docker_mutex()
         .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {}", e))?;
+        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
 
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt
@@ -908,7 +908,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = get_docker_mutex()
         .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {}", e))?;
+        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
 
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt

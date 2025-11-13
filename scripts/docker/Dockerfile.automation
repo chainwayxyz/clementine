@@ -8,9 +8,9 @@ RUN cargo build --release --bin clementine-cli --features=automation
 FROM debian:bookworm-slim
 RUN \
   apt-get update \
-  && apt -y install gettext-base libssl-dev wget \
-  && apt clean \
-  && apt install -y --no-install-recommends ca-certificates \
+  && apt-get install -y gettext-base libssl-dev wget \
+  && apt-get clean \
+  && apt-get install -y --no-install-recommends ca-certificates \
   && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
