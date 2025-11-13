@@ -248,7 +248,8 @@ const ID_BN254_FR_BITS: [&str; 254] = [
 /// Related issue: https://github.com/indigo-dc/udocker/issues/361
 /// Creates a modified tar file in the images folder (cached) and returns its path.
 /// The original tar file is never modified. The cached file persists in the images folder.
-fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
+/// If a cached file exists, its digest is verified. If verification fails, the cache is deleted and recomputed.
+fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> Result<PathBuf> {
     // Determine cache file path in the same directory as the original tar
     let cache_file_name = path
         .file_stem()
@@ -261,32 +262,45 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
         .ok_or_else(|| eyre!("Tar file has no parent directory: {path:?}"))?
         .join(&cache_file_name);
 
-    // Check if cached version exists and is newer than original
+    // Check if cached version exists, check modification time first (cheap), then verify digest if needed
     let use_cache = if cached_tar_path.exists() {
+        // First check modification time (cheap operation)
         let cached_metadata = fs::metadata(&cached_tar_path).wrap_err(format!(
             "Failed to get cached tar metadata: {cached_tar_path:?}"
         ))?;
         let original_metadata = fs::metadata(path)
             .wrap_err(format!("Failed to get original tar metadata: {path:?}"))?;
 
-        // Compare modification times - use cache if it's newer than original
-        match (cached_metadata.modified(), original_metadata.modified()) {
-            (Ok(cached_mtime), Ok(original_mtime)) => {
-                if cached_mtime >= original_mtime {
+        // Compare modification times - only proceed with digest verification if cache is newer
+        let mtime_valid = match (cached_metadata.modified(), original_metadata.modified()) {
+            (Ok(cached_mtime), Ok(original_mtime)) => cached_mtime >= original_mtime,
+            _ => false,
+        };
+
+        if !mtime_valid {
+            tracing::debug!(
+                "Cached tar is older than original or modification time unavailable, will reprocess: {cached_tar_path:?}"
+            );
+            false
+        } else {
+            // Modification time is valid, now verify digest (expensive operation)
+            match verify_tar_image_digest(&cached_tar_path, expected_config_digest) {
+                Ok(()) => {
+                    tracing::debug!("Cached tar digest verified: {cached_tar_path:?}");
                     tracing::debug!("Using cached no-symlinks tar file: {cached_tar_path:?}");
                     true
-                } else {
-                    tracing::debug!(
-                        "Cached tar is older than original, will reprocess: {cached_tar_path:?}"
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Cached tar digest verification failed (file may be corrupted or tampered), will delete and recompute: {cached_tar_path:?}, error: {}",
+                        e
                     );
+                    // Delete the invalid cached file
+                    fs::remove_file(&cached_tar_path).wrap_err(format!(
+                        "Failed to delete invalid cached tar: {cached_tar_path:?}"
+                    ))?;
                     false
                 }
-            }
-            _ => {
-                tracing::debug!(
-                    "Could not compare modification times, will reprocess: {cached_tar_path:?}"
-                );
-                false
             }
         }
     } else {
@@ -433,36 +447,86 @@ fn command_output_error(output: &std::process::Output, error_prefix: &str) -> ey
     eyre!("{} failed: {}", error_prefix, stderr)
 }
 
-/// Gets the config digest of a local image tar file.
-fn get_local_image_config_digest(image_path: &Path) -> Result<String> {
-    let local_image_inspect_output = Command::new("skopeo")
+/// Verifies that a docker-archive tar file has the correct config digest by recomputing it.
+/// Uses skopeo copy to a temporary docker-archive to force digest recomputation, ensuring the tar file
+/// hasn't been tampered with. This function can be used to verify both original and
+/// symlink-removed tar files.
+///
+/// # Arguments
+/// * `tar_path` - Path to the docker-archive tar file to verify
+/// * `expected_config_digest` - The expected config digest (e.g., "sha256:...")
+///
+/// # Returns
+/// * `Ok(())` if the computed digest matches the expected digest
+/// * `Err` if verification fails or digests don't match
+pub fn verify_tar_image_digest(tar_path: &Path, expected_config_digest: &str) -> Result<()> {
+    // Create a temporary docker-archive to force skopeo to recompute all digests
+    // by reconstructing the image. This ensures we're verifying the docker-archive format
+    // directly, not converting to a different format where digests might differ.
+    let tmp_dir = tempdir().wrap_err("Failed to create temporary directory for verification")?;
+    let tmp_tar_path = tmp_dir.path().join("verified.tar");
+
+    // Copy from docker-archive to docker-archive - this forces skopeo to recompute all digests
+    // because it reconstructs the image structure. If the tar is tampered, this will fail
+    // or produce different digests.
+    tracing::debug!(
+        "Verifying tar file digest by copying to temporary docker-archive: {:?}",
+        tar_path
+    );
+    let copy_output = Command::new("skopeo")
+        .arg("copy")
+        .arg(format!("docker-archive:{}", tar_path.to_string_lossy()))
+        .arg(format!("docker-archive:{}", tmp_tar_path.to_string_lossy()))
+        .output()
+        .wrap_err("skopeo copy could not be executed for verification")?;
+
+    if !copy_output.status.success() {
+        let stderr = String::from_utf8_lossy(&copy_output.stderr);
+        return Err(eyre!(
+            "skopeo copy failed during tar verification (tar may be corrupted or tampered): {}",
+            stderr
+        ));
+    }
+
+    // Now inspect the docker-archive format - digests are guaranteed to be recomputed
+    let inspect_output = Command::new("skopeo")
         .arg("inspect")
         .arg("--raw")
         .arg("--no-creds")
-        .arg(format!("docker-archive:{}", image_path.to_string_lossy()))
+        .arg(format!("docker-archive:{}", tmp_tar_path.to_string_lossy()))
         .output()
-        .wrap_err("skopeo inspect could not be executed")?;
+        .wrap_err("skopeo inspect could not be executed for verification")?;
 
-    if local_image_inspect_output.status.success() {
-        let local_image_config_digest_json =
-            String::from_utf8(local_image_inspect_output.stdout)
-                .wrap_err("Failed to parse local image manifest as UTF-8")?;
-        let local_image_config_digest: String =
-            serde_json::from_str::<serde_json::Value>(&local_image_config_digest_json)?
-                .get("config")
-                .and_then(|c| c.get("digest"))
-                .and_then(|d| d.as_str())
-                .ok_or_else(|| eyre!("Failed to get local config digest"))?
-                .to_string();
-        Ok(local_image_config_digest)
-    } else {
-        tracing::error!(
-            "Failed to get local config digest: {:?}",
-            local_image_inspect_output
-        );
-        let stderr = String::from_utf8_lossy(&local_image_inspect_output.stderr);
-        Err(eyre!("Failed to get local config digest: {}", stderr))
+    if !inspect_output.status.success() {
+        let stderr = String::from_utf8_lossy(&inspect_output.stderr);
+        return Err(eyre!(
+            "Failed to inspect docker-archive image during verification: {}",
+            stderr
+        ));
     }
+
+    let manifest_json =
+        String::from_utf8(inspect_output.stdout).wrap_err("Failed to parse manifest as UTF-8")?;
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json).wrap_err("Failed to parse manifest JSON")?;
+
+    // For docker-archive format, the config digest is in manifest.config.digest
+    let computed_config_digest = manifest
+        .get("config")
+        .and_then(|c| c.get("digest"))
+        .and_then(|d| d.as_str())
+        .ok_or_else(|| eyre!("Failed to get config digest from docker-archive manifest"))?;
+
+    if computed_config_digest != expected_config_digest {
+        return Err(eyre!(
+            "Tar file config digest mismatch: computed={}, expected={}. The tar file may have been tampered with.",
+            computed_config_digest,
+            expected_config_digest
+        ));
+    }
+
+    tracing::debug!("Tar file digest verification successful: {:?}", tar_path);
+    Ok(())
 }
 
 /// Pulls the image or loads the image from the cache if it exists. It ensures the config digest matches the given digest, or repulls the image if it doesn't. Returns the path to the modified tar file which deleted the symlinks.
@@ -478,29 +542,19 @@ fn pull_or_load_image(
     ))?;
     let tar_file_path = images_dir.join(format!("{container_name}.tar"));
 
-    // 2. Inspect local tar digest if it exists
+    // 2. Verify local tar digest if it exists
     let mut need_pull = true;
     if tar_file_path.exists() {
-        match get_local_image_config_digest(&tar_file_path) {
-            Ok(local_config_digest) => {
-                if local_config_digest == image_config_digest {
-                    tracing::info!("Local tar config digest matches remote, skipping pull");
-                    need_pull = false;
-                } else {
-                    tracing::warn!(
-                        "Local tar config digest mismatch, will delete and re-pull: local={}, remote={}",
-                        local_config_digest,
-                        image_config_digest
-                    );
-                    fs::remove_file(&tar_file_path).wrap_err("Failed to delete local tar")?;
-                }
+        match verify_tar_image_digest(&tar_file_path, image_config_digest) {
+            Ok(()) => {
+                tracing::info!("Local tar config digest verified, skipping pull");
+                need_pull = false;
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to read local tar config digest (file may be corrupted), will delete and re-pull: {}",
-                    e
+                    "Local tar config digest verification failed for {container_name} in path {tar_file_path:?} (file may be corrupted or tampered), will delete and re-pull: {e}",
                 );
-                fs::remove_file(&tar_file_path).wrap_err("Failed to delete corrupted local tar")?;
+                fs::remove_file(&tar_file_path).wrap_err("Failed to delete local tar")?;
             }
         }
     }
@@ -521,15 +575,18 @@ fn pull_or_load_image(
         if !pull_output.status.success() {
             return Err(command_output_error(&pull_output, "skopeo copy"));
         }
-        let pulled_image_config_digest = get_local_image_config_digest(&tar_file_path)?;
-        if pulled_image_config_digest != image_config_digest {
-            return Err(eyre!(
-                "Local tar config digest mismatch after pull, the constant of image digest is different from the digest received from the remote: received={pulled_image_config_digest}, constant={image_config_digest}",
-            ));
-        }
+        // Verify the pulled image by recomputing digests
+        verify_tar_image_digest(&tar_file_path, image_config_digest)
+            .wrap_err("Newly pulled image failed digest verification")?;
     }
 
-    let modified_tar_path = remove_symlinks_from_image_tar(&tar_file_path)?;
+    let modified_tar_path = remove_symlinks_from_image_tar(&tar_file_path, image_config_digest)?;
+
+    // Note: Verification is already done inside remove_symlinks_from_image_tar for cached files,
+    // and the newly created file should match since it's derived from the verified original.
+    // However, we verify again here as a final safety check.
+    verify_tar_image_digest(&modified_tar_path, image_config_digest)
+        .wrap_err("Symlink-removed tar failed digest verification")?;
 
     Ok(modified_tar_path)
 }
@@ -557,6 +614,9 @@ pub fn pull_or_load_all_images() -> Result<()> {
     Ok(())
 }
 
+/// Runs the prover container.
+/// skopeo is used to pull images instead of udocker pull because udocker pull doesn't support pulling from a sha digest.
+/// udocker is used instead of docker itself because it requires docker-in-docker to be set up if entities are ran with docker.
 fn run_prover_container(
     image_digest: &str,
     container_name: &str,
