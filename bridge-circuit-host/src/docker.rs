@@ -313,29 +313,35 @@ fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> 
         return Ok(cached_tar_path);
     }
 
-    // Create a temporary directory for processing
+    // Create a temporary directory for processing - everything happens here, then we move the final file out
     let tmp_dir = tempdir().wrap_err(format!(
         "Failed to create temporary directory for processing tar file: {path:?}"
     ))?;
     let tmp_path = tmp_dir.path();
+    let extracted_path = tmp_path.join("extracted");
     let tmp_path_canonical = fs::canonicalize(tmp_path).wrap_err(format!(
         "Failed to canonicalize temporary directory path: {tmp_path:?}"
     ))?;
 
-    // Extract tarball
+    // Extract tarball to a subfolder within temp directory
+    fs::create_dir(&extracted_path).wrap_err(format!(
+        "Failed to create extracted subdirectory: {extracted_path:?}"
+    ))?;
     let file =
         fs::File::open(path).wrap_err(format!("Failed to open tar file for reading: {path:?}"))?;
     let mut archive = Archive::new(file);
-    archive.unpack(tmp_path).wrap_err(format!(
-        "Failed to unpack tar archive to temporary directory: {tmp_path:?}"
+    archive.unpack(&extracted_path).wrap_err(format!(
+        "Failed to unpack tar archive to extracted subdirectory: {extracted_path:?}"
     ))?;
 
     // Resolve symlinks in layer.tar
-    let read_dir = fs::read_dir(tmp_path).wrap_err(format!(
-        "Failed to read temporary directory after unpacking: {tmp_path:?}"
+    let read_dir = fs::read_dir(&extracted_path).wrap_err(format!(
+        "Failed to read extracted directory after unpacking: {extracted_path:?}"
     ))?;
     for entry in read_dir {
-        let entry = entry.wrap_err(format!("Failed to read directory entry in: {tmp_path:?}"))?;
+        let entry = entry.wrap_err(format!(
+            "Failed to read directory entry in: {extracted_path:?}"
+        ))?;
         let dir_path = entry.path();
 
         if dir_path.is_dir() {
@@ -372,30 +378,20 @@ fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> 
         }
     }
 
-    // Repack into a temporary file first (in the same directory as cache for atomic rename),
-    // then atomically rename to cache location. This prevents leaving a corrupted cache file if writing fails.
-    let cache_dir = cached_tar_path
-        .parent()
-        .ok_or_else(|| eyre!("Cached tar path has no parent directory: {cached_tar_path:?}"))?;
-    let temp_tar_file = cache_dir.join(format!(
-        ".{}.tmp",
-        cached_tar_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| eyre!("Invalid cached tar file name: {cached_tar_path:?}"))?
-    ));
-
-    let output_file = fs::File::create(&temp_tar_file).wrap_err(format!(
-        "Failed to create temporary tar file: {temp_tar_file:?}"
+    // Create the final tar file in the temp directory root (outside extracted subfolder)
+    let final_tar_in_temp = tmp_path.join("processed.tar");
+    let output_file = fs::File::create(&final_tar_in_temp).wrap_err(format!(
+        "Failed to create processed tar file in temp directory: {final_tar_in_temp:?}"
     ))?;
     let mut builder = Builder::new(output_file);
 
-    let read_dir_repack = fs::read_dir(tmp_path).wrap_err(format!(
-        "Failed to read temporary directory for repacking: {tmp_path:?}"
+    // Repack from the extracted subfolder - no need to skip processed.tar since it's not in extracted_path
+    let read_dir_repack = fs::read_dir(&extracted_path).wrap_err(format!(
+        "Failed to read extracted directory for repacking: {extracted_path:?}"
     ))?;
     for entry in read_dir_repack {
         let entry = entry.wrap_err(format!(
-            "Failed to read directory entry during repacking in: {tmp_path:?}"
+            "Failed to read directory entry during repacking in: {extracted_path:?}"
         ))?;
         let file_name = entry.file_name();
         let entry_path = entry.path();
@@ -421,18 +417,18 @@ fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> 
     }
 
     builder.finish().wrap_err(format!(
-        "Failed to finish writing tar archive: {temp_tar_file:?}"
+        "Failed to finish writing tar archive: {final_tar_in_temp:?}"
     ))?;
 
-    // Atomically rename the temp file to the cache location
-    // Since both files are in the same directory, this is guaranteed to be atomic
-    // This ensures we don't leave a corrupted cache file if something fails
-    if let Err(e) = fs::rename(&temp_tar_file, &cached_tar_path) {
-        // Clean up temp file on error
-        let _ = fs::remove_file(&temp_tar_file);
-        return Err(e).wrap_err(format!(
-            "Failed to atomically rename temp tar file {temp_tar_file:?} to cache location {cached_tar_path:?}"
-        ));
+    // Move the final tar file from temp directory to cache location
+    // Try rename first, fall back to copy+remove if rename fails for any reason (it won't work if the files are on different mount points)
+    if fs::rename(&final_tar_in_temp, &cached_tar_path).is_err() {
+        fs::copy(&final_tar_in_temp, &cached_tar_path).wrap_err(format!(
+            "Failed to copy processed tar file from temp directory {final_tar_in_temp:?} to cache location {cached_tar_path:?}"
+        ))?;
+        fs::remove_file(&final_tar_in_temp).wrap_err(format!(
+            "Failed to remove temp tar file after copying: {final_tar_in_temp:?}"
+        ))?;
     }
 
     tracing::debug!("Cached processed tar file: {cached_tar_path:?}");
