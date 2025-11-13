@@ -575,9 +575,6 @@ fn pull_or_load_image(
         if !pull_output.status.success() {
             return Err(command_output_error(&pull_output, "skopeo copy"));
         }
-        // Verify the pulled image by recomputing digests
-        verify_tar_image_digest(&tar_file_path, image_config_digest)
-            .wrap_err("Newly pulled image failed digest verification")?;
     }
 
     let modified_tar_path = remove_symlinks_from_image_tar(&tar_file_path, image_config_digest)?;
