@@ -640,7 +640,7 @@ fn run_prover_container(
     }
 
     // udocker load returns the image id of the loaded image on the last line of the stdout.
-    // also this output is different everytime udocker load is run (even if the same .tar is used), so we need to parse the output to get the image id.
+    // also this output is different every time udocker load is run (even if the same .tar is used), so we need to parse the output to get the image id.
     let output_str = String::from_utf8(load_output.stdout)
         .wrap_err("Failed to parse udocker load stdout as UTF-8")?;
     tracing::debug!("udocker load stdout: {:?}", output_str);
@@ -703,7 +703,7 @@ fn run_prover_container(
         }
     }
 
-    // Create the containerudocker rm
+    // Create the container udocker rm
     let create_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("create")
