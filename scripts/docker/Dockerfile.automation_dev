@@ -30,6 +30,7 @@ RUN udocker --allow-root install
 COPY --from=builder /clementine/target/release/clementine-core /clementine-core
 COPY --from=builder /clementine/target/release/clementine-cli /clementine-cli
 
+# Only loads prover images for dev mode
 RUN RISC0_DEV_MODE=1 /clementine-cli load-prover-images
 
 # Set up Clementine

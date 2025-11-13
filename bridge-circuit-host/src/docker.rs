@@ -304,6 +304,9 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
         "Failed to create temporary directory for processing tar file: {path:?}"
     ))?;
     let tmp_path = tmp_dir.path();
+    let tmp_path_canonical = fs::canonicalize(tmp_path).wrap_err(format!(
+        "Failed to canonicalize temporary directory path: {tmp_path:?}"
+    ))?;
 
     // Extract tarball
     let file =
@@ -328,18 +331,27 @@ fn remove_symlinks_from_image_tar(path: &Path) -> Result<PathBuf> {
                     "Failed to get metadata for potential symlink: {layer_tar:?}"
                 ))?;
                 if symlink_metadata.file_type().is_symlink() {
-                    let target = fs::read_link(&layer_tar)
-                        .wrap_err(format!("Failed to read symlink target for: {layer_tar:?}"))?;
+                    let target_canonical = fs::canonicalize(&layer_tar).wrap_err(format!(
+                        "Failed to canonicalize symlink target for {layer_tar:?}"
+                    ))?;
+                    let is_allowed_target = target_canonical.starts_with(&tmp_path_canonical);
+                    if !is_allowed_target {
+                        return Err(eyre!(
+                            "Symlink target {target_canonical:?} resolves outside the allowed directories"
+                        ));
+                    }
+                    let target_metadata = fs::metadata(&target_canonical).wrap_err(format!(
+                        "Failed to get metadata for symlink target {target_canonical:?}"
+                    ))?;
+                    if !target_metadata.is_file() {
+                        return Err(eyre!(
+                            "Symlink target {target_canonical:?} is not a regular file"
+                        ));
+                    }
                     fs::remove_file(&layer_tar)
                         .wrap_err(format!("Failed to remove symlink: {layer_tar:?}"))?;
-                    // Resolve the target path relative to the directory containing the symlink
-                    let resolved_target = if target.is_absolute() {
-                        target
-                    } else {
-                        dir_path.join(&target)
-                    };
-                    fs::copy(&resolved_target, &layer_tar).wrap_err(format!(
-                        "Failed to copy symlink target {resolved_target:?} to {layer_tar:?}"
+                    fs::copy(&target_canonical, &layer_tar).wrap_err(format!(
+                        "Failed to copy symlink target {target_canonical:?} to {layer_tar:?}"
                     ))?;
                 }
             }
@@ -476,7 +488,7 @@ fn pull_or_load_image(
                     need_pull = false;
                 } else {
                     tracing::warn!(
-                        "Local tar config digest mismatch, deleting and re-pulling: local={}, remote={}",
+                        "Local tar config digest mismatch, will delete and re-pull: local={}, remote={}",
                         local_config_digest,
                         image_config_digest
                     );
@@ -485,7 +497,7 @@ fn pull_or_load_image(
             }
             Err(e) => {
                 tracing::warn!(
-                    "Failed to read local tar config digest (file may be corrupted), deleting and re-pulling: {}",
+                    "Failed to read local tar config digest (file may be corrupted), will delete and re-pull: {}",
                     e
                 );
                 fs::remove_file(&tar_file_path).wrap_err("Failed to delete corrupted local tar")?;
@@ -561,7 +573,10 @@ fn run_prover_container(
         .output()
         .wrap_err("udocker load could not be executed")?;
     if !load_output.status.success() {
-        return Err(command_output_error(&load_output, "udocker load"));
+        return Err(command_output_error(
+            &load_output,
+            format!("udocker load -i {modified_tar_path:?}").as_str(),
+        ));
     }
 
     // udocker load returns the image id of the loaded image on the last line of the stdout.
@@ -583,13 +598,16 @@ fn run_prover_container(
     }
     impl Drop for UdockerCleanupGuard {
         fn drop(&mut self) {
-            // every udocker load creates a new container image (even if the same .tar is used), if we don't clean up the old container image, it will accumulate and consume disk space.
+            // Note: If udocker run --rm succeeds, the container may already be removed,
+            // but udocker rm will fail harmlessly (errors are ignored here).
+            // Also, container may not exist if udocker create fails for some reason, but this Drop impl also cleans up the image.
             let _ = Command::new("udocker")
                 .arg("--allow-root")
                 .arg("rm")
                 .arg(&self.container_name)
                 .output();
 
+            // every udocker load creates a new container image (even if the same .tar is used), if we don't clean up the old container image, it will accumulate and consume disk space.
             let _ = Command::new("udocker")
                 .arg("--allow-root")
                 .arg("rmi")
@@ -625,7 +643,7 @@ fn run_prover_container(
         }
     }
 
-    // Create the container
+    // Create the containerudocker rm
     let create_output = Command::new("udocker")
         .arg("--allow-root")
         .arg("create")
