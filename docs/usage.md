@@ -114,22 +114,20 @@ Before running Clementine:
    sudo apt-get update
    sudo apt-get install -y python3 python-is-python3 tar skopeo curl
 
-   # Download and install udocker
+   # Download and install udocker (instructions by udocker: https://indigo-dc.github.io/udocker/installation_manual.html)
    wget https://github.com/indigo-dc/udocker/releases/download/1.3.17/udocker-1.3.17.tar.gz
-   tar -xzf udocker-1.3.17.tar.gz -C /opt/
-   rm udocker-1.3.17.tar.gz
+   tar zxvf udocker-1.3.17.tar.gz
+   export PATH=`pwd`/udocker-1.3.17/udocker:$PATH
 
-   # Add udocker to PATH
-   export PATH="/opt/udocker-1.3.17/udocker:${PATH}"
-
-   # Install udocker (run the install command using the user that will run clementine)
-   udocker --allow-root install
+   # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
+   udocker install
+   # If you install as root, use: udocker --allow-root install
    ```
 
    To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
    ```sh
-   echo 'export PATH="/opt/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
+   echo 'export PATH="'`pwd`'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
    source ~/.bashrc
    ```
 
