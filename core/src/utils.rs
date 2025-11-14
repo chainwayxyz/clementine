@@ -783,7 +783,7 @@ where
 /// * `prefix`: Prefix message for the combined error (e.g., "Operator key collection failures")
 ///
 /// # Returns
-/// * `Ok(())` if all results are successful
+/// * `Ok(Vec<T>)` containing all successful results if all results are successful  
 /// * `Err(BridgeError)` with a combined error message listing all failures
 pub fn collect_errors<I, EIn, T>(results: I, prefix: &str) -> Result<Vec<T>, BridgeError>
 where
@@ -851,7 +851,7 @@ where
 
     if !task_errors.is_empty() {
         tracing::error!("Tasks failed with errors: {:#?}", task_errors);
-        return Err(eyre::eyre!(format!("Tasks failed with errors: {:#?}", task_errors)).into());
+        return Err(eyre::eyre!("Tasks failed with errors: {:#?}", task_errors).into());
     }
 
     Ok(())
