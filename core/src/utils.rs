@@ -775,6 +775,36 @@ where
     .await
 }
 
+/// Collects errors from an iterator of results and returns a combined error if any failed.
+///
+/// # Parameters
+/// * `results`: Iterator of results (errors should contain identifying information in their Debug representation)
+/// * `prefix`: Prefix message for the combined error (e.g., "Operator key collection failures")
+///
+/// # Returns
+/// * `Ok(())` if all results are successful
+/// * `Err(BridgeError)` with a combined error message listing all failures
+pub fn collect_errors<I, EIn>(results: I, prefix: &str) -> Result<(), BridgeError>
+where
+    I: IntoIterator<Item = Result<(), EIn>>,
+    EIn: std::fmt::Debug,
+{
+    let mut errors = Vec::new();
+    for result in results {
+        if let Err(e) = result {
+            errors.push(format!("{e:?}"));
+        }
+    }
+    if !errors.is_empty() {
+        return Err(BridgeError::from(eyre::eyre!(format!(
+            "{}: {}",
+            prefix,
+            errors.join("; ")
+        ))));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

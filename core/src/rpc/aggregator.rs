@@ -32,7 +32,9 @@ use crate::rpc::clementine::{
     EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
-use crate::utils::{get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt};
+use crate::utils::{
+    collect_errors, get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt,
+};
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
@@ -1328,14 +1330,13 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            try_join_all(
-                operators
-                    .iter()
-                    .zip(operator_ids.iter())
-                    .map(|(operator, id)| {
-                        let mut operator = operator.clone();
-                        let tx = operator_params_tx.clone();
-                        async move {
+            let results = join_all(operators.iter().zip(operator_ids.iter()).map(
+                |(operator, id)| {
+                    let mut operator = operator.clone();
+                    let tx = operator_params_tx.clone();
+                    let id = *id;
+                    async move {
+                        let result = async {
                             let stream = operator
                                 .get_params(Request::new(Empty {}))
                                 .await
@@ -1352,9 +1353,13 @@ impl ClementineAggregator for AggregatorServer {
                                 })?;
                             Ok::<_, Status>(())
                         }
-                    }),
-            )
-            .await?;
+                        .await;
+                        result
+                    }
+                },
+            ))
+            .await;
+            collect_errors(results, "Operator get_params failures")?;
             Ok::<_, Status>(())
         });
 
@@ -1366,15 +1371,16 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(
+            let results = join_all(
                 verifiers
                     .iter()
                     .zip(verifier_ids.iter())
                     .zip(operator_params_rx_handles)
                     .map(|((verifier, id), mut rx)| {
                         let verifier = verifier.clone();
+                        let id = *id;
                         async move {
-                            collect_and_call(&mut rx, |params| {
+                            let result = collect_and_call(&mut rx, |params| {
                                 let mut verifier = verifier.clone();
                                 async move {
                                     verifier
@@ -1387,12 +1393,13 @@ impl ClementineAggregator for AggregatorServer {
                                     Ok::<_, Status>(())
                                 }
                             })
-                            .await?;
-                            Ok::<_, Status>(())
+                            .await;
+                            result
                         }
                     }),
             )
-            .await?;
+            .await;
+            collect_errors(results, "Verifier set_operator failures")?;
             Ok::<_, Status>(())
         });
 
@@ -2094,7 +2101,9 @@ impl ClementineAggregator for AggregatorServer {
 ///
 /// Takes tuple of task names and task nested results. (For example tokio::task::spawn results)
 /// Collects all errors (both outer and inner) and returns an error if any task failed.
-fn flatten_join_named_results<T, E1, E2, S, R>(task_results: R) -> Result<(), BridgeError>
+pub(crate) fn flatten_join_named_results<T, E1, E2, S, R>(
+    task_results: R,
+) -> Result<(), BridgeError>
 where
     R: IntoIterator<Item = (S, Result<Result<T, E1>, E2>)>,
     S: AsRef<str>,
