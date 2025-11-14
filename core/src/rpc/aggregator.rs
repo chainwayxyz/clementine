@@ -33,7 +33,8 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::parser;
 use crate::utils::{
-    collect_errors, get_vergen_response, timed_request, timed_try_join_all, ScriptBufExt,
+    flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
+    ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
@@ -1330,13 +1331,14 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            let results = join_all(operators.iter().zip(operator_ids.iter()).map(
-                |(operator, id)| {
-                    let mut operator = operator.clone();
-                    let tx = operator_params_tx.clone();
-                    let id = *id;
-                    async move {
-                        let result = async {
+            try_join_all(
+                operators
+                    .iter()
+                    .zip(operator_ids.iter())
+                    .map(|(operator, id)| {
+                        let mut operator = operator.clone();
+                        let tx = operator_params_tx.clone();
+                        async move {
                             let stream = operator
                                 .get_params(Request::new(Empty {}))
                                 .await
@@ -1353,13 +1355,9 @@ impl ClementineAggregator for AggregatorServer {
                                 })?;
                             Ok::<_, Status>(())
                         }
-                        .await;
-                        result
-                    }
-                },
-            ))
-            .await;
-            collect_errors(results, "Operator get_params failures")?;
+                    }),
+            )
+            .await?;
             Ok::<_, Status>(())
         });
 
@@ -1371,16 +1369,15 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            let results = join_all(
+            try_join_all(
                 verifiers
                     .iter()
                     .zip(verifier_ids.iter())
                     .zip(operator_params_rx_handles)
                     .map(|((verifier, id), mut rx)| {
                         let verifier = verifier.clone();
-                        let id = *id;
                         async move {
-                            let result = collect_and_call(&mut rx, |params| {
+                            collect_and_call(&mut rx, |params| {
                                 let mut verifier = verifier.clone();
                                 async move {
                                     verifier
@@ -1393,13 +1390,12 @@ impl ClementineAggregator for AggregatorServer {
                                     Ok::<_, Status>(())
                                 }
                             })
-                            .await;
-                            result
+                            .await?;
+                            Ok::<_, Status>(())
                         }
                     }),
             )
-            .await;
-            collect_errors(results, "Verifier set_operator failures")?;
+            .await?;
             Ok::<_, Status>(())
         });
 
@@ -2095,48 +2091,6 @@ impl ClementineAggregator for AggregatorServer {
             Ok(Response::new(movetx.compute_txid().into()))
         }
     }
-}
-
-/// Checks task results and returns an error if any task failed.
-///
-/// Takes tuple of task names and task nested results. (For example tokio::task::spawn results)
-/// Collects all errors (both outer and inner) and returns an error if any task failed.
-pub(crate) fn flatten_join_named_results<T, E1, E2, S, R>(
-    task_results: R,
-) -> Result<(), BridgeError>
-where
-    R: IntoIterator<Item = (S, Result<Result<T, E1>, E2>)>,
-    S: AsRef<str>,
-    E1: std::fmt::Display,
-    E2: std::fmt::Display,
-{
-    let mut task_errors = Vec::new();
-
-    for (task_name, task_output) in task_results.into_iter() {
-        match task_output {
-            Ok(inner_result) => {
-                if let Err(e) = inner_result {
-                    let err_msg = format!("{} failed with error: {:#}", task_name.as_ref(), e);
-                    task_errors.push(err_msg);
-                }
-            }
-            Err(e) => {
-                let err_msg = format!(
-                    "{} task thread failed with error: {:#}",
-                    task_name.as_ref(),
-                    e
-                );
-                task_errors.push(err_msg);
-            }
-        }
-    }
-
-    if !task_errors.is_empty() {
-        tracing::error!("Tasks failed with errors: {:#?}", task_errors);
-        return Err(eyre::eyre!(format!("Tasks failed with errors: {:#?}", task_errors)).into());
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

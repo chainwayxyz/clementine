@@ -9,7 +9,6 @@ use crate::constants::{
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::rpc::aggregator::flatten_join_named_results;
 use crate::rpc::clementine::entity_data_with_id::DataResult;
 use crate::rpc::clementine::entity_status_with_id::StatusResult;
 use crate::rpc::clementine::{
@@ -21,7 +20,7 @@ use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_D
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
-use crate::utils::{collect_errors, timed_request};
+use crate::utils::{flatten_join_named_results, timed_request, timed_try_join_all};
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -406,66 +405,52 @@ impl Aggregator {
         tracing::info!("Starting operator key collection");
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
-        let operator_ids = operators.ids();
         #[allow(clippy::unused_enumerate_index)]
-        let get_operators_keys_handle = tokio::spawn(async move {
-            let results = join_all(
-                operator_clients
-                    .into_iter()
-                    .zip(operator_xonly_pks.into_iter())
-                    .zip(operator_ids.iter())
-                    .enumerate()
-                    .map(move |(_idx, ((mut operator_client, operator_xonly_pk), id))| {
-                        let deposit_params = deposit.clone();
-                        let tx = operator_keys_tx.clone();
-                        let id = *id;
-                        async move {
-                            #[cfg(test)]
-                            timeout_params
-                                .hook_timeout_key_collection_operator(_idx)
-                                .await;
-
-                            let result = timed_request(
-                                OPERATOR_GET_KEYS_TIMEOUT,
-                                &format!("Operator key collection for {id}"),
-                                async {
-                                    let operator_keys = operator_client
-                                        .get_deposit_keys(deposit_params.clone())
-                                        .instrument(
-                                            debug_span!("get_deposit_keys", id=%OperatorId(operator_xonly_pk)),
-                                        )
-                                        .await
-                                        .wrap_err(Status::internal(format!(
-                                            "{id} key retrieval failed"
-                                        )))
-                                        .map_err(BridgeError::from)
-                                        .map(|r| r.into_inner())?;
-
-                                    // A send error means that all receivers are closed,
-                                    // receivers only close if they have an error (while
-                                    // loop condition)
-                                    // We don't care about the result of the send, we
-                                    // only care about the error on the other side.
-                                    // Ignore this error, and let the other side's error
-                                    // propagate.
-                                    let _ = tx.send(OperatorKeysWithDeposit {
-                                        deposit_params: Some(deposit_params),
-                                        operator_keys: Some(operator_keys),
-                                        operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
-                                    });
-
-                                    Ok::<_, BridgeError>(())
-                                },
-                            )
+        let get_operators_keys_handle = tokio::spawn(timed_try_join_all(
+            OPERATOR_GET_KEYS_TIMEOUT,
+            "Operator key collection",
+            Some(operators.ids()),
+            operator_clients
+                .into_iter()
+                .zip(operator_xonly_pks.into_iter())
+                .enumerate()
+                .map(move |(_idx, (mut operator_client, operator_xonly_pk))| {
+                    let deposit_params = deposit.clone();
+                    let tx = operator_keys_tx.clone();
+                    async move {
+                        #[cfg(test)]
+                        timeout_params
+                            .hook_timeout_key_collection_operator(_idx)
                             .await;
-                            result
-                        }
-                    }),
-            )
-            .await;
-            collect_errors(results, "Operator key collection failures")?;
-            Ok::<(), BridgeError>(())
-        });
+
+                        let operator_keys = operator_client
+                            .get_deposit_keys(deposit_params.clone())
+                            .instrument(
+                                debug_span!("get_deposit_keys", id=%OperatorId(operator_xonly_pk)),
+                            )
+                            .await
+                            .wrap_err(Status::internal(format!(
+                                "Operator {operator_xonly_pk} key retrieval failed"
+                            )))?
+                            .into_inner();
+
+                        // A send error means that all receivers are closed,
+                        // receivers only close if they have an error (while
+                        // loop condition)
+                        // We don't care about the result of the send, we
+                        // only care about the error on the other side.
+                        // Ignore this error, and let the other side's error
+                        // propagate.
+                        let _ = tx.send(OperatorKeysWithDeposit {
+                            deposit_params: Some(deposit_params),
+                            operator_keys: Some(operator_keys),
+                            operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                        });
+
+                        Ok(())
+                    }
+                }),
+        ));
 
         tracing::info!("Starting operator key distribution to verifiers");
         let verifiers = self.get_participating_verifiers(&deposit_data).await?;
@@ -477,93 +462,79 @@ impl Aggregator {
 
         #[cfg(test)]
         let timeout_params = self.config.test_params.timeout_params;
-        let verifier_ids_clone = verifier_ids.clone();
         #[allow(clippy::unused_enumerate_index)]
-        let distribute_operators_keys_handle = tokio::spawn(async move {
-            let results = join_all(
-                verifier_clients
-                    .into_iter()
-                    .zip(operator_rx_handles)
-                    .zip(verifier_ids_clone.iter())
-                    .enumerate()
-                    .map(
-                        move |(_idx, ((mut verifier, mut rx), verifier_id))| {
-                            let verifier_id = *verifier_id;
-                            async move {
-                                #[cfg(test)]
-                                timeout_params
-                                    .hook_timeout_key_distribution_verifier(_idx)
-                                    .await;
+        let distribute_operators_keys_handle = tokio::spawn(timed_try_join_all(
+            VERIFIER_SEND_KEYS_TIMEOUT,
+            "Verifier key distribution",
+            Some(verifier_ids.clone()),
+            verifier_clients
+                .into_iter()
+                .zip(operator_rx_handles)
+                .zip(verifier_ids)
+                .enumerate()
+                .map(
+                    move |(_idx, ((mut verifier, mut rx), verifier_id))| async move {
+                        #[cfg(test)]
+                        timeout_params
+                            .hook_timeout_key_distribution_verifier(_idx)
+                            .await;
 
-                                let result = timed_request(
-                                    VERIFIER_SEND_KEYS_TIMEOUT,
-                                    &format!("Verifier key distribution for {verifier_id}"),
-                                    async {
-                                        // Only wait for expected number of messages
-                                        let mut received_keys = std::collections::HashSet::new();
-                                        while received_keys.len() < num_operators {
-                                            tracing::debug!(
-                                                "Waiting for operator key (received {}/{})",
-                                                received_keys.len(),
-                                                num_operators
-                                            );
+                        // Only wait for expected number of messages
+                        let mut received_keys = std::collections::HashSet::new();
+                        while received_keys.len() < num_operators {
+                            tracing::debug!(
+                                "Waiting for operator key (received {}/{})",
+                                received_keys.len(),
+                                num_operators
+                            );
 
-                                            // This will not block forever because of the timed_request timeout.
-                                            let operator_keys = rx
-                                                .recv()
-                                                .instrument(debug_span!("operator_keys_recv"))
-                                                .await
-                                                .map_err(|e| {
-                                                    BridgeError::from(eyre::eyre!(format!(
-                                                        "Operator broadcast channels closed before all keys were received: {e}"
-                                                    )))
-                                                })?;
+                            // This will not block forever because of the timeout on the join all.
+                            let operator_keys = rx
+                            .recv()
+                            .instrument(debug_span!("operator_keys_recv"))
+                            .await
+                            .wrap_err(Status::internal(
+                                "Operator broadcast channels closed before all keys were received",
+                            ))?;
 
-                                            let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
+                            let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
 
-                                            if !received_keys.insert(operator_xonly_pk.clone()) {
-                                                continue;
-                                            }
-
-                                            timed_request(
-                                                VERIFIER_SEND_KEYS_TIMEOUT,
-                                                &format!("Setting operator keys for {verifier_id}"),
-                                                async {
-                                                    verifier
-                                                        .set_operator_keys(operator_keys)
-                                                        .await
-                                                        .wrap_err_with(|| {
-                                                            Status::internal(format!(
-                                                                "Failed to set operator keys for {verifier_id}",
-                                                            ))
-                                                        })
-                                                        .map_err(BridgeError::from)
-                                                },
-                                            )
-                                            .await?;
-                                        }
-                                        Ok::<_, BridgeError>(())
-                                    },
-                                )
-                                .await;
-                                result
+                            if !received_keys.insert(operator_xonly_pk.clone()) {
+                                continue;
                             }
-                        },
-                    ),
-            )
-            .await;
-            collect_errors(results, "Verifier key distribution failures")?;
-            Ok::<(), BridgeError>(())
-        });
+
+                            timed_request(
+                                VERIFIER_SEND_KEYS_TIMEOUT,
+                                &format!("Setting operator keys for {verifier_id}"),
+                                async {
+                                    Ok(verifier
+                                        .set_operator_keys(operator_keys)
+                                        .await
+                                        .wrap_err_with(|| {
+                                            Status::internal(format!(
+                                                "Failed to set operator keys for {verifier_id}",
+                                            ))
+                                        }))
+                                },
+                            )
+                            .await??;
+                        }
+                        Ok::<_, BridgeError>(())
+                    },
+                ),
+        ));
 
         // Wait for all tasks to complete
-        let task_outputs =
-            join_all([get_operators_keys_handle, distribute_operators_keys_handle]).await;
+        let (get_operators_keys_result, distribute_operators_keys_result) =
+            tokio::join!(get_operators_keys_handle, distribute_operators_keys_handle);
 
-        let task_names = ["Operator key collection", "Verifier key distribution"];
-        debug_assert_eq!(task_names.len(), task_outputs.len());
-
-        flatten_join_named_results(task_names.into_iter().zip(task_outputs.into_iter()))?;
+        flatten_join_named_results([
+            ("get_operators_keys", get_operators_keys_result),
+            (
+                "distribute_operators_keys",
+                distribute_operators_keys_result,
+            ),
+        ])?;
 
         tracing::info!(
             "collect_and_distribute_keys completed in {:?}",
