@@ -190,12 +190,14 @@ pub async fn disprove_tests_common_setup(
     e2e: &CitreaE2EData<'_>,
 ) -> (TestActors<CitreaClient>, Txid, Transaction) {
     use crate::test::common::citrea::get_new_withdrawal_utxo_and_register_to_citrea;
+    use crate::test::common::create_actors;
 
     use super::run_single_deposit;
     use super::tx_utils::create_tx_sender;
     let mut config = e2e.config.clone();
-    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
-        run_single_deposit::<CitreaClient>(&mut config, e2e.rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (deposit_info, move_txid, _deposit_blockhash, _) =
+        run_single_deposit::<CitreaClient>(&mut config, e2e.rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 

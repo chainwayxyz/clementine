@@ -2156,30 +2156,12 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
+        let actors = create_actors::<MockCitreaClient>(&config).await;
         let _unused =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
                 .await?;
 
         Ok(())
-    }
-    #[tokio::test]
-    #[ignore = "See #687"]
-    async fn aggregator_double_setup_fail() {
-        let mut config = create_test_config_with_thread_name().await;
-        let _regtest = create_regtest_rpc(&mut config).await;
-
-        let actors = create_actors::<MockCitreaClient>(&config).await;
-        let mut aggregator = actors.get_aggregator();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-
-        assert!(aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .is_err());
     }
 
     #[tokio::test(flavor = "multi_thread")]
