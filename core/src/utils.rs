@@ -783,7 +783,7 @@ where
 /// * `prefix`: Prefix message for the combined error (e.g., "Operator key collection failures")
 ///
 /// # Returns
-/// * `Ok(Vec<T>)` containing all successful results if all results are successful  
+/// * `Ok(Vec<T>)` containing all successful results if all results are successful
 /// * `Err(BridgeError)` with a combined error message listing all failures
 pub fn collect_errors<I, EIn, T>(results: I, prefix: &str) -> Result<Vec<T>, BridgeError>
 where
