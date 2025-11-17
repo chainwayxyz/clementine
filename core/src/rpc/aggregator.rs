@@ -33,8 +33,8 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::parser;
 use crate::utils::{
-    flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
-    ScriptBufExt,
+    flatten_join_named_results, get_vergen_response, join_all_combine_errors, timed_request,
+    timed_try_join_all, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
@@ -52,7 +52,6 @@ use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
 use futures::{
-    future::try_join_all,
     stream::{BoxStream, TryStreamExt},
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
@@ -88,7 +87,7 @@ async fn get_next_pub_nonces(
               + 'static],
     verifiers_ids: &[VerifierId],
 ) -> Result<Vec<PublicNonce>, BridgeError> {
-    Ok(try_join_all(
+    join_all_combine_errors(
         nonce_streams
             .iter_mut()
             .zip(verifiers_ids)
@@ -106,7 +105,7 @@ async fn get_next_pub_nonces(
                     })
             }),
     )
-    .await?)
+    .await
 }
 
 /// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send aggregated nonce and all public nonces (needed for partial signature verification) to the agg_nonce_sender. Then repeat for the next sighash.
@@ -250,7 +249,7 @@ async fn nonce_distributor(
             };
 
             // Broadcast aggregated nonce to all streams
-            try_join_all(
+            join_all_combine_errors(
                 partial_sig_tx
                     .iter_mut()
                     .zip(verifiers_ids_clone.iter())
@@ -311,7 +310,7 @@ async fn nonce_distributor(
                 )
                 .into());
             }
-            let partial_sigs = try_join_all(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
+            let partial_sigs = join_all_combine_errors(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
                 |((stream, pub_nonce), id)| async move {
                     let partial_sig = stream
                         .message()
@@ -340,7 +339,7 @@ async fn nonce_distributor(
                             .try_into()
                             .wrap_err("PartialSignature must be 32 bytes")?,
                     )
-                    .wrap_err("Failed to parse partial signature")?;
+                    .wrap_err(format!("Failed to parse partial signature {sig_count} from {id}"))?;
 
                     Ok::<_, BridgeError>((partial_sig, *pub_nonce))
                 },
@@ -518,7 +517,7 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        try_join_all(
+        join_all_combine_errors(
             deposit_finalize_sender
                 .iter()
                 .zip(verifiers_ids.iter())
@@ -534,7 +533,9 @@ async fn signature_distributor(
                 }),
         )
         .await
-        .wrap_err("Failed to send final signatures to verifiers")?;
+        .wrap_err(format!(
+            "Failed to send final signature {sig_count} to verifiers"
+        ))?;
 
         tracing::trace!(
             "Sent signature {} to verifiers in signature_distributor",
@@ -651,7 +652,7 @@ async fn create_nonce_streams(
 
     // Get the first responses from verifiers.
     let first_responses: Vec<clementine::NonceGenFirstResponse> =
-        try_join_all(nonce_streams.iter_mut().zip(verifiers.ids()).map(
+        join_all_combine_errors(nonce_streams.iter_mut().zip(verifiers.ids()).map(
             |(stream, id)| async move {
                 parser::verifier::parse_nonce_gen_first_response(stream)
                     .await
@@ -775,28 +776,30 @@ impl Aggregator {
         let needed_sigs = config.get_num_required_operator_sigs(&deposit_data);
 
         // get signatures from each operator's signature streams
-        let operator_sigs = try_join_all(operator_sigs_streams.iter_mut().enumerate().map(
-            |(idx, stream)| async move {
-                let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
-                while let Some(sig) =
-                    stream
-                        .message()
-                        .await
-                        .wrap_err_with(|| AggregatorError::RequestFailed {
-                            request_name: format!("Deposit sign stream for operator {idx}"),
-                        })?
-                {
-                    sigs.push(Signature::from_slice(&sig.schnorr_sig).wrap_err_with(|| {
-                        format!("Failed to parse Schnorr signature from operator {idx}")
-                    })?);
-                    if sigs.len() == needed_sigs {
-                        break;
+        let operator_sigs =
+            join_all_combine_errors(operator_sigs_streams.iter_mut().enumerate().map(
+                |(idx, stream)| async move {
+                    let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
+                    while let Some(sig) =
+                        stream
+                            .message()
+                            .await
+                            .wrap_err_with(|| AggregatorError::RequestFailed {
+                                request_name: format!("Deposit sign stream for operator {idx}"),
+                            })?
+                    {
+                        sigs.push(Signature::from_slice(&sig.schnorr_sig).wrap_err_with(|| {
+                            format!("Failed to parse Schnorr signature from operator {idx}")
+                        })?);
+                        if sigs.len() == needed_sigs {
+                            break;
+                        }
                     }
-                }
-                Ok::<_, BridgeError>(sigs)
-            },
-        ))
-        .await?;
+                    Ok::<_, BridgeError>(sigs)
+                },
+            ))
+            .await
+            .wrap_err("Failed to get operator signatures from operators")?;
 
         // check if all signatures are received
         for (idx, sigs) in operator_sigs.iter().enumerate() {
@@ -1331,33 +1334,32 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            try_join_all(
-                operators
-                    .iter()
-                    .zip(operator_ids.iter())
-                    .map(|(operator, id)| {
-                        let mut operator = operator.clone();
-                        let tx = operator_params_tx.clone();
-                        async move {
-                            let stream = operator
-                                .get_params(Request::new(Empty {}))
-                                .await
-                                .wrap_err_with(|| AggregatorError::RequestFailed {
-                                    request_name: format!("Operator get params for {id}"),
-                                })
-                                .map_err(BridgeError::from)?
-                                .into_inner();
-                            tx.send(stream.try_collect::<Vec<_>>().await?)
-                                .map_err(|e| {
-                                    BridgeError::from(eyre::eyre!(
-                                        "Failed to read operator params for {id}: {e}"
-                                    ))
-                                })?;
-                            Ok::<_, Status>(())
-                        }
-                    }),
-            )
-            .await?;
+            join_all_combine_errors(operators.iter().zip(operator_ids.iter()).map(
+                |(operator, id)| {
+                    let mut operator = operator.clone();
+                    let tx = operator_params_tx.clone();
+                    async move {
+                        let stream = operator
+                            .get_params(Request::new(Empty {}))
+                            .await
+                            .wrap_err_with(|| AggregatorError::RequestFailed {
+                                request_name: format!("Operator get params for {id}"),
+                            })
+                            .map_err(BridgeError::from)?
+                            .into_inner();
+                        tx.send(stream.try_collect::<Vec<_>>().await?)
+                            .map_err(|e| {
+                                BridgeError::from(eyre::eyre!(
+                                    "Failed to read operator params for {id}: {e}"
+                                ))
+                            })?;
+                        Ok::<_, Status>(())
+                    }
+                },
+            ))
+            .await
+            .wrap_err("Failed to get operator params from operators")
+            .map_to_status()?;
             Ok::<_, Status>(())
         });
 
@@ -1369,7 +1371,7 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(
+            join_all_combine_errors(
                 verifiers
                     .iter()
                     .zip(verifier_ids.iter())
@@ -1395,7 +1397,9 @@ impl ClementineAggregator for AggregatorServer {
                         }
                     }),
             )
-            .await?;
+            .await
+            .wrap_err("Failed to set_operator for all verifiers")
+            .map_to_status()?;
             Ok::<_, Status>(())
         });
 
@@ -1750,10 +1754,10 @@ impl ClementineAggregator for AggregatorServer {
                             Ok::<_, BridgeError>(dep_fin_fut)
                         })
                         .collect();
-                    try_join_all(send_operator_sigs).await
+                    join_all_combine_errors(send_operator_sigs).await
                 },
             )
-            .await?;
+            .await.wrap_err("Failed to send operator signatures to verifiers")?;
 
             tracing::info!("All operator signatures sent to verifiers for verification, now waiting to collect movetx and emergency stop tx partial signatures from verifiers for deposit {:?}", deposit_info);
 

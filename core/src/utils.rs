@@ -773,7 +773,24 @@ where
     .instrument(debug_span!("timed_try_join_all", description = description))
     .await;
 
-    collect_errors(results, description)
+    combine_errors(results)
+}
+
+/// Executes a collection of fallible futures concurrently and aggregates failures into a single
+/// [`BridgeError`].
+///
+/// This runs all futures like [`futures::future::try_join_all`], but instead of stopping on the
+/// first error it waits for every future to finish by leveraging [`join_all`]. All errors are then
+/// combined via [`combine_errors`], ensuring the caller gets full visibility into every failure.
+pub async fn join_all_combine_errors<F, T, E>(
+    futures: impl IntoIterator<Item = F>,
+) -> Result<Vec<T>, BridgeError>
+where
+    F: Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let results = join_all(futures).await;
+    combine_errors(results)
 }
 
 /// Collects errors from an iterator of results and returns a combined error if any failed.
@@ -785,7 +802,7 @@ where
 /// # Returns
 /// * `Ok(Vec<T>)` containing all successful results if all results are successful
 /// * `Err(BridgeError)` with a combined error message listing all failures
-pub fn collect_errors<I, EIn, T>(results: I, prefix: &str) -> Result<Vec<T>, BridgeError>
+pub fn combine_errors<I, EIn, T>(results: I) -> Result<Vec<T>, BridgeError>
 where
     I: IntoIterator<Item = Result<T, EIn>>,
     EIn: std::fmt::Display,
@@ -800,8 +817,8 @@ where
     }
     if !errors.is_empty() {
         return Err(BridgeError::from(eyre::eyre!(
-            "{}: {}",
-            prefix,
+            "Number of failed futures: {}: {}",
+            errors.len(),
             errors.join("; ")
         )));
     }
