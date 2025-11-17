@@ -12,8 +12,8 @@
 <a href=#12 id=12 data-nosnippet>12</a>    },
 <a href=#13 id=13 data-nosnippet>13</a>};
 <a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span>bitcoin::{
-<a href=#15 id=15 data-nosnippet>15</a>    address::NetworkUnchecked, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
-<a href=#16 id=16 data-nosnippet>16</a>    XOnlyPublicKey,
+<a href=#15 id=15 data-nosnippet>15</a>    address::NetworkUnchecked, secp256k1::schnorr::Signature, taproot, Address, Amount, OutPoint,
+<a href=#16 id=16 data-nosnippet>16</a>    ScriptBuf, TapSighashType, XOnlyPublicKey,
 <a href=#17 id=17 data-nosnippet>17</a>};
 <a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span>bitvm::signatures::winternitz;
 <a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>eyre::Context;
@@ -161,22 +161,43 @@
 <a href=#161 id=161 data-nosnippet>161</a><span class="attr">#[allow(clippy::result_large_err)]
 <a href=#162 id=162 data-nosnippet>162</a></span><span class="kw">pub fn </span>parse_withdrawal_sig_params(
 <a href=#163 id=163 data-nosnippet>163</a>    params: WithdrawParams,
-<a href=#164 id=164 data-nosnippet>164</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(u32, Signature, OutPoint, ScriptBuf, Amount), Status&gt; {
-<a href=#165 id=165 data-nosnippet>165</a>    <span class="kw">let </span>input_signature = Signature::from_slice(<span class="kw-2">&amp;</span>params.input_signature)
-<a href=#166 id=166 data-nosnippet>166</a>        .map_err(|e| error::invalid_argument(<span class="string">"user_sig"</span>, <span class="string">"Can't convert input to Signature"</span>)(e))<span class="question-mark">?</span>;
-<a href=#167 id=167 data-nosnippet>167</a>
-<a href=#168 id=168 data-nosnippet>168</a>    <span class="kw">let </span>input_outpoint: OutPoint = params
-<a href=#169 id=169 data-nosnippet>169</a>        .input_outpoint
-<a href=#170 id=170 data-nosnippet>170</a>        .ok_or_else(error::input_ended_prematurely)<span class="question-mark">?
-<a href=#171 id=171 data-nosnippet>171</a>        </span>.try_into()<span class="question-mark">?</span>;
-<a href=#172 id=172 data-nosnippet>172</a>
-<a href=#173 id=173 data-nosnippet>173</a>    <span class="kw">let </span>users_intent_script_pubkey = ScriptBuf::from_bytes(params.output_script_pubkey);
-<a href=#174 id=174 data-nosnippet>174</a>
-<a href=#175 id=175 data-nosnippet>175</a>    <span class="prelude-val">Ok</span>((
-<a href=#176 id=176 data-nosnippet>176</a>        params.withdrawal_id,
-<a href=#177 id=177 data-nosnippet>177</a>        input_signature,
-<a href=#178 id=178 data-nosnippet>178</a>        input_outpoint,
-<a href=#179 id=179 data-nosnippet>179</a>        users_intent_script_pubkey,
-<a href=#180 id=180 data-nosnippet>180</a>        Amount::from_sat(params.output_amount),
-<a href=#181 id=181 data-nosnippet>181</a>    ))
-<a href=#182 id=182 data-nosnippet>182</a>}</code></pre></div></section></main></body></html>
+<a href=#164 id=164 data-nosnippet>164</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(u32, taproot::Signature, OutPoint, ScriptBuf, Amount), Status&gt; {
+<a href=#165 id=165 data-nosnippet>165</a>    <span class="kw">let </span><span class="kw-2">mut </span>input_signature =
+<a href=#166 id=166 data-nosnippet>166</a>        taproot::Signature::from_slice(<span class="kw-2">&amp;</span>params.input_signature).map_err(|e| {
+<a href=#167 id=167 data-nosnippet>167</a>            Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Can't convert input to taproot Signature - {e}"</span>))
+<a href=#168 id=168 data-nosnippet>168</a>        })<span class="question-mark">?</span>;
+<a href=#169 id=169 data-nosnippet>169</a>
+<a href=#170 id=170 data-nosnippet>170</a>    <span class="comment">// If the Taproot sighash type is Default (no explicit type attached; i.e. a 64-byte
+<a href=#171 id=171 data-nosnippet>171</a>    // signature without a sighash flag), normalize it to SinglePlusAnyoneCanPay.
+<a href=#172 id=172 data-nosnippet>172</a>    // Prior to v0.5 this was Clementine's implicit behavior; we retain it here for
+<a href=#173 id=173 data-nosnippet>173</a>    // backwards compatibility when a 64-byte signature is provided.
+<a href=#174 id=174 data-nosnippet>174</a>    </span><span class="kw">if </span>input_signature.sighash_type == TapSighashType::Default {
+<a href=#175 id=175 data-nosnippet>175</a>        <span class="macro">tracing::warn!</span>(
+<a href=#176 id=176 data-nosnippet>176</a>            <span class="string">"Input signature for withdrawal {} has sighash type default, setting to SinglePlusAnyoneCanPay"</span>, params.withdrawal_id,
+<a href=#177 id=177 data-nosnippet>177</a>        );
+<a href=#178 id=178 data-nosnippet>178</a>        input_signature.sighash_type = TapSighashType::SinglePlusAnyoneCanPay;
+<a href=#179 id=179 data-nosnippet>179</a>    }
+<a href=#180 id=180 data-nosnippet>180</a>
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="comment">// enforce sighash type here
+<a href=#182 id=182 data-nosnippet>182</a>    </span><span class="kw">if </span>input_signature.sighash_type != TapSighashType::SinglePlusAnyoneCanPay {
+<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(Status::invalid_argument(<span class="macro">format!</span>(
+<a href=#184 id=184 data-nosnippet>184</a>            <span class="string">"Input signature has wrong sighash type, SinglePlusAnyoneCanPay expected, got {}"</span>,
+<a href=#185 id=185 data-nosnippet>185</a>            input_signature.sighash_type
+<a href=#186 id=186 data-nosnippet>186</a>        )));
+<a href=#187 id=187 data-nosnippet>187</a>    }
+<a href=#188 id=188 data-nosnippet>188</a>
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">let </span>input_outpoint: OutPoint = params
+<a href=#190 id=190 data-nosnippet>190</a>        .input_outpoint
+<a href=#191 id=191 data-nosnippet>191</a>        .ok_or_else(error::input_ended_prematurely)<span class="question-mark">?
+<a href=#192 id=192 data-nosnippet>192</a>        </span>.try_into()<span class="question-mark">?</span>;
+<a href=#193 id=193 data-nosnippet>193</a>
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">let </span>users_intent_script_pubkey = ScriptBuf::from_bytes(params.output_script_pubkey);
+<a href=#195 id=195 data-nosnippet>195</a>
+<a href=#196 id=196 data-nosnippet>196</a>    <span class="prelude-val">Ok</span>((
+<a href=#197 id=197 data-nosnippet>197</a>        params.withdrawal_id,
+<a href=#198 id=198 data-nosnippet>198</a>        input_signature,
+<a href=#199 id=199 data-nosnippet>199</a>        input_outpoint,
+<a href=#200 id=200 data-nosnippet>200</a>        users_intent_script_pubkey,
+<a href=#201 id=201 data-nosnippet>201</a>        Amount::from_sat(params.output_amount),
+<a href=#202 id=202 data-nosnippet>202</a>    ))
+<a href=#203 id=203 data-nosnippet>203</a>}</code></pre></div></section></main></body></html>

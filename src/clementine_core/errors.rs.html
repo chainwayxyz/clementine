@@ -152,150 +152,151 @@
 <a href=#152 id=152 data-nosnippet>152</a>    </span>InvalidECDSAVerificationSignature,
 <a href=#153 id=153 data-nosnippet>153</a>    <span class="attr">#[error(<span class="string">"Withdrawal ECDSA verification signature missing"</span>)]
 <a href=#154 id=154 data-nosnippet>154</a>    </span>ECDSAVerificationSignatureMissing,
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="comment">// External crate error wrappers
-<a href=#157 id=157 data-nosnippet>157</a>    </span><span class="attr">#[error(<span class="string">"Failed to call database: {0}"</span>)]
-<a href=#158 id=158 data-nosnippet>158</a>    </span>DatabaseError(<span class="attr">#[from] </span>sqlx::Error),
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="attr">#[error(<span class="string">"Failed to convert hex string: {0}"</span>)]
-<a href=#160 id=160 data-nosnippet>160</a>    </span>FromHexError(<span class="attr">#[from] </span>FromHexError),
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="attr">#[error(<span class="string">"Failed to convert to hash from slice: {0}"</span>)]
-<a href=#162 id=162 data-nosnippet>162</a>    </span>FromSliceError(<span class="attr">#[from] </span>bitcoin::hashes::FromSliceError),
-<a href=#163 id=163 data-nosnippet>163</a>    <span class="attr">#[error(<span class="string">"Error while calling EVM contract: {0}"</span>)]
-<a href=#164 id=164 data-nosnippet>164</a>    </span>AlloyContract(<span class="attr">#[from] </span>alloy::contract::Error),
-<a href=#165 id=165 data-nosnippet>165</a>    <span class="attr">#[error(<span class="string">"Error while calling EVM RPC function: {0}"</span>)]
-<a href=#166 id=166 data-nosnippet>166</a>    </span>AlloyRpc(<span class="attr">#[from] </span>alloy::transports::RpcError&lt;alloy::transports::TransportErrorKind&gt;),
-<a href=#167 id=167 data-nosnippet>167</a>    <span class="attr">#[error(<span class="string">"Error while encoding/decoding EVM type: {0}"</span>)]
-<a href=#168 id=168 data-nosnippet>168</a>    </span>AlloySolTypes(<span class="attr">#[from] </span>alloy::sol_types::Error),
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="attr">#[error(<span class="string">"{0}"</span>)]
-<a href=#170 id=170 data-nosnippet>170</a>    </span>CLIDisplayAndExit(StyledStr),
-<a href=#171 id=171 data-nosnippet>171</a>    <span class="attr">#[error(transparent)]
-<a href=#172 id=172 data-nosnippet>172</a>    </span>RPCStatus(<span class="attr">#[from] </span>Box&lt;Status&gt;),
-<a href=#173 id=173 data-nosnippet>173</a>
-<a href=#174 id=174 data-nosnippet>174</a>    <span class="attr">#[error(<span class="string">"Arithmetic overflow occurred: {0}"</span>)]
-<a href=#175 id=175 data-nosnippet>175</a>    </span>ArithmeticOverflow(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
-<a href=#176 id=176 data-nosnippet>176</a>    <span class="attr">#[error(<span class="string">"Insufficient funds: {0}"</span>)]
-<a href=#177 id=177 data-nosnippet>177</a>    </span>InsufficientFunds(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
-<a href=#178 id=178 data-nosnippet>178</a>
-<a href=#179 id=179 data-nosnippet>179</a>    <span class="comment">// Base wrapper for eyre
-<a href=#180 id=180 data-nosnippet>180</a>    </span><span class="attr">#[error(transparent)]
-<a href=#181 id=181 data-nosnippet>181</a>    </span>Eyre(<span class="attr">#[from] </span>eyre::Report),
-<a href=#182 id=182 data-nosnippet>182</a>}
-<a href=#183 id=183 data-nosnippet>183</a>
-<a href=#184 id=184 data-nosnippet>184</a><span class="attr">#[derive(Debug, Error)]
-<a href=#185 id=185 data-nosnippet>185</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>FeeErr {
-<a href=#186 id=186 data-nosnippet>186</a>    <span class="attr">#[error(<span class="string">"request timed out"</span>)]
-<a href=#187 id=187 data-nosnippet>187</a>    </span>Timeout,
-<a href=#188 id=188 data-nosnippet>188</a>    <span class="attr">#[error(<span class="string">"transport/decode error: {0}"</span>)]
-<a href=#189 id=189 data-nosnippet>189</a>    </span>Transport(<span class="attr">#[from] </span>reqwest::Error),
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="attr">#[error(<span class="string">"http status {0}"</span>)]
-<a href=#191 id=191 data-nosnippet>191</a>    </span>Status(StatusCode),
-<a href=#192 id=192 data-nosnippet>192</a>    <span class="attr">#[error(<span class="string">"json decode error: {0}"</span>)]
-<a href=#193 id=193 data-nosnippet>193</a>    </span>JsonDecode(reqwest::Error),
-<a href=#194 id=194 data-nosnippet>194</a>    <span class="attr">#[error(<span class="string">"'fastestFee' field not found or invalid in API response"</span>)]
-<a href=#195 id=195 data-nosnippet>195</a>    </span>MissingField,
-<a href=#196 id=196 data-nosnippet>196</a>}
-<a href=#197 id=197 data-nosnippet>197</a>
-<a href=#198 id=198 data-nosnippet>198</a><span class="doccomment">/// Extension traits for errors to easily convert them to eyre::Report and
-<a href=#199 id=199 data-nosnippet>199</a>/// tonic::Status through BridgeError.
-<a href=#200 id=200 data-nosnippet>200</a></span><span class="kw">pub trait </span>ErrorExt: Sized {
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="doccomment">/// Converts the error into an eyre::Report, first wrapping in
-<a href=#202 id=202 data-nosnippet>202</a>    /// BridgeError if necessary. It does not rewrap in eyre::Report if
-<a href=#203 id=203 data-nosnippet>203</a>    /// the given error is already an eyre::Report.
-<a href=#204 id=204 data-nosnippet>204</a>    </span><span class="kw">fn </span>into_eyre(<span class="self">self</span>) -&gt; eyre::Report;
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="doccomment">/// Converts the error into a tonic::Status. Walks the chain of errors and
-<a href=#206 id=206 data-nosnippet>206</a>    /// returns the first [`tonic::Status`] error. If it can't find one, it will
-<a href=#207 id=207 data-nosnippet>207</a>    /// return an Status::internal with the Display representation of the error.
-<a href=#208 id=208 data-nosnippet>208</a>    </span><span class="kw">fn </span>into_status(<span class="self">self</span>) -&gt; tonic::Status;
-<a href=#209 id=209 data-nosnippet>209</a>}
-<a href=#210 id=210 data-nosnippet>210</a>
-<a href=#211 id=211 data-nosnippet>211</a><span class="doccomment">/// Extension traits for results to easily convert them to eyre::Report and
-<a href=#212 id=212 data-nosnippet>212</a>/// tonic::Status through BridgeError.
-<a href=#213 id=213 data-nosnippet>213</a></span><span class="kw">pub trait </span>ResultExt: Sized {
-<a href=#214 id=214 data-nosnippet>214</a>    <span class="kw">type </span>Output;
-<a href=#215 id=215 data-nosnippet>215</a>
-<a href=#216 id=216 data-nosnippet>216</a>    <span class="kw">fn </span>map_to_eyre(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, eyre::Report&gt;;
-<a href=#217 id=217 data-nosnippet>217</a>    <span class="attr">#[allow(clippy::result_large_err)]
-<a href=#218 id=218 data-nosnippet>218</a>    </span><span class="kw">fn </span>map_to_status(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, tonic::Status&gt;;
-<a href=#219 id=219 data-nosnippet>219</a>}
-<a href=#220 id=220 data-nosnippet>220</a>
-<a href=#221 id=221 data-nosnippet>221</a><span class="kw">impl</span>&lt;T: Into&lt;BridgeError&gt;&gt; ErrorExt <span class="kw">for </span>T {
-<a href=#222 id=222 data-nosnippet>222</a>    <span class="kw">fn </span>into_eyre(<span class="self">self</span>) -&gt; eyre::Report {
-<a href=#223 id=223 data-nosnippet>223</a>        <span class="kw">match </span><span class="self">self</span>.into() {
-<a href=#224 id=224 data-nosnippet>224</a>            BridgeError::Eyre(report) =&gt; report,
-<a href=#225 id=225 data-nosnippet>225</a>            other =&gt; <span class="macro">eyre::eyre!</span>(other),
-<a href=#226 id=226 data-nosnippet>226</a>        }
-<a href=#227 id=227 data-nosnippet>227</a>    }
-<a href=#228 id=228 data-nosnippet>228</a>    <span class="kw">fn </span>into_status(<span class="self">self</span>) -&gt; tonic::Status {
-<a href=#229 id=229 data-nosnippet>229</a>        <span class="self">self</span>.into().into()
-<a href=#230 id=230 data-nosnippet>230</a>    }
-<a href=#231 id=231 data-nosnippet>231</a>}
-<a href=#232 id=232 data-nosnippet>232</a>
-<a href=#233 id=233 data-nosnippet>233</a><span class="kw">impl</span>&lt;U: Sized, T: Into&lt;BridgeError&gt;&gt; ResultExt <span class="kw">for </span><span class="prelude-ty">Result</span>&lt;U, T&gt; {
-<a href=#234 id=234 data-nosnippet>234</a>    <span class="kw">type </span>Output = U;
-<a href=#235 id=235 data-nosnippet>235</a>
-<a href=#236 id=236 data-nosnippet>236</a>    <span class="kw">fn </span>map_to_eyre(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, eyre::Report&gt; {
-<a href=#237 id=237 data-nosnippet>237</a>        <span class="self">self</span>.map_err(ErrorExt::into_eyre)
-<a href=#238 id=238 data-nosnippet>238</a>    }
-<a href=#239 id=239 data-nosnippet>239</a>
-<a href=#240 id=240 data-nosnippet>240</a>    <span class="kw">fn </span>map_to_status(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, tonic::Status&gt; {
-<a href=#241 id=241 data-nosnippet>241</a>        <span class="self">self</span>.map_err(ErrorExt::into_status)
-<a href=#242 id=242 data-nosnippet>242</a>    }
-<a href=#243 id=243 data-nosnippet>243</a>}
-<a href=#244 id=244 data-nosnippet>244</a>
-<a href=#245 id=245 data-nosnippet>245</a><span class="kw">impl </span>From&lt;Status&gt; <span class="kw">for </span>BridgeError {
-<a href=#246 id=246 data-nosnippet>246</a>    <span class="kw">fn </span>from(status: Status) -&gt; <span class="self">Self </span>{
-<a href=#247 id=247 data-nosnippet>247</a>        BridgeError::RPCStatus(Box::new(status))
-<a href=#248 id=248 data-nosnippet>248</a>    }
-<a href=#249 id=249 data-nosnippet>249</a>}
-<a href=#250 id=250 data-nosnippet>250</a>
-<a href=#251 id=251 data-nosnippet>251</a><span class="kw">impl </span>From&lt;BridgeError&gt; <span class="kw">for </span>tonic::Status {
-<a href=#252 id=252 data-nosnippet>252</a>    <span class="kw">fn </span>from(val: BridgeError) -&gt; <span class="self">Self </span>{
-<a href=#253 id=253 data-nosnippet>253</a>        <span class="kw">let </span>eyre_report = val.into_eyre();
-<a href=#254 id=254 data-nosnippet>254</a>
-<a href=#255 id=255 data-nosnippet>255</a>        <span class="comment">// eyre::Report can cast any error in the chain to a Status, so we use its downcast method to get the first Status.
-<a href=#256 id=256 data-nosnippet>256</a>        </span>eyre_report.downcast::&lt;Status&gt;().unwrap_or_else(|report| {
-<a href=#257 id=257 data-nosnippet>257</a>            <span class="comment">// We don't want this case to happen, all casts to Status should contain a Status that contains a user-facing error message.
-<a href=#258 id=258 data-nosnippet>258</a>            </span><span class="macro">tracing::error!</span>(
-<a href=#259 id=259 data-nosnippet>259</a>                <span class="string">"Returning internal error on RPC call, full error: {:?}"</span>,
-<a href=#260 id=260 data-nosnippet>260</a>                report
-<a href=#261 id=261 data-nosnippet>261</a>            );
-<a href=#262 id=262 data-nosnippet>262</a>
-<a href=#263 id=263 data-nosnippet>263</a>            <span class="kw">let </span><span class="kw-2">mut </span>status = tonic::Status::internal(report.to_string());
-<a href=#264 id=264 data-nosnippet>264</a>            status.set_source(Into::into(
-<a href=#265 id=265 data-nosnippet>265</a>                Into::&lt;Box&lt;<span class="kw">dyn </span>std::error::Error + Send + Sync&gt;&gt;::into(report),
-<a href=#266 id=266 data-nosnippet>266</a>            ));
-<a href=#267 id=267 data-nosnippet>267</a>            status
-<a href=#268 id=268 data-nosnippet>268</a>        })
-<a href=#269 id=269 data-nosnippet>269</a>    }
-<a href=#270 id=270 data-nosnippet>270</a>}
-<a href=#271 id=271 data-nosnippet>271</a>
-<a href=#272 id=272 data-nosnippet>272</a><span class="attr">#[cfg(test)]
-<a href=#273 id=273 data-nosnippet>273</a></span><span class="kw">mod </span>tests {
-<a href=#274 id=274 data-nosnippet>274</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#275 id=275 data-nosnippet>275</a>    <span class="attr">#[test]
-<a href=#276 id=276 data-nosnippet>276</a>    </span><span class="kw">fn </span>test_downcast() {
-<a href=#277 id=277 data-nosnippet>277</a>        <span class="macro">assert_eq!</span>(
-<a href=#278 id=278 data-nosnippet>278</a>            BridgeError::IntConversionError
-<a href=#279 id=279 data-nosnippet>279</a>                .into_eyre()
-<a href=#280 id=280 data-nosnippet>280</a>                .wrap_err(<span class="string">"Some other error"</span>)
-<a href=#281 id=281 data-nosnippet>281</a>                .into_eyre()
-<a href=#282 id=282 data-nosnippet>282</a>                .wrap_err(<span class="string">"some other"</span>)
-<a href=#283 id=283 data-nosnippet>283</a>                .downcast_ref::&lt;BridgeError&gt;()
-<a href=#284 id=284 data-nosnippet>284</a>                .unwrap()
-<a href=#285 id=285 data-nosnippet>285</a>                .to_string(),
-<a href=#286 id=286 data-nosnippet>286</a>            BridgeError::IntConversionError.to_string()
-<a href=#287 id=287 data-nosnippet>287</a>        );
-<a href=#288 id=288 data-nosnippet>288</a>    }
-<a href=#289 id=289 data-nosnippet>289</a>
-<a href=#290 id=290 data-nosnippet>290</a>    <span class="attr">#[test]
-<a href=#291 id=291 data-nosnippet>291</a>    </span><span class="kw">fn </span>test_status_in_chain_cast_properly() {
-<a href=#292 id=292 data-nosnippet>292</a>        <span class="kw">let </span>err: BridgeError = <span class="macro">eyre::eyre!</span>(<span class="string">"Some problem"</span>)
-<a href=#293 id=293 data-nosnippet>293</a>            .wrap_err(tonic::Status::deadline_exceeded(<span class="string">"Some timer expired"</span>))
-<a href=#294 id=294 data-nosnippet>294</a>            .wrap_err(<span class="string">"Something else went wrong"</span>)
-<a href=#295 id=295 data-nosnippet>295</a>            .into();
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="attr">#[error(<span class="string">"Clementine versions or configs are not compatible: {0}"</span>)]
+<a href=#156 id=156 data-nosnippet>156</a>    </span>ClementineNotCompatible(String),
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>    <span class="comment">// External crate error wrappers
+<a href=#159 id=159 data-nosnippet>159</a>    </span><span class="attr">#[error(<span class="string">"Failed to call database: {0}"</span>)]
+<a href=#160 id=160 data-nosnippet>160</a>    </span>DatabaseError(<span class="attr">#[from] </span>sqlx::Error),
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="attr">#[error(<span class="string">"Failed to convert hex string: {0}"</span>)]
+<a href=#162 id=162 data-nosnippet>162</a>    </span>FromHexError(<span class="attr">#[from] </span>FromHexError),
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="attr">#[error(<span class="string">"Failed to convert to hash from slice: {0}"</span>)]
+<a href=#164 id=164 data-nosnippet>164</a>    </span>FromSliceError(<span class="attr">#[from] </span>bitcoin::hashes::FromSliceError),
+<a href=#165 id=165 data-nosnippet>165</a>    <span class="attr">#[error(<span class="string">"Error while calling EVM contract: {0}"</span>)]
+<a href=#166 id=166 data-nosnippet>166</a>    </span>AlloyContract(<span class="attr">#[from] </span>alloy::contract::Error),
+<a href=#167 id=167 data-nosnippet>167</a>    <span class="attr">#[error(<span class="string">"Error while calling EVM RPC function: {0}"</span>)]
+<a href=#168 id=168 data-nosnippet>168</a>    </span>AlloyRpc(<span class="attr">#[from] </span>alloy::transports::RpcError&lt;alloy::transports::TransportErrorKind&gt;),
+<a href=#169 id=169 data-nosnippet>169</a>    <span class="attr">#[error(<span class="string">"Error while encoding/decoding EVM type: {0}"</span>)]
+<a href=#170 id=170 data-nosnippet>170</a>    </span>AlloySolTypes(<span class="attr">#[from] </span>alloy::sol_types::Error),
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="attr">#[error(<span class="string">"{0}"</span>)]
+<a href=#172 id=172 data-nosnippet>172</a>    </span>CLIDisplayAndExit(StyledStr),
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="attr">#[error(transparent)]
+<a href=#174 id=174 data-nosnippet>174</a>    </span>RPCStatus(<span class="attr">#[from] </span>Box&lt;Status&gt;),
+<a href=#175 id=175 data-nosnippet>175</a>
+<a href=#176 id=176 data-nosnippet>176</a>    <span class="attr">#[error(<span class="string">"Arithmetic overflow occurred: {0}"</span>)]
+<a href=#177 id=177 data-nosnippet>177</a>    </span>ArithmeticOverflow(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
+<a href=#178 id=178 data-nosnippet>178</a>    <span class="attr">#[error(<span class="string">"Insufficient funds: {0}"</span>)]
+<a href=#179 id=179 data-nosnippet>179</a>    </span>InsufficientFunds(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
+<a href=#180 id=180 data-nosnippet>180</a>
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="comment">// Base wrapper for eyre
+<a href=#182 id=182 data-nosnippet>182</a>    </span><span class="attr">#[error(transparent)]
+<a href=#183 id=183 data-nosnippet>183</a>    </span>Eyre(<span class="attr">#[from] </span>eyre::Report),
+<a href=#184 id=184 data-nosnippet>184</a>}
+<a href=#185 id=185 data-nosnippet>185</a>
+<a href=#186 id=186 data-nosnippet>186</a><span class="attr">#[derive(Debug, Error)]
+<a href=#187 id=187 data-nosnippet>187</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>FeeErr {
+<a href=#188 id=188 data-nosnippet>188</a>    <span class="attr">#[error(<span class="string">"request timed out"</span>)]
+<a href=#189 id=189 data-nosnippet>189</a>    </span>Timeout,
+<a href=#190 id=190 data-nosnippet>190</a>    <span class="attr">#[error(<span class="string">"transport/decode error: {0}"</span>)]
+<a href=#191 id=191 data-nosnippet>191</a>    </span>Transport(<span class="attr">#[from] </span>reqwest::Error),
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="attr">#[error(<span class="string">"http status {0}"</span>)]
+<a href=#193 id=193 data-nosnippet>193</a>    </span>Status(StatusCode),
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="attr">#[error(<span class="string">"json decode error: {0}"</span>)]
+<a href=#195 id=195 data-nosnippet>195</a>    </span>JsonDecode(reqwest::Error),
+<a href=#196 id=196 data-nosnippet>196</a>    <span class="attr">#[error(<span class="string">"'fastestFee' field not found or invalid in API response"</span>)]
+<a href=#197 id=197 data-nosnippet>197</a>    </span>MissingField,
+<a href=#198 id=198 data-nosnippet>198</a>}
+<a href=#199 id=199 data-nosnippet>199</a>
+<a href=#200 id=200 data-nosnippet>200</a><span class="doccomment">/// Extension traits for errors to easily convert them to eyre::Report and
+<a href=#201 id=201 data-nosnippet>201</a>/// tonic::Status through BridgeError.
+<a href=#202 id=202 data-nosnippet>202</a></span><span class="kw">pub trait </span>ErrorExt: Sized {
+<a href=#203 id=203 data-nosnippet>203</a>    <span class="doccomment">/// Converts the error into an eyre::Report, first wrapping in
+<a href=#204 id=204 data-nosnippet>204</a>    /// BridgeError if necessary. It does not rewrap in eyre::Report if
+<a href=#205 id=205 data-nosnippet>205</a>    /// the given error is already an eyre::Report.
+<a href=#206 id=206 data-nosnippet>206</a>    </span><span class="kw">fn </span>into_eyre(<span class="self">self</span>) -&gt; eyre::Report;
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="doccomment">/// Converts the error into a tonic::Status. Walks the chain of errors and
+<a href=#208 id=208 data-nosnippet>208</a>    /// returns the first [`tonic::Status`] error. If it can't find one, it will
+<a href=#209 id=209 data-nosnippet>209</a>    /// return an Status::internal with the Display representation of the error.
+<a href=#210 id=210 data-nosnippet>210</a>    </span><span class="kw">fn </span>into_status(<span class="self">self</span>) -&gt; tonic::Status;
+<a href=#211 id=211 data-nosnippet>211</a>}
+<a href=#212 id=212 data-nosnippet>212</a>
+<a href=#213 id=213 data-nosnippet>213</a><span class="doccomment">/// Extension traits for results to easily convert them to eyre::Report and
+<a href=#214 id=214 data-nosnippet>214</a>/// tonic::Status through BridgeError.
+<a href=#215 id=215 data-nosnippet>215</a></span><span class="kw">pub trait </span>ResultExt: Sized {
+<a href=#216 id=216 data-nosnippet>216</a>    <span class="kw">type </span>Output;
+<a href=#217 id=217 data-nosnippet>217</a>
+<a href=#218 id=218 data-nosnippet>218</a>    <span class="kw">fn </span>map_to_eyre(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, eyre::Report&gt;;
+<a href=#219 id=219 data-nosnippet>219</a>    <span class="attr">#[allow(clippy::result_large_err)]
+<a href=#220 id=220 data-nosnippet>220</a>    </span><span class="kw">fn </span>map_to_status(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, tonic::Status&gt;;
+<a href=#221 id=221 data-nosnippet>221</a>}
+<a href=#222 id=222 data-nosnippet>222</a>
+<a href=#223 id=223 data-nosnippet>223</a><span class="kw">impl</span>&lt;T: Into&lt;BridgeError&gt;&gt; ErrorExt <span class="kw">for </span>T {
+<a href=#224 id=224 data-nosnippet>224</a>    <span class="kw">fn </span>into_eyre(<span class="self">self</span>) -&gt; eyre::Report {
+<a href=#225 id=225 data-nosnippet>225</a>        <span class="kw">match </span><span class="self">self</span>.into() {
+<a href=#226 id=226 data-nosnippet>226</a>            BridgeError::Eyre(report) =&gt; report,
+<a href=#227 id=227 data-nosnippet>227</a>            other =&gt; <span class="macro">eyre::eyre!</span>(other),
+<a href=#228 id=228 data-nosnippet>228</a>        }
+<a href=#229 id=229 data-nosnippet>229</a>    }
+<a href=#230 id=230 data-nosnippet>230</a>    <span class="kw">fn </span>into_status(<span class="self">self</span>) -&gt; tonic::Status {
+<a href=#231 id=231 data-nosnippet>231</a>        <span class="self">self</span>.into().into()
+<a href=#232 id=232 data-nosnippet>232</a>    }
+<a href=#233 id=233 data-nosnippet>233</a>}
+<a href=#234 id=234 data-nosnippet>234</a>
+<a href=#235 id=235 data-nosnippet>235</a><span class="kw">impl</span>&lt;U: Sized, T: Into&lt;BridgeError&gt;&gt; ResultExt <span class="kw">for </span><span class="prelude-ty">Result</span>&lt;U, T&gt; {
+<a href=#236 id=236 data-nosnippet>236</a>    <span class="kw">type </span>Output = U;
+<a href=#237 id=237 data-nosnippet>237</a>
+<a href=#238 id=238 data-nosnippet>238</a>    <span class="kw">fn </span>map_to_eyre(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, eyre::Report&gt; {
+<a href=#239 id=239 data-nosnippet>239</a>        <span class="self">self</span>.map_err(ErrorExt::into_eyre)
+<a href=#240 id=240 data-nosnippet>240</a>    }
+<a href=#241 id=241 data-nosnippet>241</a>
+<a href=#242 id=242 data-nosnippet>242</a>    <span class="kw">fn </span>map_to_status(<span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, tonic::Status&gt; {
+<a href=#243 id=243 data-nosnippet>243</a>        <span class="self">self</span>.map_err(ErrorExt::into_status)
+<a href=#244 id=244 data-nosnippet>244</a>    }
+<a href=#245 id=245 data-nosnippet>245</a>}
+<a href=#246 id=246 data-nosnippet>246</a>
+<a href=#247 id=247 data-nosnippet>247</a><span class="kw">impl </span>From&lt;Status&gt; <span class="kw">for </span>BridgeError {
+<a href=#248 id=248 data-nosnippet>248</a>    <span class="kw">fn </span>from(status: Status) -&gt; <span class="self">Self </span>{
+<a href=#249 id=249 data-nosnippet>249</a>        BridgeError::RPCStatus(Box::new(status))
+<a href=#250 id=250 data-nosnippet>250</a>    }
+<a href=#251 id=251 data-nosnippet>251</a>}
+<a href=#252 id=252 data-nosnippet>252</a>
+<a href=#253 id=253 data-nosnippet>253</a><span class="kw">impl </span>From&lt;BridgeError&gt; <span class="kw">for </span>tonic::Status {
+<a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">fn </span>from(val: BridgeError) -&gt; <span class="self">Self </span>{
+<a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">let </span>err = <span class="macro">format!</span>(<span class="string">"{val:#}"</span>);
+<a href=#256 id=256 data-nosnippet>256</a>        <span class="comment">// delete escape characters
+<a href=#257 id=257 data-nosnippet>257</a>        </span><span class="kw">let </span>flattened = err
+<a href=#258 id=258 data-nosnippet>258</a>            .replace(<span class="string">"\\n"</span>, <span class="string">" "</span>) <span class="comment">// remove escaped newlines
+<a href=#259 id=259 data-nosnippet>259</a>            </span>.replace(<span class="string">"\n"</span>, <span class="string">" "</span>) <span class="comment">// remove real newlines
+<a href=#260 id=260 data-nosnippet>260</a>            </span>.replace(<span class="string">"\""</span>, <span class="string">""</span>) <span class="comment">// delete quotes
+<a href=#261 id=261 data-nosnippet>261</a>            </span>.replace(<span class="string">"\\"</span>, <span class="string">""</span>); <span class="comment">// remove any remaining backslashes
+<a href=#262 id=262 data-nosnippet>262</a>        </span><span class="kw">let </span>whitespace_removed = flattened.split_whitespace().collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;().join(<span class="string">" "</span>);
+<a href=#263 id=263 data-nosnippet>263</a>        tonic::Status::internal(whitespace_removed)
+<a href=#264 id=264 data-nosnippet>264</a>    }
+<a href=#265 id=265 data-nosnippet>265</a>}
+<a href=#266 id=266 data-nosnippet>266</a>
+<a href=#267 id=267 data-nosnippet>267</a><span class="attr">#[cfg(test)]
+<a href=#268 id=268 data-nosnippet>268</a></span><span class="kw">mod </span>tests {
+<a href=#269 id=269 data-nosnippet>269</a>    <span class="kw">use </span>eyre::Context;
+<a href=#270 id=270 data-nosnippet>270</a>
+<a href=#271 id=271 data-nosnippet>271</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#272 id=272 data-nosnippet>272</a>    <span class="attr">#[test]
+<a href=#273 id=273 data-nosnippet>273</a>    </span><span class="kw">fn </span>test_downcast() {
+<a href=#274 id=274 data-nosnippet>274</a>        <span class="macro">assert_eq!</span>(
+<a href=#275 id=275 data-nosnippet>275</a>            BridgeError::IntConversionError
+<a href=#276 id=276 data-nosnippet>276</a>                .into_eyre()
+<a href=#277 id=277 data-nosnippet>277</a>                .wrap_err(<span class="string">"Some other error"</span>)
+<a href=#278 id=278 data-nosnippet>278</a>                .into_eyre()
+<a href=#279 id=279 data-nosnippet>279</a>                .wrap_err(<span class="string">"some other"</span>)
+<a href=#280 id=280 data-nosnippet>280</a>                .downcast_ref::&lt;BridgeError&gt;()
+<a href=#281 id=281 data-nosnippet>281</a>                .unwrap()
+<a href=#282 id=282 data-nosnippet>282</a>                .to_string(),
+<a href=#283 id=283 data-nosnippet>283</a>            BridgeError::IntConversionError.to_string()
+<a href=#284 id=284 data-nosnippet>284</a>        );
+<a href=#285 id=285 data-nosnippet>285</a>    }
+<a href=#286 id=286 data-nosnippet>286</a>
+<a href=#287 id=287 data-nosnippet>287</a>    <span class="attr">#[test]
+<a href=#288 id=288 data-nosnippet>288</a>    </span><span class="kw">fn </span>test_status_shows_all_errors_in_chain() {
+<a href=#289 id=289 data-nosnippet>289</a>        <span class="kw">let </span>err: BridgeError = <span class="prelude-val">Err</span>::&lt;(), BridgeError&gt;(BridgeError::BitcoinRPC(
+<a href=#290 id=290 data-nosnippet>290</a>            BitcoinRPCError::TransactionNotConfirmed,
+<a href=#291 id=291 data-nosnippet>291</a>        ))
+<a href=#292 id=292 data-nosnippet>292</a>        .wrap_err(tonic::Status::deadline_exceeded(<span class="string">"Error A"</span>))
+<a href=#293 id=293 data-nosnippet>293</a>        .wrap_err(<span class="string">"Error B"</span>)
+<a href=#294 id=294 data-nosnippet>294</a>        .unwrap_err()
+<a href=#295 id=295 data-nosnippet>295</a>        .into();
 <a href=#296 id=296 data-nosnippet>296</a>
-<a href=#297 id=297 data-nosnippet>297</a>        <span class="kw">let </span>status: Status = err.into_status();
-<a href=#298 id=298 data-nosnippet>298</a>        <span class="macro">assert_eq!</span>(status.code(), tonic::Code::DeadlineExceeded);
-<a href=#299 id=299 data-nosnippet>299</a>        <span class="macro">assert_eq!</span>(status.message(), <span class="string">"Some timer expired"</span>);
-<a href=#300 id=300 data-nosnippet>300</a>    }
-<a href=#301 id=301 data-nosnippet>301</a>}</code></pre></div></section></main></body></html>
+<a href=#297 id=297 data-nosnippet>297</a>        <span class="kw">let </span>status: Status = err.into();
+<a href=#298 id=298 data-nosnippet>298</a>        <span class="macro">assert!</span>(status.message().contains(<span class="string">"Error A"</span>));
+<a href=#299 id=299 data-nosnippet>299</a>        <span class="macro">assert!</span>(status.message().contains(<span class="string">"Error B"</span>));
+<a href=#300 id=300 data-nosnippet>300</a>        <span class="macro">assert!</span>(status.message().contains(<span class="string">"Bitcoin"</span>));
+<a href=#301 id=301 data-nosnippet>301</a>    }
+<a href=#302 id=302 data-nosnippet>302</a>}</code></pre></div></section></main></body></html>

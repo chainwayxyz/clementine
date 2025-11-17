@@ -385,29 +385,29 @@
 <a href=#385 id=385 data-nosnippet>385</a>        env::set_var(<span class="string">"TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER"</span>, <span class="string">"1"</span>);
 <a href=#386 id=386 data-nosnippet>386</a>        env::set_var(<span class="string">"TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB"</span>, <span class="string">"0"</span>);
 <a href=#387 id=387 data-nosnippet>387</a>        env::set_var(<span class="string">"TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS"</span>, <span class="string">"3600"</span>);
-<a href=#388 id=388 data-nosnippet>388</a>    }
-<a href=#389 id=389 data-nosnippet>389</a>
-<a href=#390 id=390 data-nosnippet>390</a>    <span class="comment">// Helper to set up all environment variables needed for protocol paramset
-<a href=#391 id=391 data-nosnippet>391</a>    </span><span class="kw">fn </span>setup_protocol_paramset_env_vars() {
-<a href=#392 id=392 data-nosnippet>392</a>        env::set_var(<span class="string">"NETWORK"</span>, <span class="string">"regtest"</span>);
-<a href=#393 id=393 data-nosnippet>393</a>        env::set_var(<span class="string">"NUM_ROUND_TXS"</span>, <span class="string">"2"</span>);
-<a href=#394 id=394 data-nosnippet>394</a>        env::set_var(<span class="string">"NUM_KICKOFFS_PER_ROUND"</span>, <span class="string">"10"</span>);
-<a href=#395 id=395 data-nosnippet>395</a>        env::set_var(<span class="string">"NUM_SIGNED_KICKOFFS"</span>, <span class="string">"2"</span>);
-<a href=#396 id=396 data-nosnippet>396</a>        env::set_var(<span class="string">"BRIDGE_AMOUNT"</span>, <span class="string">"1000000000"</span>);
-<a href=#397 id=397 data-nosnippet>397</a>        env::set_var(<span class="string">"KICKOFF_AMOUNT"</span>, <span class="string">"0"</span>);
-<a href=#398 id=398 data-nosnippet>398</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_AMOUNT"</span>, <span class="string">"200000000"</span>);
-<a href=#399 id=399 data-nosnippet>399</a>        env::set_var(<span class="string">"COLLATERAL_FUNDING_AMOUNT"</span>, <span class="string">"99000000"</span>);
-<a href=#400 id=400 data-nosnippet>400</a>        env::set_var(<span class="string">"KICKOFF_BLOCKHASH_COMMIT_LENGTH"</span>, <span class="string">"40"</span>);
-<a href=#401 id=401 data-nosnippet>401</a>        env::set_var(<span class="string">"WATCHTOWER_CHALLENGE_BYTES"</span>, <span class="string">"144"</span>);
-<a href=#402 id=402 data-nosnippet>402</a>        env::set_var(<span class="string">"WINTERNITZ_LOG_D"</span>, <span class="string">"4"</span>);
-<a href=#403 id=403 data-nosnippet>403</a>        env::set_var(<span class="string">"USER_TAKES_AFTER"</span>, <span class="string">"200"</span>);
-<a href=#404 id=404 data-nosnippet>404</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK"</span>, <span class="string">"144"</span>);
-<a href=#405 id=405 data-nosnippet>405</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_NACK_TIMELOCK"</span>, <span class="string">"432"</span>);
-<a href=#406 id=406 data-nosnippet>406</a>        env::set_var(<span class="string">"DISPROVE_TIMEOUT_TIMELOCK"</span>, <span class="string">"720"</span>);
-<a href=#407 id=407 data-nosnippet>407</a>        env::set_var(<span class="string">"ASSERT_TIMEOUT_TIMELOCK"</span>, <span class="string">"576"</span>);
-<a href=#408 id=408 data-nosnippet>408</a>        env::set_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>, <span class="string">"12"</span>);
-<a href=#409 id=409 data-nosnippet>409</a>        env::set_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>, <span class="string">"288"</span>);
-<a href=#410 id=410 data-nosnippet>410</a>        env::set_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>, <span class="string">"216"</span>);
+<a href=#388 id=388 data-nosnippet>388</a>        env::set_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>, <span class="string">"216"</span>);
+<a href=#389 id=389 data-nosnippet>389</a>    }
+<a href=#390 id=390 data-nosnippet>390</a>
+<a href=#391 id=391 data-nosnippet>391</a>    <span class="comment">// Helper to set up all environment variables needed for protocol paramset
+<a href=#392 id=392 data-nosnippet>392</a>    </span><span class="kw">fn </span>setup_protocol_paramset_env_vars() {
+<a href=#393 id=393 data-nosnippet>393</a>        env::set_var(<span class="string">"NETWORK"</span>, <span class="string">"regtest"</span>);
+<a href=#394 id=394 data-nosnippet>394</a>        env::set_var(<span class="string">"NUM_ROUND_TXS"</span>, <span class="string">"2"</span>);
+<a href=#395 id=395 data-nosnippet>395</a>        env::set_var(<span class="string">"NUM_KICKOFFS_PER_ROUND"</span>, <span class="string">"10"</span>);
+<a href=#396 id=396 data-nosnippet>396</a>        env::set_var(<span class="string">"NUM_SIGNED_KICKOFFS"</span>, <span class="string">"2"</span>);
+<a href=#397 id=397 data-nosnippet>397</a>        env::set_var(<span class="string">"BRIDGE_AMOUNT"</span>, <span class="string">"1000000000"</span>);
+<a href=#398 id=398 data-nosnippet>398</a>        env::set_var(<span class="string">"KICKOFF_AMOUNT"</span>, <span class="string">"0"</span>);
+<a href=#399 id=399 data-nosnippet>399</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_AMOUNT"</span>, <span class="string">"200000000"</span>);
+<a href=#400 id=400 data-nosnippet>400</a>        env::set_var(<span class="string">"COLLATERAL_FUNDING_AMOUNT"</span>, <span class="string">"99000000"</span>);
+<a href=#401 id=401 data-nosnippet>401</a>        env::set_var(<span class="string">"KICKOFF_BLOCKHASH_COMMIT_LENGTH"</span>, <span class="string">"40"</span>);
+<a href=#402 id=402 data-nosnippet>402</a>        env::set_var(<span class="string">"WATCHTOWER_CHALLENGE_BYTES"</span>, <span class="string">"144"</span>);
+<a href=#403 id=403 data-nosnippet>403</a>        env::set_var(<span class="string">"WINTERNITZ_LOG_D"</span>, <span class="string">"4"</span>);
+<a href=#404 id=404 data-nosnippet>404</a>        env::set_var(<span class="string">"USER_TAKES_AFTER"</span>, <span class="string">"200"</span>);
+<a href=#405 id=405 data-nosnippet>405</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK"</span>, <span class="string">"144"</span>);
+<a href=#406 id=406 data-nosnippet>406</a>        env::set_var(<span class="string">"OPERATOR_CHALLENGE_NACK_TIMELOCK"</span>, <span class="string">"432"</span>);
+<a href=#407 id=407 data-nosnippet>407</a>        env::set_var(<span class="string">"DISPROVE_TIMEOUT_TIMELOCK"</span>, <span class="string">"720"</span>);
+<a href=#408 id=408 data-nosnippet>408</a>        env::set_var(<span class="string">"ASSERT_TIMEOUT_TIMELOCK"</span>, <span class="string">"576"</span>);
+<a href=#409 id=409 data-nosnippet>409</a>        env::set_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>, <span class="string">"12"</span>);
+<a href=#410 id=410 data-nosnippet>410</a>        env::set_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>, <span class="string">"288"</span>);
 <a href=#411 id=411 data-nosnippet>411</a>        env::set_var(<span class="string">"LATEST_BLOCKHASH_TIMEOUT_TIMELOCK"</span>, <span class="string">"360"</span>);
 <a href=#412 id=412 data-nosnippet>412</a>        env::set_var(<span class="string">"FINALITY_DEPTH"</span>, <span class="string">"1"</span>);
 <a href=#413 id=413 data-nosnippet>413</a>        env::set_var(<span class="string">"START_HEIGHT"</span>, <span class="string">"8148"</span>);
@@ -447,29 +447,29 @@
 <a href=#447 id=447 data-nosnippet>447</a>        env::remove_var(<span class="string">"SECURITY_COUNCIL"</span>);
 <a href=#448 id=448 data-nosnippet>448</a>        env::remove_var(<span class="string">"TELEMETRY_HOST"</span>);
 <a href=#449 id=449 data-nosnippet>449</a>        env::remove_var(<span class="string">"TELEMETRY_PORT"</span>);
-<a href=#450 id=450 data-nosnippet>450</a>    }
-<a href=#451 id=451 data-nosnippet>451</a>
-<a href=#452 id=452 data-nosnippet>452</a>    <span class="comment">// Helper to clean up all protocol paramset environment variables
-<a href=#453 id=453 data-nosnippet>453</a>    </span><span class="kw">fn </span>cleanup_protocol_paramset_env_vars() {
-<a href=#454 id=454 data-nosnippet>454</a>        env::remove_var(<span class="string">"NETWORK"</span>);
-<a href=#455 id=455 data-nosnippet>455</a>        env::remove_var(<span class="string">"NUM_ROUND_TXS"</span>);
-<a href=#456 id=456 data-nosnippet>456</a>        env::remove_var(<span class="string">"NUM_KICKOFFS_PER_ROUND"</span>);
-<a href=#457 id=457 data-nosnippet>457</a>        env::remove_var(<span class="string">"NUM_SIGNED_KICKOFFS"</span>);
-<a href=#458 id=458 data-nosnippet>458</a>        env::remove_var(<span class="string">"BRIDGE_AMOUNT"</span>);
-<a href=#459 id=459 data-nosnippet>459</a>        env::remove_var(<span class="string">"KICKOFF_AMOUNT"</span>);
-<a href=#460 id=460 data-nosnippet>460</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_AMOUNT"</span>);
-<a href=#461 id=461 data-nosnippet>461</a>        env::remove_var(<span class="string">"COLLATERAL_FUNDING_AMOUNT"</span>);
-<a href=#462 id=462 data-nosnippet>462</a>        env::remove_var(<span class="string">"KICKOFF_BLOCKHASH_COMMIT_LENGTH"</span>);
-<a href=#463 id=463 data-nosnippet>463</a>        env::remove_var(<span class="string">"WATCHTOWER_CHALLENGE_BYTES"</span>);
-<a href=#464 id=464 data-nosnippet>464</a>        env::remove_var(<span class="string">"WINTERNITZ_LOG_D"</span>);
-<a href=#465 id=465 data-nosnippet>465</a>        env::remove_var(<span class="string">"USER_TAKES_AFTER"</span>);
-<a href=#466 id=466 data-nosnippet>466</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK"</span>);
-<a href=#467 id=467 data-nosnippet>467</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_NACK_TIMELOCK"</span>);
-<a href=#468 id=468 data-nosnippet>468</a>        env::remove_var(<span class="string">"DISPROVE_TIMEOUT_TIMELOCK"</span>);
-<a href=#469 id=469 data-nosnippet>469</a>        env::remove_var(<span class="string">"ASSERT_TIMEOUT_TIMELOCK"</span>);
-<a href=#470 id=470 data-nosnippet>470</a>        env::remove_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>);
-<a href=#471 id=471 data-nosnippet>471</a>        env::remove_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>);
-<a href=#472 id=472 data-nosnippet>472</a>        env::remove_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>);
+<a href=#450 id=450 data-nosnippet>450</a>        env::remove_var(<span class="string">"TIME_TO_SEND_WATCHTOWER_CHALLENGE"</span>);
+<a href=#451 id=451 data-nosnippet>451</a>    }
+<a href=#452 id=452 data-nosnippet>452</a>
+<a href=#453 id=453 data-nosnippet>453</a>    <span class="comment">// Helper to clean up all protocol paramset environment variables
+<a href=#454 id=454 data-nosnippet>454</a>    </span><span class="kw">fn </span>cleanup_protocol_paramset_env_vars() {
+<a href=#455 id=455 data-nosnippet>455</a>        env::remove_var(<span class="string">"NETWORK"</span>);
+<a href=#456 id=456 data-nosnippet>456</a>        env::remove_var(<span class="string">"NUM_ROUND_TXS"</span>);
+<a href=#457 id=457 data-nosnippet>457</a>        env::remove_var(<span class="string">"NUM_KICKOFFS_PER_ROUND"</span>);
+<a href=#458 id=458 data-nosnippet>458</a>        env::remove_var(<span class="string">"NUM_SIGNED_KICKOFFS"</span>);
+<a href=#459 id=459 data-nosnippet>459</a>        env::remove_var(<span class="string">"BRIDGE_AMOUNT"</span>);
+<a href=#460 id=460 data-nosnippet>460</a>        env::remove_var(<span class="string">"KICKOFF_AMOUNT"</span>);
+<a href=#461 id=461 data-nosnippet>461</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_AMOUNT"</span>);
+<a href=#462 id=462 data-nosnippet>462</a>        env::remove_var(<span class="string">"COLLATERAL_FUNDING_AMOUNT"</span>);
+<a href=#463 id=463 data-nosnippet>463</a>        env::remove_var(<span class="string">"KICKOFF_BLOCKHASH_COMMIT_LENGTH"</span>);
+<a href=#464 id=464 data-nosnippet>464</a>        env::remove_var(<span class="string">"WATCHTOWER_CHALLENGE_BYTES"</span>);
+<a href=#465 id=465 data-nosnippet>465</a>        env::remove_var(<span class="string">"WINTERNITZ_LOG_D"</span>);
+<a href=#466 id=466 data-nosnippet>466</a>        env::remove_var(<span class="string">"USER_TAKES_AFTER"</span>);
+<a href=#467 id=467 data-nosnippet>467</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK"</span>);
+<a href=#468 id=468 data-nosnippet>468</a>        env::remove_var(<span class="string">"OPERATOR_CHALLENGE_NACK_TIMELOCK"</span>);
+<a href=#469 id=469 data-nosnippet>469</a>        env::remove_var(<span class="string">"DISPROVE_TIMEOUT_TIMELOCK"</span>);
+<a href=#470 id=470 data-nosnippet>470</a>        env::remove_var(<span class="string">"ASSERT_TIMEOUT_TIMELOCK"</span>);
+<a href=#471 id=471 data-nosnippet>471</a>        env::remove_var(<span class="string">"OPERATOR_REIMBURSE_TIMELOCK"</span>);
+<a href=#472 id=472 data-nosnippet>472</a>        env::remove_var(<span class="string">"WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK"</span>);
 <a href=#473 id=473 data-nosnippet>473</a>        env::remove_var(<span class="string">"FINALITY_DEPTH"</span>);
 <a href=#474 id=474 data-nosnippet>474</a>        env::remove_var(<span class="string">"START_HEIGHT"</span>);
 <a href=#475 id=475 data-nosnippet>475</a>        env::remove_var(<span class="string">"HEADER_CHAIN_PROOF_BATCH_SIZE"</span>);

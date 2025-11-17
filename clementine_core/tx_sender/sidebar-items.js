@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["SendTxError"],"fn":["get_fee_rate_from_mempool_space"],"macro":["log_error_for_tx"],"mod":["client","cpfp","nonstandard","rbf","task"],"struct":["ActivatedWithOutpoint","ActivatedWithTxid","TxSender","TxSenderClient","TxSenderTask"],"type":["Result"]};
+window.SIDEBAR_ITEMS = {"enum":["SendTxError"],"macro":["log_error_for_tx"],"mod":["client","cpfp","nonstandard","rbf","task"],"struct":["ActivatedWithOutpoint","ActivatedWithTxid","TxSender","TxSenderClient","TxSenderTask"],"type":["Result"]};

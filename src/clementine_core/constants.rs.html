@@ -65,27 +65,33 @@
 <a href=#65 id=65 data-nosnippet>65</a>    </span><span class="kw">pub const </span>OPERATOR_SIGS_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">300</span>); <span class="comment">// 5 minutes
 <a href=#66 id=66 data-nosnippet>66</a>    </span><span class="kw">pub const </span>DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">300</span>); <span class="comment">// 5 minutes
 <a href=#67 id=67 data-nosnippet>67</a>
-<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">pub const </span>PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(<span class="number">3600</span>); <span class="comment">// 60 minutes
-<a href=#69 id=69 data-nosnippet>69</a>    </span><span class="kw">pub const </span>OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">1200</span>); <span class="comment">// 20 minutes
-<a href=#70 id=70 data-nosnippet>70</a>    </span><span class="kw">pub const </span>SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">600</span>); <span class="comment">// 10 minutes
-<a href=#71 id=71 data-nosnippet>71</a>    </span><span class="kw">pub const </span>DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">2400</span>); <span class="comment">// 40 minutes
-<a href=#72 id=72 data-nosnippet>72</a>
-<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">pub const </span>RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
+<a href=#68 id=68 data-nosnippet>68</a>    </span><span class="kw">pub const </span>SETUP_COMPLETION_TIMEOUT: Duration = Duration::from_secs(<span class="number">1800</span>); <span class="comment">// 30 minutes
+<a href=#69 id=69 data-nosnippet>69</a>
+<a href=#70 id=70 data-nosnippet>70</a>    </span><span class="kw">pub const </span>PIPELINE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(<span class="number">3600</span>); <span class="comment">// 60 minutes
+<a href=#71 id=71 data-nosnippet>71</a>    </span><span class="kw">pub const </span>OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">1200</span>); <span class="comment">// 20 minutes
+<a href=#72 id=72 data-nosnippet>72</a>    </span><span class="kw">pub const </span>SEND_OPERATOR_SIGS_TIMEOUT: Duration = Duration::from_secs(<span class="number">600</span>); <span class="comment">// 10 minutes
+<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">pub const </span>DEPOSIT_FINALIZATION_TIMEOUT: Duration = Duration::from_secs(<span class="number">2400</span>); <span class="comment">// 40 minutes
 <a href=#74 id=74 data-nosnippet>74</a>
-<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">pub const </span>ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
+<a href=#75 id=75 data-nosnippet>75</a>    </span><span class="kw">pub const </span>OPTIMISTIC_PAYOUT_TIMEOUT: Duration = Duration::from_secs(<span class="number">300</span>); <span class="comment">// 5 minutes
 <a href=#76 id=76 data-nosnippet>76</a>
-<a href=#77 id=77 data-nosnippet>77</a>    <span class="kw">pub const </span>PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(<span class="number">30</span>);
+<a href=#77 id=77 data-nosnippet>77</a>    </span><span class="kw">pub const </span>RESTART_BACKGROUND_TASKS_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
 <a href=#78 id=78 data-nosnippet>78</a>
-<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">pub const </span>WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>); <span class="comment">// 2 minutes
-<a href=#80 id=80 data-nosnippet>80</a></span>}
-<a href=#81 id=81 data-nosnippet>81</a>
-<a href=#82 id=82 data-nosnippet>82</a><span class="kw">pub const </span>NON_STANDARD_V3: Version = Version(<span class="number">3</span>);
-<a href=#83 id=83 data-nosnippet>83</a>
-<a href=#84 id=84 data-nosnippet>84</a><span class="macro">lazy_static::lazy_static!</span> {
-<a href=#85 id=85 data-nosnippet>85</a>  <span class="kw">pub static </span><span class="kw-2">ref </span>BURN_SCRIPT: ScriptBuf = (<span class="string">"1111111111111111111114oLvT2"</span>)
-<a href=#86 id=86 data-nosnippet>86</a>          .parse::&lt;Address&lt;<span class="kw">_</span>&gt;&gt;()
-<a href=#87 id=87 data-nosnippet>87</a>          .expect(<span class="string">"valid burn address"</span>)
-<a href=#88 id=88 data-nosnippet>88</a>          .assume_checked()
-<a href=#89 id=89 data-nosnippet>89</a>          .script_pubkey();
-<a href=#90 id=90 data-nosnippet>90</a>
-<a href=#91 id=91 data-nosnippet>91</a>}</code></pre></div></section></main></body></html>
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">pub const </span>ENTITY_STATUS_POLL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>);
+<a href=#80 id=80 data-nosnippet>80</a>
+<a href=#81 id=81 data-nosnippet>81</a>    <span class="kw">pub const </span>ENTITY_COMP_DATA_POLL_TIMEOUT: Duration = Duration::from_secs(<span class="number">240</span>); <span class="comment">// 4 minutes
+<a href=#82 id=82 data-nosnippet>82</a>
+<a href=#83 id=83 data-nosnippet>83</a>    </span><span class="kw">pub const </span>PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(<span class="number">30</span>);
+<a href=#84 id=84 data-nosnippet>84</a>
+<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">pub const </span>WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(<span class="number">120</span>); <span class="comment">// 2 minutes
+<a href=#86 id=86 data-nosnippet>86</a></span>}
+<a href=#87 id=87 data-nosnippet>87</a>
+<a href=#88 id=88 data-nosnippet>88</a><span class="kw">pub const </span>NON_STANDARD_V3: Version = Version(<span class="number">3</span>);
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a><span class="macro">lazy_static::lazy_static!</span> {
+<a href=#91 id=91 data-nosnippet>91</a>  <span class="kw">pub static </span><span class="kw-2">ref </span>BURN_SCRIPT: ScriptBuf = (<span class="string">"1111111111111111111114oLvT2"</span>)
+<a href=#92 id=92 data-nosnippet>92</a>          .parse::&lt;Address&lt;<span class="kw">_</span>&gt;&gt;()
+<a href=#93 id=93 data-nosnippet>93</a>          .expect(<span class="string">"valid burn address"</span>)
+<a href=#94 id=94 data-nosnippet>94</a>          .assume_checked()
+<a href=#95 id=95 data-nosnippet>95</a>          .script_pubkey();
+<a href=#96 id=96 data-nosnippet>96</a>
+<a href=#97 id=97 data-nosnippet>97</a>}</code></pre></div></section></main></body></html>

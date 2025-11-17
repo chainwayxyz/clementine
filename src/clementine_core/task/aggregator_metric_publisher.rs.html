@@ -50,108 +50,112 @@
 <a href=#50 id=50 data-nosnippet>50</a>                    })<span class="question-mark">?</span>;
 <a href=#51 id=51 data-nosnippet>51</a>                <span class="prelude-val">Ok</span>(EntityId::Verifier(VerifierId(pk)))
 <a href=#52 id=52 data-nosnippet>52</a>            }
-<a href=#53 id=53 data-nosnippet>53</a>            EntityType::EntityUnknown =&gt; {
-<a href=#54 id=54 data-nosnippet>54</a>                <span class="prelude-val">Err</span>(BridgeError::ConfigError(<span class="string">"Unknown entity type"</span>.into()))
-<a href=#55 id=55 data-nosnippet>55</a>            }
-<a href=#56 id=56 data-nosnippet>56</a>        }
-<a href=#57 id=57 data-nosnippet>57</a>    }
-<a href=#58 id=58 data-nosnippet>58</a>
-<a href=#59 id=59 data-nosnippet>59</a>    <span class="doccomment">/// Create or get metrics for an entity
-<a href=#60 id=60 data-nosnippet>60</a>    </span><span class="kw">fn </span>get_or_create_metrics(<span class="kw-2">&amp;mut </span><span class="self">self</span>, entity_id: EntityId) -&gt; <span class="kw-2">&amp;mut </span>EntityL1SyncStatusMetrics {
-<a href=#61 id=61 data-nosnippet>61</a>        <span class="self">self</span>.metrics.entry(entity_id).or_insert_with(|| {
-<a href=#62 id=62 data-nosnippet>62</a>            <span class="kw">let </span>scope = <span class="macro">format!</span>(<span class="string">"{entity_id}_l1_sync_status"</span>);
-<a href=#63 id=63 data-nosnippet>63</a>            EntityL1SyncStatusMetrics::describe(<span class="kw-2">&amp;</span>scope);
-<a href=#64 id=64 data-nosnippet>64</a>            EntityL1SyncStatusMetrics::new(<span class="kw-2">&amp;</span>scope)
-<a href=#65 id=65 data-nosnippet>65</a>        })
-<a href=#66 id=66 data-nosnippet>66</a>    }
-<a href=#67 id=67 data-nosnippet>67</a>}
-<a href=#68 id=68 data-nosnippet>68</a>
-<a href=#69 id=69 data-nosnippet>69</a><span class="attr">#[async_trait]
-<a href=#70 id=70 data-nosnippet>70</a></span><span class="kw">impl </span>Task <span class="kw">for </span>AggregatorMetricPublisher {
-<a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">const </span>VARIANT: TaskVariant = TaskVariant::MetricPublisher;
-<a href=#72 id=72 data-nosnippet>72</a>    <span class="kw">type </span>Output = bool;
-<a href=#73 id=73 data-nosnippet>73</a>
-<a href=#74 id=74 data-nosnippet>74</a>    <span class="kw">async fn </span>run_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, BridgeError&gt; {
-<a href=#75 id=75 data-nosnippet>75</a>        <span class="comment">// Metrics are not published in tests
-<a href=#76 id=76 data-nosnippet>76</a>        </span><span class="kw">if </span><span class="macro">cfg!</span>(test) {
-<a href=#77 id=77 data-nosnippet>77</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
-<a href=#78 id=78 data-nosnippet>78</a>        }
-<a href=#79 id=79 data-nosnippet>79</a>        <span class="macro">tracing::info!</span>(<span class="string">"Publishing metrics for aggregator"</span>);
-<a href=#80 id=80 data-nosnippet>80</a>
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="kw">let </span>entity_statuses = <span class="self">self
-<a href=#82 id=82 data-nosnippet>82</a>            </span>.aggregator
-<a href=#83 id=83 data-nosnippet>83</a>            .get_entity_statuses(<span class="bool-val">false</span>)
-<a href=#84 id=84 data-nosnippet>84</a>            .<span class="kw">await
-<a href=#85 id=85 data-nosnippet>85</a>            </span>.inspect_err(|e| {
-<a href=#86 id=86 data-nosnippet>86</a>                <span class="macro">tracing::error!</span>(<span class="string">"Error getting entities status: {:?}"</span>, e);
-<a href=#87 id=87 data-nosnippet>87</a>            })<span class="question-mark">?</span>;
-<a href=#88 id=88 data-nosnippet>88</a>
-<a href=#89 id=89 data-nosnippet>89</a>        <span class="macro">tracing::info!</span>(<span class="string">"Entities status: {:?}"</span>, entity_statuses);
-<a href=#90 id=90 data-nosnippet>90</a>
-<a href=#91 id=91 data-nosnippet>91</a>        <span class="comment">// Process each entity status
-<a href=#92 id=92 data-nosnippet>92</a>        </span><span class="kw">for </span>entity_status_with_id <span class="kw">in </span>entity_statuses {
-<a href=#93 id=93 data-nosnippet>93</a>            <span class="kw">let </span>proto_entity_id = entity_status_with_id
-<a href=#94 id=94 data-nosnippet>94</a>                .entity_id
-<a href=#95 id=95 data-nosnippet>95</a>                .ok_or_else(|| BridgeError::ConfigError(<span class="string">"Missing entity_id"</span>.into()))<span class="question-mark">?</span>;
-<a href=#96 id=96 data-nosnippet>96</a>
-<a href=#97 id=97 data-nosnippet>97</a>            <span class="kw">let </span>entity_id = <span class="kw">match </span><span class="self">Self</span>::convert_entity_id(<span class="kw-2">&amp;</span>proto_entity_id) {
-<a href=#98 id=98 data-nosnippet>98</a>                <span class="prelude-val">Ok</span>(id) =&gt; id,
-<a href=#99 id=99 data-nosnippet>99</a>                <span class="prelude-val">Err</span>(e) =&gt; {
-<a href=#100 id=100 data-nosnippet>100</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Failed to convert entity_id: {}"</span>, e);
-<a href=#101 id=101 data-nosnippet>101</a>                    <span class="kw">continue</span>;
-<a href=#102 id=102 data-nosnippet>102</a>                }
-<a href=#103 id=103 data-nosnippet>103</a>            };
-<a href=#104 id=104 data-nosnippet>104</a>
-<a href=#105 id=105 data-nosnippet>105</a>            <span class="kw">let </span>metrics = <span class="self">self</span>.get_or_create_metrics(entity_id);
-<a href=#106 id=106 data-nosnippet>106</a>
-<a href=#107 id=107 data-nosnippet>107</a>            <span class="kw">match </span>entity_status_with_id.status_result {
-<a href=#108 id=108 data-nosnippet>108</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Status(
-<a href=#109 id=109 data-nosnippet>109</a>                    status,
-<a href=#110 id=110 data-nosnippet>110</a>                )) =&gt; {
-<a href=#111 id=111 data-nosnippet>111</a>                    <span class="comment">// Parse wallet balance from string (format is "X.XXX BTC")
-<a href=#112 id=112 data-nosnippet>112</a>                    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(balance) = status
-<a href=#113 id=113 data-nosnippet>113</a>                        .wallet_balance
-<a href=#114 id=114 data-nosnippet>114</a>                        .and_then(|s| s.strip_suffix(<span class="string">" BTC"</span>).and_then(|s| s.parse::&lt;f64&gt;().ok()))
-<a href=#115 id=115 data-nosnippet>115</a>                    {
-<a href=#116 id=116 data-nosnippet>116</a>                        metrics.wallet_balance_btc.set(balance);
-<a href=#117 id=117 data-nosnippet>117</a>                    }
-<a href=#118 id=118 data-nosnippet>118</a>
-<a href=#119 id=119 data-nosnippet>119</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.rpc_tip_height {
-<a href=#120 id=120 data-nosnippet>120</a>                        metrics.rpc_tip_height.set(height <span class="kw">as </span>f64);
-<a href=#121 id=121 data-nosnippet>121</a>                    }
-<a href=#122 id=122 data-nosnippet>122</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.bitcoin_syncer_synced_height {
-<a href=#123 id=123 data-nosnippet>123</a>                        metrics.btc_syncer_synced_height.set(height <span class="kw">as </span>f64);
-<a href=#124 id=124 data-nosnippet>124</a>                    }
-<a href=#125 id=125 data-nosnippet>125</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.hcp_last_proven_height {
-<a href=#126 id=126 data-nosnippet>126</a>                        metrics.hcp_last_proven_height.set(height <span class="kw">as </span>f64);
-<a href=#127 id=127 data-nosnippet>127</a>                    }
-<a href=#128 id=128 data-nosnippet>128</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.tx_sender_synced_height {
-<a href=#129 id=129 data-nosnippet>129</a>                        metrics.tx_sender_synced_height.set(height <span class="kw">as </span>f64);
-<a href=#130 id=130 data-nosnippet>130</a>                    }
-<a href=#131 id=131 data-nosnippet>131</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.finalized_synced_height {
-<a href=#132 id=132 data-nosnippet>132</a>                        metrics.finalized_synced_height.set(height <span class="kw">as </span>f64);
-<a href=#133 id=133 data-nosnippet>133</a>                    }
-<a href=#134 id=134 data-nosnippet>134</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.state_manager_next_height {
-<a href=#135 id=135 data-nosnippet>135</a>                        metrics.state_manager_next_height.set(height <span class="kw">as </span>f64);
-<a href=#136 id=136 data-nosnippet>136</a>                    }
-<a href=#137 id=137 data-nosnippet>137</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(tasks) = status.stopped_tasks {
-<a href=#138 id=138 data-nosnippet>138</a>                        metrics
-<a href=#139 id=139 data-nosnippet>139</a>                            .stopped_tasks_count
-<a href=#140 id=140 data-nosnippet>140</a>                            .set(tasks.stopped_tasks.len() <span class="kw">as </span>f64);
-<a href=#141 id=141 data-nosnippet>141</a>                    }
-<a href=#142 id=142 data-nosnippet>142</a>                }
-<a href=#143 id=143 data-nosnippet>143</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
-<a href=#144 id=144 data-nosnippet>144</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);
-<a href=#145 id=145 data-nosnippet>145</a>                    <span class="comment">// Increment error counter
-<a href=#146 id=146 data-nosnippet>146</a>                    </span>metrics.entity_status_error_count.increment(<span class="number">1</span>);
-<a href=#147 id=147 data-nosnippet>147</a>                }
-<a href=#148 id=148 data-nosnippet>148</a>                <span class="prelude-val">None </span>=&gt; {
-<a href=#149 id=149 data-nosnippet>149</a>                    <span class="macro">tracing::warn!</span>(<span class="string">"Entity {} has no status"</span>, entity_id);
-<a href=#150 id=150 data-nosnippet>150</a>                }
-<a href=#151 id=151 data-nosnippet>151</a>            }
-<a href=#152 id=152 data-nosnippet>152</a>        }
-<a href=#153 id=153 data-nosnippet>153</a>
-<a href=#154 id=154 data-nosnippet>154</a>        <span class="comment">// Always delay by returning false (ie. no work done)
-<a href=#155 id=155 data-nosnippet>155</a>        </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
-<a href=#156 id=156 data-nosnippet>156</a>    }
-<a href=#157 id=157 data-nosnippet>157</a>}</code></pre></div></section></main></body></html>
+<a href=#53 id=53 data-nosnippet>53</a>            EntityType::Aggregator =&gt; <span class="prelude-val">Ok</span>(EntityId::Aggregator),
+<a href=#54 id=54 data-nosnippet>54</a>            EntityType::EntityUnknown =&gt; {
+<a href=#55 id=55 data-nosnippet>55</a>                <span class="prelude-val">Err</span>(BridgeError::ConfigError(<span class="string">"Unknown entity type"</span>.into()))
+<a href=#56 id=56 data-nosnippet>56</a>            }
+<a href=#57 id=57 data-nosnippet>57</a>        }
+<a href=#58 id=58 data-nosnippet>58</a>    }
+<a href=#59 id=59 data-nosnippet>59</a>
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="doccomment">/// Create or get metrics for an entity
+<a href=#61 id=61 data-nosnippet>61</a>    </span><span class="kw">fn </span>get_or_create_metrics(<span class="kw-2">&amp;mut </span><span class="self">self</span>, entity_id: EntityId) -&gt; <span class="kw-2">&amp;mut </span>EntityL1SyncStatusMetrics {
+<a href=#62 id=62 data-nosnippet>62</a>        <span class="self">self</span>.metrics.entry(entity_id).or_insert_with(|| {
+<a href=#63 id=63 data-nosnippet>63</a>            <span class="kw">let </span>scope = <span class="macro">format!</span>(<span class="string">"{entity_id}_l1_sync_status"</span>);
+<a href=#64 id=64 data-nosnippet>64</a>            EntityL1SyncStatusMetrics::describe(<span class="kw-2">&amp;</span>scope);
+<a href=#65 id=65 data-nosnippet>65</a>            EntityL1SyncStatusMetrics::new(<span class="kw-2">&amp;</span>scope)
+<a href=#66 id=66 data-nosnippet>66</a>        })
+<a href=#67 id=67 data-nosnippet>67</a>    }
+<a href=#68 id=68 data-nosnippet>68</a>}
+<a href=#69 id=69 data-nosnippet>69</a>
+<a href=#70 id=70 data-nosnippet>70</a><span class="attr">#[async_trait]
+<a href=#71 id=71 data-nosnippet>71</a></span><span class="kw">impl </span>Task <span class="kw">for </span>AggregatorMetricPublisher {
+<a href=#72 id=72 data-nosnippet>72</a>    <span class="kw">const </span>VARIANT: TaskVariant = TaskVariant::MetricPublisher;
+<a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">type </span>Output = bool;
+<a href=#74 id=74 data-nosnippet>74</a>
+<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">async fn </span>run_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Output, BridgeError&gt; {
+<a href=#76 id=76 data-nosnippet>76</a>        <span class="comment">// Metrics are not published in tests
+<a href=#77 id=77 data-nosnippet>77</a>        </span><span class="kw">if </span><span class="macro">cfg!</span>(test) {
+<a href=#78 id=78 data-nosnippet>78</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>);
+<a href=#79 id=79 data-nosnippet>79</a>        }
+<a href=#80 id=80 data-nosnippet>80</a>        <span class="macro">tracing::info!</span>(<span class="string">"Publishing metrics for aggregator"</span>);
+<a href=#81 id=81 data-nosnippet>81</a>
+<a href=#82 id=82 data-nosnippet>82</a>        <span class="kw">let </span>entity_statuses = <span class="self">self
+<a href=#83 id=83 data-nosnippet>83</a>            </span>.aggregator
+<a href=#84 id=84 data-nosnippet>84</a>            .get_entity_statuses(<span class="bool-val">false</span>)
+<a href=#85 id=85 data-nosnippet>85</a>            .<span class="kw">await
+<a href=#86 id=86 data-nosnippet>86</a>            </span>.inspect_err(|e| {
+<a href=#87 id=87 data-nosnippet>87</a>                <span class="macro">tracing::error!</span>(<span class="string">"Error getting entities status: {:?}"</span>, e);
+<a href=#88 id=88 data-nosnippet>88</a>            })<span class="question-mark">?</span>;
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a>        <span class="macro">tracing::info!</span>(<span class="string">"Entities status: {:?}"</span>, entity_statuses);
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a>        <span class="comment">// Process each entity status
+<a href=#93 id=93 data-nosnippet>93</a>        </span><span class="kw">for </span>entity_status_with_id <span class="kw">in </span>entity_statuses {
+<a href=#94 id=94 data-nosnippet>94</a>            <span class="kw">let </span>proto_entity_id = entity_status_with_id
+<a href=#95 id=95 data-nosnippet>95</a>                .entity_id
+<a href=#96 id=96 data-nosnippet>96</a>                .ok_or_else(|| BridgeError::ConfigError(<span class="string">"Missing entity_id"</span>.into()))<span class="question-mark">?</span>;
+<a href=#97 id=97 data-nosnippet>97</a>
+<a href=#98 id=98 data-nosnippet>98</a>            <span class="kw">let </span>entity_id = <span class="kw">match </span><span class="self">Self</span>::convert_entity_id(<span class="kw-2">&amp;</span>proto_entity_id) {
+<a href=#99 id=99 data-nosnippet>99</a>                <span class="prelude-val">Ok</span>(id) =&gt; id,
+<a href=#100 id=100 data-nosnippet>100</a>                <span class="prelude-val">Err</span>(e) =&gt; {
+<a href=#101 id=101 data-nosnippet>101</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Failed to convert entity_id: {}"</span>, e);
+<a href=#102 id=102 data-nosnippet>102</a>                    <span class="kw">continue</span>;
+<a href=#103 id=103 data-nosnippet>103</a>                }
+<a href=#104 id=104 data-nosnippet>104</a>            };
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a>            <span class="kw">let </span>metrics = <span class="self">self</span>.get_or_create_metrics(entity_id);
+<a href=#107 id=107 data-nosnippet>107</a>
+<a href=#108 id=108 data-nosnippet>108</a>            <span class="kw">match </span>entity_status_with_id.status_result {
+<a href=#109 id=109 data-nosnippet>109</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Status(
+<a href=#110 id=110 data-nosnippet>110</a>                    status,
+<a href=#111 id=111 data-nosnippet>111</a>                )) =&gt; {
+<a href=#112 id=112 data-nosnippet>112</a>                    <span class="comment">// Parse wallet balance from string (format is "X.XXX BTC")
+<a href=#113 id=113 data-nosnippet>113</a>                    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(balance) = status
+<a href=#114 id=114 data-nosnippet>114</a>                        .wallet_balance
+<a href=#115 id=115 data-nosnippet>115</a>                        .and_then(|s| s.strip_suffix(<span class="string">" BTC"</span>).and_then(|s| s.parse::&lt;f64&gt;().ok()))
+<a href=#116 id=116 data-nosnippet>116</a>                    {
+<a href=#117 id=117 data-nosnippet>117</a>                        metrics.wallet_balance_btc.set(balance);
+<a href=#118 id=118 data-nosnippet>118</a>                    }
+<a href=#119 id=119 data-nosnippet>119</a>
+<a href=#120 id=120 data-nosnippet>120</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.rpc_tip_height {
+<a href=#121 id=121 data-nosnippet>121</a>                        metrics.rpc_tip_height.set(height <span class="kw">as </span>f64);
+<a href=#122 id=122 data-nosnippet>122</a>                    }
+<a href=#123 id=123 data-nosnippet>123</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.bitcoin_syncer_synced_height {
+<a href=#124 id=124 data-nosnippet>124</a>                        metrics.btc_syncer_synced_height.set(height <span class="kw">as </span>f64);
+<a href=#125 id=125 data-nosnippet>125</a>                    }
+<a href=#126 id=126 data-nosnippet>126</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.hcp_last_proven_height {
+<a href=#127 id=127 data-nosnippet>127</a>                        metrics.hcp_last_proven_height.set(height <span class="kw">as </span>f64);
+<a href=#128 id=128 data-nosnippet>128</a>                    }
+<a href=#129 id=129 data-nosnippet>129</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.tx_sender_synced_height {
+<a href=#130 id=130 data-nosnippet>130</a>                        metrics.tx_sender_synced_height.set(height <span class="kw">as </span>f64);
+<a href=#131 id=131 data-nosnippet>131</a>                    }
+<a href=#132 id=132 data-nosnippet>132</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.finalized_synced_height {
+<a href=#133 id=133 data-nosnippet>133</a>                        metrics.finalized_synced_height.set(height <span class="kw">as </span>f64);
+<a href=#134 id=134 data-nosnippet>134</a>                    }
+<a href=#135 id=135 data-nosnippet>135</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.state_manager_next_height {
+<a href=#136 id=136 data-nosnippet>136</a>                        metrics.state_manager_next_height.set(height <span class="kw">as </span>f64);
+<a href=#137 id=137 data-nosnippet>137</a>                    }
+<a href=#138 id=138 data-nosnippet>138</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(tasks) = status.stopped_tasks {
+<a href=#139 id=139 data-nosnippet>139</a>                        metrics
+<a href=#140 id=140 data-nosnippet>140</a>                            .stopped_tasks_count
+<a href=#141 id=141 data-nosnippet>141</a>                            .set(tasks.stopped_tasks.len() <span class="kw">as </span>f64);
+<a href=#142 id=142 data-nosnippet>142</a>                    }
+<a href=#143 id=143 data-nosnippet>143</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(fee_rate) = status.btc_fee_rate_sat_vb {
+<a href=#144 id=144 data-nosnippet>144</a>                        metrics.bitcoin_fee_rate_sat_vb.set(fee_rate <span class="kw">as </span>f64);
+<a href=#145 id=145 data-nosnippet>145</a>                    }
+<a href=#146 id=146 data-nosnippet>146</a>                }
+<a href=#147 id=147 data-nosnippet>147</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
+<a href=#148 id=148 data-nosnippet>148</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);
+<a href=#149 id=149 data-nosnippet>149</a>                    <span class="comment">// Increment error counter
+<a href=#150 id=150 data-nosnippet>150</a>                    </span>metrics.entity_status_error_count.increment(<span class="number">1</span>);
+<a href=#151 id=151 data-nosnippet>151</a>                }
+<a href=#152 id=152 data-nosnippet>152</a>                <span class="prelude-val">None </span>=&gt; {
+<a href=#153 id=153 data-nosnippet>153</a>                    <span class="macro">tracing::warn!</span>(<span class="string">"Entity {} has no status"</span>, entity_id);
+<a href=#154 id=154 data-nosnippet>154</a>                }
+<a href=#155 id=155 data-nosnippet>155</a>            }
+<a href=#156 id=156 data-nosnippet>156</a>        }
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>        <span class="comment">// Always delay by returning false (ie. no work done)
+<a href=#159 id=159 data-nosnippet>159</a>        </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
+<a href=#160 id=160 data-nosnippet>160</a>    }
+<a href=#161 id=161 data-nosnippet>161</a>}</code></pre></div></section></main></body></html>

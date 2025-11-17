@@ -681,7 +681,7 @@
 <a href=#681 id=681 data-nosnippet>681</a>        <span class="kw">let </span>config = create_test_config_with_thread_name().<span class="kw">await</span>;
 <a href=#682 id=682 data-nosnippet>682</a>        <span class="kw">let </span>db = Database::new(<span class="kw-2">&amp;</span>config).<span class="kw">await</span>.unwrap();
 <a href=#683 id=683 data-nosnippet>683</a>
-<a href=#684 id=684 data-nosnippet>684</a>        <span class="kw">let </span>batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+<a href=#684 id=684 data-nosnippet>684</a>        <span class="kw">let </span>batch_size = config.header_chain_proof_batch_size;
 <a href=#685 id=685 data-nosnippet>685</a>
 <a href=#686 id=686 data-nosnippet>686</a>        <span class="macro">assert!</span>(db
 <a href=#687 id=687 data-nosnippet>687</a>            .get_next_n_non_proven_block(batch_size)

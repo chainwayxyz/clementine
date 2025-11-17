@@ -216,8 +216,8 @@
 <a href=#216 id=216 data-nosnippet>216</a>
 <a href=#217 id=217 data-nosnippet>217</a>    <span class="doccomment">/// Checks if all watchtowers are unique.
 <a href=#218 id=218 data-nosnippet>218</a>    </span><span class="kw">pub fn </span>are_all_watchtowers_unique(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span>set: HashSet&lt;<span class="kw">_</span>&gt; = <span class="self">self</span>.actors.watchtowers.iter().collect();
-<a href=#220 id=220 data-nosnippet>220</a>        set.len() == <span class="self">self</span>.actors.watchtowers.len()
+<a href=#219 id=219 data-nosnippet>219</a>        <span class="kw">let </span>set: HashSet&lt;<span class="kw">_</span>&gt; = <span class="self">self</span>.get_watchtowers().into_iter().collect();
+<a href=#220 id=220 data-nosnippet>220</a>        set.len() == <span class="self">self</span>.get_num_watchtowers()
 <a href=#221 id=221 data-nosnippet>221</a>    }
 <a href=#222 id=222 data-nosnippet>222</a>
 <a href=#223 id=223 data-nosnippet>223</a>    <span class="doccomment">/// Checks if all operators are unique.
