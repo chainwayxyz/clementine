@@ -20,7 +20,7 @@ use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_D
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
-use crate::utils::{timed_request, timed_try_join_all};
+use crate::utils::{flatten_join_named_results, timed_request, timed_try_join_all};
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -526,11 +526,15 @@ impl Aggregator {
 
         // Wait for all tasks to complete
         let (get_operators_keys_result, distribute_operators_keys_result) =
-            tokio::try_join!(get_operators_keys_handle, distribute_operators_keys_handle)
-                .wrap_err(Status::internal("Task join error in key distribution"))?;
+            tokio::join!(get_operators_keys_handle, distribute_operators_keys_handle);
 
-        get_operators_keys_result?;
-        distribute_operators_keys_result?;
+        flatten_join_named_results([
+            ("get_operators_keys", get_operators_keys_result),
+            (
+                "distribute_operators_keys",
+                distribute_operators_keys_result,
+            ),
+        ])?;
 
         tracing::info!(
             "collect_and_distribute_keys completed in {:?}",

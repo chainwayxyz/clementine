@@ -482,7 +482,7 @@ impl TimeoutTestParams {
         if self.key_distribution_verifier_idx == Some(idx) {
             use tokio::time::sleep;
             tokio::time::pause();
-            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
+            sleep(crate::constants::VERIFIER_SEND_KEYS_TIMEOUT + std::time::Duration::from_secs(1))
                 .await;
         }
     }
@@ -491,7 +491,7 @@ impl TimeoutTestParams {
         if self.key_collection_operator_idx == Some(idx) {
             use tokio::time::sleep;
             tokio::time::pause();
-            sleep(crate::constants::KEY_DISTRIBUTION_TIMEOUT + std::time::Duration::from_secs(1))
+            sleep(crate::constants::OPERATOR_GET_KEYS_TIMEOUT + std::time::Duration::from_secs(1))
                 .await;
         }
     }

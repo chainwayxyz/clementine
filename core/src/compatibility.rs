@@ -53,13 +53,15 @@ impl CompatibilityParams {
         if self.bridge_circuit_constant != other.bridge_circuit_constant {
             reasons.push(format!(
                 "Bridge circuit constant mismatch: self={:?}, other={:?}",
-                self.bridge_circuit_constant, other.bridge_circuit_constant
+                hex::encode(self.bridge_circuit_constant),
+                hex::encode(other.bridge_circuit_constant)
             ));
         }
         if self.sha256_bitvm_cache != other.sha256_bitvm_cache {
             reasons.push(format!(
                 "BitVM cache SHA256 mismatch: self={:?}, other={:?}",
-                self.sha256_bitvm_cache, other.sha256_bitvm_cache
+                hex::encode(self.sha256_bitvm_cache),
+                hex::encode(other.sha256_bitvm_cache)
             ));
         }
         let own_version = semver::Version::parse(&self.clementine_version).wrap_err(format!(
