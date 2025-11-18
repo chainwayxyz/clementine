@@ -2,7 +2,7 @@ name: Clementine test deployment on Regtest
 
 # Common stuff for services ----------------------------------------------------
 x-clementine: &clementine_regtest
-  image: ${CLEMENTINE_IMAGE:-chainwayxyz/clementine}
+  image: ${CLEMENTINE_IMAGE:-ubuntu:24.04}
   platform: linux/amd64
 
   depends_on:
@@ -21,11 +21,16 @@ x-clementine: &clementine_regtest
     - ./configs/regtest/.env.regtest
 
   volumes:
-    - ../../bitvm_cache.bin:/bitvm_cache.bin
-    - ../../bitvm_cache_dev.bin:/bitvm_cache_dev.bin
+    - ../../core/bitvm_cache.bin:/bitvm_cache.bin
+    - ../../core/bitvm_cache_dev.bin:/bitvm_cache_dev.bin
     - ../../core/certs:/certs
+    - ../../scripts/docker/clementine-core:/clementine-core
+    - /usr/bin/docker:/usr/bin/docker
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /tmp/risc0-work:/tmp/risc0-work
   networks:
     - clementine-network
+  entrypoint: ["/clementine-core"]
 
 x-verifier: &clementine_verifier_regtest
   <<: *clementine_regtest
@@ -78,7 +83,7 @@ services:
     volumes:
       - ../init-bitcoin.sh:/init-bitcoin.sh
       - ../docker-entrypoint.sh:/docker-entrypoint.sh
-      - bitcoin_regtest:/home/bitcoin/.bitcoin
+      - bitcoin_regtest:/root/.bitcoin/regtest
     command:
       -printtoconsole
       -regtest=1
@@ -91,6 +96,7 @@ services:
       -server
       -txindex=1
       -fallbackfee=0.00001
+      -dustrelayfee=0
       -maxtxfee=5
     entrypoint: ["/docker-entrypoint.sh"]
 
@@ -110,7 +116,9 @@ services:
       - clementine-network
 
   citrea_sequencer_regtest:
-    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    image: chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6
+    environment:
+      - RISC0_DEV_MODE=1
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -128,15 +136,16 @@ services:
       - clementine-network
 
   citrea_batch_prover_regtest:
-    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    image: chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6
+    environment:
+      - RISC0_DEV_MODE=1
+      - PARALLEL_PROOF_LIMIT=1
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
       citrea_sequencer_regtest:
         condition: service_started
     container_name: citrea_batch_prover_regtest
-    environment:
-      - PARALLEL_PROOF_LIMIT=1
     command:
       --dev --da-layer bitcoin --rollup-config-path /batch_prover_rollup_config.toml --batch-prover /batch_prover_config.toml --genesis-paths /genesis-bitcoin-regtest/
     ports:
@@ -150,7 +159,9 @@ services:
       - clementine-network
 
   citrea_light_client_prover_regtest:
-    image: chainwayxyz/citrea-test:ca479a4147be1c3a472e76a3f117124683d81ab5
+    image: chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6
+    environment:
+      - RISC0_DEV_MODE=1
     depends_on:
       bitcoin_regtest:
         condition: service_healthy
@@ -192,6 +203,7 @@ services:
       - DB_NAME=clementine0
       - CLIENT_CERT_PATH=/certs/aggregator/aggregator.pem
       - CLIENT_KEY_PATH=/certs/aggregator/aggregator.key
+      - RISC0_WORK_DIR=/tmp/risc0-work/agg
     command:
       aggregator
     ports:
@@ -204,13 +216,15 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
+      - RISC0_WORK_DIR=/tmp/risc0-work/ver0
     ports:
       - "17001:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
+
 
   clementine_verifier_regtest_1:
     <<: *clementine_verifier_regtest
@@ -218,13 +232,14 @@ services:
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
+      - RISC0_WORK_DIR=/tmp/risc0-work/ver1
     ports:
       - "17002:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
 
   clementine_verifier_regtest_2:
     <<: *clementine_verifier_regtest
@@ -232,13 +247,14 @@ services:
     environment:
       - SECRET_KEY=3333333333333333333333333333333333333333333333333333333333333333
       - DB_NAME=clementine2
+      - RISC0_WORK_DIR=/tmp/risc0-work/ver2
     ports:
       - "17003:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
 
   clementine_verifier_regtest_3:
     <<: *clementine_verifier_regtest
@@ -246,13 +262,14 @@ services:
     environment:
       - SECRET_KEY=4444444444444444444444444444444444444444444444444444444444444444
       - DB_NAME=clementine3
+      - RISC0_WORK_DIR=/tmp/risc0-work/ver3
     ports:
       - "17004:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
 
 # Operators --------------------------------------------------------------------
   clementine_operator_regtest_0:
@@ -261,13 +278,14 @@ services:
     environment:
       - SECRET_KEY=1111111111111111111111111111111111111111111111111111111111111111
       - DB_NAME=clementine0
+      - RISC0_WORK_DIR=/tmp/risc0-work/op0
     ports:
       - "17005:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
 
   clementine_operator_regtest_1:
     <<: *clementine_operator_regtest
@@ -275,13 +293,14 @@ services:
     environment:
       - SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
       - DB_NAME=clementine1
+      - RISC0_WORK_DIR=/tmp/risc0-work/op1
     ports:
       - "17006:17000"
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/17000'"]
       interval: 1s
       timeout: 5s
-      retries: 100
+      retries: 500
 
 volumes:
   postgres_db_regtest:

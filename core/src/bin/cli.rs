@@ -98,6 +98,19 @@ enum OperatorCommands {
     GetCompatibilityParams,
     /// Get entity status
     GetEntityStatus,
+    /// Create signed transactions for a deposit and kickoff
+    InternalCreateSignedTxs {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        operator_xonly_pk: String,
+        #[arg(long)]
+        round_idx: u32,
+        #[arg(long)]
+        kickoff_idx: u32,
+    },
     // Add other operator commands as needed
 }
 
@@ -116,6 +129,19 @@ enum VerifierCommands {
     GetEntityStatus,
     /// Get vergen build information
     Vergen,
+    /// Create signed transactions for a deposit and kickoff
+    InternalCreateSignedTxs {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        operator_xonly_pk: String,
+        #[arg(long)]
+        round_idx: u32,
+        #[arg(long)]
+        kickoff_idx: u32,
+    },
     // /// Set verifier public keys
     // SetVerifiers {
     //     #[arg(long, num_args = 1.., value_delimiter = ',')]
@@ -453,6 +479,56 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .expect("Failed to make a request");
             println!("Entity status:\n{params:#?}");
         }
+        OperatorCommands::InternalCreateSignedTxs {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            operator_xonly_pk,
+            round_idx,
+            kickoff_idx,
+        } => {
+            println!(
+                "Creating signed transactions for deposit {deposit_outpoint_txid}:{deposit_outpoint_vout}, kickoff (operator: {operator_xonly_pk}, round: {round_idx}, kickoff: {kickoff_idx})"
+            );
+
+            let mut txid_bytes =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode deposit outpoint txid");
+            txid_bytes.reverse();
+
+            let operator_pk_bytes =
+                hex::decode(operator_xonly_pk).expect("Failed to decode operator xonly public key");
+            let operator_xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&operator_pk_bytes)
+                .expect("Failed to parse operator xonly public key");
+
+            let request = clementine_core::rpc::clementine::TransactionRequest {
+                deposit_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
+                    vout: deposit_outpoint_vout,
+                }),
+                kickoff_id: Some(clementine_core::rpc::clementine::KickoffId {
+                    operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                    round_idx,
+                    kickoff_idx,
+                }),
+            };
+
+            let response = operator
+                .internal_create_signed_txs(Request::new(request))
+                .await
+                .expect("Failed to make a request to operator")
+                .into_inner();
+
+            for signed_tx in &response.signed_txs {
+                let tx_type: TransactionType = signed_tx
+                    .transaction_type
+                    .expect("Tx type should not be None")
+                    .try_into()
+                    .expect("Failed to convert tx type");
+                let hex_tx = hex::encode(&signed_tx.raw_tx);
+                if let TransactionType::Challenge = tx_type {
+                    println!("{tx_type:?}: {hex_tx}");
+                }
+            }
+        }
     }
 }
 
@@ -508,6 +584,56 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .expect("Failed to make a request");
             println!("Entity status:\n{params:#?}");
         }
+        VerifierCommands::InternalCreateSignedTxs {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            operator_xonly_pk,
+            round_idx,
+            kickoff_idx,
+        } => {
+            println!(
+                "Creating signed transactions for deposit {deposit_outpoint_txid}:{deposit_outpoint_vout}, kickoff (operator: {operator_xonly_pk}, round: {round_idx}, kickoff: {kickoff_idx})"
+            );
+
+            let mut txid_bytes =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode deposit outpoint txid");
+            txid_bytes.reverse();
+
+            let operator_pk_bytes =
+                hex::decode(operator_xonly_pk).expect("Failed to decode operator xonly public key");
+            let operator_xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&operator_pk_bytes)
+                .expect("Failed to parse operator xonly public key");
+
+            let request = clementine_core::rpc::clementine::TransactionRequest {
+                deposit_outpoint: Some(Outpoint {
+                    txid: Some(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
+                    vout: deposit_outpoint_vout,
+                }),
+                kickoff_id: Some(clementine_core::rpc::clementine::KickoffId {
+                    operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                    round_idx,
+                    kickoff_idx,
+                }),
+            };
+
+            let response = verifier
+                .internal_create_signed_txs(Request::new(request))
+                .await
+                .expect("Failed to make a request to verifier")
+                .into_inner();
+
+            for signed_tx in &response.signed_txs {
+                let tx_type: TransactionType = signed_tx
+                    .transaction_type
+                    .expect("Tx type should not be None")
+                    .try_into()
+                    .expect("Failed to convert tx type");
+                let hex_tx = hex::encode(&signed_tx.raw_tx);
+                if let TransactionType::Challenge = tx_type {
+                    println!("{tx_type:?}: {hex_tx}");
+                }
+            }
+        }
     }
 }
 
@@ -518,7 +644,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         vec![url],
         ClementineAggregatorClient::new,
         &config,
-        false,
+        true,
     )
     .await
     .expect("Exists")[0]
