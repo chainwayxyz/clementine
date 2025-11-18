@@ -7,7 +7,8 @@ use super::clementine::{
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys,
 };
 use crate::aggregator::{
-    AggregatorServer, OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId,
+    AggregatorServer, CompatibilityCheckScope, OperatorId, ParticipatingOperators,
+    ParticipatingVerifiers, VerifierId,
 };
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
@@ -1028,7 +1029,8 @@ impl ClementineAggregator for AggregatorServer {
         tracing::info!("Parsed optimistic payout rpc params, deposit id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}, verification signature: {:?}", deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount, opt_withdraw_params.verification_signature);
 
         // check compatibility with verifiers only
-        self.check_compatibility_with_actors(true, false).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::VerifiersOnly)
+            .await?;
 
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
@@ -1317,7 +1319,8 @@ impl ClementineAggregator for AggregatorServer {
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
         tracing::info!("Setup rpc called");
-        self.check_compatibility_with_actors(true, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::Both)
+            .await?;
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1451,7 +1454,8 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
         tracing::info!("New deposit rpc called");
-        self.check_compatibility_with_actors(true, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::Both)
+            .await?;
 
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
             let deposit_info: DepositInfo = request.into_inner().try_into()?;
@@ -1821,7 +1825,8 @@ impl ClementineAggregator for AggregatorServer {
             request.operator_xonly_pks,
         );
         // check compatibility with operators only
-        self.check_compatibility_with_actors(false, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::OperatorsOnly)
+            .await?;
 
         let withdraw_params = withdraw_params_with_sig
             .clone()
