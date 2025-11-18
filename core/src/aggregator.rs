@@ -21,7 +21,7 @@ use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::utils::{
-    flatten_join_named_results, join_all_combine_errors, timed_request, timed_try_join_all,
+    flatten_join_named_results, join_all_partition_results, timed_request, timed_try_join_all,
 };
 use crate::{
     config::BridgeConfig,
@@ -919,7 +919,7 @@ impl Aggregator {
         &self,
         scope: CompatibilityCheckScope,
     ) -> Result<(), BridgeError> {
-        let mut other_errors = Vec::new();
+        let mut errors = Vec::new();
         let mut operator_futures = Vec::new();
         let mut verifier_futures = Vec::new();
 
@@ -987,35 +987,30 @@ impl Aggregator {
         }
 
         // Run all futures in parallel and combine errors
-        let operator_results = join_all_combine_errors(operator_futures).await;
-        let verifier_results = join_all_combine_errors(verifier_futures).await;
+        let (operator_results, operator_err) = join_all_partition_results(operator_futures).await;
+        let (verifier_results, verifier_err) = join_all_partition_results(verifier_futures).await;
 
         let mut actors_compat_params = Vec::new();
+        actors_compat_params.extend(operator_results);
+        actors_compat_params.extend(verifier_results);
 
-        match operator_results {
-            Ok(params) => actors_compat_params.extend(params),
-            Err(e) => {
-                other_errors.push(format!(
-                    "Error while retrieving operator compatibility params: {e}"
-                ));
-            }
+        if let Some(operator_err) = operator_err {
+            errors.push(format!(
+                "Error while retrieving operator compatibility params: {operator_err}"
+            ));
         }
-
-        match verifier_results {
-            Ok(params) => actors_compat_params.extend(params),
-            Err(e) => {
-                other_errors.push(format!(
-                    "Error while retrieving verifier compatibility params: {e}"
-                ));
-            }
+        if let Some(verifier_err) = verifier_err {
+            errors.push(format!(
+                "Error while retrieving verifier compatibility params: {verifier_err}"
+            ));
         }
 
         // Combine compatibility error and other errors (ex: connection) into a single message
         if let Err(e) = self.is_compatible(actors_compat_params) {
-            other_errors.push(format!("Clementine not compatible with some actors: {e}"));
+            errors.push(format!("Clementine not compatible with some actors: {e}"));
         }
-        if !other_errors.is_empty() {
-            return Err(eyre::eyre!(other_errors.join("; ")).into());
+        if !errors.is_empty() {
+            return Err(eyre::eyre!(errors.join("; ")).into());
         }
 
         Ok(())
