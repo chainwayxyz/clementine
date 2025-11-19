@@ -35,10 +35,11 @@ COPY --from=builder /clementine/target/release/clementine-cli /clementine-cli
 RUN groupadd --gid 1000 clementine && \
   useradd --uid 1000 --gid clementine --create-home clementine
 
+# Change user before loading images, because they are loaded in home directory
+USER clementine
 # Only loads prover images for dev mode
 RUN /clementine-cli load-prover-images
 
-USER clementine
 # Set up Clementine
 ENTRYPOINT [ "/clementine-core" ]
 EXPOSE 17000
