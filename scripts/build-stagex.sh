@@ -22,8 +22,8 @@ cd "$REPO_ROOT"
 
 # Check for uncommitted changes that could affect reproducibility
 if [[ -n $(git status --porcelain) ]]; then
-    echo "⚠️  Warning: You have uncommitted changes in your repository."
-    echo "   For reproducible builds, commit all changes first."
+    echo "  WARNING: You have uncommitted changes in your repository."
+    echo "  For reproducible builds, commit all changes first."
     echo ""
     read -p "Continue anyway? [y/N] " -n 1 -r
     echo

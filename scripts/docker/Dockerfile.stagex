@@ -6,19 +6,11 @@
 # Output: only the binary at /out/clementine-core
 ########################################
 
-# Pin StageX pallets by digest for bit-for-bit reproducibility.
-# Replace the sha256 values with the exact digests you trust.
+# Pin StageX pallets by digest for bit-for-bit reproducibility
 ARG PALLET_RUST=stagex/pallet-rust@sha256:b9021d2b75eac64fe8b931d96dde63ef11792e5023cee77c3471ccc34a95a377
-# Optional build deps if your tree needs them (bindgen/ssl); keep commented if unused:
-# ARG CORE_CLANG=stagex/core-clang@sha256:REPLACE_ME
-# ARG CORE_OPENSSL=stagex/core-openssl@sha256:REPLACE_ME
 
 FROM ${PALLET_RUST} AS build
 WORKDIR /src
-
-# If needed, bring in optional tool pallets deterministically (no RUN needed)
-# COPY --from=${CORE_CLANG}   . /
-# COPY --from=${CORE_OPENSSL} . /
 
 # Copy the repository (must include Cargo.lock)
 COPY . .

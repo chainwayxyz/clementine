@@ -12,7 +12,7 @@ A reproducible build is a build process that produces bit-for-bit identical bina
 
 ## Quick Start
 
-To build a reproducible binary:
+To build a reproducible binary (supported only for Linux):
 
 ```bash
 ./scripts/build-stagex.sh
