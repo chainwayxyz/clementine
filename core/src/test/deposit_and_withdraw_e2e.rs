@@ -195,9 +195,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.protocol_paramset = Box::leak(Box::new(paramset));
         }
 
+        let mut actors = create_actors(&config).await;
+
         // do 2 deposits
-        let (mut actors, _deposit_infos, move_txids, _deposit_blockhashs, _) =
-            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, None).await?;
+        let (_deposit_infos, move_txids, _deposit_blockhashs, _) =
+            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 2, &actors).await?;
 
         let citrea_e2e_data = CitreaE2EData {
             sequencer,
@@ -275,14 +277,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // do 3 more deposits
         tracing::info!("Running 3 more deposits");
-        let (
-            mut actors,
-            _new_deposit_infos,
-            new_move_txids,
-            _deposit_blockhashs,
-            _verifiers_public_keys,
-        ) = run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, Some(actors))
-            .await?;
+        let (_new_deposit_infos, new_move_txids, _deposit_blockhashs, _verifiers_public_keys) =
+            run_multiple_deposits::<CitreaClient>(&mut config, rpc.clone(), 3, &actors).await?;
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
@@ -375,20 +371,16 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // replace the deposit
         tracing::info!("Replacing deposit");
-        let (
-            mut actors,
-            _replacement_deposit_info,
-            replacement_move_txid,
-            _replacement_deposit_blockhash,
-        ) = run_single_replacement_deposit(
-            &mut config,
-            &rpc,
-            new_move_txids[2],
-            actors,
-            old_nofn_xonly_pk,
-        )
-        .await
-        .unwrap();
+        let (_replacement_deposit_info, replacement_move_txid, _replacement_deposit_blockhash) =
+            run_single_replacement_deposit(
+                &mut config,
+                &rpc,
+                new_move_txids[2],
+                &actors,
+                old_nofn_xonly_pk,
+            )
+            .await
+            .unwrap();
 
         tracing::info!("Registering replacement deposit to Citrea");
         register_replacement_deposit_to_citrea(
@@ -441,18 +433,66 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // to make it not fail, operator data needs to be removed from verifiers DB.
         // if the behavior is changed in the future, the test should be updated.
         tracing::info!("Removing operator 1");
+        let op1_secret_key = actors
+            .get_operator_by_index(1)
+            .expect("Operator 1 not found")
+            .secret_key;
         actors.remove_operator(1).await.unwrap();
         // try to do a deposit, it should fail.
-        assert!(run_single_deposit::<CitreaClient>(
-            &mut config,
-            rpc.clone(),
-            None,
-            Some(actors),
-            None
-        )
-        .await
-        .is_err());
+        assert!(
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, &actors, None)
+                .await
+                .is_err()
+        );
 
+        // spend the operator's collateral then try a deposit, it should work now as operator exited the protocol
+        let op1_actor = Actor::new(op1_secret_key, config.protocol_paramset().network);
+        let op1_xonly_pk = op1_actor.xonly_public_key;
+        let op1_collateral = new_operator_db
+            .get_operator(None, op1_xonly_pk)
+            .await
+            .unwrap()
+            .unwrap()
+            .collateral_funding_outpoint;
+        let collateral_funding_amount = config.protocol_paramset().collateral_funding_amount;
+        let (op_address, op_spend) =
+            create_taproot_address(&[], Some(op1_xonly_pk), config.protocol_paramset().network);
+        let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+            .add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new(
+                    op1_collateral,
+                    TxOut {
+                        value: collateral_funding_amount,
+                        script_pubkey: op1_actor.address.script_pubkey(),
+                    },
+                    vec![],
+                    Some(op_spend.clone()),
+                ),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(TxOut {
+                value: collateral_funding_amount - Amount::from_sat(1000),
+                script_pubkey: op_address.script_pubkey(),
+            }))
+            .finalize();
+        op1_actor
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .unwrap();
+        let tx = txhandler.get_cached_tx();
+        rpc.send_raw_transaction(tx).await.unwrap();
+        rpc.mine_blocks_while_synced(1, &actors, Some(&citrea_e2e_data))
+            .await
+            .unwrap();
+        // check if collateral is spent
+        assert!(rpc.is_utxo_spent(&op1_collateral).await.unwrap());
+        // try a deposit, it should work now
+        assert!(
+            run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None, &actors, None)
+                .await
+                .is_ok()
+        );
         //tokio::time::sleep(std::time::Duration::from_secs(1000000000)).await;
 
         Ok(())
@@ -480,11 +520,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// but it is one of the nofn in deposit 4
 /// * A replacement deposit is performed for deposit 4
 /// * Optimistic payout for deposit 4 is performed with the new replacement deposit
-/// * Remove operator 1, try to do a deposit, it should fail because the operator is still in verifiers DB.
+/// * Remove operator 1, then spend its collateral and try a deposit, it should work as operator exited the protocol.
 /// * A check to see if reimburse connectors for the kickoffs created previously (for deposit 0 and 2) are spent,
 ///     meaning operators 0 and 2 got their funds back (the kickoff process is independent of actor set changes, they should
 ///     always work if the collected signatures are correct from start)
-/// * Removes one operator and tries to do a deposit, it should fail because the operator is still in verifiers DB.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
@@ -546,8 +585,9 @@ async fn mock_citrea_run_truthful() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (_deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 
@@ -805,12 +845,13 @@ async fn testnet4_mock_citrea_run_truthful() {
         .insert_deposit_move_txid(config.protocol_paramset().start_height as u64, move_txid)
         .await;
 
-    let (actors, _deposit_infos, _move_txid, _deposit_blockhash, _verifiers_public_keys) =
+    let actors = create_actors(&config).await;
+    let (_deposit_infos, _move_txid, _deposit_blockhash, _verifiers_public_keys) =
         run_single_deposit::<MockCitreaClient>(
             &mut config,
             rpc.clone(),
             None,
-            None,
+            &actors,
             Some(OutPoint {
                 // use previous deposit outpoint so that we don't need to create a new one
                 txid: Txid::from_str(
@@ -1000,8 +1041,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, _deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (_deposit_params, move_txid, _deposit_blockhash, _verifiers_public_keys) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 
@@ -1175,8 +1217,9 @@ async fn mock_citrea_run_malicious() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, deposit_info, move_txid, _deposit_blockhash, _) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (deposit_info, move_txid, _deposit_blockhash, _) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
     let db = Database::new(&BridgeConfig {
@@ -1372,8 +1415,9 @@ async fn mock_citrea_run_malicious_after_exit() {
         "Deposit starting block_height: {:?}",
         rpc.get_block_count().await.unwrap()
     );
-    let (actors, deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
-        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+    let actors = create_actors(&config).await;
+    let (deposit_info, move_txid, _deposit_blockhash, verifier_pks) =
+        run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
             .await
             .unwrap();
 

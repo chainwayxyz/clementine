@@ -394,7 +394,8 @@ mod tests {
             clementine_operator_client::ClementineOperatorClient, TransactionRequest,
         },
         test::common::{
-            citrea::MockCitreaClient, create_regtest_rpc, create_test_config_with_thread_name,
+            citrea::MockCitreaClient, create_actors, create_regtest_rpc,
+            create_test_config_with_thread_name, run_single_deposit,
             tx_utils::get_tx_from_signed_txs_with_type,
         },
     };
@@ -440,8 +441,6 @@ mod tests {
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
-        use crate::test::common::run_single_deposit;
-
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
@@ -449,8 +448,9 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
-        let (actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
-            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, None, None)
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let (deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None, &actors, None)
                 .await
                 .unwrap();
 
@@ -657,8 +657,6 @@ mod tests {
     #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {
-        use crate::test::common::run_single_deposit;
-
         let mut config = create_test_config_with_thread_name().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
@@ -693,12 +691,13 @@ mod tests {
             .await
             .expect("Failed to generate blocks");
 
-        let (actors, deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
+        let actors = create_actors::<MockCitreaClient>(&config).await;
+        let (deposit_info, move_txid, deposit_blockhash, verifiers_public_keys) =
             run_single_deposit::<MockCitreaClient>(
                 &mut config,
                 rpc.clone(),
                 None,
-                None,
+                &actors,
                 Some(deposit_state.deposit_info.deposit_outpoint),
             )
             .await

@@ -5,7 +5,7 @@ use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};
 use eyre::Context as _;
-use futures::future::try_join_all;
+use futures::future::join_all;
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::{Deserialize, Serialize};
@@ -732,7 +732,7 @@ where
 /// # Returns
 ///
 /// Returns `Ok(Vec<T>)` containing the results of all futures if they all complete successfully.
-/// Returns `Err(BridgeError)` if any future returns an error or times out.
+/// Returns `Err(BridgeError)` if any future returns an error or times out. The error will be a combined error of all errors.
 /// The error will be contextualized with the operation description and the specific future's ID if available.
 pub async fn timed_try_join_all<I, T, D>(
     duration: Duration,
@@ -746,7 +746,7 @@ where
     I::Item: Future<Output = Result<T, BridgeError>>,
 {
     let ids = Arc::new(ids);
-    try_join_all(iter.into_iter().enumerate().map(|item| {
+    let results = join_all(iter.into_iter().enumerate().map(|item| {
         let ids = ids.clone();
         async move {
             let id = Option::as_ref(&ids).and_then(|ids| ids.get(item.0));
@@ -768,11 +768,110 @@ where
                         id.map(ToString::to_string).unwrap_or_else(|| "n/a".into())
                     )
                 })
-                .map_err(Into::into)
         }
     }))
     .instrument(debug_span!("timed_try_join_all", description = description))
-    .await
+    .await;
+
+    combine_errors(results)
+}
+
+/// Executes a collection of fallible futures concurrently and aggregates failures into a single
+/// [`BridgeError`].
+///
+/// This runs all futures like [`futures::future::try_join_all`], but instead of stopping on the
+/// first error it waits for every future to finish by leveraging [`join_all`]. All errors are then
+/// combined via [`combine_errors`], ensuring the caller gets full visibility into every failure.
+pub async fn join_all_combine_errors<F, T, E>(
+    futures: impl IntoIterator<Item = F>,
+) -> Result<Vec<T>, BridgeError>
+where
+    F: Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let results = join_all(futures).await;
+    combine_errors(results)
+}
+
+/// Collects errors from an iterator of results and returns a combined error if any failed.
+///
+/// # Parameters
+/// * `results`: Iterator of results (errors should contain identifying information in their Debug representation)
+/// * `prefix`: Prefix message for the combined error (e.g., "Operator key collection failures")
+///
+/// # Returns
+/// * `Ok(Vec<T>)` containing all successful results if all results are successful
+/// * `Err(BridgeError)` with a combined error message listing all failures
+pub fn combine_errors<I, EIn, T>(results: I) -> Result<Vec<T>, BridgeError>
+where
+    I: IntoIterator<Item = Result<T, EIn>>,
+    EIn: std::fmt::Display,
+{
+    let mut errors = Vec::new();
+    let mut successful_results = Vec::new();
+    for result in results {
+        match result {
+            Ok(value) => successful_results.push(value),
+            Err(e) => errors.push(format!("{e:#}")),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(BridgeError::from(eyre::eyre!(
+            "Number of failed futures: {}: {}",
+            errors.len(),
+            errors.join("; ")
+        )));
+    }
+    Ok(successful_results)
+}
+
+/// Collects all errors (both outer and inner) from named task results and returns a combined error if any task failed.
+///
+/// This function is useful when you have multiple async tasks (e.g., from `tokio::spawn`) and want to
+/// see all errors if multiple tasks fail, rather than just the first error.
+///
+/// # Parameters
+/// * `task_results`: Iterator of tuples containing (task_name, Result<Result<T, E1>, E2>)
+///   - `task_name`: A string-like identifier for the task (used in error messages)
+///   - The nested Result represents: `Result<T, E1>` is the task's result, `E2` is typically a `JoinError`
+///
+/// # Returns
+/// * `Ok(())` if all tasks completed successfully
+/// * `Err(BridgeError)` with a combined error message listing all failures
+pub fn flatten_join_named_results<T, E1, E2, S, R>(task_results: R) -> Result<(), BridgeError>
+where
+    R: IntoIterator<Item = (S, Result<Result<T, E1>, E2>)>,
+    S: AsRef<str>,
+    E1: std::fmt::Display,
+    E2: std::fmt::Display,
+{
+    let mut task_errors = Vec::new();
+
+    for (task_name, task_output) in task_results.into_iter() {
+        match task_output {
+            Ok(inner_result) => {
+                if let Err(e) = inner_result {
+                    let err_msg = format!("{} failed with error: {:#}", task_name.as_ref(), e);
+                    task_errors.push(err_msg);
+                }
+            }
+            Err(e) => {
+                let err_msg = format!(
+                    "{} task thread failed with error: {:#}",
+                    task_name.as_ref(),
+                    e
+                );
+                task_errors.push(err_msg);
+            }
+        }
+    }
+
+    if !task_errors.is_empty() {
+        tracing::error!("Tasks failed with errors: {:#?}", task_errors);
+        return Err(eyre::eyre!("Tasks failed with errors: {:#?}", task_errors).into());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
