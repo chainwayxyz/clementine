@@ -135,6 +135,7 @@ impl TestParams {
             tracing::info!("Disrupting public input with i: 0, j: {}", j);
             asserts.0[0][j] ^= 0x01;
         }
+        tracing::info!("Asserts after potential corruption: {:?}", asserts);
         asserts
     }
 

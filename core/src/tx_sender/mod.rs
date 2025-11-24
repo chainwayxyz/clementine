@@ -180,10 +180,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
-        tracing::info!(
-            "Calculating required fee for {} fee payer utxos",
-            num_fee_payer_utxos
-        );
+        // tracing::info!(
+        //     "Calculating required fee for {} fee payer utxos",
+        //     num_fee_payer_utxos
+        // );
         // Estimate the weight of the child transaction (for CPFP) or the RBF replacement.
         // P2TR input witness adds ~57.5vbytes (230 WU). P2TR output adds 43 vbytes (172 WU).
         // Base transaction overhead (version, locktime, input/output counts) ~ 10.5 vBytes (42 WU)

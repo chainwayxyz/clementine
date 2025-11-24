@@ -735,7 +735,7 @@ impl TxSender {
             return Ok(());
         }
 
-        tracing::info!("Package submitted successfully.");
+        // tracing::info!("Package submitted successfully.");
 
         // // Get the effective fee rate from the first transaction result
         // let effective_fee_rate_btc_per_kvb = submit_package_result

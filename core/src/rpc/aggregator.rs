@@ -1000,7 +1000,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         request: Request<GetEntityStatusesRequest>,
     ) -> Result<Response<EntityStatuses>, Status> {
-        tracing::info!("Get entity statuses rpc called");
+        // tracing::info!("Get entity statuses rpc called");
         let request = request.into_inner();
         let restart_tasks = request.restart_tasks;
 

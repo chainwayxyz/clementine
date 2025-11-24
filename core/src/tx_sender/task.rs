@@ -51,7 +51,7 @@ impl Task for TxSenderTask {
             else {
                 return Ok(false);
             };
-            tracing::info!("Received Bitcoin syncer event: {:?}", event);
+            // tracing::info!("Received Bitcoin syncer event: {:?}", event);
 
             tracing::debug!("TXSENDER: Event: {:?}", event);
             Ok::<_, BridgeError>(match event {
@@ -62,11 +62,11 @@ impl Task for TxSenderTask {
                         .await?
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
-                    tracing::info!(
-                        height = self.current_tip_height,
-                        block_id = %block_id,
-                        "Block mined, confirming transactions..."
-                    );
+                    // tracing::info!(
+                    //     height = self.current_tip_height,
+                    //     block_id = %block_id,
+                    //     "Block mined, confirming transactions..."
+                    // );
 
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
 
@@ -82,11 +82,11 @@ impl Task for TxSenderTask {
                         .await?
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
-                    tracing::info!(
-                        height = height,
-                        block_id = %block_id,
-                        "Reorged happened, unconfirming transactions..."
-                    );
+                    // tracing::info!(
+                    //     height = height,
+                    //     block_id = %block_id,
+                    //     "Reorged happened, unconfirming transactions..."
+                    // );
 
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
 
