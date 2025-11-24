@@ -106,20 +106,20 @@ impl Database {
             };
 
             if sendable_txs.contains(&id) {
-                tracing::info!(
-                    "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}) is ACTIVE",
-                    id,
-                    txid.0
-                );
+                // tracing::info!(
+                //     "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}) is ACTIVE",
+                //     id,
+                //     txid.0
+                // );
                 continue;
             }
 
-            tracing::info!(
-                "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}, type: {:?}) is inactive, reasons:",
-                id,
-                txid.0,
-                tx_metadata.map(|metadata| metadata.tx_type)
-            );
+            // tracing::info!(
+            //     "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}, type: {:?}) is inactive, reasons:",
+            //     id,
+            //     txid.0,
+            //     tx_metadata.map(|metadata| metadata.tx_type)
+            // );
 
             // Check for txid activations that aren't active yet
             let txid_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB)>(
@@ -143,7 +143,7 @@ impl Database {
 
             for (seen_block_id, timelock, txid) in txid_activations {
                 if seen_block_id.is_none() {
-                    tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation {} has not been seen", id, txid.0);
+                    // tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation {} has not been seen", id, txid.0);
                     continue;
                 }
 
@@ -165,10 +165,10 @@ impl Database {
                 };
 
                 if block_height + timelock as i32 > current_tip_height as i32 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
-                    );
+                    // tracing::info!(
+                    //     "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
+                    //     id, block_height, timelock, current_tip_height
+                    // );
                 }
             }
 
@@ -194,7 +194,7 @@ impl Database {
 
             for (seen_block_id, timelock, txid, vout) in outpoint_activations {
                 if seen_block_id.is_none() {
-                    tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation has not been seen ({}:{})", id, txid.0, vout);
+                    // tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation has not been seen ({}:{})", id, txid.0, vout);
                     continue;
                 }
 
@@ -216,10 +216,10 @@ impl Database {
                 };
 
                 if block_height + timelock as i32 > current_tip_height as i32 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
-                    );
+                    // tracing::info!(
+                    //     "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
+                    //     id, block_height, timelock, current_tip_height
+                    // );
                 }
             }
 
@@ -243,7 +243,7 @@ impl Database {
             };
 
             if cancelled_outpoints > 0 {
-                tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled outpoints", id, cancelled_outpoints);
+                // tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled outpoints", id, cancelled_outpoints);
             }
 
             let cancelled_txids = match sqlx::query_scalar::<_, i64>(
@@ -265,7 +265,7 @@ impl Database {
             };
 
             if cancelled_txids > 0 {
-                tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled txids", id, cancelled_txids);
+                // tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it has {} cancelled txids", id, cancelled_txids);
             }
 
             // Check fee rate
@@ -288,10 +288,10 @@ impl Database {
 
             if let Some(rate) = effective_fee_rate {
                 if rate >= fee_rate.to_sat_per_vb_ceil() as i64 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/vB) is >= the current fee rate ({} sat/vB)",
-                        id, rate, fee_rate.to_sat_per_vb_ceil()
-                    );
+                    // tracing::info!(
+                    //     "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/vB) is >= the current fee rate ({} sat/vB)",
+                    //     id, rate, fee_rate.to_sat_per_vb_ceil()
+                    // );
                 }
             }
         }
