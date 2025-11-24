@@ -60,7 +60,7 @@ impl Database {
     }
 
     pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
-        tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
+        // tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         // Query all transactions that aren't confirmed yet
         let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
