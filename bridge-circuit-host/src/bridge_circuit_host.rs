@@ -121,7 +121,7 @@ pub fn prove_bridge_circuit(
         return Err(eyre!("Light client proof output mismatch"));
     }
 
-    tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
+    tracing::debug!("Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
     let lc_image_id = match bridge_circuit_host_params.network.0 {
@@ -262,6 +262,7 @@ pub fn prove_bridge_circuit(
     tracing::info!("Bridge circuit proof (Groth16) generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
+    tracing::debug!("Groth16 proof seal vec: {:?}", risc0_g16_seal_vec);
     let risc0_g16_256 = risc0_g16_seal_vec[0..256]
         .try_into()
         .wrap_err("Failed to convert groth16 seal to array")?;
@@ -269,7 +270,6 @@ pub fn prove_bridge_circuit(
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
 
     tracing::debug!(
-        target: "ci",
         "Circuit debug info:\n\
         - Combined method ID constant: {:?}\n\
         - Payout tx block hash: {:?}\n\
@@ -282,6 +282,8 @@ pub fn prove_bridge_circuit(
         public_inputs.challenge_sending_watchtowers.0,
         public_inputs.deposit_constant.0
     );
+
+    tracing::debug!("Bridge g16 proof: {:?}", ark_groth16_proof);
 
     Ok((
         ark_groth16_proof,

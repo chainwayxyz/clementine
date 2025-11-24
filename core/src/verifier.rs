@@ -2271,7 +2271,7 @@ where
             }
             operator_acks_vec[*idx] = Some(pre_image);
 
-            tracing::debug!(target: "ci", "Operator ack for idx {}", idx);
+            tracing::debug!("Operator ack for idx {}", idx);
         }
 
         // take only winternitz signatures from the witness
@@ -2315,7 +2315,6 @@ where
         }
 
         tracing::debug!(
-            target: "ci",
             "Verify additional disprove conditions - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
             self.config.protocol_paramset.genesis_height,
             kickoff_data.operator_xonly_pk,
@@ -2328,7 +2327,6 @@ where
         );
 
         tracing::debug!(
-            target: "ci",
             "Payout blockhash: {:?}\nLatest blockhash: {:?}\nChallenge sending watchtowers signature: {:?}\nG16 public input signature: {:?}",
             payout_blockhash_new,
             latest_blockhash_new,

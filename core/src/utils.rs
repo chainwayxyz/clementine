@@ -897,7 +897,7 @@ mod tests {
         tracing::error!("Test error message");
         tracing::warn!("Test warn message");
         tracing::info!("Test info message");
-        tracing::debug!(target: "ci", "Test CI debug message");
+        // tracing::debug!(target: "ci", "Test CI debug message");
         tracing::debug!("Test debug message");
 
         std::thread::sleep(std::time::Duration::from_millis(100));
