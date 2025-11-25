@@ -69,7 +69,7 @@ secp256k1 = { version = "0.31.0", features = [
   "std",
   "global-context",
 ] }
-bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
+bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", features = ["serde"] }
 
 # async + gRPC
 tonic = { version = "0.12.3", features = ["tls"] }

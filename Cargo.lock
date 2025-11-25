@@ -1565,6 +1565,7 @@ source = "git+https://github.com/BitVM/rust-bitcoin-script#3c75a6e4cfddb800f5771
 dependencies = [
  "bitcoin",
  "script-macro",
+ "serde",
  "stdext",
 ]
 

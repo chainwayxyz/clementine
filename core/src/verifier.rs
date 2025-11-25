@@ -2635,6 +2635,7 @@ where
         .wrap_err("Validate assertions thread failed with error")?;
 
         tracing::info!("Disprove validation result: {:?}", res);
+        tracing::info!("Serailized Structured Script: {:?}", res.as_ref().map(|(_, s)| serde_json::to_string(s).unwrap()));
 
         match res {
             None => {
