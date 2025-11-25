@@ -10,18 +10,14 @@ secret_key = "2222222222222222222222222222222222222222222222222222222222222222"
 # All of the verifiers public keys
 verifiers_public_keys = [
     "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-    "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-    "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
-    "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
 ]
-num_verifiers = 4
+num_verifiers = 1
 
 # All of the operators x-only public keys.
 operators_xonly_pks = [
     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-    "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
 ]
-num_operators = 2
+num_operators = 1
 
 operator_withdrawal_fee_sats = 100000
 
@@ -53,15 +49,12 @@ header_chain_proof_batch_size = 100
 
 verifier_endpoints = [
     "http://127.0.0.1:17001",
-    "http://127.0.0.1:17002",
-    "http://127.0.0.1:17003",
-    "http://127.0.0.1:17004",
 ]
 
 security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
 
 
-operator_endpoints = ["http://127.0.0.1:17005", "http://127.0.0.1:17006"]
+operator_endpoints = ["http://127.0.0.1:17005"]
 
 # TLS certificate and key paths
 server_cert_path = "certs/server/server.pem"

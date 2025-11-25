@@ -755,7 +755,7 @@ pub async fn create_txhandlers(
         context.paramset.genesis_chain_state_hash,
     );
 
-    tracing::debug!(
+    tracing::info!(
         "Create txhandlers - Genesis height: {:?}, operator_xonly_pk: {:?}, move_txid: {:?}, round_txid: {:?}, vout: {:?}, watchtower_challenge_start_idx: {:?}, genesis_chain_state_hash: {:?}, deposit_constant: {:?}",
         context.paramset.genesis_height,
         operator_xonly_pk,
@@ -780,7 +780,7 @@ pub async fn create_txhandlers(
         .ok_or(TxError::IndexOverflow)?
         .clone();
 
-    tracing::debug!(
+    tracing::info!(
         "Payout tx blockhash pk: {:?}",
         payout_tx_blockhash_pk
     );

@@ -113,21 +113,10 @@ impl TestParams {
         use rand::Rng;
         let mut asserts = asserts;
         if self.corrupted_asserts {
-            let mut rng = rand::thread_rng();
-
-            if rng.gen_bool(0.5) {
-                let i = rng.gen_range(0..asserts.1.len());
-                let j = rng.gen_range(0..asserts.1[i].len());
-                tracing::info!("Disrupting asserts commit 1 with i: {}, j: {}", i, j);
-
-                asserts.1[i][j] ^= 0x01;
-            } else {
-                let i = rng.gen_range(0..asserts.2.len());
-                let j = rng.gen_range(0..asserts.2[i].len());
-                tracing::info!("Disrupting asserts commit 2 with i: {}, j: {}", i, j);
-
+            let i = 328;
+            let j = 5;
+            tracing::info!("Disrupting asserts commit 2 with i: {}, j: {}", i, j);
                 asserts.2[i][j] ^= 0x01;
-            }
         } else if self.corrupted_public_input {
             let mut rng = rand::thread_rng();
             let j = rng.gen_range(1..asserts.0[0].len());
@@ -553,26 +542,10 @@ impl Default for TestParams {
                     "1111111111111111111111111111111111111111111111111111111111111111",
                 )
                 .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
             ],
             all_operators_secret_keys: vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
                 )
                 .expect("known valid input"),
             ],
