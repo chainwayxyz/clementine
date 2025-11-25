@@ -314,16 +314,18 @@ impl BridgeConfig {
         let mut misconfigs = Vec::new();
 
         if actor_type == cli::Actors::Operator {
-            if !self.client_verification {
-                misconfigs.push("client_verification=false".to_string());
-            }
             if self.operator_collateral_funding_outpoint.is_none() {
-                misconfigs.push("operator_collateral_funding_outpoint is not set".to_string());
+                misconfigs.push("OPERATOR_COLLATERAL_FUNDING_OUTPOINT is not set".to_string());
+            }
+            if self.operator_reimbursement_address.is_none() {
+                misconfigs.push("OPERATOR_REIMBURSEMENT_ADDRESS is not set".to_string());
             }
         }
 
-        if actor_type == cli::Actors::Verifier && !self.client_verification {
-            misconfigs.push("client_verification=false".to_string());
+        if matches!(actor_type, cli::Actors::Verifier | cli::Actors::Operator)
+            && !self.client_verification
+        {
+            misconfigs.push("CLIENT_VERIFICATION=false".to_string());
         }
 
         /// Checks if an env var is set to a non 0 value.
@@ -340,7 +342,7 @@ impl BridgeConfig {
         check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
 
         if is_dev_mode() {
-            misconfigs.push("Risc0 dev mode is enabled".to_string());
+            misconfigs.push("Risc0 dev mode is enabled (RISC0_DEV_MODE=1)".to_string());
         }
 
         if is_test_vk() {
