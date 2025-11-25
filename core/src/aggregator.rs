@@ -20,7 +20,9 @@ use crate::task::aggregator_metric_publisher::AGGREGATOR_METRIC_PUBLISHER_POLL_D
 use crate::task::TaskExt;
 #[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
-use crate::utils::{flatten_join_named_results, timed_request, timed_try_join_all};
+use crate::utils::{
+    flatten_join_named_results, join_all_partition_results, timed_request, timed_try_join_all,
+};
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -69,6 +71,17 @@ pub enum EntityId {
     Verifier(VerifierId),
     Operator(OperatorId),
     Aggregator,
+}
+
+/// Specifies which entity types to include when checking compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatibilityCheckScope {
+    /// Check compatibility with verifiers only.
+    VerifiersOnly,
+    /// Check compatibility with operators only.
+    OperatorsOnly,
+    /// Check compatibility with both verifiers and operators.
+    Both,
 }
 
 /// Wrapper struct that renders the verifier id in the logs.
@@ -904,11 +917,20 @@ impl Aggregator {
     /// Returns an error if aggregator is not compatible with any of the other actors, or any other actor returns an error.
     pub async fn check_compatibility_with_actors(
         &self,
-        verifiers_included: bool,
-        operators_included: bool,
+        scope: CompatibilityCheckScope,
     ) -> Result<(), BridgeError> {
-        let mut other_errors = Vec::new();
-        let mut actors_compat_params = Vec::new();
+        let mut errors = Vec::new();
+        let mut operator_futures = Vec::new();
+        let mut verifier_futures = Vec::new();
+
+        let operators_included = matches!(
+            scope,
+            CompatibilityCheckScope::OperatorsOnly | CompatibilityCheckScope::Both
+        );
+        let verifiers_included = matches!(
+            scope,
+            CompatibilityCheckScope::VerifiersOnly | CompatibilityCheckScope::Both
+        );
 
         if operators_included {
             let operator_keys = self.fetch_operator_keys().await?;
@@ -918,21 +940,22 @@ impl Aggregator {
                 .zip(self.operator_clients.iter())
             {
                 let mut operator_client = operator_client.clone();
+                let operator_id_str = operator_id.to_string();
 
-                let res = {
+                operator_futures.push(async move {
                     let compatibility_params: CompatibilityParams = operator_client
                         .get_compatibility_params(Empty {})
-                        .await?
+                        .await
+                        .wrap_err(format!(
+                            "{operator_id_str} compatibility params retrieval failed"
+                        ))?
                         .into_inner()
-                        .try_into()?;
-                    actors_compat_params.push((operator_id.to_string(), compatibility_params));
-                    Ok::<_, BridgeError>(())
-                };
-                if let Err(e) = res {
-                    other_errors.push(format!(
-                        "{operator_id} error while retrieving compatibility params: {e}",
-                    ));
-                }
+                        .try_into()
+                        .wrap_err(format!(
+                            "{operator_id_str} compatibility params conversion failed"
+                        ))?;
+                    Ok::<_, BridgeError>((operator_id_str, compatibility_params))
+                });
             }
         }
 
@@ -944,30 +967,50 @@ impl Aggregator {
                 .zip(self.verifier_clients.iter())
             {
                 let mut verifier_client = verifier_client.clone();
+                let verifier_id_str = verifier_id.to_string();
 
-                let res = {
+                verifier_futures.push(async move {
                     let compatibility_params: CompatibilityParams = verifier_client
                         .get_compatibility_params(Empty {})
-                        .await?
+                        .await
+                        .wrap_err(format!(
+                            "{verifier_id_str} compatibility params retrieval failed"
+                        ))?
                         .into_inner()
-                        .try_into()?;
-                    actors_compat_params.push((verifier_id.to_string(), compatibility_params));
-                    Ok::<_, BridgeError>(())
-                };
-                if let Err(e) = res {
-                    other_errors.push(format!(
-                        "{verifier_id} error while retrieving compatibility params: {e}",
-                    ));
-                }
+                        .try_into()
+                        .wrap_err(format!(
+                            "{verifier_id_str} compatibility params conversion failed"
+                        ))?;
+                    Ok::<_, BridgeError>((verifier_id_str, compatibility_params))
+                });
             }
+        }
+
+        // Run all futures in parallel and combine errors
+        let (operator_results, operator_err) = join_all_partition_results(operator_futures).await;
+        let (verifier_results, verifier_err) = join_all_partition_results(verifier_futures).await;
+
+        let mut actors_compat_params = Vec::new();
+        actors_compat_params.extend(operator_results);
+        actors_compat_params.extend(verifier_results);
+
+        if let Some(operator_err) = operator_err {
+            errors.push(format!(
+                "Error while retrieving operator compatibility params: {operator_err}"
+            ));
+        }
+        if let Some(verifier_err) = verifier_err {
+            errors.push(format!(
+                "Error while retrieving verifier compatibility params: {verifier_err}"
+            ));
         }
 
         // Combine compatibility error and other errors (ex: connection) into a single message
         if let Err(e) = self.is_compatible(actors_compat_params) {
-            other_errors.push(format!("Clementine not compatible with some actors: {e}"));
+            errors.push(format!("Clementine not compatible with some actors: {e}"));
         }
-        if !other_errors.is_empty() {
-            return Err(eyre::eyre!(other_errors.join("; ")).into());
+        if !errors.is_empty() {
+            return Err(eyre::eyre!(errors.join("; ")).into());
         }
 
         Ok(())

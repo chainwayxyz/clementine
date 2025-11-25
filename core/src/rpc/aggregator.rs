@@ -7,7 +7,8 @@ use super::clementine::{
     OptimisticPayoutParams, RawSignedTx, VergenResponse, VerifierPublicKeys,
 };
 use crate::aggregator::{
-    AggregatorServer, OperatorId, ParticipatingOperators, ParticipatingVerifiers, VerifierId,
+    AggregatorServer, CompatibilityCheckScope, OperatorId, ParticipatingOperators,
+    ParticipatingVerifiers, VerifierId,
 };
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
@@ -33,8 +34,8 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::parser;
 use crate::utils::{
-    flatten_join_named_results, get_vergen_response, join_all_combine_errors, timed_request,
-    timed_try_join_all, ScriptBufExt,
+    flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
+    try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
@@ -87,24 +88,21 @@ async fn get_next_pub_nonces(
               + 'static],
     verifiers_ids: &[VerifierId],
 ) -> Result<Vec<PublicNonce>, BridgeError> {
-    join_all_combine_errors(
-        nonce_streams
-            .iter_mut()
-            .zip(verifiers_ids)
-            .map(|(s, id)| async move {
-                s.next()
-                    .await
-                    .transpose()
-                    .wrap_err(format!("Failed to get nonce from {id}"))? // Return the inner error if it exists
-                    .ok_or_else(|| -> eyre::Report {
-                        AggregatorError::InputStreamEndedEarlyUnknownSize {
-                            // Return an early end error if the stream is empty
-                            stream_name: format!("Nonce stream {id}"),
-                        }
-                        .into()
-                    })
-            }),
-    )
+    try_join_all_combine_errors(nonce_streams.iter_mut().zip(verifiers_ids).map(
+        |(s, id)| async move {
+            s.next()
+                .await
+                .transpose()
+                .wrap_err(format!("Failed to get nonce from {id}"))? // Return the inner error if it exists
+                .ok_or_else(|| -> eyre::Report {
+                    AggregatorError::InputStreamEndedEarlyUnknownSize {
+                        // Return an early end error if the stream is empty
+                        stream_name: format!("Nonce stream {id}"),
+                    }
+                    .into()
+                })
+        },
+    ))
     .await
 }
 
@@ -249,7 +247,7 @@ async fn nonce_distributor(
             };
 
             // Broadcast aggregated nonce to all streams
-            join_all_combine_errors(
+            try_join_all_combine_errors(
                 partial_sig_tx
                     .iter_mut()
                     .zip(verifiers_ids_clone.iter())
@@ -310,7 +308,7 @@ async fn nonce_distributor(
                 )
                 .into());
             }
-            let partial_sigs = join_all_combine_errors(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
+            let partial_sigs = try_join_all_combine_errors(partial_sig_rx.iter_mut().zip(pub_nonces_ref.iter()).zip(verifiers_ids.iter()).map(
                 |((stream, pub_nonce), id)| async move {
                     let partial_sig = stream
                         .message()
@@ -517,7 +515,7 @@ async fn signature_distributor(
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
-        join_all_combine_errors(
+        try_join_all_combine_errors(
             deposit_finalize_sender
                 .iter()
                 .zip(verifiers_ids.iter())
@@ -652,7 +650,7 @@ async fn create_nonce_streams(
 
     // Get the first responses from verifiers.
     let first_responses: Vec<clementine::NonceGenFirstResponse> =
-        join_all_combine_errors(nonce_streams.iter_mut().zip(verifiers.ids()).map(
+        try_join_all_combine_errors(nonce_streams.iter_mut().zip(verifiers.ids()).map(
             |(stream, id)| async move {
                 parser::verifier::parse_nonce_gen_first_response(stream)
                     .await
@@ -777,7 +775,7 @@ impl Aggregator {
 
         // get signatures from each operator's signature streams
         let operator_sigs =
-            join_all_combine_errors(operator_sigs_streams.iter_mut().enumerate().map(
+            try_join_all_combine_errors(operator_sigs_streams.iter_mut().enumerate().map(
                 |(idx, stream)| async move {
                     let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
                     while let Some(sig) =
@@ -1028,7 +1026,8 @@ impl ClementineAggregator for AggregatorServer {
         tracing::info!("Parsed optimistic payout rpc params, deposit id: {:?}, input signature: {:?}, input outpoint: {:?}, output script pubkey: {:?}, output amount: {:?}, verification signature: {:?}", deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount, opt_withdraw_params.verification_signature);
 
         // check compatibility with verifiers only
-        self.check_compatibility_with_actors(true, false).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::VerifiersOnly)
+            .await?;
 
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self
@@ -1317,7 +1316,8 @@ impl ClementineAggregator for AggregatorServer {
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
         tracing::info!("Setup rpc called");
-        self.check_compatibility_with_actors(true, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::Both)
+            .await?;
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
@@ -1334,7 +1334,7 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
-            join_all_combine_errors(operators.iter().zip(operator_ids.iter()).map(
+            try_join_all_combine_errors(operators.iter().zip(operator_ids.iter()).map(
                 |(operator, id)| {
                     let mut operator = operator.clone();
                     let tx = operator_params_tx.clone();
@@ -1371,7 +1371,7 @@ impl ClementineAggregator for AggregatorServer {
             .collect::<Vec<_>>();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            join_all_combine_errors(
+            try_join_all_combine_errors(
                 verifiers
                     .iter()
                     .zip(verifier_ids.iter())
@@ -1451,7 +1451,8 @@ impl ClementineAggregator for AggregatorServer {
         request: Request<Deposit>,
     ) -> Result<Response<clementine::RawSignedTx>, Status> {
         tracing::info!("New deposit rpc called");
-        self.check_compatibility_with_actors(true, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::Both)
+            .await?;
 
         timed_request(OVERALL_DEPOSIT_TIMEOUT, "Overall new deposit", async {
             let deposit_info: DepositInfo = request.into_inner().try_into()?;
@@ -1754,7 +1755,7 @@ impl ClementineAggregator for AggregatorServer {
                             Ok::<_, BridgeError>(dep_fin_fut)
                         })
                         .collect();
-                    join_all_combine_errors(send_operator_sigs).await
+                    try_join_all_combine_errors(send_operator_sigs).await
                 },
             )
             .await.wrap_err("Failed to send operator signatures to verifiers")?;
@@ -1821,7 +1822,8 @@ impl ClementineAggregator for AggregatorServer {
             request.operator_xonly_pks,
         );
         // check compatibility with operators only
-        self.check_compatibility_with_actors(false, true).await?;
+        self.check_compatibility_with_actors(CompatibilityCheckScope::OperatorsOnly)
+            .await?;
 
         let withdraw_params = withdraw_params_with_sig
             .clone()

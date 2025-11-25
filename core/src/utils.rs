@@ -782,7 +782,7 @@ where
 /// This runs all futures like [`futures::future::try_join_all`], but instead of stopping on the
 /// first error it waits for every future to finish by leveraging [`join_all`]. All errors are then
 /// combined via [`combine_errors`], ensuring the caller gets full visibility into every failure.
-pub async fn join_all_combine_errors<F, T, E>(
+pub async fn try_join_all_combine_errors<F, T, E>(
     futures: impl IntoIterator<Item = F>,
 ) -> Result<Vec<T>, BridgeError>
 where
@@ -791,6 +791,51 @@ where
 {
     let results = join_all(futures).await;
     combine_errors(results)
+}
+
+/// Executes a collection of fallible futures concurrently and partitions results into successes and errors.
+///
+/// Unlike [`try_join_all_combine_errors`], this function does not fail on errors. Instead, it runs all
+/// futures concurrently using [`futures::future::join_all`] and partitions the results:
+/// - Successful results are collected into a `Vec<T>`
+/// - Errors are collected and combined into an optional error string
+///
+/// This is useful when you want to collect partial successes even if some futures fail, allowing
+/// the caller to decide how to handle the mixed results.
+///
+/// # Returns
+///
+/// Returns a tuple `(Vec<T>, Option<String>)` where:
+/// - The first element contains all successful results
+/// - The second element is `Some(combined_error_string)` if any errors occurred, or `None` if all succeeded
+pub async fn join_all_partition_results<F, T, E>(
+    futures: impl IntoIterator<Item = F>,
+) -> (Vec<T>, Option<String>)
+where
+    F: Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let results = join_all(futures).await;
+    let mut errors = Vec::new();
+    let mut successful_results = Vec::new();
+    for result in results {
+        match result {
+            Ok(value) => successful_results.push(value),
+            Err(e) => errors.push(format!("{e:#}")),
+        }
+    }
+
+    (
+        successful_results,
+        match errors.is_empty() {
+            true => None,
+            false => Some(format!(
+                "Number of failed futures: {}: {}",
+                errors.len(),
+                errors.join("; ")
+            )),
+        },
+    )
 }
 
 /// Collects errors from an iterator of results and returns a combined error if any failed.
