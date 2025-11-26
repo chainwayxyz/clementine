@@ -2839,7 +2839,7 @@ fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Ve
     script
         .instructions()
         .map(|ins_res| match ins_res {
-            // Case 1: Standard PUSHBYTES (includes direct pushes and OP_PUSHDATA)
+            // Case 1: Standard PUSHBYTES (includes OP_PUSHBYTES_X and OP_PUSHDATA_X)
             Ok(Instruction::PushBytes(bytes)) => Ok(bytes.as_bytes().to_vec()),
 
             // Case 2: Numeric Opcodes (OP_0, OP_1..16, OP_1NEG)
