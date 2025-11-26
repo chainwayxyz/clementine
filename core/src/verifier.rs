@@ -2698,6 +2698,9 @@ where
         let disprove_inputs: Vec<Vec<u8>> = collect_data_pushes_from_disprove_script(
             &compiled_script,
         )
+        .inspect_err(|e| {
+            tracing::error!("Error collecting data pushes from disprove script: {e:#}");
+        })
         .expect(
             "Unrecoverable error: Failed to collect data pushes from disprove script from BitVM",
         );
