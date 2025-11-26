@@ -2693,7 +2693,7 @@ where
             .wrap_err("Disprove txhandler not found in txhandlers")?
             .clone();
 
-        // Use expect so it doesn't try to disprove continously due to error tolerance in state manager.
+        // Use expect so it doesn't try to disprove continuously due to error tolerance in state manager.
         let compiled_script = disprove_script.1.compile();
         let disprove_inputs: Vec<Vec<u8>> = collect_data_pushes_from_disprove_script(
             &compiled_script,
@@ -2840,13 +2840,14 @@ fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Ve
         .instructions()
         .map(|ins_res| match ins_res {
             // Case 1: Standard PUSHBYTES (includes OP_PUSHBYTES_X and OP_PUSHDATA_X)
+            // OP_0 is also handled here as OP_0 = OP_PUSHBYTES_0
             Ok(Instruction::PushBytes(bytes)) => Ok(bytes.as_bytes().to_vec()),
 
-            // Case 2: Numeric Opcodes (OP_0, OP_1..16, OP_1NEG)
+            // Case 2: Numeric Opcodes (OP_PUSHNUM_1..16, OP_PUSHNUM_NEG1)
             Ok(Instruction::Op(op)) => {
                 use bitcoin::opcodes::all::*;
                 match op {
-                    // OP_1 (0x51) to OP_16 (0x60)
+                    // OP_PUSHNUM_1 (0x51) to OP_PUSHNUM_16 (0x60)
                     op_code
                         if op_code.to_u8() >= OP_PUSHNUM_1.to_u8()
                             && op_code.to_u8() <= OP_PUSHNUM_16.to_u8() =>
@@ -2855,13 +2856,13 @@ fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Ve
                         Ok(vec![val])
                     }
 
-                    // OP_1NEG pushes 0x81 (signed -1)
+                    // OP_PUSHNUM_NEG1 pushes 0x81 (signed -1)
                     OP_PUSHNUM_NEG1 => Ok(vec![0x81]),
 
-                    // Panic on any other Opcode (e.g. OP_ADD, OP_CHECKSIG)
+                    // Return error on any other Opcode (e.g. OP_ADD, OP_CHECKSIG)
                     unexpected_op => Err(eyre::eyre!(
                         "Unexpected Opcode encountered in disprove_script \
-                     Expected a data push, but found: {unexpected_op:?}"
+                    Expected a data push, but found: {unexpected_op:?}"
                     )),
                 }
             }
@@ -3189,19 +3190,19 @@ mod tests {
         use bitcoin::script::{Builder, PushBytesBuf};
 
         // Test all valid push opcodes from 0x00 to 0x60:
-        // - 0x01-0x4B (PUSHBYTES_1 to PUSHBYTES_75): push next N bytes
+        // - 0x00-0x4B (OP_PUSHBYTES_0 to OP_PUSHBYTES_75): push next N bytes
         // - 0x4C (OP_PUSHDATA1): push 76-255 bytes with 1-byte length prefix
         // - 0x4D (OP_PUSHDATA2): push 256-65535 bytes with 2-byte length prefix
         // - 0x4E (OP_PUSHDATA4): push larger data with 4-byte length prefix
-        // - 0x4F (OP_1NEGATE): push -1
+        // - 0x4F (OP_PUSHNUM_NEG1): push -1
         // - 0x50 (OP_RESERVED): NOT a push opcode - should error
         // - 0x51-0x60 (OP_1 to OP_16): push numbers 1-16
 
         let mut builder = Builder::new();
 
-        // Test PUSHBYTES: push slices of various lengths (1 to 75 bytes)
-        // This covers opcodes 0x01-0x4B
-        for len in 1u8..=75 {
+        // Test PUSHBYTES: push slices of various lengths (0 to 75 bytes)
+        // This covers opcodes 0x00-0x4B
+        for len in 0u8..=75 {
             let pos_before = builder.as_bytes().len();
             let data: Vec<u8> = (0..len).collect();
             let push_bytes = PushBytesBuf::try_from(data).unwrap();
@@ -3292,9 +3293,9 @@ mod tests {
         let script = builder.into_script();
         let data_pushes = collect_data_pushes_from_disprove_script(&script).unwrap();
 
-        // Verify PUSHBYTES results (75 entries, each with incrementing byte sequences)
+        // Verify PUSHBYTES results (0 to 75 bytes entries, each with incrementing byte sequences)
         let mut idx = 0;
-        for len in 1u8..=75 {
+        for len in 0u8..=75 {
             let expected: Vec<u8> = (0..len).collect();
             assert_eq!(
                 data_pushes[idx], expected,
