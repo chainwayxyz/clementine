@@ -2682,15 +2682,14 @@ where
             .wrap_err("Disprove txhandler not found in txhandlers")?
             .clone();
 
-        let disprove_inputs: Vec<Vec<u8>> = disprove_script
-            .1
-            .compile()
-            .instructions()
-            .filter_map(|ins_res| match ins_res {
-                Ok(Instruction::PushBytes(bytes)) => Some(bytes.as_bytes().to_vec()),
-                _ => None,
-            })
-            .collect();
+        // Use expect so it doesn't try to disprove continously due to error tolerance in state manager.
+        let compiled_script = disprove_script.1.compile();
+        let disprove_inputs: Vec<Vec<u8>> = collect_data_pushes_from_disprove_script(
+            &compiled_script,
+        )
+        .expect(
+            "Unrecoverable error: Failed to collect data pushes from disprove script from BitVM",
+        );
 
         disprove_txhandler
             .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_script.0 + 2)
@@ -2812,6 +2811,49 @@ where
 
         Ok(())
     }
+}
+
+/// Collects all the push bytes instructions from a script.
+/// If the script contains any other instruction other than push bytes, it will return an error as this behaviour is not expected from BitVM.
+///
+/// # Arguments
+/// * `script` - The script to collect the push bytes instructions from.
+///
+/// # Returns
+/// - `Vec<Vec<u8>>` - A vector of vectors of bytes, each representing a push bytes instruction.
+fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Vec<u8>>> {
+    script
+        .instructions()
+        .map(|ins_res| match ins_res {
+            // Case 1: Standard PUSHBYTES (includes direct pushes and OP_PUSHDATA)
+            Ok(Instruction::PushBytes(bytes)) => Ok(bytes.as_bytes().to_vec()),
+
+            // Case 2: Numeric Opcodes (OP_0, OP_1..16, OP_1NEG)
+            Ok(Instruction::Op(op)) => {
+                use bitcoin::opcodes::all::*;
+                match op {
+                    // OP_1 (0x51) to OP_16 (0x60)
+                    op_code
+                        if op_code.to_u8() >= OP_PUSHNUM_1.to_u8()
+                            && op_code.to_u8() <= OP_PUSHNUM_16.to_u8() =>
+                    {
+                        let val = op_code.to_u8() - OP_PUSHNUM_1.to_u8() + 1;
+                        Ok(vec![val])
+                    }
+
+                    // OP_1NEG pushes 0x81 (signed -1)
+                    OP_PUSHNUM_NEG1 => Ok(vec![0x81]),
+
+                    // Panic on any other Opcode (e.g. OP_ADD, OP_CHECKSIG)
+                    unexpected_op => Err(eyre::eyre!(
+                        "Unexpected Opcode encountered in disprove_script \
+                     Expected a data push, but found: {unexpected_op:?}"
+                    )),
+                }
+            }
+            Err(e) => Err(e).wrap_err("Failed to parse disprove script instruction"),
+        })
+        .collect::<Result<Vec<Vec<u8>>>>()
 }
 
 // This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
@@ -3125,6 +3167,200 @@ mod tests {
     use bitcoin::Block;
     use std::str::FromStr;
     use std::sync::Arc;
+
+    #[test]
+    fn test_collect_data_pushes_all_push_opcodes() {
+        use bitcoin::opcodes::all::*;
+        use bitcoin::opcodes::Opcode;
+        use bitcoin::script::{Builder, PushBytesBuf};
+
+        // Test all valid push opcodes from 0x00 to 0x60:
+        // - 0x01-0x4B (PUSHBYTES_1 to PUSHBYTES_75): push next N bytes
+        // - 0x4C (OP_PUSHDATA1): push 76-255 bytes with 1-byte length prefix
+        // - 0x4D (OP_PUSHDATA2): push 256-65535 bytes with 2-byte length prefix
+        // - 0x4E (OP_PUSHDATA4): push larger data with 4-byte length prefix
+        // - 0x4F (OP_1NEGATE): push -1
+        // - 0x50 (OP_RESERVED): NOT a push opcode - should error
+        // - 0x51-0x60 (OP_1 to OP_16): push numbers 1-16
+
+        let mut builder = Builder::new();
+
+        // Test PUSHBYTES: push slices of various lengths (1 to 75 bytes)
+        // This covers opcodes 0x01-0x4B
+        for len in 1u8..=75 {
+            let pos_before = builder.as_bytes().len();
+            let data: Vec<u8> = (0..len).collect();
+            let push_bytes = PushBytesBuf::try_from(data).unwrap();
+            builder = builder.push_slice(push_bytes);
+
+            // Verify the opcode at the start of this push equals the length for PUSHBYTES_N
+            let actual_opcode = builder.as_bytes()[pos_before];
+            assert_eq!(
+                actual_opcode, len,
+                "PUSHBYTES_{len}: expected opcode 0x{len:02X}, got 0x{actual_opcode:02X}"
+            );
+        }
+
+        // Test OP_PUSHDATA1: push 76 bytes (uses opcode 0x4C with 1-byte length)
+        let pos_before = builder.as_bytes().len();
+        let pushdata1_data: Vec<u8> = (0u8..76).collect();
+        builder = builder.push_slice(PushBytesBuf::try_from(pushdata1_data.clone()).unwrap());
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4C,
+            "OP_PUSHDATA1 (76 bytes): expected 0x4C"
+        );
+
+        // Test OP_PUSHDATA1: push 255 bytes (max for 1-byte length prefix)
+        let pos_before = builder.as_bytes().len();
+        let pushdata1_max: Vec<u8> = (0..255).map(|i| (i % 256) as u8).collect();
+        builder = builder.push_slice(PushBytesBuf::try_from(pushdata1_max.clone()).unwrap());
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4C,
+            "OP_PUSHDATA1 (255 bytes): expected 0x4C"
+        );
+
+        // Test OP_PUSHDATA2: push 256 bytes (uses opcode 0x4D with 2-byte length)
+        let pos_before = builder.as_bytes().len();
+        let pushdata2_data: Vec<u8> = (0..256).map(|i| (i % 256) as u8).collect();
+        builder = builder.push_slice(PushBytesBuf::try_from(pushdata2_data.clone()).unwrap());
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4D,
+            "OP_PUSHDATA2 (256 bytes): expected 0x4D"
+        );
+
+        // Test OP_PUSHDATA2: push 65535 bytes (max for 2-byte length prefix)
+        let pos_before = builder.as_bytes().len();
+        let pushdata2_max: Vec<u8> = (0..65535).map(|i| (i % 256) as u8).collect();
+        builder = builder.push_slice(PushBytesBuf::try_from(pushdata2_max.clone()).unwrap());
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4D,
+            "OP_PUSHDATA2 (65535 bytes): expected 0x4D"
+        );
+
+        // Test OP_PUSHDATA4: push 65536 bytes (uses opcode 0x4E with 4-byte length)
+        let pos_before = builder.as_bytes().len();
+        let pushdata4_data: Vec<u8> = (0..65536).map(|i| (i % 256) as u8).collect();
+        builder = builder.push_slice(PushBytesBuf::try_from(pushdata4_data.clone()).unwrap());
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4E,
+            "OP_PUSHDATA4 (65536 bytes): expected 0x4E"
+        );
+
+        // Test OP_PUSHNUM_1 through OP_PUSHNUM_16 (opcodes 0x51-0x60)
+        for i in 1u8..=16 {
+            let pos_before = builder.as_bytes().len();
+            let expected_opcode = OP_PUSHNUM_1.to_u8() + i - 1;
+            let opcode = Opcode::from(expected_opcode);
+            builder = builder.push_opcode(opcode);
+
+            let actual_opcode = builder.as_bytes()[pos_before];
+            assert_eq!(
+                actual_opcode, expected_opcode,
+                "OP_PUSHNUM_{i}: expected 0x{expected_opcode:02X}, got 0x{actual_opcode:02X}"
+            );
+        }
+
+        // Test OP_PUSHNUM_NEG1 (opcode 0x4F)
+        let pos_before = builder.as_bytes().len();
+        builder = builder.push_opcode(OP_PUSHNUM_NEG1);
+        assert_eq!(
+            builder.as_bytes()[pos_before],
+            0x4F,
+            "OP_PUSHNUM_NEG1: expected 0x4F"
+        );
+
+        // Convert to ScriptBuf and verify all pushes are collected correctly
+        let script = builder.into_script();
+        let data_pushes = collect_data_pushes_from_disprove_script(&script).unwrap();
+
+        // Verify PUSHBYTES results (75 entries, each with incrementing byte sequences)
+        let mut idx = 0;
+        for len in 1u8..=75 {
+            let expected: Vec<u8> = (0..len).collect();
+            assert_eq!(
+                data_pushes[idx], expected,
+                "PUSHBYTES_{len} mismatch at index {idx}"
+            );
+            idx += 1;
+        }
+
+        // Verify OP_PUSHDATA1 (76 bytes)
+        assert_eq!(
+            data_pushes[idx], pushdata1_data,
+            "OP_PUSHDATA1 (76 bytes) mismatch at index {idx}"
+        );
+        idx += 1;
+
+        // Verify OP_PUSHDATA1 (255 bytes)
+        assert_eq!(
+            data_pushes[idx], pushdata1_max,
+            "OP_PUSHDATA1 (255 bytes) mismatch at index {idx}"
+        );
+        idx += 1;
+
+        // Verify OP_PUSHDATA2 (256 bytes)
+        assert_eq!(
+            data_pushes[idx], pushdata2_data,
+            "OP_PUSHDATA2 (256 bytes) mismatch at index {idx}"
+        );
+        idx += 1;
+
+        // Verify OP_PUSHDATA2 (65535 bytes)
+        assert_eq!(
+            data_pushes[idx], pushdata2_max,
+            "OP_PUSHDATA2 (65535 bytes) mismatch at index {idx}"
+        );
+        idx += 1;
+
+        // Verify OP_PUSHDATA4 (65536 bytes)
+        assert_eq!(
+            data_pushes[idx], pushdata4_data,
+            "OP_PUSHDATA4 (65536 bytes) mismatch at index {idx}"
+        );
+        idx += 1;
+
+        // Verify OP_PUSHNUM_1 through OP_PUSHNUM_16 results
+        for i in 1u8..=16 {
+            assert_eq!(
+                data_pushes[idx],
+                vec![i],
+                "OP_PUSHNUM_{i} mismatch at index {idx}"
+            );
+            idx += 1;
+        }
+
+        // Verify OP_PUSHNUM_NEG1 result (pushes 0x81)
+        assert_eq!(
+            data_pushes[idx],
+            vec![0x81],
+            "OP_PUSHNUM_NEG1 mismatch at index {idx}"
+        );
+    }
+
+    #[test]
+    fn test_collect_data_pushes_rejects_non_push_opcode() {
+        use bitcoin::opcodes::all::*;
+        use bitcoin::script::{Builder, PushBytesBuf};
+
+        // Create a script with a valid push followed by a non-push opcode
+        let script = Builder::new()
+            .push_slice(PushBytesBuf::try_from(vec![1, 2, 3]).unwrap()) // valid push
+            .push_opcode(OP_ADD) // non-push opcode - should cause error
+            .into_script();
+
+        let result = collect_data_pushes_from_disprove_script(&script);
+        assert!(result.is_err(), "Expected error for non-push opcode OP_ADD");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Unexpected Opcode"),
+            "Error message should mention unexpected opcode, got: {err_msg}"
+        );
+    }
 
     #[tokio::test]
     #[ignore]
