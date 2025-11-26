@@ -2373,7 +2373,7 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
-                    tracing::info!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, number of watchtower_challenges: {:?}",
+                    tracing::info!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, number of watchtower_challenges: {}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                     self.send_asserts(
                         dbtx,

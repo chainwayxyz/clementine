@@ -2827,14 +2827,20 @@ where
     }
 }
 
-/// Collects all the push bytes instructions from a script.
-/// If the script contains any other instruction other than push bytes, it will return an error as this behaviour is not expected from BitVM.
+/// Collects all data push instructions from a script.
+///
+/// This handles both `Instruction::PushBytes` (PUSHBYTES_N, PUSHDATA1/2/4) and numeric push
+/// opcodes (OP_PUSHNUM_1..16, OP_PUSHNUM_NEG1) which are represented as `Instruction::Op`.
+///
+/// If the script contains any non-push instruction, it returns an error as this is not
+/// expected from BitVM disprove scripts.
 ///
 /// # Arguments
-/// * `script` - The script to collect the push bytes instructions from.
+/// * `script` - The script to collect the data pushes from.
 ///
 /// # Returns
-/// - `Vec<Vec<u8>>` - A vector of vectors of bytes, each representing a push bytes instruction.
+/// - `Ok(Vec<Vec<u8>>)` - A vector of byte vectors, each representing a pushed value.
+/// - `Err` - If the script contains non-push opcodes or fails to parse.
 fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Vec<u8>>> {
     script
         .instructions()
@@ -2861,8 +2867,7 @@ fn collect_data_pushes_from_disprove_script(script: &ScriptBuf) -> Result<Vec<Ve
 
                     // Return error on any other Opcode (e.g. OP_ADD, OP_CHECKSIG)
                     unexpected_op => Err(eyre::eyre!(
-                        "Unexpected Opcode encountered in disprove_script \
-                    Expected a data push, but found: {unexpected_op:?}"
+                        "Unexpected Opcode in disprove_script. Expected a data push, but found: {unexpected_op:?}"
                     )),
                 }
             }
