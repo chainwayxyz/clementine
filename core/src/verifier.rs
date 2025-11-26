@@ -2622,6 +2622,14 @@ where
 
         let vk = get_verifying_key();
 
+        tracing::debug!(
+            "Signed asserts:\n{:?}\n{:?}\n{:?}",
+            first_box,
+            second_box,
+            third_box
+        );
+        tracing::debug!("BitVM public keys: {:?}", bitvm_pks.bitvm_pks);
+
         let res = tokio::task::spawn_blocking(move || {
             validate_assertions(
                 &vk,
@@ -2636,8 +2644,6 @@ where
         .await
         .wrap_err("Validate assertions thread failed with error")?;
 
-        tracing::info!("Disprove validation result: {:?}", res);
-
         match res {
             None => {
                 tracing::info!("No disprove witness found");
@@ -2645,6 +2651,11 @@ where
             }
             Some((index, disprove_script)) => {
                 tracing::info!("Disprove witness found");
+                tracing::debug!(
+                    "Disprove script index: {}, Disprove script: {}",
+                    index,
+                    hex::encode(disprove_script.clone().compile().into_bytes())
+                );
                 Ok(Some((index, disprove_script)))
             }
         }
