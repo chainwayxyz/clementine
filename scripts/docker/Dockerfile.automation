@@ -42,8 +42,9 @@ RUN groupadd --gid 1000 clementine && \
 
 # Change user before loading images, because they are loaded in home directory
 USER clementine
-# Only loads prover images for dev mode
-RUN /clementine-cli load-prover-images
+# Loads prover images, if for dev mode use RISC0_DEV_MODE=1 before the command
+# Commented out to reduce image size for now
+# RUN /clementine-cli load-prover-images
 
 # Set up Clementine
 ENTRYPOINT [ "/clementine-core" ]
