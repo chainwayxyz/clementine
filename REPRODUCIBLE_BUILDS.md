@@ -19,6 +19,7 @@ To build a reproducible binary (supported only for Linux):
 ```
 
 The script will:
+
 1. Check for uncommitted changes (warn if found)
 2. Get the current git commit timestamp
 3. Build using Docker with StageX pallets
@@ -30,6 +31,7 @@ The script will:
 To verify that the build is reproducible:
 
 1. **Developer A builds:**
+
    ```bash
    git checkout <commit-sha>
    ./scripts/build-stagex.sh
@@ -37,6 +39,7 @@ To verify that the build is reproducible:
    ```
 
 2. **Developer B independently builds:**
+
    ```bash
    git checkout <same-commit-sha>
    ./scripts/build-stagex.sh
@@ -75,12 +78,13 @@ The `core/build.rs` file detects `SOURCE_DATE_EPOCH` and:
 - **When unset**: Includes all metadata for development builds
 
 This ensures:
+
 - Reproducible builds: No build timestamps embedded
 - Dev builds: Full metadata for debugging
 
 ### 4. Compiler Flags
 
-```
+```Rust
 RUSTFLAGS="-C codegen-units=1
            -C target-feature=+crt-static
            -C debuginfo=0
@@ -128,17 +132,20 @@ cargo build --locked --frozen --offline
 ## Requirements
 
 1. **Docker Buildx**: Required for the multi-platform build syntax
+
    ```bash
    docker buildx version
    ```
 
 2. **Committed Cargo.lock**: Must be in git and up-to-date
+
    ```bash
    git add Cargo.lock
    git commit -m "Update Cargo.lock"
    ```
 
 3. **Clean working directory**: For best reproducibility
+
    ```bash
    git status  # Should show no uncommitted changes
    ```
@@ -148,6 +155,7 @@ cargo build --locked --frozen --offline
 ### Different hashes from the same commit?
 
 Check:
+
 1. **Cargo.lock differences**: Ensure both builders have the same Cargo.lock
 2. **Uncommitted changes**: Both should build from a clean checkout
 3. **Docker platform**: Both should use `--platform=linux/amd64`
@@ -156,6 +164,7 @@ Check:
 ### Build fails with dependency errors?
 
 - Ensure Cargo.lock is committed and up-to-date:
+
   ```bash
   cargo update
   git add Cargo.lock
@@ -180,6 +189,7 @@ git checkout <commit-sha>
 ### Override Bitcoin network
 
 Edit `scripts/docker/Dockerfile.stagex` and change:
+
 ```dockerfile
 ENV BITCOIN_NETWORK=testnet  # or regtest
 ```
@@ -226,12 +236,14 @@ echo "<published-hash>  dist/out/clementine-core" | sha256sum -c
 To update the Rust version:
 
 1. Find the latest digest:
+
    ```bash
    docker pull stagex/pallet-rust:latest
    docker inspect stagex/pallet-rust:latest | grep Id
    ```
 
 2. Update in `scripts/docker/Dockerfile.stagex`:
+
    ```dockerfile
    ARG PALLET_RUST=stagex/pallet-rust@sha256:<new-digest>
    ```
@@ -243,6 +255,7 @@ To update the Rust version:
 After modifying the build process:
 
 1. Build twice from the same commit:
+
    ```bash
    ./scripts/build-stagex.sh
    mv dist/out/clementine-core build1
