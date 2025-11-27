@@ -22,6 +22,7 @@ env:
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
 
 jobs:
+
   # Build ----------------------------------------------------------------------
   release_build_all_features:
     name: Release | All features | Compile
