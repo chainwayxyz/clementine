@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+
+########################################
+# Reproducible artifact build for Clementine
+# Target architecture: linux/amd64 (x86_64-unknown-linux-musl)
+# Output: only the binary at /out/clementine-core
+########################################
+
+# Pin StageX pallets by digest for bit-for-bit reproducibility
+ARG PALLET_RUST=stagex/pallet-rust@sha256:b9021d2b75eac64fe8b931d96dde63ef11792e5023cee77c3471ccc34a95a377
+
+FROM ${PALLET_RUST} AS build
+WORKDIR /src
+
+# Copy the repository (must include Cargo.lock)
+COPY . .
+
+# Reproducible timestamp (default 0). Pass your git commit timestamp at build time:
+#   --build-arg SOURCE_DATE_EPOCH=$(git -C /path/to/clementine log -1 --format=%ct)
+ARG SOURCE_DATE_EPOCH=0
+
+# Build target: linux/amd64 via musl
+ARG TARGET=x86_64-unknown-linux-musl
+
+# Deterministic build environment
+ENV CARGO_HOME=/cargo \
+    CARGO_TARGET_DIR=/target \
+    CARGO_INCREMENTAL=0 \
+    ZERO_AR_DATE=1 \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    RUSTFLAGS="-C codegen-units=1 -C target-feature=+crt-static -C debuginfo=0 -C strip=symbols -Clink-arg=-Wl,--build-id=none" \
+    REPR_GUEST_BUILD=true \
+    BITCOIN_NETWORK=mainnet
+
+# Lock dependency set into the local cargo cache
+RUN cargo fetch --locked
+
+# Hermetic compile: use the cached deps only; normalize output mtime; fixed perms
+RUN SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
+    cargo build --profile release --locked --frozen --offline --bin clementine-core --target ${TARGET} && \
+    touch -d "@${SOURCE_DATE_EPOCH}" /target/${TARGET}/release/clementine-core && \
+    chmod 0555 /target/${TARGET}/release/clementine-core
+
+# Artifact-only stage: just emit the binary
+FROM scratch AS artifact
+ARG TARGET=x86_64-unknown-linux-musl
+COPY --from=build /target/${TARGET}/release/clementine-core /out/clementine-core
