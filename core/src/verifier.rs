@@ -1401,8 +1401,9 @@ where
                                 }
                             }
                         }
-                        Err(e) => {
-                            // TODO: do not err if tx doesn't exist on chain
+                        Err(_) => {
+                            // Do not err if tx doesn't exist on chain
+                            // This is normal, we only care about kickoffs that are in the chain
                             continue;
                         }
                     }

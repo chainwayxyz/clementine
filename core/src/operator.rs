@@ -2502,6 +2502,10 @@ mod states {
         ) -> Result<(), BridgeError> {
             Ok(())
         }
+
+        fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {
+            kickoff_data.operator_xonly_pk == self.signer.xonly_public_key
+        }
     }
 }
 

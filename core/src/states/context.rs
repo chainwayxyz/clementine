@@ -136,6 +136,13 @@ pub trait Owner: Clone + NamedEntity {
         block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError>;
+
+    /// Check if a kickoff is relevant for the owner
+    /// For verifiers, all kickoffs are relevant
+    /// For operators, only kickoffs of their own are relevant, which will be checked by a trait fn override
+    fn is_kickoff_relevant_for_owner(&self, _kickoff_data: &KickoffData) -> bool {
+        true
+    }
 }
 
 /// Context for the state machine

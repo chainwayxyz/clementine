@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::Witness;
+use bitcoin::{consensus::Encodable, Witness};
 use eyre::OptionExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
@@ -168,11 +168,65 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                // TODO: add txsender relevant txs if past kickoff is detected somehow
+                // Think about the challenge problem
                 // reject NewKickoff without error if the kickoff height is less than the next height to process
                 // this can happen if we are resyncing, we will detect the kickoff later so it is fine to reject it.
                 // this is a protection so that only finalized kickoffs are processed (kickoff_height cna change if kickoff is added while not finalized)
                 if kickoff_height < self.next_height_to_process {
                     return Ok(());
+                }
+
+                // if kickoff is not relevant for the owner, do not process it
+                // only case right now is if owner is operator and kickoff is not of their own
+                if !self.owner.is_kickoff_relevant_for_owner(&kickoff_data) {
+                    return Ok(());
+                }
+
+                // check for duplicates
+                for kickoff_machine in self.kickoff_machines.iter() {
+                    let matches = [
+                        kickoff_machine.kickoff_data == kickoff_data,
+                        kickoff_machine.deposit_data == deposit_data,
+                        kickoff_machine.payout_blockhash == payout_blockhash,
+                        kickoff_machine.kickoff_height == kickoff_height,
+                    ];
+                    let match_count = matches.iter().filter(|&&b| b).count();
+
+                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
+                    match match_count {
+                        4 => return Ok(()), // exact duplicate, skip
+                        0 => {}             // no match, continue checking other machines
+                        n => {
+                            let mut raw_payout_blockhash = Vec::new();
+                            payout_blockhash
+                                .consensus_encode(&mut raw_payout_blockhash)
+                                .map_err(|e| {
+                                    eyre::eyre!("Error encoding payout blockhash: {}", e)
+                                })?;
+                            let payout_blockhash_hex = hex::encode(raw_payout_blockhash);
+                            let mut raw_existing_payout_blockhash = Vec::new();
+                            kickoff_machine
+                                .payout_blockhash
+                                .consensus_encode(&mut raw_existing_payout_blockhash)
+                                .map_err(|e| {
+                                    eyre::eyre!("Error encoding existing payout blockhash: {}", e)
+                                })?;
+                            let existing_payout_blockhash_hex =
+                                hex::encode(raw_existing_payout_blockhash);
+                            return Err(eyre::eyre!(
+                            "Partial kickoff match detected ({n} of 4 fields match). This indicates data corruption or inconsistency. New kickoff data: {:?}, Existing kickoff data: {:?}, New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
+                            kickoff_data,
+                            kickoff_machine.kickoff_data,
+                            deposit_data,
+                            kickoff_machine.deposit_data,
+                            kickoff_height,
+                            kickoff_machine.kickoff_height,
+                            payout_blockhash_hex,
+                            existing_payout_blockhash_hex,
+                            ).into());
+                        }
+                    }
                 }
 
                 // Initialize context using the block just before the kickoff height
