@@ -11,7 +11,7 @@ use clementine_core::{
     actor::Actor,
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
-    cli::{self, get_cli_config},
+    cli::{self, get_cli_config, parse_cli_args},
     database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     servers::{
@@ -27,6 +27,25 @@ async fn main() {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
+
+    // Check for generate-bitvm-cache command early (doesn't require config)
+    let early_args = parse_cli_args();
+    if early_args.actor == cli::Actors::GenerateBitvmCache {
+        let level_filter = match early_args.verbose {
+            0 => None,
+            other => Some(LevelFilter::from_level(
+                Level::from_str(&other.to_string()).unwrap_or(Level::INFO),
+            )),
+        };
+        initialize_logger(level_filter).expect("Failed to initialize logger.");
+
+        println!("Generating BitVM cache...");
+        BITVM_CACHE
+            .get_or_try_init(load_or_generate_bitvm_cache)
+            .expect("Failed to generate BitVM cache");
+        println!("BitVM cache generated successfully.");
+        std::process::exit(0);
+    }
 
     let (config, args) = get_cli_config();
 
@@ -135,6 +154,10 @@ async fn main() {
             println!("Your node is healthy and ready to run.");
 
             std::process::exit(0);
+        }
+        cli::Actors::GenerateBitvmCache => {
+            // This case is handled early in main() and exits before reaching here
+            unreachable!("GenerateBitvmCache should be handled before this point");
         }
     };
     println!("Server has started successfully.");
