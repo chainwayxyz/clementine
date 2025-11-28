@@ -22,6 +22,7 @@ pub enum Actors {
     Operator,
     Aggregator,
     TestActor,
+    GenerateBitvmCache,
 }
 
 /// Clementine (C) 2025 Chainway Limited
@@ -60,6 +61,24 @@ where
             Err(BridgeError::CLIDisplayAndExit(e.render()))
         }
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+    }
+}
+
+/// Parses CLI arguments without loading configuration.
+/// Useful for commands that don't require config like `generate-bitvm-cache`.
+///
+/// If there are any errors or help/version display requests, prints and exits.
+pub fn parse_cli_args() -> Args {
+    match parse_from(env::args()) {
+        Ok(args) => args,
+        Err(BridgeError::CLIDisplayAndExit(msg)) => {
+            println!("{msg}");
+            process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("Failed to parse CLI arguments: {e}");
+            process::exit(1);
+        }
     }
 }
 
