@@ -337,6 +337,14 @@ impl<C: CitreaClientT> TestActors<C> {
         self.operators.len()
     }
 
+    pub fn get_operator_by_index(&self, index: usize) -> Option<&TestOperator<C>> {
+        self.operators.get(&index)
+    }
+
+    pub fn get_verifier_by_index(&self, index: usize) -> Option<&TestVerifier<C>> {
+        self.verifiers.get(&index)
+    }
+
     pub fn get_verifiers(&self) -> Vec<ClementineVerifierClient<Channel>> {
         self.verifiers
             .values()

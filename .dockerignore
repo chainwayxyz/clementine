@@ -20,3 +20,6 @@
 
 # exclude bitvm cache (for local builders who forgot to delete it)
 **/bitvm_cache*.bin
+
+# include devops files
+!/devops/**

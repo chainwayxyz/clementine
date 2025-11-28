@@ -1,0 +1,35 @@
+{
+  "Verifier": {
+    "Dev-Net": [
+      "clementine-verifier"
+    ],
+    "Test-Net": [
+      "clementine-verifier"
+    ],
+    "Main-Net": [
+      "clementine-verifier"
+    ]
+  },
+  "Operator": {
+    "Dev-Net": [
+      "clementine-operator"
+    ],
+    "Test-Net": [
+      "clementine-operator"
+    ],
+    "Main-Net": [
+      "clementine-operator"
+    ]
+  },
+  "Aggregator": {
+    "Dev-Net": [
+      "clementine-aggregator"
+    ],
+    "Test-Net": [
+      "clementine-aggregator"
+    ],
+    "Main-Net": [
+      "clementine-aggregator"
+    ]
+  }
+}

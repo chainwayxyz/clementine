@@ -282,21 +282,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedBitcoinRpc,
     count: usize,
-    test_actors: Option<TestActors<C>>,
-) -> Result<
-    (
-        TestActors<C>,
-        Vec<DepositInfo>,
-        Vec<Txid>,
-        Vec<BlockHash>,
-        Vec<PublicKey>,
-    ),
-    BridgeError,
-> {
-    let actors = match test_actors {
-        Some(actors) => actors,
-        None => create_actors(config).await,
-    };
+    actors: &TestActors<C>,
+) -> Result<(Vec<DepositInfo>, Vec<Txid>, Vec<BlockHash>, Vec<PublicKey>), BridgeError> {
     let mut aggregator = actors.get_aggregator();
 
     let evm_address = EVMAddress([1u8; 20]);
@@ -319,7 +306,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await?;
-        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 1, &actors, None)
+        rpc.mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 1, actors, None)
             .await?;
 
         let deposit_info = DepositInfo {
@@ -359,7 +346,6 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     }
 
     Ok((
-        actors,
         deposit_infos,
         move_txids,
         deposit_blockhashes,
@@ -395,14 +381,9 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedBitcoinRpc,
     evm_address: Option<EVMAddress>,
-    actors: Option<TestActors<C>>,
+    actors: &TestActors<C>,
     deposit_outpoint: Option<OutPoint>, // if a deposit outpoint is provided, it will be used instead of creating a new one
-) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash, Vec<PublicKey>), BridgeError> {
-    let actors = match actors {
-        Some(actors) => actors,
-        None => create_actors(config).await,
-    };
-
+) -> Result<(DepositInfo, Txid, BlockHash, Vec<PublicKey>), BridgeError> {
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
@@ -494,7 +475,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
                     }
                     wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
                         .await?;
-                    rpc.mine_blocks_while_synced(1, &actors, None).await?;
+                    rpc.mine_blocks_while_synced(1, actors, None).await?;
                     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
                 }
             }
@@ -564,7 +545,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     }
 
     Ok((
-        actors,
         deposit_info,
         move_txid,
         deposit_blockhash,
@@ -598,9 +578,9 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: &ExtendedBitcoinRpc,
     old_move_txid: Txid,
-    current_actors: TestActors<C>,
+    actors: &TestActors<C>,
     old_nofn_xonly_pk: XOnlyPublicKey,
-) -> Result<(TestActors<C>, DepositInfo, Txid, BlockHash), BridgeError> {
+) -> Result<(DepositInfo, Txid, BlockHash), BridgeError> {
     let aggregator_db = Database::new(&BridgeConfig {
         db_name: config.db_name.clone() + "0",
         ..config.clone()
@@ -608,14 +588,8 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     .await?;
 
     // create a replacement deposit tx, we will sign it using nofn
-    let replacement_deposit_txid = send_replacement_deposit_tx(
-        config,
-        rpc,
-        old_move_txid,
-        &current_actors,
-        old_nofn_xonly_pk,
-    )
-    .await?;
+    let replacement_deposit_txid =
+        send_replacement_deposit_tx(config, rpc, old_move_txid, actors, old_nofn_xonly_pk).await?;
 
     let deposit_outpoint = OutPoint {
         txid: replacement_deposit_txid,
@@ -623,7 +597,7 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
     };
 
     let setup_start = std::time::Instant::now();
-    let mut aggregator = current_actors.get_aggregator();
+    let mut aggregator = actors.get_aggregator();
     tracing::info!(
         "Current chain height before aggregator setup: {:?}",
         rpc.get_current_chain_height().await?
@@ -662,12 +636,11 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
         wait_for_fee_payer_utxos_to_be_in_mempool(rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks_while_synced(1, &current_actors, None)
-            .await?;
+        rpc.mine_blocks_while_synced(1, actors, None).await?;
         mine_once_after_in_mempool(rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
-    Ok((current_actors, deposit_info, move_txid, deposit_blockhash))
+    Ok((deposit_info, move_txid, deposit_blockhash))
 }
 
 /// Signs a replacement deposit transaction using the security council
