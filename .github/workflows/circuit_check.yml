@@ -18,44 +18,45 @@ env:
   REPR_GUEST_BUILD: 1
 
 jobs:
-  name: circuit_check
-  runs-on: ubicloud-standard-8
-  steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Install risc0
-      uses: ./.github/actions/test-prerequisites
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+  circuit_check:
+    name: circuit_check
+    runs-on: ubicloud-standard-8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install risc0
+        uses: ./.github/actions/test-prerequisites
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install r0vm
-      run: rzup install r0vm
+      - name: Install r0vm
+        run: rzup install r0vm
 
-    - name: Compute pre-build method ID
-      id: pre_id
-      working-directory: risc0-circuits
-      run: |
-        PRE_ID=$(r0vm --elf elfs/mainnet-bridge-circuit-guest.bin --id | tr -d '[:space:]')
-        echo "pre_id=$PRE_ID" >> "$GITHUB_OUTPUT"
+      - name: Compute pre-build method ID
+        id: pre_id
+        working-directory: risc0-circuits
+        run: |
+          PRE_ID=$(r0vm --elf elfs/mainnet-bridge-circuit-guest.bin --id | tr -d '[:space:]')
+          echo "pre_id=$PRE_ID" >> "$GITHUB_OUTPUT"
 
-    - name: Build Bridge Circuit
-      working-directory: risc0-circuits/bridge-circuit
-      run: BITCOIN_NETWORK=mainnet cargo build -p bridge-circuit --release
-    
-    - name: Compute post-build method ID
-      id: post_id
-      working-directory: risc0-circuits
-      run: |
-        POST_ID=$(r0vm --elf elfs/mainnet-bridge-circuit-guest.bin --id | tr -d '[:space:]')
-        echo "post_id=$POST_ID" >> "$GITHUB_OUTPUT"
-    
-    - name: Verify method ID unchanged
-      run: |
-        if [ "${{ steps.pre_id.outputs.pre_id }}" != "${{ steps.post_id.outputs.post_id }}" ]; then
-          echo "Method ID has changed from ${{ steps.pre_id.outputs.pre_id }} to ${{ steps.post_id.outputs.post_id }}"
-          exit 1
-        else
-          echo "Method ID is unchanged: ${{ steps.pre_id.outputs.pre_id }}"
-        fi
+      - name: Build Bridge Circuit
+        working-directory: risc0-circuits/bridge-circuit
+        run: BITCOIN_NETWORK=mainnet cargo build -p bridge-circuit --release
+      
+      - name: Compute post-build method ID
+        id: post_id
+        working-directory: risc0-circuits
+        run: |
+          POST_ID=$(r0vm --elf elfs/mainnet-bridge-circuit-guest.bin --id | tr -d '[:space:]')
+          echo "post_id=$POST_ID" >> "$GITHUB_OUTPUT"
+      
+      - name: Verify method ID unchanged
+        run: |
+          if [ "${{ steps.pre_id.outputs.pre_id }}" != "${{ steps.post_id.outputs.post_id }}" ]; then
+            echo "Method ID has changed from ${{ steps.pre_id.outputs.pre_id }} to ${{ steps.post_id.outputs.post_id }}"
+            exit 1
+          else
+            echo "Method ID is unchanged: ${{ steps.pre_id.outputs.pre_id }}"
+          fi
   
