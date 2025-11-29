@@ -1,5 +1,8 @@
 name: Circuit Check
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
