@@ -19,7 +19,7 @@ env:
 
 jobs:
   circuit_check:
-    name: circuit_check
+    name: Curcuit Method ID Check
     runs-on: ubicloud-standard-8
     steps:
       - name: Checkout repository
