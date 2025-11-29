@@ -65,5 +65,6 @@ runs:
       run: |
         curl -L https://risczero.com/install | bash
         echo "$HOME/.risc0/bin" >> $GITHUB_PATH
+        export PATH="$PATH:$HOME/.risc0/bin"
         rzup install
         rzup install rust 1.88.0
