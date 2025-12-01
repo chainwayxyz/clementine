@@ -169,7 +169,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 payout_blockhash,
             } => {
                 // TODO: add txsender relevant txs if past kickoff is detected somehow
-                // Think about the challenge problem
+                // TODO: Think about the challenge problem
+                // TODO: is kickoff finalized (when added during deposit_finalize)? problem
                 // reject NewKickoff without error if the kickoff height is less than the next height to process
                 // this can happen if we are resyncing, we will detect the kickoff later so it is fine to reject it.
                 // this is a protection so that only finalized kickoffs are processed (kickoff_height cna change if kickoff is added while not finalized)
