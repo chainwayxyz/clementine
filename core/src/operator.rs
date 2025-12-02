@@ -314,6 +314,9 @@ where
                             .wrap_err(format!("Invalid operator reimbursement address provided in config: {:?} for network: {:?}", reimburse_addr, config.protocol_paramset().network))?
                     }
                     None => {
+                        if config.protocol_paramset().network == bitcoin::Network::Bitcoin {
+                            return Err(eyre::eyre!("Operator reimbursement address is not set in the configuration. To initialize the operator, please set OPERATOR_REIMBURSEMENT_ADDRESS in your configuration to the address you want to use for reimbursements. Use your operator's address {} as the reimbursement address.", signer.address).into());
+                        }
                         rpc
                         .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
                         .await
