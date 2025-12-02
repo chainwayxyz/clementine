@@ -714,6 +714,31 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check if deposit outpoint is included in a block with height >= start_height
+        let tx_info = self
+            .rpc
+            .get_raw_transaction_info(&deposit_txid, None)
+            .await
+            .wrap_err("Failed to get deposit transaction info")?;
+        let blockhash = tx_info.blockhash.ok_or_else(|| {
+            BridgeError::InvalidDeposit("Deposit transaction is not confirmed".to_string())
+        })?;
+        let block_height = self
+            .rpc
+            .get_block_info(&blockhash)
+            .await
+            .wrap_err(format!(
+                "Failed to get block info for deposit tx block hash: {blockhash}",
+            ))?
+            .height;
+        let start_height = self.config.protocol_paramset().start_height;
+        if (block_height as u32) < start_height {
+            let reason = format!(
+                "Deposit transaction is included in a block with height {block_height} which is less than start_height {start_height}",
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
         Ok(())
     }
 
