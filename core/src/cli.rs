@@ -12,7 +12,6 @@ use clap::Parser;
 use clap::ValueEnum;
 use eyre::Context;
 use std::env;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process;
 

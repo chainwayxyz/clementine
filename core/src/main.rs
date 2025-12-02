@@ -75,7 +75,7 @@ async fn main() {
 
     let mut handle = match args.actor {
         cli::Actors::Verifier => {
-    tracing::info!("Running schema script...");
+            tracing::info!("Running schema script...");
             config
                 .check_mainnet_requirements(cli::Actors::Verifier)
                 .expect("Illegal configuration options!");
