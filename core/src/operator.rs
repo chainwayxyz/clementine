@@ -347,6 +347,20 @@ where
                         *outpoint
                     }
                     None => {
+                        if config.protocol_paramset().network == bitcoin::Network::Bitcoin {
+                            let wallet_address = rpc.get_new_wallet_address().await?;
+                            return Err(eyre::eyre!(
+                                "Operator collateral funding outpoint is not set in the configuration. \
+                                 To initialize the operator, please send {} BTC to the operator's address {}. \
+                                 After funding, set OPERATOR_COLLATERAL_FUNDING_OUTPOINT in your configuration to the outpoint of the funded transaction, \
+                                 and set OPERATOR_REIMBURSEMENT_ADDRESS to {}. \
+                                 Use your operator's Bitcoin wallet address {} to fund the operator to pay withdrawals.",
+                                config.protocol_paramset().collateral_funding_amount.to_btc(),
+                                signer.address,
+                                signer.address,
+                                wallet_address
+                            ).into());
+                        }
                         // create a new outpoint that has collateral funding amount
                         rpc.send_to_address(
                             &signer.address,
