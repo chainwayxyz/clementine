@@ -11,7 +11,7 @@ use clementine_core::{
     actor::Actor,
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
-    cli::{self, get_cli_config, parse_cli_args},
+    cli::{self, get_cli_args, get_config},
     database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     servers::{
@@ -28,26 +28,7 @@ async fn main() {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Check for generate-bitvm-cache command early (doesn't require config)
-    let early_args = parse_cli_args();
-    if early_args.actor == cli::Actors::GenerateBitvmCache {
-        let level_filter = match early_args.verbose {
-            0 => None,
-            other => Some(LevelFilter::from_level(
-                Level::from_str(&other.to_string()).unwrap_or(Level::INFO),
-            )),
-        };
-        initialize_logger(level_filter).expect("Failed to initialize logger.");
-
-        println!("Generating BitVM cache...");
-        BITVM_CACHE
-            .get_or_try_init(load_or_generate_bitvm_cache)
-            .expect("Failed to generate BitVM cache");
-        println!("BitVM cache generated successfully.");
-        std::process::exit(0);
-    }
-
-    let (config, args) = get_cli_config();
+    let args = get_cli_args();
 
     let level_filter = match args.verbose {
         0 => None,
@@ -57,6 +38,18 @@ async fn main() {
     };
 
     initialize_logger(level_filter).expect("Failed to initialize logger.");
+
+    // Check for generate-bitvm-cache command early (doesn't require config)
+    if args.actor == cli::Actors::GenerateBitvmCache {
+        tracing::info!("Generating BitVM cache...");
+        BITVM_CACHE
+            .get_or_try_init(load_or_generate_bitvm_cache)
+            .expect("Failed to generate BitVM cache");
+        tracing::info!("BitVM cache generated successfully.");
+        std::process::exit(0);
+    }
+
+    let config = get_config(args.clone());
 
     if let Some(telemetry) = &config.telemetry {
         if let Err(e) = initialize_telemetry(telemetry) {
@@ -75,13 +68,14 @@ async fn main() {
         .get_or_try_init(load_or_generate_bitvm_cache)
         .expect("Failed to load BitVM cache");
 
+    tracing::info!("Running schema script...");
     Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await
         .expect("Can't run schema script");
 
     let mut handle = match args.actor {
         cli::Actors::Verifier => {
-            println!("Starting verifier server...");
+    tracing::info!("Running schema script...");
             config
                 .check_mainnet_requirements(cli::Actors::Verifier)
                 .expect("Illegal configuration options!");
@@ -92,7 +86,7 @@ async fn main() {
                 .1
         }
         cli::Actors::Operator => {
-            println!("Starting operator server...");
+            tracing::info!("Starting operator server...");
             config
                 .check_mainnet_requirements(cli::Actors::Operator)
                 .expect("Illegal configuration options!");
@@ -103,7 +97,7 @@ async fn main() {
                 .1
         }
         cli::Actors::Aggregator => {
-            println!("Starting aggregator server...");
+            tracing::info!("Starting aggregator server...");
             config
                 .check_mainnet_requirements(cli::Actors::Aggregator)
                 .expect("Illegal configuration options!");
