@@ -278,6 +278,13 @@ impl_bytea_wrapper_custom!(
     |x: &[u8]| -> Result<Txid, BoxDynError> { Ok(Txid::from_slice(x)?) }
 );
 
+// Enable binding Vec<TxidDB> as bytea[] in queries (e.g., WHERE txid = ANY($1))
+impl sqlx::postgres::PgHasArrayType for TxidDB {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_bytea") // PostgreSQL array type for bytea
+    }
+}
+
 impl_bytea_wrapper_custom!(
     MessageDB,
     Message,

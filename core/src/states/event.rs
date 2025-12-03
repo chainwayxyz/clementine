@@ -42,11 +42,11 @@ pub enum SystemEvent {
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Appends a  message to the state manager's message queue to create a new round state machine
     pub async fn dispatch_new_round_machine(
-        db: Database,
+        db: &Database,
         tx: DatabaseTransaction<'_, '_>,
         operator_data: OperatorData,
     ) -> Result<(), eyre::Report> {
-        let queue = Self::create_or_connect_to_pgmq_queue(&db, Some(tx)).await?;
+        let queue = Self::create_or_connect_to_pgmq_queue(db, Some(tx)).await?;
         let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewOperator { operator_data };
@@ -59,14 +59,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     /// Appends a  message to the state manager's message queue to create a new kickoff state machine
     pub async fn dispatch_new_kickoff_machine(
-        db: Database,
+        db: &Database,
         tx: DatabaseTransaction<'_, '_>,
         kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
     ) -> Result<(), eyre::Report> {
-        let queue = Self::create_or_connect_to_pgmq_queue(&db, Some(tx)).await?;
+        let queue = Self::create_or_connect_to_pgmq_queue(db, Some(tx)).await?;
         let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewKickoff {

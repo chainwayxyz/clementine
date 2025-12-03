@@ -547,12 +547,8 @@ where
             )
             .await?;
 
-        StateManager::<Operator<C>>::dispatch_new_round_machine(
-            self.db.clone(),
-            &mut dbtx,
-            self.data(),
-        )
-        .await?;
+        StateManager::<Operator<C>>::dispatch_new_round_machine(&self.db, &mut dbtx, self.data())
+            .await?;
         dbtx.commit().await?;
         Ok(())
     }
@@ -2414,7 +2410,7 @@ mod states {
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
                         StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
+                            &self.db,
                             dbtx,
                             kickoff_data,
                             block_height,

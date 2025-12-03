@@ -299,7 +299,7 @@ where
                     let mut dbtx = self.verifier.db.begin_transaction().await?;
                     for operator in operators {
                         StateManager::<Verifier<C>>::dispatch_new_round_machine(
-                            self.verifier.db.clone(),
+                            &self.verifier.db,
                             &mut dbtx,
                             OperatorData {
                                 xonly_pk: operator.0,
@@ -827,12 +827,8 @@ where
 
         #[cfg(feature = "automation")]
         {
-            StateManager::<Self>::dispatch_new_round_machine(
-                self.db.clone(),
-                &mut dbtx,
-                operator_data,
-            )
-            .await?;
+            StateManager::<Self>::dispatch_new_round_machine(&self.db, &mut dbtx, operator_data)
+                .await?;
         }
         dbtx.commit().await?;
         tracing::info!("Operator: {:?} set successfully", operator_xonly_pk);
@@ -1232,6 +1228,8 @@ where
         let move_txhandler =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?;
 
+        let move_txid = move_txhandler.get_cached_tx().compute_txid();
+
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
             0,
@@ -1349,20 +1347,34 @@ where
                 }
             }
         }
-        // check if kickoffs are already in the chain, if so do necessary operations for ensuring resync
-        self.ensure_kickoffs_in_state_manager(deposit_data, &mut dbtx, kickoff_txids)
+        // Check move_txid/kickoffs consistency and dispatch finalized kickoffs to state managers
+        self.ensure_kickoffs_in_state_manager(deposit_data, &mut dbtx, kickoff_txids, move_txid)
             .await?;
         dbtx.commit().await?;
 
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    /// Validates move_txid/kickoffs consistency and dispatches finalized kickoffs to state managers.
+    ///
+    /// If move_txid is NOT in canonical chain but kickoffs ARE, returns an error.
+    /// Otherwise, dispatches finalized kickoffs to state managers for resync.
+    ///
+    /// Returns the list of (txid, block_height) for kickoffs that exist in canonical + finalized blocks.
     async fn ensure_kickoffs_in_state_manager(
         &self,
         deposit_data: &DepositData,
         dbtx: DatabaseTransaction<'_, '_>,
         kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
-    ) -> Result<(), BridgeError> {
+        move_txid: Txid,
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        // Build a mapping from txid -> (operator_xonly_pk, round_idx, kickoff_idx)
+        let mut kickoff_metadata: std::collections::HashMap<
+            Txid,
+            (XOnlyPublicKey, RoundIndex, usize),
+        > = std::collections::HashMap::new();
+        let mut all_kickoff_txids: Vec<Txid> = Vec::new();
+
         for (operator_idx, operator_xonly_pk) in
             deposit_data.get_operators().into_iter().enumerate()
         {
@@ -1371,71 +1383,174 @@ where
                 for (kickoff_txid, kickoff_idx) in
                     &kickoff_txids[operator_idx][round_idx.to_index()]
                 {
-                    // check if kickoff tx is in the chain
-                    let res = self.rpc.get_raw_transaction_info(kickoff_txid, None).await;
-                    match res {
-                        Ok(tx_info) => {
-                            match &tx_info.blockhash {
-                                Some(blockhash) => {
-                                    let block_height = self
-                                        .rpc
-                                        .get_block_info(blockhash)
-                                        .await
-                                        .wrap_err(format!(
-                                            "Failed to get block info for block hash: {blockhash}",
-                                        ))?
-                                        .height;
-                                    let tx: bitcoin::Transaction =
-                                        bitcoin::consensus::encode::deserialize(&tx_info.hex)
-                                            .wrap_err(format!(
-                                                "Failed to deserialize kickoff tx: {kickoff_txid}"
-                                            ))?;
-                                    let witness = tx.input[0].witness.clone();
-                                    StateManager::<Self>::dispatch_new_kickoff_machine(
-                                        self.db.clone(),
-                                        dbtx,
-                                        KickoffData {
-                                            operator_xonly_pk,
-                                            round_idx,
-                                            kickoff_idx: *kickoff_idx as u32,
-                                        },
-                                        block_height as u32,
-                                        deposit_data.clone(),
-                                        witness.clone(),
-                                    )
-                                    .await?;
-                                    // send it to operator state manager too, the event will be ignored if an operator with automation enabled
-                                    // doesn't exist
-                                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
-                                        self.db.clone(),
-                                        dbtx,
-                                        KickoffData {
-                                            operator_xonly_pk,
-                                            round_idx,
-                                            kickoff_idx: *kickoff_idx as u32,
-                                        },
-                                        block_height as u32,
-                                        deposit_data.clone(),
-                                        witness.clone(),
-                                    )
-                                    .await?;
-                                }
-                                None => {
-                                    // kickoff tx is in mempool, do not add to anything
-                                    continue;
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            // Do not err if tx doesn't exist on chain
-                            // This is normal, we only care about kickoffs that are in the chain
-                            continue;
-                        }
-                    }
+                    kickoff_metadata
+                        .insert(*kickoff_txid, (operator_xonly_pk, round_idx, *kickoff_idx));
+                    all_kickoff_txids.push(*kickoff_txid);
                 }
             }
         }
-        Ok(())
+
+        if all_kickoff_txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Query all txids (move + kickoffs) in one DB call
+        let mut txids_to_check = all_kickoff_txids.clone();
+        txids_to_check.push(move_txid);
+
+        let canonical_txids_with_heights = self
+            .db
+            .get_canonical_block_heights_for_txids(Some(dbtx), &txids_to_check)
+            .await?;
+
+        // Check move_txid/kickoffs consistency
+        let canonical_txid_set: std::collections::HashSet<Txid> = canonical_txids_with_heights
+            .iter()
+            .map(|(txid, _)| *txid)
+            .collect();
+
+        let move_txid_in_chain = canonical_txid_set.contains(&move_txid);
+
+        // if move txid is in chain, that means the deposit was already finished before, and current new_deposit call is just to resign,
+        // meaning if there are any kickoffs already in chain, it is ok.
+        if !move_txid_in_chain {
+            // Check if any kickoffs are in chain
+            let kickoffs_in_chain: Vec<_> = all_kickoff_txids
+                .iter()
+                .filter(|txid| canonical_txid_set.contains(*txid))
+                .filter_map(|txid| {
+                    kickoff_metadata
+                        .get(txid)
+                        .map(|(op_pk, round_idx, kickoff_idx)| {
+                            (*txid, *op_pk, *round_idx, *kickoff_idx)
+                        })
+                })
+                .collect();
+
+            if !kickoffs_in_chain.is_empty() {
+                let kickoff_details: Vec<String> = kickoffs_in_chain
+                    .iter()
+                    .map(|(txid, op_pk, round_idx, kickoff_idx)| {
+                        format!(
+                            "txid={txid}, operator={op_pk}, round={round_idx:?}, kickoff_idx={kickoff_idx}"
+                        )
+                    })
+                    .collect();
+
+                return Err(eyre::eyre!(
+                    "Deposit rejected: move_txid {} is NOT in chain, but {} kickoff(s) ARE in chain. \
+                     This means that an operator sent kickoffs before movetx was sent, indicating malicious behavior. Kickoffs in chain: - {}",
+                    move_txid,
+                    kickoffs_in_chain.len(),
+                    kickoff_details.join("\n  - ")
+                )
+                .into());
+            }
+        }
+
+        // Filter to only kickoff txids (exclude move_txid) that are canonical
+        let canonical_kickoffs: Vec<(Txid, u32)> = canonical_txids_with_heights
+            .into_iter()
+            .filter(|(txid, _)| *txid != move_txid)
+            .collect();
+
+        if canonical_kickoffs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Get the current chain tip height for finalization check
+        let current_chain_height = self
+            .db
+            .get_max_height(Some(dbtx))
+            .await?
+            .ok_or_else(|| eyre::eyre!("No blocks in bitcoin_syncer database"))?;
+
+        // Filter for finalized blocks
+        let finalized_txids: Vec<(Txid, u32)> = canonical_kickoffs
+            .into_iter()
+            .filter(|(_, height)| {
+                self.config
+                    .protocol_paramset()
+                    .is_block_finalized(*height, current_chain_height)
+            })
+            .collect();
+
+        if finalized_txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Group by block height to minimize block reads
+        let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
+            std::collections::HashMap::new();
+        for (txid, height) in &finalized_txids {
+            txids_by_height.entry(*height).or_default().push(*txid);
+        }
+
+        // For each block height, get the full block and extract witnesses
+        for (block_height, txids_in_block) in txids_by_height {
+            let block = self
+                .db
+                .get_full_block(Some(dbtx), block_height)
+                .await?
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Block at height {} not found in database despite being in bitcoin_syncer_txs",
+                        block_height
+                    )
+                })?;
+
+            for txid in txids_in_block {
+                // Find the transaction in the block
+                let tx = block
+                    .txdata
+                    .iter()
+                    .find(|tx| tx.compute_txid() == txid)
+                    .ok_or_else(|| {
+                        eyre::eyre!(
+                            "Transaction {} not found in block at height {}",
+                            txid,
+                            block_height
+                        )
+                    })?;
+
+                let witness = tx.input[0].witness.clone();
+                let (operator_xonly_pk, round_idx, kickoff_idx) = kickoff_metadata
+                    .get(&txid)
+                    .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
+
+                StateManager::<Self>::dispatch_new_kickoff_machine(
+                    &self.db,
+                    dbtx,
+                    KickoffData {
+                        operator_xonly_pk: *operator_xonly_pk,
+                        round_idx: *round_idx,
+                        kickoff_idx: *kickoff_idx as u32,
+                    },
+                    block_height,
+                    deposit_data.clone(),
+                    witness.clone(),
+                )
+                .await?;
+
+                // send it to operator state manager too, the event will be ignored if an operator
+                // with automation enabled doesn't exist
+                StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
+                    &self.db,
+                    dbtx,
+                    KickoffData {
+                        operator_xonly_pk: *operator_xonly_pk,
+                        round_idx: *round_idx,
+                        kickoff_idx: *kickoff_idx as u32,
+                    },
+                    block_height,
+                    deposit_data.clone(),
+                    witness.clone(),
+                )
+                .await?;
+            }
+        }
+
+        Ok(finalized_txids)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3156,7 +3271,7 @@ mod states {
                         // do not add if kickoff finalizer is already spent => kickoff is finished
                         // this can happen if we are resyncing
                         StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
+                            &self.db,
                             &mut dbtx,
                             kickoff_data,
                             block_height,
