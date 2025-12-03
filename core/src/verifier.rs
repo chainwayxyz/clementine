@@ -1940,9 +1940,30 @@ where
             deposit_data
         );
 
+        self.queue_relevant_txs_for_new_kickoff(
+            dbtx,
+            kickoff_data,
+            deposit_data,
+            challenged_before,
+            kickoff_txid,
+        )
+        .await?;
+
+        Ok(true)
+    }
+
+    async fn queue_relevant_txs_for_new_kickoff(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        challenged_before: bool,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let context = ContractContext::new_context_with_signer(
             kickoff_data,
-            deposit_data.clone(),
+            deposit_data,
             self.config.protocol_paramset(),
             self.signer.clone(),
         );
@@ -1962,7 +1983,7 @@ where
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+            deposit_outpoint: Some(deposit_outpoint),
         };
 
         // try to send them
@@ -2024,7 +2045,7 @@ where
             }
         }
 
-        Ok(true)
+        Ok(())
     }
 
     #[cfg(feature = "automation")]
@@ -3139,6 +3160,35 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
+                Duty::AddRelevantTxsToTxSender {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    tracing::info!("Verifier {:?} called add relevant txs to tx sender with kickoff_data: {:?}", verifier_xonly_pk, kickoff_data);
+                    let kickoff_txid = self
+                        .db
+                        .get_kickoff_txid_from_deposit_and_kickoff_data(
+                            Some(dbtx),
+                            deposit_data.get_deposit_outpoint(),
+                            &kickoff_data,
+                        )
+                        .await?
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "Kickoff txid not found in deposit_signatures for kickoff_data: {:?}",
+                                kickoff_data
+                            )
+                        })?;
+                    self.queue_relevant_txs_for_new_kickoff(
+                        dbtx,
+                        kickoff_data,
+                        deposit_data,
+                        true, // do not try to challenge as this duty is only useful during resyncing
+                        kickoff_txid,
+                    )
+                    .await?;
+                    Ok(DutyResult::Handled)
+                }
                 Duty::VerifierDisprove {
                     kickoff_data,
                     mut deposit_data,

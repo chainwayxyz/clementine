@@ -56,6 +56,12 @@ pub enum Duty {
         witness: Witness,
         challenged_before: bool,
     },
+    /// This duty is sent after a kickoff is detected and added to the state manager.
+    /// It includes the kickoff data so that the owner can add the relevant txs to the tx sender.
+    AddRelevantTxsToTxSender {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
     /// This duty is sent after some time (config.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.

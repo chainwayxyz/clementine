@@ -9,6 +9,7 @@ use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
     errors::BridgeError,
+    states::Duty,
 };
 
 use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
@@ -249,7 +250,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
-                    deposit_data,
+                    deposit_data.clone(),
                     payout_blockhash,
                 )
                 .uninitialized_state_machine()
@@ -271,6 +272,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
+                // if everything is fine, add the relevant txs to the tx sender
+                // this will already be added normaly, but if there was a db loss and we are resyncing, the txs will not be added.
+                // so we add them with this duty.
+                context
+                    .dispatch_duty(Duty::AddRelevantTxsToTxSender {
+                        kickoff_data,
+                        deposit_data,
+                    })
+                    .await?;
             }
         };
 
