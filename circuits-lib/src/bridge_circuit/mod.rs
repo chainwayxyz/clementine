@@ -150,7 +150,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
-        .expect("Cannot fail");
+        .expect("Cannot fail - test");
 
     // If total work is less than the max total work of watchtowers, panic
     if total_work < max_total_work {
