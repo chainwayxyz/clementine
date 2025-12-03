@@ -169,14 +169,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 payout_blockhash,
             } => {
                 // TODO: add txsender relevant txs if past kickoff is detected somehow
-                // TODO: Think about the challenge problem
-                // TODO: is kickoff finalized (when added during deposit_finalize)? problem
-                // reject NewKickoff without error if the kickoff height is less than the next height to process
-                // this can happen if we are resyncing, we will detect the kickoff later so it is fine to reject it.
-                // this is a protection so that only finalized kickoffs are processed (kickoff_height cna change if kickoff is added while not finalized)
-                if kickoff_height < self.next_height_to_process {
-                    return Ok(());
-                }
 
                 // if kickoff is not relevant for the owner, do not process it
                 // only case right now is if owner is operator and kickoff is not of their own
@@ -195,6 +187,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     let match_count = matches.iter().filter(|&&b| b).count();
 
                     // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
+                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
                     match match_count {
                         4 => return Ok(()), // exact duplicate, skip
                         0 => {}             // no match, continue checking other machines

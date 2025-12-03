@@ -1348,7 +1348,12 @@ where
             }
         }
         // Check move_txid/kickoffs consistency and dispatch finalized kickoffs to state managers
-        self.ensure_kickoffs_in_state_manager(deposit_data, &mut dbtx, kickoff_txids, move_txid)
+        // First acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize. It is a read lock so that multiple new_deposit calls can run this in parallel.
+        // The lock is to ensure this race condition doesn't happen: A kickoff is almost finalized (one block left), kickoffs are checkedd in function below and added to state manager if they are finalized, if they are not finalized during check but become finalized + processed by state manager before dbtx in deposit_finalize is commited, the kickoff won't be added to the state manager.
+        // Very unlikely to happen (because it needs both a db loss + resync conditions here + a kickoff to be just a small amount of time away from being finalized + state manager sync happening before dbtx is commited), but the performance cost of the lock is also negligible because the write lock will be acquired only when a kickoff utxo (in round tx) is spent.
+        #[cfg(feature = "automation")]
+        let _guard = crate::states::round::CHECK_KICKOFF_LOCK.read().await;
+        self.check_kickoffs_on_chain_and_track(deposit_data, &mut dbtx, kickoff_txids, move_txid)
             .await?;
         dbtx.commit().await?;
 
@@ -1361,7 +1366,7 @@ where
     /// Otherwise, dispatches finalized kickoffs to state managers for resync.
     ///
     /// Returns the list of (txid, block_height) for kickoffs that exist in canonical + finalized blocks.
-    async fn ensure_kickoffs_in_state_manager(
+    async fn check_kickoffs_on_chain_and_track(
         &self,
         deposit_data: &DepositData,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -1479,16 +1484,22 @@ where
             return Ok(Vec::new());
         }
 
-        // Group by block height to minimize block reads
-        let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
-            std::collections::HashMap::new();
-        for (txid, height) in &finalized_txids {
-            txids_by_height.entry(*height).or_default().push(*txid);
-        }
+        // next part is only relevant if automation is enabled
+        // but be warned that if verifier automation is not enabled but operator automation is enabled,
+        // that can cause issues here as operator kickoff state manager will never be dispatched.
 
-        // For each block height, get the full block and extract witnesses
-        for (block_height, txids_in_block) in txids_by_height {
-            let block = self
+        #[cfg(feature = "automation")]
+        {
+            // Group by block height to minimize block reads
+            let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
+                std::collections::HashMap::new();
+            for (txid, height) in &finalized_txids {
+                txids_by_height.entry(*height).or_default().push(*txid);
+            }
+
+            // For each block height, get the full block and extract witnesses
+            for (block_height, txids_in_block) in txids_by_height {
+                let block = self
                 .db
                 .get_full_block(Some(dbtx), block_height)
                 .await?
@@ -1499,54 +1510,56 @@ where
                     )
                 })?;
 
-            for txid in txids_in_block {
-                // Find the transaction in the block
-                let tx = block
-                    .txdata
-                    .iter()
-                    .find(|tx| tx.compute_txid() == txid)
-                    .ok_or_else(|| {
-                        eyre::eyre!(
-                            "Transaction {} not found in block at height {}",
-                            txid,
-                            block_height
-                        )
-                    })?;
+                for txid in txids_in_block {
+                    // Find the transaction in the block
+                    let tx = block
+                        .txdata
+                        .iter()
+                        .find(|tx| tx.compute_txid() == txid)
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "Transaction {} not found in block at height {}",
+                                txid,
+                                block_height
+                            )
+                        })?;
 
-                let witness = tx.input[0].witness.clone();
-                let (operator_xonly_pk, round_idx, kickoff_idx) = kickoff_metadata
-                    .get(&txid)
-                    .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
+                    let witness = tx.input[0].witness.clone();
+                    let (operator_xonly_pk, round_idx, kickoff_idx) =
+                        kickoff_metadata
+                            .get(&txid)
+                            .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
 
-                StateManager::<Self>::dispatch_new_kickoff_machine(
-                    &self.db,
-                    dbtx,
-                    KickoffData {
-                        operator_xonly_pk: *operator_xonly_pk,
-                        round_idx: *round_idx,
-                        kickoff_idx: *kickoff_idx as u32,
-                    },
-                    block_height,
-                    deposit_data.clone(),
-                    witness.clone(),
-                )
-                .await?;
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                        &self.db,
+                        dbtx,
+                        KickoffData {
+                            operator_xonly_pk: *operator_xonly_pk,
+                            round_idx: *round_idx,
+                            kickoff_idx: *kickoff_idx as u32,
+                        },
+                        block_height,
+                        deposit_data.clone(),
+                        witness.clone(),
+                    )
+                    .await?;
 
-                // send it to operator state manager too, the event will be ignored if an operator
-                // with automation enabled doesn't exist
-                StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
-                    &self.db,
-                    dbtx,
-                    KickoffData {
-                        operator_xonly_pk: *operator_xonly_pk,
-                        round_idx: *round_idx,
-                        kickoff_idx: *kickoff_idx as u32,
-                    },
-                    block_height,
-                    deposit_data.clone(),
-                    witness.clone(),
-                )
-                .await?;
+                    // send it to operator state manager too, the event will be ignored if an operator
+                    // with automation enabled doesn't exist
+                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
+                        &self.db,
+                        dbtx,
+                        KickoffData {
+                            operator_xonly_pk: *operator_xonly_pk,
+                            round_idx: *round_idx,
+                            kickoff_idx: *kickoff_idx as u32,
+                        },
+                        block_height,
+                        deposit_data.clone(),
+                        witness.clone(),
+                    )
+                    .await?;
+                }
             }
         }
 

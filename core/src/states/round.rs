@@ -1,5 +1,7 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
+use tokio::sync::RwLock;
 
 use crate::deposit::OperatorData;
 use crate::operator::RoundIndex;
@@ -16,6 +18,10 @@ use super::{
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
+
+/// Lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize,
+/// where new deposit signatures are being inserted (because checking a kickoff is done by using deposit_signatures table)
+pub static CHECK_KICKOFF_LOCK: LazyLock<RwLock<()>> = LazyLock::new(|| RwLock::new(()));
 
 /// Events that change the state of the round state machine.
 #[derive(
@@ -251,6 +257,8 @@ impl<T: Owner> RoundStateMachine<T> {
                 context
                     .capture_error(async |context| {
                         {
+                            // acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize
+                            let _guard = CHECK_KICKOFF_LOCK.write().await;
                             let duty_result = context
                                 .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
