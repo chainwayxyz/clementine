@@ -82,9 +82,10 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
 
-      - name: Ensure r0vm is in PATH
-        if: steps.cache-toolchain.outputs.cache-hit == 'true'
-        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+      - name: Ensure toolchain is in PATH
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
 
       - name: Compute bridge circuit pre-build method ID
         id: pre_id
@@ -143,9 +144,10 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
       
-      - name: Ensure r0vm is in PATH
-        if: steps.cache-toolchain.outputs.cache-hit == 'true'
-        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+      - name: Ensure toolchain is in PATH
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH" 
 
       - name: Compute header-chain circuit pre-build method ID
         id: pre_id
@@ -204,9 +206,10 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
 
-      - name: Ensure r0vm is in PATH
-        if: steps.cache-toolchain.outputs.cache-hit == 'true'
-        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+      - name: Ensure toolchain is in PATH
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
 
       - name: Compute work-only circuit pre-build method ID
         id: pre_id
