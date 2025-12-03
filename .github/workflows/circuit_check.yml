@@ -82,6 +82,10 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
 
+      - name: Ensure r0vm is in PATH
+        if: steps.cache-toolchain.outputs.cache-hit == 'true'
+        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+
       - name: Compute bridge circuit pre-build method ID
         id: pre_id
         working-directory: risc0-circuits
@@ -138,6 +142,10 @@ jobs:
       - name: Install r0vm (only if cache missed)
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
+      
+      - name: Ensure r0vm is in PATH
+        if: steps.cache-toolchain.outputs.cache-hit == 'true'
+        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
 
       - name: Compute header-chain circuit pre-build method ID
         id: pre_id
@@ -195,6 +203,10 @@ jobs:
       - name: Install r0vm (only if cache missed)
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: rzup install r0vm
+
+      - name: Ensure r0vm is in PATH
+        if: steps.cache-toolchain.outputs.cache-hit == 'true'
+        run: echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
 
       - name: Compute work-only circuit pre-build method ID
         id: pre_id
