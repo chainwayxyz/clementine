@@ -187,7 +187,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         rpc: ExtendedBitcoinRpc,
         config: BridgeConfig,
     ) -> eyre::Result<Self> {
-        let queue = Self::create_or_connect_to_pgmq_queue(&db, None).await?;
+        // create pgmq queue for the state manager
+        let self_queue_name = Self::queue_name();
+        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        queue
+            .create(&self_queue_name)
+            .await
+            .wrap_err_with(|| format!("Error creating pqmq queue with name {self_queue_name}"))?;
 
         let mut mgr = Self {
             last_finalized_block: None,
@@ -203,30 +209,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         mgr.reload_state_manager_from_db().await?;
         Ok(mgr)
-    }
-
-    pub async fn create_or_connect_to_pgmq_queue(
-        db: &Database,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<PGMQueueExt, BridgeError> {
-        let queue_name = Self::queue_name();
-        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        match dbtx {
-            Some(dbtx) => {
-                queue
-                    .create_with_cxn(&queue_name, &mut *(*dbtx))
-                    .await
-                    .wrap_err_with(|| {
-                        format!("Error creating pqmq queue with name {}", Self::queue_name())
-                    })?;
-            }
-            None => {
-                queue.create(&queue_name).await.wrap_err_with(|| {
-                    format!("Error creating pqmq queue with name {}", Self::queue_name())
-                })?;
-            }
-        }
-        Ok(queue)
     }
 
     async fn get_block(

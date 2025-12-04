@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bitcoin::{consensus::Encodable, Witness};
 use eyre::OptionExt;
+use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 use tokio::sync::Mutex;
 
@@ -47,14 +48,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         tx: DatabaseTransaction<'_, '_>,
         operator_data: OperatorData,
     ) -> Result<(), eyre::Report> {
-        let queue = Self::create_or_connect_to_pgmq_queue(db, Some(tx)).await?;
         let queue_name = Self::queue_name();
+        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
 
         let message = SystemEvent::NewOperator { operator_data };
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
             .map_err(|e| eyre::eyre!("Error sending NewOperator event: {:?}", e))?;
+        tracing::info!("Sent NewOperator event");
         Ok(())
     }
 
@@ -67,7 +69,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         deposit_data: DepositData,
         payout_blockhash: Witness,
     ) -> Result<(), eyre::Report> {
-        let queue = Self::create_or_connect_to_pgmq_queue(db, Some(tx)).await?;
+        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewKickoff {

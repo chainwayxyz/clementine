@@ -1544,21 +1544,27 @@ where
                     )
                     .await?;
 
-                    // send it to operator state manager too, the event will be ignored if an operator
-                    // with automation enabled doesn't exist
-                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
-                        &self.db,
-                        dbtx,
-                        KickoffData {
-                            operator_xonly_pk: *operator_xonly_pk,
-                            round_idx: *round_idx,
-                            kickoff_idx: *kickoff_idx as u32,
-                        },
-                        block_height,
-                        deposit_data.clone(),
-                        witness.clone(),
-                    )
-                    .await?;
+                    // send it to operator state manager too, if the state manager queue for the operator exists
+                    // if it doesn't exist, it means this verifier does not have an operator with automation enabled
+                    if self
+                        .db
+                        .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(dbtx))
+                        .await?
+                    {
+                        StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
+                            &self.db,
+                            dbtx,
+                            KickoffData {
+                                operator_xonly_pk: *operator_xonly_pk,
+                                round_idx: *round_idx,
+                                kickoff_idx: *kickoff_idx as u32,
+                            },
+                            block_height,
+                            deposit_data.clone(),
+                            witness.clone(),
+                        )
+                        .await?;
+                    }
                 }
             }
         }
