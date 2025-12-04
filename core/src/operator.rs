@@ -304,6 +304,23 @@ where
                 )
             }
             None => {
+                if config.protocol_paramset().network == bitcoin::Network::Bitcoin
+                    && (config.operator_reimbursement_address.is_none()
+                        || config.operator_reimbursement_address.is_none())
+                {
+                    let wallet_address = rpc.get_new_wallet_address().await?;
+                    return Err(eyre::eyre!(
+                        "Operator collateral funding outpoint or reimbursement address is not set in the configuration. \
+                         To initialize the operator, please send {} BTC to the operator's address {}. \
+                         After funding, set OPERATOR_COLLATERAL_FUNDING_OUTPOINT in your configuration to the outpoint of the funded transaction, \
+                         and set OPERATOR_REIMBURSEMENT_ADDRESS to {}. \
+                         Use your operator's Bitcoin wallet address {} to fund the operator to pay withdrawals.",
+                        config.protocol_paramset().collateral_funding_amount.to_btc(),
+                        signer.address,
+                        signer.address,
+                        wallet_address
+                    ).into());
+                }
                 // Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
                 // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
                 let reimburse_addr = match &config.operator_reimbursement_address {
