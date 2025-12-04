@@ -9,36 +9,65 @@ use crate::errors::BridgeError;
 use crate::errors::ErrorExt;
 use crate::utils::delayed_panic;
 use clap::Parser;
-use clap::ValueEnum;
 use eyre::Context;
 use std::env;
 use std::path::PathBuf;
 use std::process;
 
-#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
-pub enum Actors {
+/// Available actor types that can be run as services
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Actor {
     Verifier,
     Operator,
     Aggregator,
     TestActor,
-    GenerateBitvmCache,
 }
 
 /// Clementine (C) 2025 Chainway Limited
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Actor to run.
-    pub actor: Actors,
-    /// TOML formatted configuration file.
-    #[arg(short, long)]
-    pub config: Option<PathBuf>,
-    /// TOML formatted protocol parameters file.
-    #[arg(short, long)]
-    pub protocol_params: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
-    #[arg(short, long, default_value_t = 3)]
+    #[arg(short, long, default_value_t = 3, global = true)]
     pub verbose: u8,
+
+    /// TOML formatted configuration file.
+    #[arg(short, long, global = true)]
+    pub config: Option<PathBuf>,
+
+    /// TOML formatted protocol parameters file.
+    #[arg(short, long, global = true)]
+    pub protocol_params: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum Command {
+    /// Run the verifier service
+    Verifier,
+    /// Run the operator service
+    Operator,
+    /// Run the aggregator service
+    Aggregator,
+    /// Run the test actor (for health checks)
+    TestActor,
+    /// Generate BitVM cache files
+    GenerateBitvmCache,
+}
+
+impl Command {
+    /// Get the actor type if this is an actor command, None for utility commands
+    pub fn actor(&self) -> Option<Actor> {
+        match self {
+            Command::Verifier => Some(Actor::Verifier),
+            Command::Operator => Some(Actor::Operator),
+            Command::Aggregator => Some(Actor::Aggregator),
+            Command::TestActor => Some(Actor::TestActor),
+            Command::GenerateBitvmCache => None,
+        }
+    }
 }
 
 /// Parse given iterator with our clap Args and handle help/version cases.
@@ -237,8 +266,7 @@ fn get_config_from_args(args: Args) -> Result<BridgeConfig, BridgeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_config_from_args, get_config_source, parse_cli_args, ConfigSource};
-    use crate::cli::Actors;
+    use super::{get_config_from_args, get_config_source, parse_cli_args, ConfigSource, Command};
     use crate::errors::BridgeError;
     use std::env;
     use std::fs::File;
@@ -526,7 +554,7 @@ mod tests {
                         let config = result.expect("Failed to get CLI config");
                         assert_eq!(config.host, "127.0.0.1");
                         assert_eq!(config.port, 17000);
-                        assert_eq!(cli_args.actor, Actors::Verifier);
+                        assert!(matches!(cli_args.command, Command::Verifier));
 
                         // Assert some protocol paramset values
                         assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -554,7 +582,7 @@ mod tests {
                 let config = result.expect("Failed to get CLI config");
                 assert_eq!(config.host, "127.0.0.1");
                 assert_eq!(config.port, 17000);
-                assert_eq!(cli_args.actor, Actors::Operator);
+                assert!(matches!(cli_args.command, Command::Operator));
 
                 // Assert some protocol paramset values
                 assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -590,7 +618,7 @@ mod tests {
                     let config = result.expect("Failed to get CLI config");
                     assert_eq!(config.host, "127.0.0.1");
                     assert_eq!(config.port, 17000);
-                    assert_eq!(cli_args.actor, Actors::Verifier);
+                    assert!(matches!(cli_args.command, Command::Verifier));
 
                     // Assert some protocol paramset values from env
                     assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -623,7 +651,7 @@ mod tests {
         let result = parse_cli_args(args);
         let parsed = result.expect("Expected successful CLI parsing");
 
-        assert_eq!(parsed.actor, Actors::Verifier);
+        assert!(matches!(parsed.command, Command::Verifier));
         // Default verbosity should be 3
         assert_eq!(parsed.verbose, 3);
         // No config/protocol-params paths provided

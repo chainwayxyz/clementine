@@ -11,7 +11,7 @@ use clementine_core::{
     actor::Actor,
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
-    cli::{self, get_cli_args, get_config},
+    cli::{self, get_cli_args, get_config, Command},
     database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     servers::{
@@ -40,7 +40,7 @@ async fn main() {
     initialize_logger(level_filter).expect("Failed to initialize logger.");
 
     // Check for generate-bitvm-cache command early (doesn't require config)
-    if args.actor == cli::Actors::GenerateBitvmCache {
+    if matches!(args.command, Command::GenerateBitvmCache) {
         tracing::info!("Generating BitVM cache...");
         BITVM_CACHE
             .get_or_try_init(load_or_generate_bitvm_cache)
@@ -69,15 +69,15 @@ async fn main() {
         .expect("Failed to load BitVM cache");
 
     tracing::info!("Running schema script...");
-    Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
+    Database::run_schema_script(&config, matches!(args.command, Command::Verifier))
         .await
         .expect("Can't run schema script");
 
-    let mut handle = match args.actor {
-        cli::Actors::Verifier => {
-            tracing::info!("Running schema script...");
+    let mut handle = match args.command {
+        Command::Verifier => {
+            tracing::info!("Starting verifier server...");
             config
-                .check_mainnet_requirements(cli::Actors::Verifier)
+                .check_mainnet_requirements(cli::Actor::Verifier)
                 .expect("Illegal configuration options!");
 
             create_verifier_grpc_server::<CitreaClient>(config.clone())
@@ -85,10 +85,10 @@ async fn main() {
                 .expect("Can't create verifier server")
                 .1
         }
-        cli::Actors::Operator => {
+        Command::Operator => {
             tracing::info!("Starting operator server...");
             config
-                .check_mainnet_requirements(cli::Actors::Operator)
+                .check_mainnet_requirements(cli::Actor::Operator)
                 .expect("Illegal configuration options!");
 
             create_operator_grpc_server::<CitreaClient>(config.clone())
@@ -96,10 +96,10 @@ async fn main() {
                 .expect("Can't create operator server")
                 .1
         }
-        cli::Actors::Aggregator => {
+        Command::Aggregator => {
             tracing::info!("Starting aggregator server...");
             config
-                .check_mainnet_requirements(cli::Actors::Aggregator)
+                .check_mainnet_requirements(cli::Actor::Aggregator)
                 .expect("Illegal configuration options!");
 
             create_aggregator_grpc_server(config.clone())
@@ -107,7 +107,7 @@ async fn main() {
                 .expect("Can't create aggregator server")
                 .1
         }
-        cli::Actors::TestActor => {
+        Command::TestActor => {
             let rpc = ExtendedBitcoinRpc::connect(
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
@@ -149,7 +149,7 @@ async fn main() {
 
             std::process::exit(0);
         }
-        cli::Actors::GenerateBitvmCache => {
+        Command::GenerateBitvmCache => {
             // This case is handled early in main() and exits before reaching here
             unreachable!("GenerateBitvmCache should be handled before this point");
         }
@@ -158,3 +158,4 @@ async fn main() {
 
     handle.closed().await;
 }
+
