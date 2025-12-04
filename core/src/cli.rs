@@ -266,7 +266,7 @@ fn get_config_from_args(args: Args) -> Result<BridgeConfig, BridgeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_config_from_args, get_config_source, parse_cli_args, ConfigSource, Command};
+    use super::{get_config_from_args, get_config_source, parse_cli_args, Command, ConfigSource};
     use crate::errors::BridgeError;
     use std::env;
     use std::fs::File;
