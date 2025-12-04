@@ -366,6 +366,15 @@ service ClementineOperator {
   // Returns the current status of tasks running on the operator and their last synced heights.
   rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
+  // Sends the given outpoint to the operator's btc wallet.
+  // The address of the outpoint should be equal to a taproot address with operator's xonly public key as the internal key with no merkle root.
+  // The rpc also checks if this outpoint is the collateral funding outpoint of the operator, if so it rejects the request.
+  // # Parameters
+  // - outpoint: The outpoint to send to the operator's btc wallet
+  // # Returns
+  // - Raw signed tx that sends the given outpoint to the operator's btc wallet address
+  rpc SendToBtcWallet(Outpoint) returns (RawSignedTx) {}
+
   // Signs everything that includes Operator's burn connector.
   //
   // # Parameters
