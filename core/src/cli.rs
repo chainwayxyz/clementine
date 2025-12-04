@@ -6,7 +6,6 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use crate::errors::ErrorExt;
 use crate::utils::delayed_panic;
 use clap::Parser;
 use eyre::Context;
@@ -77,7 +76,7 @@ impl Command {
 ///
 /// Cases:
 /// - On successful parse, returns `Ok(Args)`
-/// - On help/version (CLIDisplayAndExit), returns `Err((0, msg))`
+/// - On help/version, returns `Err((0, msg))`
 /// - On general errors, returns `Err((1, formatted_error_msg))`
 fn parse_cli_args<I, T>(itr: I) -> Result<Args, (i32, String)>
 where
@@ -170,7 +169,7 @@ pub enum ConfigSource {
 /// export PARAM_ONE=1
 /// READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 clementine-core --config /path/to/config.toml --protocol-params /path/to/protocol-params.toml
 /// ```
-pub fn get_config_source(
+fn get_config_source(
     read_from_env_name: &'static str,
     provided_arg: Option<PathBuf>,
 ) -> Result<ConfigSource, BridgeError> {
@@ -216,16 +215,7 @@ pub fn get_config_source(
 pub fn get_config(args: Args) -> BridgeConfig {
     match get_config_from_args(args) {
         Ok(config) => config,
-        Err(e) => {
-            let e = e.into_eyre();
-            match e.root_cause().downcast_ref::<BridgeError>() {
-                Some(BridgeError::CLIDisplayAndExit(msg)) => {
-                    println!("{msg}");
-                    process::exit(0);
-                }
-                _ => delayed_panic!("Failed to load configuration: {e:?}"),
-            }
-        }
+        Err(e) => delayed_panic!("Failed to load configuration: {e:?}"),
     }
 }
 
@@ -643,7 +633,6 @@ mod tests {
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_parse_cli_args_success() {
         // A minimal, valid invocation: program name + required actor
         let args = vec!["clementine-core", "verifier"];
@@ -660,9 +649,8 @@ mod tests {
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_parse_cli_args_help_and_version_exit_code_zero() {
-        // --help should map to a CLIDisplayAndExit and therefore exit code 0
+        // --help should map to a exit code 0 with help message
         let help_args = vec!["clementine-core", "--help"];
         let help_result = parse_cli_args(help_args);
         let (help_code, help_msg) =
@@ -673,7 +661,7 @@ mod tests {
             "help output should contain usage text, got: {help_msg}"
         );
 
-        // --version should also map to CLIDisplayAndExit and exit code 0
+        // --version should also map to exit code 0 with version message
         let version_args = vec!["clementine-core", "--version"];
         let version_result = parse_cli_args(version_args);
         let (version_code, version_msg) =
@@ -687,7 +675,6 @@ mod tests {
     }
 
     #[test]
-    #[serial_test::serial]
     fn test_parse_cli_args_invalid_args_exit_code_one() {
         // Unknown flag should be treated as a general error, leading to exit code 1
         let args = vec!["clementine-core", "--unknown-flag"];
