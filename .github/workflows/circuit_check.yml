@@ -40,7 +40,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.risc0
-          key: ${{ runner.os }}-risc0-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}
+          key: ${{ runner.os }}-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Install risc0 prereqs (only when cache cold)
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
@@ -73,7 +73,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.risc0
-          key: ${{ runner.os }}-risc0-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}
+          key: ${{ runner.os }}-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
 
       - name: Install risc0 prereqs (only if cache missed)
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
