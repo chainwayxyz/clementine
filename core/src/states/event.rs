@@ -56,7 +56,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
             .map_err(|e| eyre::eyre!("Error sending NewOperator event: {:?}", e))?;
-        tracing::info!("Sent NewOperator event");
         Ok(())
     }
 
@@ -171,8 +170,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
-                // TODO: add txsender relevant txs if past kickoff is detected somehow
-
                 // if kickoff is not relevant for the owner, do not process it
                 // only case right now is if owner is operator and kickoff is not of their own
                 if !self.owner.is_kickoff_relevant_for_owner(&kickoff_data) {
