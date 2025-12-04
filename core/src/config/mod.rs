@@ -313,15 +313,6 @@ impl BridgeConfig {
 
         let mut misconfigs = Vec::new();
 
-        if actor_type == cli::Actor::Operator {
-            if self.operator_collateral_funding_outpoint.is_none() {
-                misconfigs.push("OPERATOR_COLLATERAL_FUNDING_OUTPOINT is not set".to_string());
-            }
-            if self.operator_reimbursement_address.is_none() {
-                misconfigs.push("OPERATOR_REIMBURSEMENT_ADDRESS is not set".to_string());
-            }
-        }
-
         if matches!(actor_type, cli::Actor::Verifier | cli::Actor::Operator)
             && !self.client_verification
         {
