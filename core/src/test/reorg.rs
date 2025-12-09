@@ -485,10 +485,12 @@ impl TestCase for ReorgOnDeposit {
 
         // First mine once for fee payer tx of move tx + deposit tx to be included in chain
         let aggregator_db = Database::new(&actors.aggregator.config).await?;
-        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
+        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db.clone(), move_txid)
             .await
             .map_err(BridgeError::from)?;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         rpc.mine_blocks(1).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         // now mine again for move tx to be included in chain
         mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
