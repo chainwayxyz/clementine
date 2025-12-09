@@ -772,7 +772,7 @@ async fn mock_citrea_run_truthful() {
 }
 
 /// After sending a kickoff tx, we close the operator (+ associated verifier), reset the db and restart to see if it can get reimbursed.
-/// After reset, we need to run the deposit again so that the verifier has the signatures. Also a restart_tasks might be needed incase
+/// After reset, we need to run the deposit again so that the verifier has the signatures. Also a restart_tasks might be needed in case
 /// the payoutchecker task was stopped due to not having corresponding signatures of a payout tx in the db.
 #[tokio::test]
 async fn mock_citrea_run_truthful_op_db_reset() {
@@ -988,7 +988,7 @@ async fn mock_citrea_run_truthful_op_db_reset() {
         .unwrap();
 
     tracing::info!("Rerunning deposit");
-    // rerun the same deposit so operator has the signatues in its db
+    // rerun the same deposit so operator has the signatures in its db
     run_single_deposit::<MockCitreaClient>(
         &mut config,
         rpc.clone(),

@@ -1349,8 +1349,8 @@ where
         }
         // Check move_txid/kickoffs consistency and dispatch finalized kickoffs to state managers
         // First acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize. It is a read lock so that multiple new_deposit calls can run this in parallel.
-        // The lock is to ensure this race condition doesn't happen: A kickoff is almost finalized (one block left), kickoffs are checkedd in function below and added to state manager if they are finalized, if they are not finalized during check but become finalized + processed by state manager before dbtx in deposit_finalize is commited, the kickoff won't be added to the state manager.
-        // Very unlikely to happen (because it needs both a db loss + resync conditions here + a kickoff to be just a small amount of time away from being finalized + state manager sync happening before dbtx is commited), but the performance cost of the lock is also negligible because the write lock will be acquired only when a kickoff utxo (in round tx) is spent.
+        // The lock is to ensure this race condition doesn't happen: A kickoff is almost finalized (one block left), kickoffs are checkedd in function below and added to state manager if they are finalized, if they are not finalized during check but become finalized + processed by state manager before dbtx in deposit_finalize is committed, the kickoff won't be added to the state manager.
+        // Very unlikely to happen (because it needs both a db loss + resync conditions here + a kickoff to be just a small amount of time away from being finalized + state manager sync happening before dbtx is committed), but the performance cost of the lock is also negligible because the write lock will be acquired only when a kickoff utxo (in round tx) is spent.
         #[cfg(feature = "automation")]
         let _guard = crate::states::round::CHECK_KICKOFF_LOCK.read().await;
         self.check_kickoffs_on_chain_and_track(deposit_data, &mut dbtx, kickoff_txids, move_txid)
