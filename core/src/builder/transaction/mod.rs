@@ -53,9 +53,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
-use bitcoin::{
-    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
-};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
 use hex;
 use input::UtxoVout;
 use serde::{Deserialize, Serialize};
@@ -472,42 +470,6 @@ pub fn create_emergency_stop_txhandler(
     Ok(builder)
 }
 
-/// Combines multiple emergency stop transactions into a single transaction.
-///
-/// # Arguments
-///
-/// * `txs` - A vector of (Txid, Transaction) pairs, each representing a signed emergency stop transaction using Sighash Single | AnyoneCanPay.
-/// * `add_anchor` - If true, an anchor output will be appended to the outputs.
-///
-/// # Returns
-///
-/// A new [`Transaction`] that merges all inputs and outputs from the provided transactions, optionally adding an anchor output.
-///
-/// # Warning
-///
-/// This function does not perform any safety checks and assumes all inputs/outputs are valid and compatible.
-pub fn combine_emergency_stop_txhandler(
-    txs: Vec<(Txid, Transaction)>,
-    add_anchor: bool,
-    paramset: &'static ProtocolParamset,
-) -> Transaction {
-    let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
-        .into_iter()
-        .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))
-        .unzip();
-
-    if add_anchor {
-        outputs.push(anchor_output(paramset.anchor_amount()));
-    }
-
-    Transaction {
-        version: Version::non_standard(2),
-        lock_time: bitcoin::absolute::LockTime::ZERO,
-        input: inputs,
-        output: outputs,
-    }
-}
-
 /// Creates a [`TxHandler`] for the `replacement_deposit_tx`.
 ///
 /// This transaction replaces a previous deposit with a new deposit.
@@ -524,6 +486,7 @@ pub fn combine_emergency_stop_txhandler(
 /// # Returns
 ///
 /// A [`TxHandler`] for the replacement deposit transaction, or a [`BridgeError`] if construction fails.
+#[cfg(test)]
 pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
     input_outpoint: OutPoint,

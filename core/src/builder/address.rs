@@ -5,8 +5,7 @@
 //! valid deposit addresses.
 
 use super::script::{
-    BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
-    TimelockScript,
+    BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
@@ -83,31 +82,12 @@ pub fn calculate_taproot_leaf_depths(num_scripts: usize) -> Vec<u8> {
 }
 
 /// Creates a taproot address with given scripts and internal key.
-///
-/// # Arguments
-///
-/// - `scripts`: If empty, it is most likely a key path spend address
-/// - `internal_key`: If not given, will be defaulted to an unspendable x-only public key
-/// - `network`: Bitcoin network
-/// - If both `scripts` and `internal_key` are given, it means one can spend using both script and key path.
-/// - If none given, it is an unspendable address.
-///
-/// # Returns
-///
-/// - [`Address`]: Generated taproot address
-/// - [`TaprootSpendInfo`]: Taproot spending information
-///
-/// # Panics
-///
-/// Will panic if some of the operations have invalid parameters.
 pub fn create_taproot_address(
     scripts: &[ScriptBuf],
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    // Build script tree
     let taproot_builder = taproot_builder_with_scripts(scripts);
-    // Finalize the tree
     let tree_info = match internal_key {
         Some(xonly_pk) => taproot_builder
             .finalize(&SECP, xonly_pk)
@@ -117,7 +97,6 @@ pub fn create_taproot_address(
             .expect("builder return is finalizable"),
     };
 
-    // Create the address
     let taproot_address: Address = Address::p2tr_tweaked(tree_info.output_key(), network);
 
     (taproot_address, tree_info)
@@ -125,26 +104,6 @@ pub fn create_taproot_address(
 
 /// Generates a deposit address for the user. Funds can be spent by N-of-N or
 /// user can take after specified time should the deposit fail.
-///
-/// # Parameters
-///
-/// - `nofn_xonly_pk`: N-of-N x-only public key of the depositor
-/// - `recovery_taproot_address`: User's x-only public key that can be used to
-///   take funds after some time
-/// - `user_evm_address`: User's EVM address.
-/// - `amount`: Amount to deposit
-/// - `network`: Bitcoin network to work on
-/// - `user_takes_after`: User can take the funds back, after this amounts of
-///   blocks have passed
-///
-/// # Returns
-///
-/// - [`Address`]: Deposit taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: Deposit address's taproot spending information
-///
-/// # Panics
-///
-/// Panics if given parameters are malformed.
 pub fn generate_deposit_address(
     nofn_xonly_pk: XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -171,24 +130,6 @@ pub fn generate_deposit_address(
 }
 
 /// Builds a Taproot address specifically for replacement deposits.
-/// Replacement deposits are to replace old move_to_vault transactions in case any issue is found on the bridge.
-/// This address incorporates a script committing to an old move transaction ID
-/// and a multisig script for the security council.
-/// This replacement deposit address will be used to create a new deposit transaction, which will then be used to
-/// sign the new related bridge deposit tx's.
-///
-/// # Parameters
-///
-/// - `old_move_txid`: The `Txid` of the old move_to_vault transaction that is being replaced.
-/// - `nofn_xonly_pk`: The N-of-N XOnlyPublicKey for the deposit.
-/// - `network`: The Bitcoin network on which the address will be used.
-/// - `security_council`: The `SecurityCouncil` configuration for the multisig script.
-///
-/// # Returns
-///
-/// - `Ok((Address, TaprootSpendInfo))` containing the new replacement deposit address
-///   and its associated `TaprootSpendInfo` if successful.
-/// - `Err(BridgeError)` if any error occurs during address generation.
 pub fn generate_replacement_deposit_address(
     old_move_txid: bitcoin::Txid,
     nofn_xonly_pk: XOnlyPublicKey,
@@ -203,22 +144,6 @@ pub fn generate_replacement_deposit_address(
     let (addr, spend) =
         create_taproot_address(&[deposit_script, security_council_script], None, network);
     Ok((addr, spend))
-}
-
-/// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.
-///
-/// # Returns
-///
-/// See [`create_taproot_address`].
-///
-/// - [`Address`]: Checksig taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: Checksig address's taproot spending information
-pub fn create_checksig_address(
-    xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> (Address, TaprootSpendInfo) {
-    let script = CheckSig::new(xonly_pk);
-    create_taproot_address(&[script.to_script_buf()], None, network)
 }
 
 #[cfg(test)]

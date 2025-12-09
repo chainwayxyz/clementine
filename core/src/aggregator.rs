@@ -1010,10 +1010,6 @@ impl AggregatorServer {
 
         Ok(())
     }
-
-    pub async fn shutdown(&mut self) {
-        self.background_tasks.graceful_shutdown().await;
-    }
 }
 
 impl Deref for AggregatorServer {

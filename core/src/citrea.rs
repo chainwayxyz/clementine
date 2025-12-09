@@ -35,9 +35,13 @@ use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
-pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
+
+#[cfg(test)]
+pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
+#[cfg(test)]
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
+
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
 const DEPOSIT_STORAGE_INDEX: [u8; 32] =
@@ -177,6 +181,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
 pub struct CitreaClient {
     pub client: HttpClient,
     pub light_client_prover_client: HttpClient,
+    #[cfg(test)]
     pub wallet_address: alloy::primitives::Address,
     pub contract: CitreaContract,
 }
@@ -360,9 +365,11 @@ impl CitreaClientT for CitreaClient {
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
         let key = secret_key.with_chain_id(Some(chain_id.into()));
+
+        #[cfg(test)]
         let wallet_address = key.address();
 
-        tracing::info!("Wallet address: {}", wallet_address);
+        tracing::info!("Wallet address: {}", key.address());
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
@@ -396,6 +403,7 @@ impl CitreaClientT for CitreaClient {
         Ok(CitreaClient {
             client,
             light_client_prover_client,
+            #[cfg(test)]
             wallet_address,
             contract,
         })

@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::utils::initialize_logger;
@@ -14,6 +14,7 @@ use crate::{
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
+use alloy::signers::Signer;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -23,6 +24,9 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+
+/// Conversion multiplier: 1 sat = 10^10 wei
+const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
 
 struct CitreaWithdrawAndGetUTXO;
 #[async_trait]
@@ -98,11 +102,16 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .outpoint;
         println!("Created withdrawal UTXO: {withdrawal_utxo:?}");
 
+        // Get the signer for computing wallet address
+        let signer: alloy::signers::local::PrivateKeySigner =
+            SECRET_KEYS[0].to_string().parse().unwrap();
+        let wallet_address = signer.address();
+
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
             config.citrea_chain_id,
-            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            Some(signer),
             config.citrea_request_timeout,
         )
         .await
@@ -111,7 +120,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         let balance = citrea_client
             .contract
             .provider()
-            .get_balance(citrea_client.wallet_address)
+            .get_balance(wallet_address)
             .await
             .unwrap();
         println!("Initial balance: {balance}");

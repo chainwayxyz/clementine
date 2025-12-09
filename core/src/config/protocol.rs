@@ -15,8 +15,10 @@ use std::str::FromStr;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
+#[cfg(test)]
 pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
 
+#[cfg(test)]
 pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
@@ -328,6 +330,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+#[cfg(test)]
 pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
     num_round_txs: 2,

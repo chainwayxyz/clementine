@@ -39,7 +39,6 @@ async fn main() {
 
     initialize_logger(level_filter).expect("Failed to initialize logger.");
 
-    // Check for generate-bitvm-cache command early (doesn't require config)
     if matches!(args.command, Command::GenerateBitvmCache) {
         tracing::info!("Generating BitVM cache...");
         BITVM_CACHE
@@ -62,7 +61,6 @@ async fn main() {
         .await
         .expect("Configuration is invalid");
 
-    // Load the BitVM cache on startup.
     tracing::info!("Loading BitVM cache...");
     BITVM_CACHE
         .get_or_try_init(load_or_generate_bitvm_cache)
@@ -117,12 +115,10 @@ async fn main() {
             .await
             .expect("Failed to connect to Bitcoin RPC");
 
-            // Test DB connection with running the schema script.
             Database::run_schema_script(&config, true)
                 .await
                 .expect("Database connection failed");
 
-            // This also checks if Bitcoin connection is healthy or not.
             let unspents = rpc
                 .list_unspent(None, None, None, None, None)
                 .await
@@ -150,7 +146,6 @@ async fn main() {
             std::process::exit(0);
         }
         Command::GenerateBitvmCache => {
-            // This case is handled early in main() and exits before reaching here
             unreachable!("GenerateBitvmCache should be handled before this point");
         }
     };
