@@ -15,6 +15,7 @@
 //! There are several database tables that saves the transaction states. Please
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
+use crate::bitvm_client::SECP;
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
 use crate::utils::FeePayingType;
@@ -25,8 +26,9 @@ use crate::{
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::TxMetadata,
 };
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoin::hashes::{sha256, Hash};
+use bitcoin::taproot::{TapNodeHash, TaprootSpendInfo};
+use bitcoin::{Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::OptionExt;
 
@@ -74,6 +76,7 @@ pub struct TxSender {
     pub db: Database,
     pub btc_syncer_consumer_id: String,
     pub config: BridgeConfig,
+    fee_payer_address: Address,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
 }
@@ -117,6 +120,17 @@ impl TxSender {
         btc_syncer_consumer_id: String,
         config: BridgeConfig,
     ) -> Self {
+        // Create a dummy merkle root hash from "clementinefeepayer"
+        let merkle_root_hash = sha256::Hash::hash(b"clementinefeepayer");
+        let merkle_root = Some(TapNodeHash::from_byte_array(
+            merkle_root_hash.to_byte_array(),
+        ));
+        let fee_payer_address = Address::p2tr(
+            &SECP,
+            signer.xonly_public_key,
+            merkle_root,
+            config.protocol_paramset.network,
+        );
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
                 &[],
@@ -125,6 +139,7 @@ impl TxSender {
             )
             .1,
             signer,
+            fee_payer_address,
             rpc,
             db,
             btc_syncer_consumer_id,

@@ -114,7 +114,7 @@ impl TxSender {
             input: vec![],
             output: vec![TxOut {
                 value: new_fee_payer_amount,
-                script_pubkey: self.signer.address.script_pubkey(),
+                script_pubkey: self.fee_payer_address.script_pubkey(),
             }],
         };
 
@@ -186,7 +186,7 @@ impl TxSender {
             .iter()
             .position(|o| {
                 o.value == new_fee_payer_amount
-                    && o.script_pubkey == self.signer.address.script_pubkey()
+                    && o.script_pubkey == self.fee_payer_address.script_pubkey()
             })
             .ok_or(eyre!("Failed to find outpoint vout"))?;
 
@@ -387,7 +387,7 @@ impl TxSender {
                     },
                     TxOut {
                         value: *amount,
-                        script_pubkey: self.signer.address.script_pubkey(),
+                        script_pubkey: self.fee_payer_address.script_pubkey(),
                     },
                     vec![],
                     Some(self.cached_spendinfo.clone()),
