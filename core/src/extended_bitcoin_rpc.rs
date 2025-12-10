@@ -17,6 +17,7 @@ use bitcoin::BlockHash;
 use bitcoin::FeeRate;
 use bitcoin::Network;
 use bitcoin::OutPoint;
+#[cfg(test)]
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
 use bitcoin::Txid;

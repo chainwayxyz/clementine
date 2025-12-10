@@ -35,12 +35,12 @@ use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
+#[cfg(test)]
+pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 #[cfg(test)]
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
-#[cfg(test)]
-pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
