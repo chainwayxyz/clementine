@@ -1524,7 +1524,12 @@ where
                             )
                         })?;
 
-                    let witness = tx.input[0].witness.clone();
+                    let witness = tx
+                        .input
+                        .first()
+                        .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
+                        .witness
+                        .clone();
                     let (operator_xonly_pk, round_idx, kickoff_idx) =
                         kickoff_metadata
                             .get(&txid)
