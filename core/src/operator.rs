@@ -304,6 +304,23 @@ where
                 )
             }
             None => {
+                if config.protocol_paramset().network == bitcoin::Network::Bitcoin
+                    && (config.operator_reimbursement_address.is_none()
+                        || config.operator_reimbursement_address.is_none())
+                {
+                    let wallet_address = rpc.get_new_wallet_address().await?;
+                    return Err(eyre::eyre!(
+                        "Operator collateral funding outpoint or reimbursement address is not set in the configuration. \
+                         To initialize the operator, please send {} BTC to the operator's address {}. \
+                         After funding, set OPERATOR_COLLATERAL_FUNDING_OUTPOINT in your configuration to the outpoint of the funded transaction, \
+                         and set OPERATOR_REIMBURSEMENT_ADDRESS to {}. \
+                         Use your operator's Bitcoin wallet address {} to fund the operator to pay withdrawals.",
+                        config.protocol_paramset().collateral_funding_amount.to_btc(),
+                        signer.address,
+                        signer.address,
+                        wallet_address
+                    ).into());
+                }
                 // Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
                 // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
                 let reimburse_addr = match &config.operator_reimbursement_address {
@@ -1651,10 +1668,12 @@ where
         .await
         .wrap_err("Generate assertions thread failed with error")??;
 
-        tracing::warn!("Generated assertions in send_asserts");
+        tracing::info!("Generated assertions in send_asserts");
 
         #[cfg(test)]
         let asserts = self.config.test_params.maybe_corrupt_asserts(asserts);
+
+        tracing::debug!(target: "ci", "Assert commitment data: {:?}", asserts);
 
         let assert_txs = self
             .create_assert_commitment_txs(
@@ -1709,7 +1728,7 @@ where
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     ) -> Result<(), BridgeError> {
-        tracing::warn!("Operator sending latest blockhash");
+        tracing::info!("Operator sending latest blockhash");
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let (tx_type, tx) = self
             .create_latest_blockhash_tx(
@@ -2371,7 +2390,7 @@ mod states {
                     payout_blockhash,
                     latest_blockhash,
                 } => {
-                    tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    tracing::info!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, number of watchtower_challenges: {}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                     self.send_asserts(
                         dbtx,
@@ -2390,7 +2409,7 @@ mod states {
                     deposit_data,
                     latest_blockhash,
                 } => {
-                    tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
+                    tracing::info!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
                     self.send_latest_blockhash(dbtx, kickoff_data, deposit_data, latest_blockhash)
                         .await?;
                     Ok(DutyResult::Handled)
