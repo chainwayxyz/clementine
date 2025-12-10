@@ -306,23 +306,14 @@ impl BridgeConfig {
     }
 
     /// Checks various variables if they are correct for mainnet deployment.
-    pub fn check_mainnet_requirements(&self, actor_type: cli::Actors) -> Result<(), BridgeError> {
+    pub fn check_mainnet_requirements(&self, actor_type: cli::Actor) -> Result<(), BridgeError> {
         if self.protocol_paramset().network != Network::Bitcoin {
             return Ok(());
         }
 
         let mut misconfigs = Vec::new();
 
-        if actor_type == cli::Actors::Operator {
-            if self.operator_collateral_funding_outpoint.is_none() {
-                misconfigs.push("OPERATOR_COLLATERAL_FUNDING_OUTPOINT is not set".to_string());
-            }
-            if self.operator_reimbursement_address.is_none() {
-                misconfigs.push("OPERATOR_REIMBURSEMENT_ADDRESS is not set".to_string());
-            }
-        }
-
-        if matches!(actor_type, cli::Actors::Verifier | cli::Actors::Operator)
+        if matches!(actor_type, cli::Actor::Verifier | cli::Actor::Operator)
             && !self.client_verification
         {
             misconfigs.push("CLIENT_VERIFICATION=false".to_string());
@@ -601,7 +592,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_ok());
 
@@ -609,7 +600,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "0");
         }
-        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_ok());
 
@@ -619,7 +610,7 @@ mod tests {
             operator_collateral_funding_outpoint: None,
             ..mainnet_config.clone()
         };
-        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
@@ -627,7 +618,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
-        let checks = mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
 
@@ -635,7 +626,7 @@ mod tests {
         for var in env_vars.clone() {
             std::env::set_var(var, "1");
         }
-        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actors::Operator);
+        let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
         assert!(checks.is_err());
     }

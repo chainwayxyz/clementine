@@ -70,7 +70,6 @@ use crate::{
 #[cfg(feature = "automation")]
 use crate::{states::StateMachineError, tx_sender::SendTxError};
 use bitcoin::{secp256k1::PublicKey, OutPoint, Txid, XOnlyPublicKey};
-use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
 use http::StatusCode;
@@ -168,8 +167,6 @@ pub enum BridgeError {
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
-    #[error("{0}")]
-    CLIDisplayAndExit(StyledStr),
     #[error(transparent)]
     RPCStatus(#[from] Box<Status>),
 
