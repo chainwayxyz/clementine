@@ -109,6 +109,8 @@ create table if not exists bitcoin_syncer_txs (
     txid bytea not null,
     primary key (block_id, txid)
 );
+-- Index for fast txid lookups in bitcoin_syncer_txs
+CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs(txid);
 create table if not exists bitcoin_syncer_spent_utxos (
     block_id bigint not null references bitcoin_syncer (id),
     spending_txid bytea not null,

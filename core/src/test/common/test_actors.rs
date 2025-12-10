@@ -15,7 +15,8 @@ use crate::servers::{
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use bitcoin::XOnlyPublicKey;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::{Address, OutPoint, XOnlyPublicKey};
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
@@ -61,12 +62,12 @@ pub struct TestActors<C: CitreaClientT> {
     verifiers: BTreeMap<usize, TestVerifier<C>>,
     operators: BTreeMap<usize, TestOperator<C>>,
     pub aggregator: TestAggregator,
-    /// The total number of verifiers, including deleted ones, to ensure unique numbering
-    pub num_total_verifiers: usize,
-    /// The total number of operators, including deleted ones, to ensure unique numbering
-    pub num_total_operators: usize,
-    /// The total number of aggregators, including deleted ones, to ensure unique numbering
-    pub num_total_aggregators: usize,
+    /// The next unused index for the verifiers, to ensure unique numbering
+    pub verifier_next_index: usize,
+    /// The next unused index for the operators, to ensure unique numbering
+    pub operator_next_index: usize,
+    /// The next unused index for the aggregator, to ensure unique numbering
+    pub aggregator_next_index: usize,
     socket_dir: tempfile::TempDir,
     base_config: BridgeConfig,
 }
@@ -300,9 +301,9 @@ impl<C: CitreaClientT> TestActors<C> {
             verifiers,
             operators,
             aggregator,
-            num_total_verifiers,
-            num_total_operators,
-            num_total_aggregators,
+            verifier_next_index: num_total_verifiers,
+            operator_next_index: num_total_operators,
+            aggregator_next_index: num_total_aggregators,
             socket_dir,
             base_config: config.clone(),
         })
@@ -374,8 +375,8 @@ impl<C: CitreaClientT> TestActors<C> {
             .collect();
 
         // Create new aggregator
-        self.num_total_aggregators += 1;
-        let suffix = self.num_total_aggregators.to_string();
+        self.aggregator_next_index += 1;
+        let suffix = self.aggregator_next_index.to_string();
         let new_aggregator = TestAggregator::new(
             &self.aggregator.config,
             self.socket_dir.path(),
@@ -431,13 +432,13 @@ impl<C: CitreaClientT> TestActors<C> {
         let verifier = TestVerifier::new(
             &self.base_config,
             self.socket_dir.path(),
-            self.num_total_verifiers,
+            self.verifier_next_index,
             secret_key,
         )
         .await?;
-        self.verifiers.insert(self.num_total_verifiers, verifier);
-        self.num_total_verifiers += 1;
+        self.verifiers.insert(self.verifier_next_index, verifier);
         self.restart_aggregator().await?;
+        self.verifier_next_index += 1;
         Ok(())
     }
 
@@ -446,6 +447,8 @@ impl<C: CitreaClientT> TestActors<C> {
         &mut self,
         secret_key: bitcoin::secp256k1::SecretKey,
         verifier_index: usize,
+        reimburse_addr: Option<Address<NetworkUnchecked>>,
+        collateral_funding_outpoint: Option<OutPoint>,
     ) -> eyre::Result<()> {
         if !self.verifiers.contains_key(&verifier_index) {
             return Err(eyre::eyre!(
@@ -454,18 +457,22 @@ impl<C: CitreaClientT> TestActors<C> {
                 verifier_index
             ));
         }
-        let base_config = &self.verifiers[&verifier_index].config;
+        let base_config = BridgeConfig {
+            operator_reimbursement_address: reimburse_addr,
+            operator_collateral_funding_outpoint: collateral_funding_outpoint,
+            ..self.verifiers[&verifier_index].config.clone()
+        };
         let operator = TestOperator::new(
-            base_config,
+            &base_config,
             self.socket_dir.path(),
-            self.num_total_operators,
+            self.operator_next_index,
             verifier_index,
             secret_key,
         )
         .await?;
-        self.operators.insert(self.num_total_operators, operator);
-        self.num_total_operators += 1;
+        self.operators.insert(self.operator_next_index, operator);
         self.restart_aggregator().await?;
+        self.operator_next_index += 1;
         Ok(())
     }
 

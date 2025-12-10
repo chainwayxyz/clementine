@@ -270,6 +270,66 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Gets the block height for txids that exist in canonical blocks.
+    /// Returns a mapping of txid -> block_height for those that exist.
+    pub async fn get_canonical_block_heights_for_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txids: &[Txid],
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        if txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Convert txids to TxidDB for array binding
+        let txid_params: Vec<TxidDB> = txids.iter().map(|t| TxidDB(*t)).collect();
+
+        // Use TxidDB for result decoding to be consistent with the rest of the codebase
+        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+            "SELECT bst.txid, bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = ANY($1) AND bs.is_canonical = true",
+        )
+        .bind(&txid_params);
+
+        let results: Vec<(TxidDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .into_iter()
+            .map(|(txid, height)| {
+                let height =
+                    u32::try_from(height).wrap_err("Failed to convert block height to u32")?;
+                Ok((txid.0, height))
+            })
+            .collect()
+    }
+
+    /// Checks if a txid exists in a canonical block.
+    /// Returns Some(block_height) if found, None otherwise.
+    pub async fn get_canonical_block_height_for_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = $1 AND bs.is_canonical = true",
+        )
+        .bind(TxidDB(txid));
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|height| u32::try_from(height).wrap_err("Failed to convert block height to u32"))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,
