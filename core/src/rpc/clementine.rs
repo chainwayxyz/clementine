@@ -14,6 +14,11 @@ pub struct Outpoint {
     pub vout: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Outpoints {
+    #[prost(message, repeated, tag = "1")]
+    pub outpoints: ::prost::alloc::vec::Vec<Outpoint>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NofnResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
@@ -1227,17 +1232,17 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Sends the given outpoint to the operator's btc wallet.
-        /// The address of the outpoint should be equal to a taproot address with operator's xonly public key as the internal key with no merkle root.
-        /// The rpc also checks if this outpoint is the collateral funding outpoint of the operator, if so it rejects the request.
+        /// Sends the given outpoints to the operator's btc wallet.
+        /// Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
+        /// The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
         /// # Parameters
-        /// - outpoint: The outpoint to send to the operator's btc wallet
+        /// - outpoints: The outpoints to send to the operator's btc wallet
         /// # Returns
-        /// - Raw signed tx that sends the given outpoint to the operator's btc wallet address
-        pub async fn send_to_btc_wallet(
+        /// - Raw signed txs that send the given outpoints to the operator's btc wallet address
+        pub async fn transfer_to_btc_wallet(
             &mut self,
-            request: impl tonic::IntoRequest<super::Outpoint>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::Outpoints>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1248,12 +1253,15 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/SendToBtcWallet",
+                "/clementine.ClementineOperator/TransferToBtcWallet",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("clementine.ClementineOperator", "SendToBtcWallet"),
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "TransferToBtcWallet",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -2563,17 +2571,17 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status>;
-        /// Sends the given outpoint to the operator's btc wallet.
-        /// The address of the outpoint should be equal to a taproot address with operator's xonly public key as the internal key with no merkle root.
-        /// The rpc also checks if this outpoint is the collateral funding outpoint of the operator, if so it rejects the request.
+        /// Sends the given outpoints to the operator's btc wallet.
+        /// Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
+        /// The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
         /// # Parameters
-        /// - outpoint: The outpoint to send to the operator's btc wallet
+        /// - outpoints: The outpoints to send to the operator's btc wallet
         /// # Returns
-        /// - Raw signed tx that sends the given outpoint to the operator's btc wallet address
-        async fn send_to_btc_wallet(
+        /// - Raw signed txs that send the given outpoints to the operator's btc wallet address
+        async fn transfer_to_btc_wallet(
             &self,
-            request: tonic::Request<super::Outpoint>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+            request: tonic::Request<super::Outpoints>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::SchnorrSig, tonic::Status>,
@@ -2996,25 +3004,25 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/SendToBtcWallet" => {
+                "/clementine.ClementineOperator/TransferToBtcWallet" => {
                     #[allow(non_camel_case_types)]
-                    struct SendToBtcWalletSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct TransferToBtcWalletSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
-                    > tonic::server::UnaryService<super::Outpoint>
-                    for SendToBtcWalletSvc<T> {
-                        type Response = super::RawSignedTx;
+                    > tonic::server::UnaryService<super::Outpoints>
+                    for TransferToBtcWalletSvc<T> {
+                        type Response = super::RawSignedTxs;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Outpoint>,
+                            request: tonic::Request<super::Outpoints>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::send_to_btc_wallet(
+                                <T as ClementineOperator>::transfer_to_btc_wallet(
                                         &inner,
                                         request,
                                     )
@@ -3029,7 +3037,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = SendToBtcWalletSvc(inner);
+                        let method = TransferToBtcWalletSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

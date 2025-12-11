@@ -3,13 +3,16 @@ use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::script::SpendPath;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
+    TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -20,7 +23,7 @@ use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 
 use crate::metrics::L1SyncStatusProvider;
-use crate::rpc::clementine::{EntityStatus, StoppedTasks};
+use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -38,7 +41,7 @@ use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 
-use eyre::{Context, OptionExt};
+use eyre::{eyre, Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -1709,7 +1712,6 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "automation")]
     fn data(&self) -> OperatorData {
         OperatorData {
             xonly_pk: self.signer.xonly_public_key,
@@ -1967,6 +1969,181 @@ where
             }
         }
         Ok(txs_to_send)
+    }
+
+    /// Transfers the given outpoints to the operator's btc wallet address.
+    /// The outpoints must belong to the operator's taproot address (xonly key, no merkle root).
+    /// The function also checks if any outpoint is the collateral of the operator, and returns an error if so.
+    /// # Arguments
+    /// - inputs: A vector of tuples, each containing an outpoint and the corresponding txout.
+    /// # Returns
+    /// - The signed transaction that sends the given outpoints to the operator's btc wallet address.
+    pub async fn transfer_outpoints_to_wallet(
+        &self,
+        inputs: Vec<(OutPoint, TxOut)>,
+    ) -> Result<Transaction, BridgeError> {
+        if inputs.is_empty() {
+            return Err(eyre!("No outpoints provided for transfer").into());
+        }
+
+        // check if any outpoint is a collateral outpoint
+        let collateral_outpoints = self
+            .get_all_collateral_outpoints()
+            .await
+            .wrap_err("Failed to get all collateral outpoints")?;
+        for (outpoint, _) in inputs.iter() {
+            if collateral_outpoints.contains_key(outpoint) {
+                let round_idx = collateral_outpoints
+                    .get(outpoint)
+                    .expect("Collateral outpoint should be found in the map");
+                return Err(
+                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to round {round_idx:?} to wallet").into(),
+                );
+            }
+        }
+
+        let destination_script = self
+            .rpc
+            .get_new_address(None, Some(AddressType::Bech32m))
+            .await
+            .wrap_err("Failed to get new address for reimbursement output")?
+            .require_network(self.config.protocol_paramset().network)
+            .wrap_err("Failed to get new address, bitcoin rpc might not match the network")?
+            .script_pubkey();
+
+        let total_input_value = inputs.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
+            acc.checked_add(txout.value)
+                .ok_or_else(|| eyre!("Input values overflowed while summing"))
+        })?;
+
+        let mut output_txout = TxOut {
+            value: total_input_value,
+            script_pubkey: destination_script,
+        };
+
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(bitcoin::transaction::Version::TWO);
+
+        for (outpoint, txout) in inputs.iter() {
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new_partial(*outpoint, txout.clone()),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+
+        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
+
+        let mut txhandler = builder.finalize();
+
+        let fee_rate = self
+            .rpc
+            .get_fee_rate(
+                self.config.protocol_paramset().network,
+                &self.config.mempool_api_host,
+                &self.config.mempool_api_endpoint,
+                self.config.tx_sender_limits.mempool_fee_rate_multiplier,
+                self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
+                self.config.tx_sender_limits.fee_rate_hard_cap,
+            )
+            .await
+            .wrap_err("Failed to get fee rate for transfer to wallet tx")?;
+
+        // Sign to account for witness weight when calculating fees.
+        self.signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
+
+        let tx_weight_wu = txhandler.get_cached_tx().weight().to_wu();
+        let fee_sat = (fee_rate.to_sat_per_kwu() * tx_weight_wu).div_ceil(1000);
+        let fee = Amount::from_sat(fee_sat);
+
+        output_txout.value = output_txout
+            .value
+            .checked_sub(fee)
+            .ok_or_else(|| eyre!("Calculated fee exceeds total input value"))?;
+
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(bitcoin::transaction::Version::TWO);
+
+        for (outpoint, txout) in inputs.iter() {
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new_partial(*outpoint, txout.clone()),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+
+        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
+
+        let mut txhandler = builder.finalize();
+
+        self.signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
+
+        let signed_tx = txhandler.get_cached_tx().clone();
+
+        self.rpc
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send from operator's address to btc wallet address")?;
+
+        Ok(signed_tx)
+    }
+
+    /// Gets all collateral outpoints for the operator.
+    /// Returns a map of outpoint to the round index it belongs to.
+    async fn get_all_collateral_outpoints(
+        &self,
+    ) -> Result<HashMap<OutPoint, RoundIndex>, BridgeError> {
+        let mut outpoints = HashMap::new();
+        outpoints.insert(self.collateral_funding_outpoint, RoundIndex::Collateral);
+
+        // Fetch operator kickoff winternitz public keys to build round txs
+        let operator_winternitz_public_keys = self
+            .db
+            .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
+            .await?;
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
+        )?;
+        let operator_data = self.data();
+
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+
+        // Collect collateral outpoints for each round
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+            let txhandlers = create_round_txhandlers(
+                self.config.protocol_paramset(),
+                round_idx,
+                &operator_data,
+                &kickoff_wpks,
+                prev_ready_to_reimburse.as_ref(),
+            )?;
+
+            let round_tx = txhandlers
+                .iter()
+                .find(|txhandler| txhandler.get_transaction_type() == TransactionType::Round)
+                .ok_or(eyre::eyre!("Round tx not found in txhandlers"))?;
+            let collateral_outpoint = OutPoint {
+                txid: *round_tx.get_txid(),
+                vout: UtxoVout::CollateralInRound.get_vout(),
+            };
+            outpoints.insert(collateral_outpoint, round_idx);
+
+            let ready_to_reimburse_tx = txhandlers
+                .iter()
+                .find(|txhandler| {
+                    txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
+                })
+                .ok_or(eyre::eyre!("Ready to reimburse tx not found in txhandlers"))?;
+            prev_ready_to_reimburse = Some(ready_to_reimburse_tx.clone());
+        }
+
+        Ok(outpoints)
     }
 
     /// For a given deposit outpoint, get the txs that are needed to reimburse the deposit.
