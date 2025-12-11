@@ -56,14 +56,11 @@ use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
-use bitcoin::script::Instruction;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
-use bitcoin_script::builder::StructuredScript;
-use bitvm::chunk::api::validate_assertions;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
@@ -2491,7 +2488,7 @@ where
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
         db_cache: &mut ReimburseDbCache<'_, '_>,
-    ) -> Result<Option<(usize, StructuredScript)>, BridgeError> {
+    ) -> Result<Option<(usize, Vec<Vec<u8>>)>, BridgeError> {
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
 
@@ -2622,11 +2619,20 @@ where
 
         let vk = get_verifying_key();
 
+        tracing::debug!(
+            "Signed asserts:\n{:?}\n{:?}\n{:?}",
+            first_box,
+            second_box,
+            third_box
+        );
+        tracing::debug!("BitVM public keys: {:?}", bitvm_pks.bitvm_pks);
+
         let res = tokio::task::spawn_blocking(move || {
-            validate_assertions(
+            use bitvm::chunk::api::validate_assertions_return_vector;
+
+            validate_assertions_return_vector(
                 &vk,
                 (first_box, second_box, third_box),
-                bitvm_pks.bitvm_pks,
                 disprove_scripts
                     .as_slice()
                     .try_into()
@@ -2634,9 +2640,8 @@ where
             )
         })
         .await
-        .wrap_err("Validate assertions thread failed with error")?;
-
-        tracing::info!("Disprove validation result: {:?}", res);
+        .wrap_err("Validate assertions thread failed with error")?
+        .map_err(|e| eyre::eyre!("Error validating assertions for disprove conditions: {}", e))?;
 
         match res {
             None => {
@@ -2645,6 +2650,11 @@ where
             }
             Some((index, disprove_script)) => {
                 tracing::info!("Disprove witness found");
+                tracing::debug!(
+                    "Disprove script index: {}, Disprove script: {}",
+                    index,
+                    hex::encode(disprove_script.clone().concat())
+                );
                 Ok(Some((index, disprove_script)))
             }
         }
@@ -2673,7 +2683,7 @@ where
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        disprove_script: (usize, StructuredScript),
+        disprove_inputs: (usize, Vec<Vec<u8>>),
     ) -> Result<(), BridgeError> {
         let verifier_xonly_pk = self.signer.xonly_public_key;
 
@@ -2682,18 +2692,10 @@ where
             .wrap_err("Disprove txhandler not found in txhandlers")?
             .clone();
 
-        let disprove_inputs: Vec<Vec<u8>> = disprove_script
-            .1
-            .compile()
-            .instructions()
-            .filter_map(|ins_res| match ins_res {
-                Ok(Instruction::PushBytes(bytes)) => Some(bytes.as_bytes().to_vec()),
-                _ => None,
-            })
-            .collect();
+        // Use expect so it doesn't try to disprove continuously due to error tolerance in state manager.
 
         disprove_txhandler
-            .set_p2tr_script_spend_witness(&disprove_inputs, 0, disprove_script.0 + 2)
+            .set_p2tr_script_spend_witness(&disprove_inputs.1, 0, disprove_inputs.0 + 2)
             .inspect_err(|e| {
                 tracing::error!("Error setting disprove input witness: {:?}", e);
             })?;
@@ -2987,7 +2989,7 @@ mod states {
                             )
                             .await?
                         {
-                            Some((index, disprove_script)) => {
+                            Some((index, disprove_inputs)) => {
                                 tracing::info!(
                                     "The public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
                                     kickoff_data.operator_xonly_pk
@@ -3009,7 +3011,7 @@ mod states {
                                     &txhandlers_with_disprove,
                                     kickoff_data,
                                     deposit_data,
-                                    (index, disprove_script),
+                                    (index, disprove_inputs),
                                 )
                                 .await?;
                             }
