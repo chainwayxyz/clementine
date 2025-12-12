@@ -98,12 +98,4 @@ impl UnspentTxOut {
     pub fn spendinfo(&self) -> &Option<TaprootSpendInfo> {
         &self.spendinfo
     }
-
-    /// Sets the Taproot spend info for this output.
-    ///
-    /// # Arguments
-    /// * `spendinfo` - The Taproot spend info to set.
-    pub fn set_spendinfo(&mut self, spendinfo: Option<TaprootSpendInfo>) {
-        self.spendinfo = spendinfo;
-    }
 }

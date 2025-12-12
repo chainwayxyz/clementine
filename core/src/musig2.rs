@@ -2,11 +2,15 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
-use crate::{aggregator::VerifierId, bitvm_client::SECP, errors::BridgeError};
+#[cfg(test)]
+use crate::bitvm_client::SECP;
+use crate::{aggregator::VerifierId, errors::BridgeError};
+#[cfg(test)]
+use bitcoin::secp256k1::SecretKey;
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
-    secp256k1::{schnorr, Message, PublicKey, SecretKey},
+    secp256k1::{schnorr, Message, PublicKey},
     TapNodeHash, XOnlyPublicKey,
 };
 use eyre::Context;
@@ -20,8 +24,10 @@ use secp256k1::{
 };
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
 pub type MuSigNoncePair = (SecretNonce, PublicNonce);
 
+#[cfg(test)]
 pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
     XOnlyPublicKey::from_slice(&xpk.serialize()).expect("serialized pubkey is valid")
 }
@@ -29,10 +35,13 @@ pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
 pub fn to_secp_pk(pk: PublicKey) -> secp256k1::PublicKey {
     secp256k1::PublicKey::from_slice(&pk.serialize()).expect("serialized pubkey is valid")
 }
+
+#[cfg(test)]
 pub fn from_secp_pk(pk: secp256k1::PublicKey) -> PublicKey {
     PublicKey::from_slice(&pk.serialize()).expect("serialized pubkey is valid")
 }
 
+#[cfg(test)]
 pub fn to_secp_sk(sk: SecretKey) -> secp256k1::SecretKey {
     secp256k1::SecretKey::from_slice(&sk.secret_bytes()).expect("serialized secret key is valid")
 }
@@ -41,6 +50,8 @@ pub fn to_secp_kp(kp: &Keypair) -> secp256k1::Keypair {
     secp256k1::Keypair::from_seckey_slice(SECP256K1, &kp.secret_bytes())
         .expect("serialized secret key is valid")
 }
+
+#[cfg(test)]
 pub fn from_secp_kp(kp: &secp256k1::Keypair) -> Keypair {
     Keypair::from_seckey_slice(&SECP, &kp.secret_bytes()).expect("serialized secret key is valid")
 }
@@ -55,6 +66,7 @@ pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
 
 /// Possible Musig2 modes.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Variants used via create_key_agg_cache in tests
 pub enum Musig2Mode {
     /// No taproot tweak.
     ScriptSpend,

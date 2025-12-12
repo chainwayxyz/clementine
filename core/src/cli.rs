@@ -56,19 +56,6 @@ pub enum Command {
     GenerateBitvmCache,
 }
 
-impl Command {
-    /// Get the actor type if this is an actor command, None for utility commands
-    pub fn actor(&self) -> Option<Actor> {
-        match self {
-            Command::Verifier => Some(Actor::Verifier),
-            Command::Operator => Some(Actor::Operator),
-            Command::Aggregator => Some(Actor::Aggregator),
-            Command::TestActor => Some(Actor::TestActor),
-            Command::GenerateBitvmCache => None,
-        }
-    }
-}
-
 /// Parse given iterator with our clap Args and handle help/version cases.
 ///
 /// Returns: (status code, message)

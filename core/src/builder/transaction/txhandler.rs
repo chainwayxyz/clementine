@@ -13,7 +13,6 @@ use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, E
 use crate::builder::transaction::TransactionType;
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -363,15 +362,6 @@ impl<T: State> TxHandler<T> {
     }
 }
 
-impl TxHandler<Signed> {
-    /// Encodes the signed transaction as a raw byte vector.
-    pub fn encode_tx(&self) -> RawSignedTx {
-        RawSignedTx {
-            raw_tx: bitcoin::consensus::encode::serialize(self.get_cached_tx()),
-        }
-    }
-}
-
 impl TxHandler<Unsigned> {
     /// Promotes an unsigned handler to a signed handler, checking that all witnesses are present.
     ///
@@ -523,24 +513,6 @@ impl TxHandlerBuilder {
         self
     }
 
-    /// Adds an input with a pre-specified witness to the transaction being built.
-    pub fn add_input_with_witness(
-        mut self,
-        spendable: SpendableTxIn,
-        sequence: Sequence,
-        witness: Witness,
-    ) -> Self {
-        self.txins.push(SpentTxIn::from_spendable(
-            NormalSignatureKind::NotStored.into(),
-            spendable,
-            SpendPath::Unknown,
-            sequence,
-            Some(witness),
-        ));
-
-        self
-    }
-
     /// Adds an output to the transaction being built.
     pub fn add_output(mut self, output: UnspentTxOut) -> Self {
         self.txouts.push(output);
@@ -559,22 +531,6 @@ impl TxHandlerBuilder {
         };
         let txid = tx.compute_txid();
 
-        // #[cfg(debug_assertions)]
-        // {
-        //     // txins >= txouts
-        //     assert!(
-        //         self.txins
-        //             .iter()
-        //             .map(|s| s.get_spendable().get_prevout().value)
-        //             .sum::<bitcoin::Amount>()
-        //             >= self
-        //                 .txouts
-        //                 .iter()
-        //                 .map(|s| s.txout().value)
-        //                 .sum::<bitcoin::Amount>(),
-        //                 "Txins should be bigger than txouts"
-        //     );
-        // }
         TxHandler::<Unsigned> {
             transaction_type: self.transaction_type,
             txins: self.txins,
@@ -583,11 +539,6 @@ impl TxHandlerBuilder {
             cached_txid: txid,
             phantom: PhantomData,
         }
-    }
-
-    /// Finalizes the transaction and promotes it to signed, checking all witnesses.
-    pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
-        self.finalize().promote()
     }
 }
 

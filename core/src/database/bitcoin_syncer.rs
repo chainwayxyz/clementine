@@ -257,6 +257,7 @@ impl Database {
     }
 
     /// Gets all the txids that are contained in the block with the given id
+    #[cfg(test)]
     pub async fn get_block_txids(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
