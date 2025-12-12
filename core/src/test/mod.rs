@@ -13,6 +13,8 @@ mod reorg;
 #[cfg(feature = "integration-tests")]
 mod musig2;
 
+mod rpc;
+
 #[cfg(not(feature = "automation"))]
 mod manual_reimbursement;
 

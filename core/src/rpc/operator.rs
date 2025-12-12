@@ -15,9 +15,7 @@ use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
-use crate::rpc::clementine::{
-    CompatibilityParamsRpc, RawSignedTx, RawSignedTxs, WithdrawParamsWithSig,
-};
+use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
 };
@@ -487,7 +485,7 @@ where
     async fn transfer_to_btc_wallet(
         &self,
         request: Request<clementine::Outpoints>,
-    ) -> Result<Response<RawSignedTxs>, Status> {
+    ) -> Result<Response<RawSignedTx>, Status> {
         if self.operator.reimburse_addr != self.operator.signer.address {
             return Err(Status::failed_precondition(format!("To be able to send from reimburse address to wallet, operator's reimburse address must be set to the same address as the signer address, reimburse address: {}, signer address: {}", self.operator.reimburse_addr, self.operator.signer.address)));
         }
@@ -536,8 +534,6 @@ where
             .map_err(|e| Status::internal(format!("Failed to send outpoints to wallet: {e}")))?;
 
         tracing::info!("Successfully created transaction sending outpoints to wallet");
-        Ok(Response::new(RawSignedTxs {
-            raw_txs: vec![RawSignedTx::from(&signed_tx)],
-        }))
+        Ok(Response::new(RawSignedTx::from(&signed_tx)))
     }
 }

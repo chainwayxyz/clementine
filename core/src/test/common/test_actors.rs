@@ -15,7 +15,8 @@ use crate::servers::{
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use bitcoin::XOnlyPublicKey;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::{Address, OutPoint, XOnlyPublicKey};
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
@@ -446,6 +447,8 @@ impl<C: CitreaClientT> TestActors<C> {
         &mut self,
         secret_key: bitcoin::secp256k1::SecretKey,
         verifier_index: usize,
+        operator_reimbursement_address: Option<Address<NetworkUnchecked>>,
+        operator_collateral_funding_outpoint: Option<OutPoint>,
     ) -> eyre::Result<()> {
         if !self.verifiers.contains_key(&verifier_index) {
             return Err(eyre::eyre!(
@@ -454,9 +457,11 @@ impl<C: CitreaClientT> TestActors<C> {
                 verifier_index
             ));
         }
-        let base_config = &self.verifiers[&verifier_index].config;
+        let mut base_config = self.verifiers[&verifier_index].config.clone();
+        base_config.operator_reimbursement_address = operator_reimbursement_address;
+        base_config.operator_collateral_funding_outpoint = operator_collateral_funding_outpoint;
         let operator = TestOperator::new(
-            base_config,
+            &base_config,
             self.socket_dir.path(),
             self.num_total_operators,
             verifier_index,

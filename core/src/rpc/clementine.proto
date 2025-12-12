@@ -371,13 +371,14 @@ service ClementineOperator {
   rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // Sends the given outpoints to the operator's btc wallet.
+  // The transaction will also be broadcasted to the network.
   // Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
   // The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
   // # Parameters
   // - outpoints: The outpoints to send to the operator's btc wallet
   // # Returns
-  // - Raw signed txs that send the given outpoints to the operator's btc wallet address
-  rpc TransferToBtcWallet(Outpoints) returns (RawSignedTxs) {}
+  // - Raw signed tx that transfers the given outpoints to the operator's btc wallet address
+  rpc TransferToBtcWallet(Outpoints) returns (RawSignedTx) {}
 
   // Signs everything that includes Operator's burn connector.
   //

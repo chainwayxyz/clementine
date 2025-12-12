@@ -3,6 +3,7 @@ use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
@@ -42,6 +43,7 @@ use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 
 use eyre::{eyre, Context, OptionExt};
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -67,7 +69,6 @@ use {
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
     circuits_lib::bridge_circuit::structs::LightClientProof,
-    std::collections::HashMap,
 };
 
 pub type SecretPreimage = [u8; 20];
@@ -2013,6 +2014,12 @@ where
             .wrap_err("Failed to get new address, bitcoin rpc might not match the network")?
             .script_pubkey();
 
+        let (_, spendinfo) = create_taproot_address(
+            &[],
+            Some(self.signer.xonly_public_key),
+            self.config.protocol_paramset().network,
+        );
+
         let total_input_value = inputs.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
             acc.checked_add(txout.value)
                 .ok_or_else(|| eyre!("Input values overflowed while summing"))
@@ -2029,7 +2036,7 @@ where
         for (outpoint, txout) in inputs.iter() {
             builder = builder.add_input(
                 NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new_partial(*outpoint, txout.clone()),
+                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             );
@@ -2071,7 +2078,7 @@ where
         for (outpoint, txout) in inputs.iter() {
             builder = builder.add_input(
                 NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new_partial(*outpoint, txout.clone()),
+                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             );
