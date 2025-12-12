@@ -2000,7 +2000,7 @@ where
                     .get(outpoint)
                     .expect("Collateral outpoint should be found in the map");
                 return Err(
-                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to round {round_idx:?} to wallet").into(),
+                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to {round_idx:?} to wallet").into(),
                 );
             }
         }

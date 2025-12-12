@@ -99,7 +99,7 @@ enum OperatorCommands {
     GetCompatibilityParams,
     /// Get entity status
     GetEntityStatus,
-    /// Transfer outpoints to BTC wallet
+    /// Transfer outpoints from operator's address to the BTC wallet
     TransferToBtcWallet {
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         outpoints: Vec<String>,
@@ -470,7 +470,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 let bitcoin_outpoint: bitcoin::OutPoint = match outpoint_str.parse() {
                     Ok(op) => op,
                     Err(e) => {
-                        println!("Error: Failed to parse outpoint '{}': {}", outpoint_str, e);
+                        println!("Error: Failed to parse outpoint '{outpoint_str}': {e}");
                         return;
                     }
                 };
