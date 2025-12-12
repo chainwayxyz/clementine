@@ -1996,11 +1996,11 @@ where
             .wrap_err("Failed to get all collateral outpoints")?;
         for (outpoint, _) in inputs.iter() {
             if collateral_outpoints.contains_key(outpoint) {
-                let round_idx = collateral_outpoints
+                let (round_idx, tx_type) = collateral_outpoints
                     .get(outpoint)
                     .expect("Collateral outpoint should be found in the map");
                 return Err(
-                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to {round_idx:?} to wallet").into(),
+                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to {round_idx:?} {tx_type:?} to wallet").into(),
                 );
             }
         }
@@ -2105,9 +2105,12 @@ where
     /// Returns a map of outpoint to the round index it belongs to.
     async fn get_all_collateral_outpoints(
         &self,
-    ) -> Result<HashMap<OutPoint, RoundIndex>, BridgeError> {
+    ) -> Result<HashMap<OutPoint, (RoundIndex, TransactionType)>, BridgeError> {
         let mut outpoints = HashMap::new();
-        outpoints.insert(self.collateral_funding_outpoint, RoundIndex::Collateral);
+        outpoints.insert(
+            self.collateral_funding_outpoint,
+            (RoundIndex::Collateral, TransactionType::Round),
+        );
 
         // Fetch operator kickoff winternitz public keys to build round txs
         let operator_winternitz_public_keys = self
@@ -2141,7 +2144,7 @@ where
                 txid: *round_tx.get_txid(),
                 vout: UtxoVout::CollateralInRound.get_vout(),
             };
-            outpoints.insert(collateral_outpoint, round_idx);
+            outpoints.insert(collateral_outpoint, (round_idx, TransactionType::Round));
 
             let ready_to_reimburse_tx = txhandlers
                 .iter()
@@ -2149,6 +2152,14 @@ where
                     txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
                 })
                 .ok_or(eyre::eyre!("Ready to reimburse tx not found in txhandlers"))?;
+            let ready_to_reimburse_collateral_outpoint = OutPoint {
+                txid: *ready_to_reimburse_tx.get_txid(),
+                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+            };
+            outpoints.insert(
+                ready_to_reimburse_collateral_outpoint,
+                (round_idx, TransactionType::ReadyToReimburse),
+            );
             prev_ready_to_reimburse = Some(ready_to_reimburse_tx.clone());
         }
 
