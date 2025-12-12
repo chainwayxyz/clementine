@@ -13,6 +13,8 @@
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::Amount;
+#[cfg(test)]
+use bitcoin::BlockHash;
 use bitcoin::FeeRate;
 use bitcoin::Network;
 use bitcoin::OutPoint;
