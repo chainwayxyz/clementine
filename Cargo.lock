@@ -1561,7 +1561,7 @@ checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
 [[package]]
 name = "bitcoin-script"
 version = "0.4.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script#3c75a6e4cfddb800f57710d8270c0a1dc60eb57e"
+source = "git+https://github.com/BitVM/rust-bitcoin-script?rev=01b4cb66cbf5b525079cabe006f9f99627da97cd#01b4cb66cbf5b525079cabe006f9f99627da97cd"
 dependencies = [
  "bitcoin",
  "script-macro",
@@ -1571,7 +1571,7 @@ dependencies = [
 [[package]]
 name = "bitcoin-script-stack"
 version = "0.0.1"
-source = "git+https://github.com/BitVM/rust-bitcoin-script-stack#643c5f1a44af448274849c01a5ae7fbdd54d8213"
+source = "git+https://github.com/chainwayxyz/rust-bitcoin-script-stack?rev=6d53ae93ed5bdf2ccd53afe6bd6e4652ca30d46c#6d53ae93ed5bdf2ccd53afe6bd6e4652ca30d46c"
 dependencies = [
  "bitcoin",
  "bitcoin-script",
@@ -1679,7 +1679,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=dc6ffd0495d8c9f49af17348a834b8e7fbdf4928#dc6ffd0495d8c9f49af17348a834b8e7fbdf4928"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=aeecbd9ae609aea6651e07adecdd0bc11bfd3adb#aeecbd9ae609aea6651e07adecdd0bc11bfd3adb"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -1698,6 +1698,7 @@ dependencies = [
  "itertools 0.13.0",
  "num-bigint 0.4.6",
  "num-traits",
+ "once_cell",
  "paste",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -7035,7 +7036,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "script-macro"
 version = "0.4.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script#3c75a6e4cfddb800f57710d8270c0a1dc60eb57e"
+source = "git+https://github.com/BitVM/rust-bitcoin-script?rev=01b4cb66cbf5b525079cabe006f9f99627da97cd#01b4cb66cbf5b525079cabe006f9f99627da97cd"
 dependencies = [
  "bitcoin",
  "proc-macro-error",

@@ -11,7 +11,7 @@ use clementine_core::{
     actor::Actor,
     bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE},
     citrea::CitreaClient,
-    cli::{self, get_cli_config},
+    cli::{self, get_cli_args, get_config, Command},
     database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     servers::{
@@ -28,7 +28,7 @@ async fn main() {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    let (config, args) = get_cli_config();
+    let args = get_cli_args();
 
     let level_filter = match args.verbose {
         0 => None,
@@ -38,6 +38,18 @@ async fn main() {
     };
 
     initialize_logger(level_filter).expect("Failed to initialize logger.");
+
+    // Check for generate-bitvm-cache command early (doesn't require config)
+    if matches!(args.command, Command::GenerateBitvmCache) {
+        tracing::info!("Generating BitVM cache...");
+        BITVM_CACHE
+            .get_or_try_init(load_or_generate_bitvm_cache)
+            .expect("Failed to generate BitVM cache");
+        tracing::info!("BitVM cache generated successfully.");
+        std::process::exit(0);
+    }
+
+    let config = get_config(args.clone());
 
     if let Some(telemetry) = &config.telemetry {
         if let Err(e) = initialize_telemetry(telemetry) {
@@ -56,15 +68,16 @@ async fn main() {
         .get_or_try_init(load_or_generate_bitvm_cache)
         .expect("Failed to load BitVM cache");
 
-    Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
+    tracing::info!("Running schema script...");
+    Database::run_schema_script(&config, matches!(args.command, Command::Verifier))
         .await
         .expect("Can't run schema script");
 
-    let mut handle = match args.actor {
-        cli::Actors::Verifier => {
-            println!("Starting verifier server...");
+    let mut handle = match args.command {
+        Command::Verifier => {
+            tracing::info!("Starting verifier server...");
             config
-                .check_mainnet_requirements(cli::Actors::Verifier)
+                .check_mainnet_requirements(cli::Actor::Verifier)
                 .expect("Illegal configuration options!");
 
             create_verifier_grpc_server::<CitreaClient>(config.clone())
@@ -72,10 +85,10 @@ async fn main() {
                 .expect("Can't create verifier server")
                 .1
         }
-        cli::Actors::Operator => {
-            println!("Starting operator server...");
+        Command::Operator => {
+            tracing::info!("Starting operator server...");
             config
-                .check_mainnet_requirements(cli::Actors::Operator)
+                .check_mainnet_requirements(cli::Actor::Operator)
                 .expect("Illegal configuration options!");
 
             create_operator_grpc_server::<CitreaClient>(config.clone())
@@ -83,10 +96,10 @@ async fn main() {
                 .expect("Can't create operator server")
                 .1
         }
-        cli::Actors::Aggregator => {
-            println!("Starting aggregator server...");
+        Command::Aggregator => {
+            tracing::info!("Starting aggregator server...");
             config
-                .check_mainnet_requirements(cli::Actors::Aggregator)
+                .check_mainnet_requirements(cli::Actor::Aggregator)
                 .expect("Illegal configuration options!");
 
             create_aggregator_grpc_server(config.clone())
@@ -94,7 +107,7 @@ async fn main() {
                 .expect("Can't create aggregator server")
                 .1
         }
-        cli::Actors::TestActor => {
+        Command::TestActor => {
             let rpc = ExtendedBitcoinRpc::connect(
                 config.bitcoin_rpc_url.clone(),
                 config.bitcoin_rpc_user.clone(),
@@ -135,6 +148,10 @@ async fn main() {
             println!("Your node is healthy and ready to run.");
 
             std::process::exit(0);
+        }
+        Command::GenerateBitvmCache => {
+            // This case is handled early in main() and exits before reaching here
+            unreachable!("GenerateBitvmCache should be handled before this point");
         }
     };
     println!("Server has started successfully.");

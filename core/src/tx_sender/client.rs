@@ -110,6 +110,10 @@ impl TxSenderClient {
             .await
             .map_to_eyre()?;
 
+        // only log the raw tx in tests so that logs do not contain sensitive information
+        #[cfg(test)]
+        tracing::debug!(target: "ci", "Saved tx to database with try_to_send_id: {try_to_send_id}, metadata: {tx_metadata:?}, raw tx: {}", hex::encode(bitcoin::consensus::serialize(signed_tx)));
+
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
             self.db
                 .save_cancelled_outpoint(Some(dbtx), try_to_send_id, input_outpoint)
