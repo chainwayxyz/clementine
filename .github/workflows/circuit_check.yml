@@ -23,39 +23,9 @@ env:
   RISC0_TOOLCHAIN_VERSION: v1
 
 jobs:
-  toolchain:
-    runs-on: ubicloud-standard-8
-    name: Warm RISC0 toolchain cache
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Cache Cargo & RISC Zero toolchain
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.risc0
-          key: ${{ runner.os }}-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
-
-      - name: Install risc0 prereqs (only when cache cold)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install r0vm (only when cache cold)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: rzup install r0vm
-
   circuit_check:
     name: ${{ matrix.circuit }} Method ID Check
     runs-on: ubicloud-standard-8
-    needs: toolchain
     strategy:
       matrix:
         circuit: [bridge-circuit, header-chain, work-only]
@@ -63,32 +33,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo & RISC Zero toolchain
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.risc0
-          key: ${{ runner.os }}-toolchain-${{ env.RISC0_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
-
-      - name: Install risc0 prereqs (only if cache missed)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install r0vm (only if cache missed)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: rzup install r0vm
-
-      - name: Ensure toolchain is in PATH
+      - name: Install risc0
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          curl -L https://risczero.com/install | bash
+          export PATH="$PATH:$HOME/.risc0/bin"
           echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          rzup install
+          rzup install rust 1.88.0
+
+      - name: Install r0vm
+        run: rzup install r0vm
 
       - name: Compute ${{ matrix.circuit }} pre-build method ID
         id: pre_id
@@ -111,7 +68,8 @@ jobs:
       - name: Verify ${{ matrix.circuit }} method ID unchanged
         run: |
           if [ "${{ steps.pre_id.outputs.pre_id }}" != "${{ steps.post_id.outputs.post_id }}" ]; then
-            echo "${{ matrix.circuit }} method ID has changed from ${{ steps.pre_id.outputs.pre_id }} to ${{ steps.post_id.outputs.post_id }}"
+            echo "${{ matrix.circuit }} method ID has changed from ${{ steps.pre_id.outputs.pre_id }} to ${{ steps.post_id.outputs.post_id }}." \
+              "This PR has altered the circuit build output. Please rebuild the circuit and commit the updated artifacts."
             exit 1
           else
             echo "${{ matrix.circuit }} method ID is unchanged: ${{ steps.pre_id.outputs.pre_id }}"
