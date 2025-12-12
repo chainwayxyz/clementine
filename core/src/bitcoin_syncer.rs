@@ -10,9 +10,9 @@ use crate::{
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     task::{IntoTask, RecoverableTask, Task, TaskExt, TaskVariant, WithDelay},
 };
-use clementine_errors::BridgeError;
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::time::Duration;
 use tonic::async_trait;

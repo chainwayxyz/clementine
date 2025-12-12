@@ -21,9 +21,9 @@
 pub use crate::builder::block_cache;
 use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
-use clementine_errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::states::block_cache::BlockCache;
+use clementine_errors::BridgeError;
 use eyre::{Context, OptionExt};
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;

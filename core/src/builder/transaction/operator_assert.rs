@@ -6,9 +6,9 @@ use crate::builder;
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use clementine_errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
 use bitcoin::Sequence;
+use clementine_errors::BridgeError;
 
 /// Creates a [`TxHandler`] for the `disprove_timeout_tx`.
 ///

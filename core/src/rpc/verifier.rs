@@ -12,7 +12,6 @@ use crate::builder::transaction::ContractContext;
 use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-use clementine_errors::ResultExt as _;
 use crate::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
@@ -24,6 +23,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use clementine_errors::ResultExt as _;
 use eyre::Context as _;
 use secp256k1::musig::AggregatedNonce;
 use tokio::sync::mpsc::{self};

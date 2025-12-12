@@ -10,7 +10,6 @@ use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
-use clementine_errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
@@ -18,6 +17,7 @@ use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;

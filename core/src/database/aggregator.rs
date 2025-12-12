@@ -4,8 +4,8 @@
 
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::execute_query_with_tx;
-use clementine_errors::BridgeError;
 use bitcoin::Txid;
+use clementine_errors::BridgeError;
 use eyre;
 use sqlx::QueryBuilder;
 

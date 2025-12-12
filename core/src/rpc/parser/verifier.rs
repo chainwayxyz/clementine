@@ -1,7 +1,6 @@
 use super::ParserError;
 use crate::citrea::CitreaClientT;
 use crate::deposit::DepositData;
-use clementine_errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
@@ -22,6 +21,7 @@ use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use tonic::Status;

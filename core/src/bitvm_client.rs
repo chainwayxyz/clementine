@@ -4,9 +4,9 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
-use clementine_errors::BridgeError;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 
 use bitvm::chunk::api::{
     api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,

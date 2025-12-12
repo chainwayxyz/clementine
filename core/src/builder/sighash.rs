@@ -29,13 +29,13 @@ use crate::builder::transaction::{
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData};
-use clementine_errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 use futures_core::stream::Stream;
 
 impl BridgeConfig {

@@ -5,9 +5,9 @@
 
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use clementine_errors::BridgeError;
 use crate::utils::delayed_panic;
 use clap::Parser;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::env;
 use std::path::PathBuf;

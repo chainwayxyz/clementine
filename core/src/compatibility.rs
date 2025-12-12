@@ -10,10 +10,10 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::deposit::SecurityCouncil;
-use clementine_errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::CompatibilityParamsRpc;
 use crate::verifier::Verifier;
+use clementine_errors::BridgeError;
 
 /// Parameters related to protocol configuration that can affect contract transactions, Citrea syncing, and version compatibility. This must not include sensitive information.
 #[derive(Clone, Debug)]

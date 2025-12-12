@@ -15,6 +15,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 #[cfg(feature = "automation")]
 use crate::builder::transaction::ReimburseDbCache;
+use crate::builder::transaction::TxError;
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, ContractContext, TransactionType, TxHandler,
@@ -29,8 +30,6 @@ use crate::constants::{
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use clementine_errors::BridgeError;
-use crate::builder::transaction::TxError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
@@ -73,6 +72,7 @@ use circuits_lib::bridge_circuit::{
     deposit_constant, get_first_op_return_output, parse_op_return_data,
 };
 use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
+use clementine_errors::BridgeError;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};

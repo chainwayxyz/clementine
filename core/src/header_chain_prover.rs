@@ -6,12 +6,7 @@
 
 use crate::builder::block_cache::BlockCache;
 use crate::database::DatabaseTransaction;
-use clementine_errors::{ResultExt, BridgeError, ErrorExt};
-use crate::{
-    config::BridgeConfig,
-    database::Database,
-    extended_bitcoin_rpc::ExtendedBitcoinRpc,
-};
+use crate::{config::BridgeConfig, database::Database, extended_bitcoin_rpc::ExtendedBitcoinRpc};
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
@@ -28,6 +23,7 @@ use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader, HeaderChainCircuitInput,
     HeaderChainPrevProofType,
 };
+use clementine_errors::{BridgeError, ErrorExt, ResultExt};
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};

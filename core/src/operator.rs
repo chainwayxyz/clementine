@@ -16,8 +16,8 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use clementine_errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use clementine_errors::BridgeError;
 
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, StoppedTasks};

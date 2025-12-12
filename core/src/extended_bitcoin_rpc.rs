@@ -13,7 +13,6 @@
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::Amount;
-use bitcoin::BlockHash;
 use bitcoin::FeeRate;
 use bitcoin::Network;
 use bitcoin::OutPoint;
@@ -46,8 +45,8 @@ use crate::builder::transaction::TransactionType;
 use crate::builder::transaction::TxHandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
-use clementine_errors::{BridgeError, FeeErr};
 use crate::operator::RoundIndex;
+use clementine_errors::{BridgeError, FeeErr};
 
 #[cfg(test)]
 use crate::test::common::citrea::CitreaE2EData;

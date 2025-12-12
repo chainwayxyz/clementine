@@ -10,7 +10,6 @@ use super::script::{
 };
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
-use clementine_errors::BridgeError;
 use crate::utils::ScriptBufExt;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
@@ -19,6 +18,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
+use clementine_errors::BridgeError;
 
 use eyre::Context;
 

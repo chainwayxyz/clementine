@@ -34,9 +34,9 @@ use crate::{
         },
     },
 };
-use clementine_errors::BridgeError;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use futures::future::join_all;
 use std::future::Future;
