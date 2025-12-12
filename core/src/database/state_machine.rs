@@ -5,7 +5,7 @@
 use bitcoin::XOnlyPublicKey;
 
 use super::{wrapper::XOnlyPublicKeyDB, Database, DatabaseTransaction};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::execute_query_with_tx;
 
 impl Database {

@@ -2,7 +2,7 @@
 
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},

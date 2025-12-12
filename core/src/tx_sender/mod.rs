@@ -16,7 +16,7 @@
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::config::BridgeConfig;
-use crate::errors::ResultExt;
+use clementine_errors::ResultExt;
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
@@ -84,28 +84,12 @@ pub struct ActivatedWithTxid {
     pub relative_block_height: u32,
 }
 
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
     pub relative_block_height: u32,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum SendTxError {
-    #[error("Unconfirmed fee payer UTXOs left")]
-    UnconfirmedFeePayerUTXOsLeft,
-    #[error("Insufficient fee payer amount")]
-    InsufficientFeePayerAmount,
-
-    #[error("Failed to create a PSBT for fee bump")]
-    PsbtError(String),
-
-    #[error("Network error: {0}")]
-    NetworkError(String),
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::SendTxError;
 
 type Result<T> = std::result::Result<T, SendTxError>;
 
@@ -432,7 +416,7 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::config::protocol::ProtocolParamset;
-    use crate::errors::BridgeError;
+    use clementine_errors::BridgeError;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::task::{IntoTask, TaskExt};
     use crate::test::common::tx_utils::{create_bg_tx_sender, create_bumpable_tx};

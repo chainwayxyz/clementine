@@ -22,7 +22,7 @@ use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MIN_TAPROOT_AMOUNT;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};

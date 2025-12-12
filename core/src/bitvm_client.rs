@@ -4,7 +4,7 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 

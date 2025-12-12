@@ -5,7 +5,7 @@
 //! and what sighash type is required for that signature. Additionally it encodes when this signature is given to other entities.
 //!
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::TapSighashType;

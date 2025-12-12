@@ -42,7 +42,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
 use crate::deposit::{DepositData, SecurityCouncil};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;

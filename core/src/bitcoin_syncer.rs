@@ -7,10 +7,10 @@
 use crate::{
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
-    errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     task::{IntoTask, RecoverableTask, Task, TaskExt, TaskVariant, WithDelay},
 };
+use clementine_errors::BridgeError;
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;

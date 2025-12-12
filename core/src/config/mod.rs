@@ -14,7 +14,7 @@ use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::address::NetworkUnchecked;

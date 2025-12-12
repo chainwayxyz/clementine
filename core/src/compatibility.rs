@@ -10,7 +10,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::CompatibilityParamsRpc;
 use crate::verifier::Verifier;

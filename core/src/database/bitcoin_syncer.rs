@@ -3,9 +3,10 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, errors::BridgeError,
+    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset,
     execute_query_with_tx,
 };
+use clementine_errors::BridgeError;
 use bitcoin::{BlockHash, OutPoint, Txid};
 use eyre::Context;
 use std::ops::DerefMut;

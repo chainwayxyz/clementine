@@ -6,11 +6,10 @@
 
 use crate::builder::block_cache::BlockCache;
 use crate::database::DatabaseTransaction;
-use crate::errors::ResultExt;
+use clementine_errors::{ResultExt, BridgeError, ErrorExt};
 use crate::{
     config::BridgeConfig,
     database::Database,
-    errors::{BridgeError, ErrorExt},
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
 };
 use bitcoin::block::Header;
@@ -36,7 +35,6 @@ use std::{
     fs::File,
     io::{BufReader, Read},
 };
-use thiserror::Error;
 
 lazy_static! {
     static ref MAINNET_HCP_METHOD_ID: [u32; 8] = compute_image_id(MAINNET_HEADER_CHAIN_ELF)
@@ -61,20 +59,7 @@ lazy_static! {
         .expect("hardcoded ELF is valid");
 }
 
-#[derive(Debug, Error)]
-pub enum HeaderChainProverError {
-    #[error("Error while de/serializing object")]
-    ProverDeSerializationError,
-    #[error("Wait for candidate batch to be ready")]
-    BatchNotReady,
-    #[error("Header chain prover not initialized due to config")]
-    HeaderChainProverNotInitialized,
-    #[error("Unsupported network")]
-    UnsupportedNetwork,
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::HeaderChainProverError;
 
 #[derive(Debug, Clone)]
 pub struct HeaderChainProver {

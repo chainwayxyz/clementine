@@ -7,11 +7,12 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx, extended_bitcoin_rpc::ExtendedBitcoinRpc};
+use crate::{execute_query_with_tx, extended_bitcoin_rpc::ExtendedBitcoinRpc};
 use bitcoin::{
     block::{self, Header},
     BlockHash,
 };
+use clementine_errors::BridgeError;
 use eyre::Context;
 use risc0_zkvm::Receipt;
 

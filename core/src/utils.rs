@@ -1,6 +1,6 @@
 use crate::builder::transaction::TransactionType;
 use crate::config::TelemetryConfig;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};

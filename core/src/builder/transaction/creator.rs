@@ -35,7 +35,8 @@ use crate::builder::transaction::{
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::{BridgeError, TxError};
+use clementine_errors::BridgeError;
+use crate::builder::transaction::TxError;
 use crate::operator::{PublicHash, RoundIndex};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;

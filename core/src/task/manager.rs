@@ -1,6 +1,6 @@
 use super::status_monitor::{TaskStatusMonitorTask, TASK_STATUS_MONITOR_POLL_DELAY};
 use super::{IntoTask, Task, TaskExt, TaskVariant};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::rpc::clementine::StoppedTasks;
 use crate::utils::timed_request;
 use std::collections::HashMap;

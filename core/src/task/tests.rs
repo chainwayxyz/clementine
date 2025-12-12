@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use tokio::time::sleep;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::task::manager::TaskStatus;
 use crate::task::RecoverableTask;
 

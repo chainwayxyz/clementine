@@ -12,7 +12,7 @@ use crate::builder::script::{
 };
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::operator::RoundIndex;
 use crate::utils::ScriptBufExt;

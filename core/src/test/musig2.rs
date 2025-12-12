@@ -3,7 +3,7 @@ use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScrip
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };

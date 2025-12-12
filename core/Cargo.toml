@@ -8,7 +8,7 @@ license = { workspace = true }
 rust-version = "1.88.0"
 
 [features]
-automation = []
+automation = ["clementine-errors/automation"]
 integration-tests = ["automation"]
 
 [build-dependencies]
@@ -68,6 +68,7 @@ citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
+clementine-errors = { path = "../crates/clementine-errors" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }

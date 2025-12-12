@@ -1,6 +1,6 @@
 use crate::config::env::read_string_from_env_then_parse;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use bitcoin::{Amount, Network};
 use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::constants::{

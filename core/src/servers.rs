@@ -3,6 +3,7 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator::AggregatorServer;
 use crate::citrea::CitreaClientT;
+use crate::config::BridgeConfig;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
@@ -11,8 +12,7 @@ use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer
 use crate::rpc::interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf};
 use crate::utils::AddMethodMiddlewareLayer;
 use crate::verifier::VerifierServer;
-use crate::{config::BridgeConfig, errors};
-use errors::BridgeError;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use rustls_pki_types::pem::PemObject;
 use std::time::Duration;

@@ -19,7 +19,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,

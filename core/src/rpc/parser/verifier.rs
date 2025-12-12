@@ -1,7 +1,7 @@
 use super::ParserError;
 use crate::citrea::CitreaClientT;
 use crate::deposit::DepositData;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,

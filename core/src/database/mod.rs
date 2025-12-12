@@ -8,7 +8,8 @@
 
 use std::time::Duration;
 
-use crate::{config::BridgeConfig, errors::BridgeError};
+use crate::config::BridgeConfig;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use secrecy::ExposeSecret;
 use sqlx::migrate::Migrator;

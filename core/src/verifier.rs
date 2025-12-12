@@ -29,7 +29,8 @@ use crate::constants::{
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::{BridgeError, TxError};
+use clementine_errors::BridgeError;
+use crate::builder::transaction::TxError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;

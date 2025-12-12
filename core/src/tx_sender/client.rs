@@ -6,7 +6,7 @@
 use super::Result;
 use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
-use crate::errors::ResultExt;
+use clementine_errors::ResultExt;
 use crate::operator::RoundIndex;
 use crate::rpc;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};

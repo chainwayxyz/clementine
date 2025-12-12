@@ -29,7 +29,7 @@ use crate::builder::transaction::{
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData};
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;

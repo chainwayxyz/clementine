@@ -6,7 +6,7 @@ use crate::builder;
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
 use bitcoin::Sequence;
 
