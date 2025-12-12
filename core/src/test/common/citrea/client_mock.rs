@@ -2,11 +2,11 @@ use crate::{
     citrea::CitreaClientT,
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
-    errors::BridgeError,
 };
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use risc0_zkvm::Receipt;
 use std::{

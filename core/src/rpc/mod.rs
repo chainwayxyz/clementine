@@ -1,12 +1,12 @@
 use crate::{
     config::BridgeConfig,
-    errors::BridgeError,
     rpc::clementine::{
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient,
     },
 };
 use clementine::*;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::{path::PathBuf, time::Duration};

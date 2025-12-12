@@ -7,12 +7,12 @@ use crate::metrics::L1SyncStatusProvider;
 
 use crate::{
     database::Database,
-    errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     metrics::L1_SYNC_STATUS,
     task::{Task, TaskVariant},
     utils::NamedEntity,
 };
+use clementine_errors::BridgeError;
 
 /// The interval at which the entity metrics are polled and published
 /// (Not sent to Prometheus at this interval, since we use a pull-based http listener)

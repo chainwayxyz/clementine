@@ -5,8 +5,8 @@
 use bitcoin::XOnlyPublicKey;
 
 use super::{wrapper::XOnlyPublicKeyDB, Database, DatabaseTransaction};
-use crate::errors::BridgeError;
 use crate::execute_query_with_tx;
+use clementine_errors::BridgeError;
 
 impl Database {
     /// Saves state machines to the database with the current block height

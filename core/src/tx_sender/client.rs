@@ -6,7 +6,6 @@
 use super::Result;
 use super::{ActivatedWithOutpoint, ActivatedWithTxid};
 use crate::builder::transaction::input::UtxoVout;
-use crate::errors::ResultExt;
 use crate::operator::RoundIndex;
 use crate::rpc;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
@@ -17,6 +16,7 @@ use crate::{
 };
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Transaction, Txid};
+use clementine_errors::ResultExt;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]

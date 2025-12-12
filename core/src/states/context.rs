@@ -24,7 +24,7 @@ use crate::builder::transaction::ContractContext;
 
 use crate::builder::transaction::TransactionType;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 use std::collections::HashSet;
 

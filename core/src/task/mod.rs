@@ -5,7 +5,7 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::sleep;
 use tonic::async_trait;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 pub mod aggregator_metric_publisher;
 pub mod entity_metric_publisher;

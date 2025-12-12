@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 use tokio::time::Duration;
 use tonic::async_trait;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 use super::manager::TaskRegistry;
 use super::{manager::TaskStatus, Task, TaskVariant};

@@ -15,7 +15,6 @@ use crate::{
     operator::RoundIndex,
 };
 use crate::{
-    errors::BridgeError,
     execute_query_with_tx,
     operator::PublicHash,
     rpc::clementine::{DepositSignatures, TaggedSignature},
@@ -23,6 +22,7 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use clementine_errors::BridgeError;
 use eyre::{eyre, Context};
 use risc0_zkvm::Receipt;
 use std::str::FromStr;

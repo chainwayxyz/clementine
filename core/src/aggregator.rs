@@ -26,7 +26,6 @@ use crate::utils::{
 use crate::{
     config::BridgeConfig,
     database::Database,
-    errors::BridgeError,
     rpc::{
         self,
         clementine::{
@@ -37,6 +36,7 @@ use crate::{
 };
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use futures::future::join_all;
 use std::future::Future;

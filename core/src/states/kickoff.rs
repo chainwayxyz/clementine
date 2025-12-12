@@ -11,8 +11,8 @@ use crate::{
         input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
     },
     deposit::{DepositData, KickoffData},
-    errors::BridgeError,
 };
+use clementine_errors::BridgeError;
 
 use super::{
     block_cache::BlockCache,

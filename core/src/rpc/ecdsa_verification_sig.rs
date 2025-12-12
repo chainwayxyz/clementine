@@ -15,7 +15,7 @@ use bitcoin::{taproot, OutPoint};
 use bitcoin::{Amount, ScriptBuf};
 use eyre::{Context, Result};
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 alloy_sol_types::sol! {
     #[derive(Debug)]

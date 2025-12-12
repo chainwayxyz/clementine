@@ -2,7 +2,6 @@
 
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
-use crate::errors::BridgeError;
 use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
@@ -28,6 +27,7 @@ use circuits_lib::bridge_circuit::{
     structs::{LightClientProof, StorageProof},
 };
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;

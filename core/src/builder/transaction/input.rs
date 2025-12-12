@@ -15,7 +15,6 @@ use bitcoin::{
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
 };
 use std::sync::Arc;
-use thiserror::Error;
 
 pub type BlockHeight = u16;
 
@@ -31,20 +30,7 @@ pub struct SpendableTxIn {
     spendinfo: Option<TaprootSpendInfo>,
 }
 
-#[derive(Clone, Debug, Error, PartialEq)]
-/// Error type for spendable input construction and validation.
-pub enum SpendableTxInError {
-    #[error(
-        "The taproot spend info contains an incomplete merkle proof map. Some scripts are missing."
-    )]
-    IncompleteMerkleProofMap,
-
-    #[error("The script_pubkey of the previous output does not match the expected script_pubkey for the taproot spending information.")]
-    IncorrectScriptPubkey,
-
-    #[error("Error creating a spendable txin: {0}")]
-    Error(String),
-}
+pub use clementine_errors::SpendableTxInError;
 
 #[derive(Debug, Clone, Copy)]
 /// Enumerates protocol-specific UTXO output indices for transaction construction.

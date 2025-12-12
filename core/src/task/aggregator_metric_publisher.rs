@@ -5,11 +5,11 @@ use tonic::async_trait;
 
 use crate::{
     aggregator::{Aggregator, EntityId, OperatorId, VerifierId},
-    errors::BridgeError,
     metrics::EntityL1SyncStatusMetrics,
     rpc::clementine::EntityType,
     task::{Task, TaskVariant},
 };
+use clementine_errors::BridgeError;
 
 pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs(120);
 

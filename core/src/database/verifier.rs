@@ -8,8 +8,9 @@ use super::{
     wrapper::{BlockHashDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::execute_query_with_tx;
 use bitcoin::{BlockHash, OutPoint, Txid, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use sqlx::QueryBuilder;
 

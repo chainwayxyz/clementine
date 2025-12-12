@@ -11,10 +11,10 @@ use tonic::async_trait;
 
 use crate::{
     config::protocol::ProtocolParamset,
-    errors::BridgeError,
     states::SystemEvent,
     task::{Task, TaskExt},
 };
+use clementine_errors::BridgeError;
 
 use super::{context::Owner, StateManager};
 

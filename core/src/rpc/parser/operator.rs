@@ -1,6 +1,5 @@
 use crate::{
     citrea::CitreaClientT,
-    errors::BridgeError,
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
@@ -16,6 +15,7 @@ use bitcoin::{
     ScriptBuf, TapSighashType, XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::str::FromStr;
 use tonic::Status;

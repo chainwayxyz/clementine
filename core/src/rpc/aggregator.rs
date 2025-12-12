@@ -26,7 +26,6 @@ use crate::constants::{
     SETUP_COMPLETION_TIMEOUT, WITHDRAWAL_TIMEOUT,
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
-use crate::errors::{ErrorExt, ResultExt};
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
@@ -42,7 +41,6 @@ use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
-    errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
 };
@@ -50,6 +48,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use clementine_errors::BridgeError;
+use clementine_errors::{ErrorExt, ResultExt};
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
 use futures::{
@@ -66,20 +66,11 @@ struct AggNonceQueueItem {
     sighash: TapSighash,
 }
 
-#[derive(Debug, Clone)]
 struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum AggregatorError {
-    #[error("Failed to receive from {stream_name} stream.")]
-    InputStreamEndedEarlyUnknownSize { stream_name: String },
-    #[error("Failed to send to {stream_name} stream.")]
-    OutputStreamEndedEarly { stream_name: String },
-    #[error("Failed to send request to {request_name} stream.")]
-    RequestFailed { request_name: String },
-}
+use clementine_errors::AggregatorError;
 
 async fn get_next_pub_nonces(
     nonce_streams: &mut [impl Stream<Item = Result<PublicNonce, BridgeError>>
