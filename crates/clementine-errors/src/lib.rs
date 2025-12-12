@@ -1,70 +1,58 @@
 //! # Clementine Errors
 //!
-//! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
-//! Our error paradigm is as follows:
-//! 1. Modules define their own error types when they need shared error messages. Module-level errors can wrap eyre::Report to capture arbitrary errors.
-//! 2. The crate-level error wrapper (BridgeError) is used to wrap errors from modules and attach extra context (ie. which module caused the error).
-//! 3. External crate errors are always wrapped by the BridgeError and never by module-level errors.
-//! 4. When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.
-//! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define [`Into<Status>`] to customize the returned status.
-//! 6. BridgeError can be used to share error messages across modules.
-//! 7. When the error cause is not sufficiently explained by the error messages, use `eyre::Context::wrap_err` to add more context. This will not hinder modules that are trying to match the error.
+//! This crate defines globally shared error types, the main error wrapper ([`BridgeError`]),
+//! and extension traits for error/result conversion.
 //!
-//! ## Error wrapper example usage with `TxError`
-//! ```rust
-//! use thiserror::Error;
-//! use clementine_core::errors::{BridgeError, TxError, ErrorExt, ResultExt};
+//! ## Error Hierarchy
 //!
-//! // Function with external crate signature
-//! pub fn external_crate() -> Result<(), hex::FromHexError> {
+//! The crate provides a two-level error hierarchy:
+//!
+//! 1. **Domain-specific errors** - Errors for specific subsystems (e.g., [`BitcoinRPCError`],
+//!    [`AggregatorError`], [`ParserError`]). These can wrap `eyre::Report` to capture arbitrary errors.
+//!
+//! 2. **[`BridgeError`]** - The main error wrapper that:
+//!    - Wraps domain-specific errors with additional context
+//!    - Wraps external crate errors directly
+//!    - Provides shared error variants used across the codebase
+//!    - Converts to [`tonic::Status`] for gRPC responses
+//!
+//! ## Design Principles
+//!
+//! 1. Domain-specific errors define their own error types when they need shared error messages.
+//! 2. [`BridgeError`] wraps domain errors and attaches extra context (e.g., which subsystem caused the error).
+//! 3. External crate errors are always wrapped by [`BridgeError`], never by domain-specific errors.
+//! 4. Extension traits ([`ErrorExt`], [`ResultExt`]) convert errors into `eyre::Report` via [`BridgeError`].
+//! 5. [`BridgeError`] converts to [`tonic::Status`] for client responses. Domain errors can implement
+//!    [`Into<Status>`] to customize the returned status.
+//! 6. Use `eyre::Context::wrap_err` to add context without hindering error matching.
+//!
+//! ## Usage
+//!
+//! ```rust,ignore
+//! use clementine_errors::{BridgeError, ErrorExt, ResultExt};
+//!
+//! // External crate function
+//! fn external_crate() -> Result<(), hex::FromHexError> {
 //!     Err(hex::FromHexError::InvalidStringLength)
 //! }
 //!
-//! // Internal function failing with some error
-//! pub fn internal_function_in_another_module() -> Result<(), BridgeError> {
+//! // Internal function
+//! fn internal_function() -> Result<(), BridgeError> {
 //!     Err(eyre::eyre!("I just failed").into())
 //! }
 //!
-//!
-//! // This function returns module-level errors
-//! // It can wrap external crate errors, and other crate-level errors
-//! pub fn create_some_txs() -> Result<(), TxError> {
-//!     // Do external things
-//!     // This wraps the external crate error with BridgeError, then boxes inside an eyre::Report. The `?` will convert the eyre::Report into a TxError.
+//! // Convert external errors to eyre::Report via BridgeError
+//! fn example() -> Result<(), eyre::Report> {
 //!     external_crate().map_to_eyre()?;
-//!
-//!     // Do internal things
-//!     // This will simply wrap in eyre::Report, then rewrap in TxError.
-//!     internal_function_in_another_module().map_to_eyre()?;
-//!
-//!     // Return a module-level error
-//!     Err(TxError::TxInputNotFound)
-//! }
-//!
-//! pub fn test() -> Result<(), BridgeError> {
-//!     create_some_txs()?;
-//!     // This will convert the TxError into a BridgeError, wrapping the error with the message "Failed to build transactions" regardless of the actual error.
-//!
-//!     // Chain will be:
-//!     // 1. External case: BridgeError -> TxError -> eyre::Report -> hex::FromHexError
-//!     // 2. Internal case: BridgeError -> TxError -> eyre::Report -> BridgeError -> eyre::Report (this could've been any other module-level error)
-//!     // 3. Module-level error: BridgeError -> TxError
-//!
-//!
-//!     // error(transparent) ensures that unnecessary error messages are not repeated.
+//!     internal_function().map_to_eyre()?;
 //!     Ok(())
 //! }
-//!
-//! pub fn main() {
-//!     assert!(test().is_err());
-//! }
 //! ```
+//!
 //! ## TODO
 //!
-//! Once `clementine-types` crate exists, move `TxError` here and replace `Transaction(eyre::Report)`
-//! with `Transaction(#[from] TxError)`. This will require:
-//! - Moving `TransactionType` enum to `clementine-types`
-//! - Removing the manual `From<TxError>` implementation in `core/src/errors.rs`
+//! Move `TxError` from `clementine_core` here once `TransactionType` is available in a shared crate.
+//! This will replace the `Transaction(eyre::Report)` variant with `Transaction(#[from] TxError)`.
 
 use bitcoin::{secp256k1::PublicKey, BlockHash, FeeRate, OutPoint, Txid, XOnlyPublicKey};
 use core::fmt::Debug;
