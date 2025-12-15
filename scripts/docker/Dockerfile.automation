@@ -9,14 +9,14 @@ FROM debian:bookworm-slim
 RUN \
   apt-get update \
   && apt -y install \ 
-  gettext-base \
-  libssl-dev \
-  wget \
-  curl \
-  python3 \
-  python-is-python3 \
-  tar \
-  skopeo \
+    gettext-base \
+    libssl-dev \
+    wget \
+    curl \
+    python3 \
+    python-is-python3 \
+    tar \
+    skopeo \
   && apt install -y --no-install-recommends ca-certificates \
   && update-ca-certificates \
   && apt clean \
