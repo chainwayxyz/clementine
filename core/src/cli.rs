@@ -6,18 +6,16 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use crate::errors::ErrorExt;
 use crate::utils::delayed_panic;
 use clap::Parser;
-use clap::ValueEnum;
 use eyre::Context;
 use std::env;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process;
 
-#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
-pub enum Actors {
+/// Available actor types that can be run as services
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Actor {
     Verifier,
     Operator,
     Aggregator,
@@ -28,24 +26,62 @@ pub enum Actors {
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// Actor to run.
-    pub actor: Actors,
-    /// TOML formatted configuration file.
-    #[arg(short, long)]
-    pub config: Option<PathBuf>,
-    /// TOML formatted protocol parameters file.
-    #[arg(short, long)]
-    pub protocol_params: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
-    #[arg(short, long, default_value_t = 3)]
+    #[arg(short, long, default_value_t = 3, global = true)]
     pub verbose: u8,
+
+    /// TOML formatted configuration file.
+    #[arg(short, long, global = true)]
+    pub config: Option<PathBuf>,
+
+    /// TOML formatted protocol parameters file.
+    #[arg(short, long, global = true)]
+    pub protocol_params: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Command,
 }
 
-/// Parse given iterator. This is good for isolated environments, like tests.
-fn parse_from<I, T>(itr: I) -> Result<Args, BridgeError>
+#[derive(Debug, Clone, clap::Subcommand)]
+pub enum Command {
+    /// Run the verifier service
+    Verifier,
+    /// Run the operator service
+    Operator,
+    /// Run the aggregator service
+    Aggregator,
+    /// Run the test actor (for health checks)
+    TestActor,
+    /// Generate BitVM cache files
+    GenerateBitvmCache,
+}
+
+impl Command {
+    /// Get the actor type if this is an actor command, None for utility commands
+    pub fn actor(&self) -> Option<Actor> {
+        match self {
+            Command::Verifier => Some(Actor::Verifier),
+            Command::Operator => Some(Actor::Operator),
+            Command::Aggregator => Some(Actor::Aggregator),
+            Command::TestActor => Some(Actor::TestActor),
+            Command::GenerateBitvmCache => None,
+        }
+    }
+}
+
+/// Parse given iterator with our clap Args and handle help/version cases.
+///
+/// Returns: (status code, message)
+/// If the status code != 0, the message is an error message.
+///
+/// Cases:
+/// - On successful parse, returns `Ok(Args)`
+/// - On help/version, returns `Err((0, msg))`
+/// - On general errors, returns `Err((1, formatted_error_msg))`
+fn parse_cli_args<I, T>(itr: I) -> Result<Args, (i32, String)>
 where
     I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
+    T: Into<std::ffi::OsString> + Clone,
 {
     match Args::try_parse_from(itr) {
         Ok(c) => Ok(c),
@@ -57,9 +93,32 @@ where
                     | clap::error::ErrorKind::DisplayVersion
             ) =>
         {
-            Err(BridgeError::CLIDisplayAndExit(e.render()))
+            Err((0, e.to_string()))
         }
-        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+        Err(e) => Err((
+            1,
+            format!(
+                "Failed to parse CLI arguments: {}",
+                BridgeError::ConfigError(e.to_string())
+            ),
+        )),
+    }
+}
+
+/// Returns CLI arguments after handling help/version cases with BridgeError.
+///
+/// If there are any errors or help/version display requests, prints and exits.
+pub fn get_cli_args() -> Args {
+    match parse_cli_args(env::args()) {
+        Ok(args) => args,
+        Err((code, msg)) => {
+            if code == 0 {
+                println!("{msg}");
+            } else {
+                eprintln!("{msg}");
+            }
+            process::exit(code);
+        }
     }
 }
 
@@ -68,6 +127,7 @@ pub enum ConfigSource {
     File(PathBuf),
     Env,
 }
+
 /// Selects a configuration source for the main config or the protocol paramset.
 ///
 /// Configuration can be loaded either from a file specified by a path in the CLI args,
@@ -109,7 +169,7 @@ pub enum ConfigSource {
 /// export PARAM_ONE=1
 /// READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 clementine-core --config /path/to/config.toml --protocol-params /path/to/protocol-params.toml
 /// ```
-pub fn get_config_source(
+fn get_config_source(
     read_from_env_name: &'static str,
     provided_arg: Option<PathBuf>,
 ) -> Result<ConfigSource, BridgeError> {
@@ -152,32 +212,15 @@ pub fn get_config_source(
 ///
 /// - [`BridgeConfig`] from CLI argument
 /// - [`Args`] from CLI options
-pub fn get_cli_config() -> (BridgeConfig, Args) {
-    let args = env::args();
-
-    match get_cli_config_from_args(args) {
+pub fn get_config(args: Args) -> BridgeConfig {
+    match get_config_from_args(args) {
         Ok(config) => config,
-        Err(e) => {
-            let e = e.into_eyre();
-            match e.root_cause().downcast_ref::<BridgeError>() {
-                Some(BridgeError::CLIDisplayAndExit(msg)) => {
-                    println!("{msg}");
-                    process::exit(0);
-                }
-                _ => delayed_panic!("Failed to get CLI config: {e:?}"),
-            }
-        }
+        Err(e) => delayed_panic!("Failed to load configuration: {e:?}"),
     }
 }
 
 /// Wrapped function for tests
-fn get_cli_config_from_args<I, T>(itr: I) -> Result<(BridgeConfig, Args), BridgeError>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    let args = parse_from(itr).wrap_err("Failed to parse CLI arguments.")?;
-
+fn get_config_from_args(args: Args) -> Result<BridgeConfig, BridgeError> {
     let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config.clone());
 
     let mut config =
@@ -208,13 +251,12 @@ where
     // The default will be REGTEST_PARAMSET and is overridden from the selected source above.
     config.protocol_paramset = paramset;
 
-    Ok((config, args))
+    Ok(config)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{get_cli_config_from_args, get_config_source, parse_from, ConfigSource};
-    use crate::cli::Actors;
+    use super::{get_config_from_args, get_config_source, parse_cli_args, Command, ConfigSource};
     use crate::errors::BridgeError;
     use std::env;
     use std::fs::File;
@@ -224,9 +266,9 @@ mod tests {
     /// With help message flag, we should see the help message. Shocking.
     #[test]
     fn help_message() {
-        match parse_from(vec!["clementine-core", "--help"]) {
+        match parse_cli_args(vec!["clementine-core", "--help"]) {
             Ok(_) => panic!("expected configuration error"),
-            Err(BridgeError::CLIDisplayAndExit(_)) => {}
+            Err((0, _)) => {}
             e => panic!("unexpected error {e:#?}"),
         }
     }
@@ -235,9 +277,9 @@ mod tests {
     /// `Cargo.toml`.
     #[test]
     fn version() {
-        match parse_from(vec!["clementine-core", "--version"]) {
+        match parse_cli_args(vec!["clementine-core", "--version"]) {
             Ok(_) => panic!("expected configuration error"),
-            Err(BridgeError::CLIDisplayAndExit(_)) => {}
+            Err((0, _)) => {}
             e => panic!("unexpected error {e:#?}"),
         }
     }
@@ -496,12 +538,13 @@ mod tests {
                             protocol_path.to_str().unwrap(),
                         ];
 
-                        let result = get_cli_config_from_args(args);
+                        let cli_args = parse_cli_args(args).expect("Failed to parse CLI arguments");
+                        let result = get_config_from_args(cli_args.clone());
 
-                        let (config, cli_args) = result.expect("Failed to get CLI config");
+                        let config = result.expect("Failed to get CLI config");
                         assert_eq!(config.host, "127.0.0.1");
                         assert_eq!(config.port, 17000);
-                        assert_eq!(cli_args.actor, Actors::Verifier);
+                        assert!(matches!(cli_args.command, Command::Verifier));
 
                         // Assert some protocol paramset values
                         assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -523,12 +566,13 @@ mod tests {
             with_env_var("READ_PARAMSET_FROM_ENV", Some("1"), || {
                 let args = vec!["clementine-core", "operator"];
 
-                let result = get_cli_config_from_args(args);
+                let cli_args = parse_cli_args(args).expect("Failed to parse CLI arguments");
+                let result = get_config_from_args(cli_args.clone());
 
-                let (config, cli_args) = result.expect("Failed to get CLI config");
+                let config = result.expect("Failed to get CLI config");
                 assert_eq!(config.host, "127.0.0.1");
                 assert_eq!(config.port, 17000);
-                assert_eq!(cli_args.actor, Actors::Operator);
+                assert!(matches!(cli_args.command, Command::Operator));
 
                 // Assert some protocol paramset values
                 assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -558,12 +602,13 @@ mod tests {
                         config_path.to_str().unwrap(),
                     ];
 
-                    let result = get_cli_config_from_args(args);
+                    let cli_args = parse_cli_args(args).expect("Failed to parse CLI arguments");
+                    let result = get_config_from_args(cli_args.clone());
 
-                    let (config, cli_args) = result.expect("Failed to get CLI config");
+                    let config = result.expect("Failed to get CLI config");
                     assert_eq!(config.host, "127.0.0.1");
                     assert_eq!(config.port, 17000);
-                    assert_eq!(cli_args.actor, Actors::Verifier);
+                    assert!(matches!(cli_args.command, Command::Verifier));
 
                     // Assert some protocol paramset values from env
                     assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
@@ -581,8 +626,70 @@ mod tests {
         with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
             let args = vec!["clementine-core", "verifier"];
 
-            let result = get_cli_config_from_args(args);
+            let cli_args = parse_cli_args(args).expect("Failed to parse CLI arguments");
+            let result = get_config_from_args(cli_args.clone());
             result.expect_err("Expected error when config file path is not provided");
         })
+    }
+
+    #[test]
+    fn test_parse_cli_args_success() {
+        // A minimal, valid invocation: program name + required actor
+        let args = vec!["clementine-core", "verifier"];
+
+        let result = parse_cli_args(args);
+        let parsed = result.expect("Expected successful CLI parsing");
+
+        assert!(matches!(parsed.command, Command::Verifier));
+        // Default verbosity should be 3
+        assert_eq!(parsed.verbose, 3);
+        // No config/protocol-params paths provided
+        assert!(parsed.config.is_none());
+        assert!(parsed.protocol_params.is_none());
+    }
+
+    #[test]
+    fn test_parse_cli_args_help_and_version_exit_code_zero() {
+        // --help should map to a exit code 0 with help message
+        let help_args = vec!["clementine-core", "--help"];
+        let help_result = parse_cli_args(help_args);
+        let (help_code, help_msg) =
+            help_result.expect_err("Expected help invocation to request exit");
+        assert_eq!(help_code, 0);
+        assert!(
+            help_msg.contains("Usage") || help_msg.contains("USAGE"),
+            "help output should contain usage text, got: {help_msg}"
+        );
+
+        // --version should also map to exit code 0 with version message
+        let version_args = vec!["clementine-core", "--version"];
+        let version_result = parse_cli_args(version_args);
+        let (version_code, version_msg) =
+            version_result.expect_err("Expected version invocation to request exit");
+        assert_eq!(version_code, 0);
+        // The exact version string is dynamic; just assert it's non-empty
+        assert!(
+            !version_msg.trim().is_empty(),
+            "version output should not be empty"
+        );
+    }
+
+    #[test]
+    fn test_parse_cli_args_invalid_args_exit_code_one() {
+        // Unknown flag should be treated as a general error, leading to exit code 1
+        let args = vec!["clementine-core", "--unknown-flag"];
+
+        let result = parse_cli_args(args);
+        let (code, msg) = result.expect_err("Expected invalid arguments to cause an error");
+
+        assert_eq!(code, 1);
+        assert!(
+            msg.contains("Failed to parse CLI arguments"),
+            "error message should include prefix, got: {msg}"
+        );
+        assert!(
+            msg.contains("unexpected") || msg.contains("Unknown") || msg.contains("unknown"),
+            "underlying clap error should be included in message, got: {msg}"
+        );
     }
 }
