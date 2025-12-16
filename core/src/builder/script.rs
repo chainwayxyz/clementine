@@ -22,7 +22,6 @@
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::SecurityCouncil;
-use clementine_primitives::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::{
@@ -32,6 +31,7 @@ use bitcoin::{
 };
 use bitcoin::{taproot, Txid, Witness};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
+use clementine_primitives::EVMAddress;
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
@@ -576,11 +576,11 @@ mod tests {
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-    use clementine_primitives::RoundIndex;
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand::{self, Rng};
     use bitcoin::secp256k1::{PublicKey, SecretKey};
     use bitcoincore_rpc::RpcApi;
+    use clementine_primitives::RoundIndex;
     use std::sync::Arc;
 
     // Create some dummy values for testing.
@@ -724,8 +724,8 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use clementine_primitives::TransactionType;
     use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
+    use clementine_primitives::TransactionType;
 
     async fn create_taproot_test_tx(
         rpc: &ExtendedBitcoinRpc,

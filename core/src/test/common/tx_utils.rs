@@ -8,8 +8,6 @@ use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
-use clementine_primitives::TransactionType;
-use clementine_primitives::TransactionType as TxType;
 use crate::citrea::CitreaClientT;
 #[cfg(feature = "automation")]
 use crate::config::BridgeConfig;
@@ -28,6 +26,8 @@ use bitcoin::transaction::Version;
 use bitcoin::{block, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
+use clementine_primitives::TransactionType as TxType;
 use eyre::{bail, Context, Result};
 use std::time::Duration;
 use tokio::sync::oneshot;

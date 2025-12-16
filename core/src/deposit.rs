@@ -13,13 +13,13 @@ use crate::builder::script::{
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::musig2::AggregateFromPublicKeys;
-use clementine_primitives::RoundIndex;
 use crate::utils::ScriptBufExt;
-use clementine_primitives::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
 use clementine_errors::BridgeError;
+use clementine_primitives::EVMAddress;
+use clementine_primitives::RoundIndex;
 use eyre::Context;
 
 /// Data structure to represent a single kickoff utxo in an operators round tx.

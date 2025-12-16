@@ -1,9 +1,9 @@
-use clementine_errors::TransactionType;
 use crate::config::TelemetryConfig;
-use clementine_primitives::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
 use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};
 use clementine_errors::BridgeError;
+use clementine_errors::TransactionType;
+use clementine_primitives::RoundIndex;
 use eyre::Context as _;
 use futures::future::join_all;
 use http::HeaderValue;

@@ -17,11 +17,11 @@ use crate::{
     execute_query_with_tx,
     rpc::clementine::{DepositSignatures, TaggedSignature},
 };
-use clementine_primitives::{PublicHash, RoundIndex};
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use clementine_errors::BridgeError;
+use clementine_primitives::{PublicHash, RoundIndex};
 use eyre::{eyre, Context};
 use risc0_zkvm::Receipt;
 use std::str::FromStr;
@@ -945,7 +945,6 @@ impl Database {
 mod tests {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use crate::operator::Operator;
-    use clementine_primitives::RoundIndex;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
@@ -955,6 +954,7 @@ mod tests {
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
     use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+    use clementine_primitives::RoundIndex;
     use std::str::FromStr;
 
     #[tokio::test]

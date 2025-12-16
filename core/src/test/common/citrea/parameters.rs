@@ -2,14 +2,12 @@
 
 use crate::builder;
 use crate::builder::script::SpendPath;
-use clementine_primitives::TransactionType;
 use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::constants::NON_STANDARD_V3;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
-use clementine_primitives::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
@@ -18,6 +16,8 @@ use bitcoin::taproot;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
+use clementine_primitives::UTXO;
 use eyre::Context;
 
 /// Returns merkle proof for a given transaction (via txid) in a block.

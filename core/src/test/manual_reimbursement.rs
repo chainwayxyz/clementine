@@ -1,6 +1,5 @@
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use clementine_primitives::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -19,6 +18,7 @@ use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_primitives::TransactionType;
 use eyre::Context;
 use std::time::Duration;
 use tonic::Request;

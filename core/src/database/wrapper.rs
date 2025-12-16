@@ -2,7 +2,6 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use clementine_primitives::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -12,6 +11,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     Address, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
 };
+use clementine_primitives::EVMAddress;
 use eyre::eyre;
 use prost::Message as _;
 use risc0_zkvm::Receipt;
@@ -354,7 +354,6 @@ mod tests {
         rpc::clementine::TaggedSignature,
         test::common::*,
     };
-    use clementine_primitives::EVMAddress;
     use bitcoin::{
         block::{self, Version},
         hashes::Hash,
@@ -362,6 +361,7 @@ mod tests {
         secp256k1::{schnorr::Signature, SecretKey},
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
+    use clementine_primitives::EVMAddress;
     use secp256k1::{musig::AggregatedNonce, SECP256K1};
     use sqlx::{Executor, Type};
 

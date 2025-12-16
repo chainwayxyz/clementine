@@ -15,7 +15,6 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 #[cfg(feature = "automation")]
 use crate::builder::transaction::ReimburseDbCache;
-use clementine_errors::{TransactionType, TxError};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, ContractContext, TxHandler,
@@ -33,7 +32,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
-use clementine_primitives::RoundIndex;
+use crate::musig2;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
@@ -51,8 +50,6 @@ use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
-use crate::musig2;
-use clementine_primitives::UTXO;
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
@@ -74,6 +71,9 @@ use circuits_lib::bridge_circuit::{
 };
 use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use clementine_errors::BridgeError;
+use clementine_errors::{TransactionType, TxError};
+use clementine_primitives::RoundIndex;
+use clementine_primitives::UTXO;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};

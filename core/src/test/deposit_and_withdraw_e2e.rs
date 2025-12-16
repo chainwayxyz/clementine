@@ -5,7 +5,7 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
@@ -43,7 +43,6 @@ use crate::test::common::{
 };
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::initialize_logger;
-use clementine_primitives::{EVMAddress, UTXO};
 use async_trait::async_trait;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
@@ -56,6 +55,8 @@ use citrea_e2e::{
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
 };
+use clementine_primitives::TransactionType;
+use clementine_primitives::{EVMAddress, UTXO};
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;

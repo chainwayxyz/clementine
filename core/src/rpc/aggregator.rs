@@ -16,7 +16,6 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TxHandler,
 };
-use clementine_errors::TransactionType;
 use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
 use crate::constants::{
@@ -38,7 +37,6 @@ use crate::utils::{
     try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
-use clementine_primitives::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -50,7 +48,9 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use clementine_errors::BridgeError;
+use clementine_errors::TransactionType;
 use clementine_errors::{ErrorExt, ResultExt};
+use clementine_primitives::UTXO;
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
 use futures::{
@@ -2094,6 +2094,7 @@ impl ClementineAggregator for AggregatorServer {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
+    use crate::builder;
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
@@ -2104,10 +2105,9 @@ mod tests {
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
-    use crate::builder;
-    use clementine_primitives::EVMAddress;
     use bitcoin::hashes::Hash;
     use bitcoincore_rpc::RpcApi;
+    use clementine_primitives::EVMAddress;
     use eyre::Context;
     use std::time::Duration;
     use tokio::time::sleep;

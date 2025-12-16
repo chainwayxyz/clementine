@@ -283,7 +283,6 @@ mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
     use crate::builder::transaction::DEFAULT_SEQUENCE;
-    use clementine_primitives::TransactionType;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         bitvm_client::{self, SECP},
@@ -304,6 +303,7 @@ mod tests {
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
     use clementine_errors::BridgeError;
+    use clementine_primitives::TransactionType;
     use secp256k1::rand::Rng;
     use std::sync::Arc;
     use std::vec;

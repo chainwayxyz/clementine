@@ -64,16 +64,13 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        builder::transaction::TxHandlerBuilder,
-        test::common::*,
-    };
-    use clementine_primitives::TransactionType;
+    use crate::{builder::transaction::TxHandlerBuilder, test::common::*};
     use bitcoin::{
         consensus::{self},
         hashes::Hash,
         Transaction, Txid,
     };
+    use clementine_primitives::TransactionType;
     fn create_test_transaction() -> Transaction {
         let tx_handler = TxHandlerBuilder::new(TransactionType::Dummy).finalize();
         tx_handler.get_cached_tx().clone()

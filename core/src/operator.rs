@@ -11,7 +11,6 @@ use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TxHandler,
 };
-use clementine_errors::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -19,9 +18,9 @@ use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
 
 use crate::metrics::L1SyncStatusProvider;
-use clementine_primitives::{PublicHash, RoundIndex};
 use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -40,6 +39,7 @@ use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use clementine_primitives::UTXO;
+use clementine_primitives::{PublicHash, RoundIndex};
 
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
@@ -2302,11 +2302,11 @@ mod states {
 
     use super::*;
     use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
-        TxHandlerCache,
+        create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
     use crate::states::{block_cache, Duty, Owner, StateManager};
+    use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 

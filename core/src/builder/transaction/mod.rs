@@ -54,8 +54,8 @@ use bitcoin::transaction::Version;
 use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
-use clementine_errors::{BridgeError, TransactionType, TxError};
-use clementine_primitives::RoundIndex;
+use clementine_errors::BridgeError;
+use clementine_primitives::{RoundIndex, TransactionType};
 use input::UtxoVout;
 use std::sync::Arc;
 
