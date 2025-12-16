@@ -4,7 +4,7 @@
 //! Error types are now in the `clementine-errors` crate and should be imported
 //! directly from there (e.g., `use clementine_errors::BridgeError;`).
 //!
-//! TODO: This file will be removed once `TxError` is moved to `clementine-errors`.
+//! This file will be removed once `TxError` is moved to `clementine-errors`.
 
 use clementine_errors::BridgeError;
 
