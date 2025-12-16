@@ -84,6 +84,7 @@ pub struct ActivatedWithTxid {
     pub relative_block_height: u32,
 }
 
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
     pub relative_block_height: u32,
