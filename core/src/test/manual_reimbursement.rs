@@ -1,6 +1,6 @@
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
+use clementine_primitives::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;

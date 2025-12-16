@@ -11,7 +11,8 @@ use super::script::{
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
 use crate::utils::ScriptBufExt;
-use crate::{bitvm_client, EVMAddress};
+use crate::bitvm_client;
+use clementine_primitives::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,

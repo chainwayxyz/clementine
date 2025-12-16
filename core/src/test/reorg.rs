@@ -19,7 +19,8 @@ use crate::test::common::{
 };
 use crate::tx_sender::TxSender;
 use crate::utils::FeePayingType;
-use crate::{rpc, EVMAddress};
+use clementine_primitives::EVMAddress;
+use crate::rpc;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;

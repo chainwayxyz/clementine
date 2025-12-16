@@ -10,10 +10,11 @@ use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use crate::{builder, EVMAddress};
+use crate::builder;
+use clementine_primitives::EVMAddress;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
-use clementine_errors::BridgeError;
+use clementine_errors::{BridgeError, TransactionType, TxError};
 use eyre::Context;
 
 use self::input::UtxoVout;

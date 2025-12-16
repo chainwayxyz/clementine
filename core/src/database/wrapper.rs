@@ -2,7 +2,7 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use crate::EVMAddress;
+use clementine_primitives::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -353,8 +353,8 @@ mod tests {
         musig2,
         rpc::clementine::TaggedSignature,
         test::common::*,
-        EVMAddress,
     };
+    use clementine_primitives::EVMAddress;
     use bitcoin::{
         block::{self, Version},
         hashes::Hash,

@@ -14,8 +14,9 @@ use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, Signed, TxHandler,
 };
+use clementine_errors::TransactionType;
 use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
 use crate::constants::{
@@ -37,7 +38,7 @@ use crate::utils::{
     try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
-use crate::UTXO;
+use clementine_primitives::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -2103,7 +2104,8 @@ mod tests {
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
-    use crate::{builder, EVMAddress};
+    use crate::builder;
+    use clementine_primitives::EVMAddress;
     use bitcoin::hashes::Hash;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;

@@ -1,7 +1,7 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::TransactionType;
+use clementine_primitives::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -11,7 +11,7 @@ use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
-use crate::{EVMAddress, UTXO};
+use clementine_primitives::{EVMAddress, UTXO};
 use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use clementine_errors::BridgeError;

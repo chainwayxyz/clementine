@@ -4,13 +4,13 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::TransactionType;
+use clementine_errors::TransactionType;
 use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
-use crate::operator::RoundIndex;
+use clementine_primitives::RoundIndex;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};

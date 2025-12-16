@@ -12,7 +12,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::operator::RoundIndex;
+use clementine_primitives::RoundIndex;
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;

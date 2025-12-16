@@ -22,7 +22,7 @@
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::SecurityCouncil;
-use crate::EVMAddress;
+use clementine_primitives::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::{
@@ -576,7 +576,7 @@ mod tests {
     use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-    use crate::operator::RoundIndex;
+    use clementine_primitives::RoundIndex;
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::rand::{self, Rng};
     use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -723,7 +723,8 @@ mod tests {
     use crate::builder;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use clementine_primitives::TransactionType;
     use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(

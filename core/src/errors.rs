@@ -1,33 +1,12 @@
 //! # Errors
 //!
-//! This module provides the manual `From<TxError>` implementation for `BridgeError`.
 //! Error types are now in the `clementine-errors` crate and should be imported
 //! directly from there (e.g., `use clementine_errors::BridgeError;`).
-//!
-//! TODO: This file will be removed once `TxError` is moved to `clementine-errors`.
-
-use clementine_errors::BridgeError;
-
-// Re-export TxError from its original location for backwards compatibility
-pub use crate::builder::transaction::TxError;
-
-/// Manual implementation to convert TxError into BridgeError.
-///
-/// This is implemented manually because `TxError` contains `TransactionType`,
-/// a domain-specific type that can't be moved to `clementine-errors` until
-/// `clementine-types` crate exists.
-impl From<TxError> for BridgeError {
-    fn from(err: TxError) -> Self {
-        BridgeError::Transaction(eyre::eyre!(err))
-    }
-}
 
 #[cfg(test)]
 mod tests {
-    use clementine_errors::{BitcoinRPCError, BridgeError, ErrorExt};
+    use clementine_errors::{BitcoinRPCError, BridgeError, ErrorExt, TxError};
     use eyre::Context;
-
-    use super::*;
 
     #[test]
     fn test_downcast() {

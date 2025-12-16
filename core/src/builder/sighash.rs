@@ -24,12 +24,13 @@ use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
+    create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
 };
+use clementine_errors::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositData, KickoffData};
-use crate::operator::RoundIndex;
+use clementine_primitives::RoundIndex;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;

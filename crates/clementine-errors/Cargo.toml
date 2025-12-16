@@ -9,6 +9,7 @@ authors = { workspace = true }
 automation = []
 
 [dependencies]
+clementine-primitives = { path = "../clementine-primitives" }
 thiserror = { workspace = true }
 eyre = { workspace = true }
 tonic = { workspace = true }
@@ -20,3 +21,4 @@ hex = { workspace = true }
 sqlx = { workspace = true }
 alloy = { workspace = true }
 reqwest = { workspace = true }
+

@@ -282,7 +282,8 @@ pub fn partial_sign(
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
-    use crate::builder::transaction::{TransactionType, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::DEFAULT_SEQUENCE;
+    use clementine_primitives::TransactionType;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         bitvm_client::{self, SECP},

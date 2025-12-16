@@ -43,11 +43,11 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::create_round_txhandlers;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::KickoffWinternitzKeys;
-use crate::builder::transaction::TransactionType;
 use crate::builder::transaction::TxHandler;
+use clementine_errors::TransactionType;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
-use crate::operator::RoundIndex;
+use clementine_primitives::RoundIndex;
 use clementine_errors::{BridgeError, FeeErr};
 
 #[cfg(test)]

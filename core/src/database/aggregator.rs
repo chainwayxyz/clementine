@@ -65,9 +65,10 @@ impl Database {
 mod tests {
     use super::*;
     use crate::{
-        builder::transaction::{TransactionType, TxHandlerBuilder},
+        builder::transaction::TxHandlerBuilder,
         test::common::*,
     };
+    use clementine_primitives::TransactionType;
     use bitcoin::{
         consensus::{self},
         hashes::Hash,

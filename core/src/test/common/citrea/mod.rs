@@ -281,7 +281,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     assert_ne!(
         eth_get_balance(
             e2e.sequencer.client.http_client().clone(),
-            crate::EVMAddress([1; 20]),
+            clementine_primitives::EVMAddress([1; 20]),
         )
         .await
         .unwrap(),
@@ -510,7 +510,7 @@ impl CitreaClient {
             SecurityCouncil,
         };
         use crate::test::common::citrea::force_sequencer_to_commit;
-        use crate::EVMAddress;
+        use clementine_primitives::EVMAddress;
 
         // create a dummy script with nofn xonly pk
         let dummy_evm_address: EVMAddress = EVMAddress(std::array::from_fn(|i| i as u8));

@@ -25,7 +25,7 @@ use crate::rpc::clementine::{
     SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
-use crate::EVMAddress;
+use clementine_primitives::EVMAddress;
 use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;

@@ -43,7 +43,7 @@ use crate::test::common::{
 };
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::initialize_logger;
-use crate::{EVMAddress, UTXO};
+use clementine_primitives::{EVMAddress, UTXO};
 use async_trait::async_trait;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};

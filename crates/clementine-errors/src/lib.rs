@@ -48,11 +48,6 @@
 //!     Ok(())
 //! }
 //! ```
-//!
-//! ## Will do
-//!
-//! Move `TxError` from `clementine_core` here once `TransactionType` is available in a shared crate.
-//! This will replace the `Transaction(eyre::Report)` variant with `Transaction(#[from] TxError)`.
 
 use bitcoin::{secp256k1::PublicKey, BlockHash, FeeRate, OutPoint, Txid, XOnlyPublicKey};
 use core::fmt::Debug;
@@ -60,6 +55,9 @@ use hex::FromHexError;
 use http::StatusCode;
 use thiserror::Error;
 use tonic::Status;
+
+// Re-export primitives for downstream crates
+pub use clementine_primitives::{RoundIndex, TransactionType};
 
 // ============================================================================
 // Module-level errors
@@ -207,6 +205,57 @@ pub enum FeeErr {
 }
 
 // ============================================================================
+// Transaction Error
+// ============================================================================
+
+/// Errors that can occur during transaction construction.
+#[derive(Debug, Error)]
+pub enum TxError {
+    /// TxInputNotFound is returned when the input is not found in the transaction
+    #[error("Could not find input of transaction")]
+    TxInputNotFound,
+    #[error("Could not find output of transaction")]
+    TxOutputNotFound,
+    #[error("Attempted to set witness when it's already set")]
+    WitnessAlreadySet,
+    #[error("Script with index {0} not found for transaction")]
+    ScriptNotFound(usize),
+    #[error("Insufficient Context data for the requested TxHandler")]
+    InsufficientContext,
+    #[error("No scripts in TxHandler for the TxIn with index {0}")]
+    NoScriptsForTxIn(usize),
+    #[error("No script in TxHandler for the index {0}")]
+    NoScriptAtIndex(usize),
+    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
+    SpendPathNotSpecified,
+    #[error("Actor does not own the key needed in P2TR keypath")]
+    NotOwnKeyPath,
+    #[error("public key of Checksig in script is not owned by Actor")]
+    NotOwnedScriptPath,
+    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
+    SignatureNotFound(TransactionType),
+    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
+    TxHandlerNotFound(TransactionType),
+    #[error("BitvmSetupNotFound for operator {0:?}, deposit_txid {1}")]
+    BitvmSetupNotFound(XOnlyPublicKey, Txid),
+    #[error("Transaction input is missing spend info")]
+    MissingSpendInfo,
+    #[error("Incorrect watchtower challenge data length")]
+    IncorrectWatchtowerChallengeDataLength,
+    #[error("Latest blockhash script must be a single script")]
+    LatestBlockhashScriptNumber,
+    #[error("Round index cannot be used to create a Round transaction: {0:?}")]
+    InvalidRoundIndex(RoundIndex),
+    #[error("Index overflow")]
+    IndexOverflow,
+    #[error("Kickoff winternitz keys in DB has wrong size compared to paramset")]
+    KickoffWinternitzKeysDBInconsistency,
+
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
+
+// ============================================================================
 // Bridge Error - Main crate-level error wrapper
 // ============================================================================
 
@@ -219,11 +268,8 @@ pub enum FeeErr {
 pub enum BridgeError {
     #[error("Header chain prover returned an error: {0}")]
     Prover(#[from] HeaderChainProverError),
-    // Once `clementine-types` exists with `TransactionType`, move `TxError` here and use:
-    // #[error("Failed to build transactions: {0}")]
-    // Transaction(#[from] TxError),
     #[error("Failed to build transactions: {0}")]
-    Transaction(eyre::Report),
+    Transaction(#[from] TxError),
     #[cfg(feature = "automation")]
     #[error("Failed to send transactions: {0}")]
     SendTx(#[from] SendTxError),

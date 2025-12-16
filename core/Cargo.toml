@@ -69,6 +69,7 @@ rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
 clementine-errors = { path = "../crates/clementine-errors" }
+clementine-primitives = { path = "../crates/clementine-primitives" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }

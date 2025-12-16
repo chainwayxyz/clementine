@@ -1,7 +1,7 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::test::common::citrea::parameters::get_citrea_deposit_params;
-use crate::EVMAddress;
+use clementine_primitives::EVMAddress;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
 use clementine_errors::BridgeError;
