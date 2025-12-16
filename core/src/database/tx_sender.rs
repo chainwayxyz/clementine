@@ -736,19 +736,49 @@ impl Database {
         Ok(txs)
     }
 
+    /// Returns the effective fee rate and the block height when it was set.
+    /// Returns (None, None) if no effective fee rate has been set yet.
+    pub async fn get_effective_fee_rate(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError> {
+        let query = sqlx::query_as::<_, (Option<i64>, Option<i32>)>(
+            "SELECT effective_fee_rate, last_bump_block_height FROM tx_sender_try_to_send_txs WHERE id = $1",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((Some(rate), block_height)) => Ok((
+                Some(FeeRate::from_sat_per_kwu(
+                    u64::try_from(rate).wrap_err("Failed to convert effective fee rate to u64")?,
+                )),
+                block_height.map(|h| h as u32),
+            )),
+            Some((None, _)) | None => Ok((None, None)),
+        }
+    }
+
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
         effective_fee_rate: FeeRate,
+        block_height: u32,
     ) -> Result<(), BridgeError> {
+        // Only update last_bump_block_height if fee rate is actually changing
         let query = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
+            "UPDATE tx_sender_try_to_send_txs 
+             SET effective_fee_rate = $1, last_bump_block_height = $2 
+             WHERE id = $3 AND (effective_fee_rate IS NULL OR effective_fee_rate != $1)",
         )
         .bind(
             i64::try_from(effective_fee_rate.to_sat_per_kwu())
                 .wrap_err("Failed to convert effective fee rate to i64")?,
         )
+        .bind(i32::try_from(block_height).wrap_err("Failed to convert block_height to i32")?)
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -1208,7 +1238,7 @@ mod tests {
 
         // Test updating effective fee rate for tx1 with a fee rate equal to the query fee rate
         // This should  make tx1 not sendable since the condition is "effective_fee_rate < fee_rate"
-        db.update_effective_fee_rate(Some(&mut dbtx), id1, fee_rate)
+        db.update_effective_fee_rate(Some(&mut dbtx), id1, fee_rate, 100)
             .await
             .unwrap();
 

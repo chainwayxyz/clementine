@@ -45,8 +45,6 @@ impl TxSender {
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
-
         let original_tx_weight = original_tx.weight();
 
         // Original fee rate calculation according to Bitcoin Core
@@ -444,6 +442,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
         rbf_signing_info: Option<RbfSigningInfo>,
+        current_tip_height: u32,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -696,6 +695,17 @@ impl TxSender {
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
+
+            // Save the effective fee rate to the db
+            self.db
+                .update_effective_fee_rate(
+                    Some(&mut dbtx),
+                    try_to_send_id,
+                    effective_feerate,
+                    current_tip_height,
+                )
+                .await
+                .wrap_err("Failed to update effective fee rate")?;
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -869,6 +879,17 @@ impl TxSender {
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
+
+            // Save the effective fee rate to the db
+            self.db
+                .update_effective_fee_rate(
+                    Some(&mut dbtx),
+                    try_to_send_id,
+                    fee_rate,
+                    current_tip_height,
+                )
+                .await
+                .wrap_err("Failed to update effective fee rate")?;
         }
 
         dbtx.commit()
@@ -1043,7 +1064,14 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+            .send_rbf_tx(
+                try_to_send_id,
+                tx.clone(),
+                None,
+                current_fee_rate,
+                None,
+                100,
+            )
             .await
             .expect("RBF should succeed");
 
@@ -1121,6 +1149,7 @@ pub mod tests {
                     #[cfg(test)]
                     additional_taproot_output_count: None,
                 }),
+                100,
             )
             .await
             .expect("RBF should succeed");
@@ -1199,6 +1228,7 @@ pub mod tests {
                     #[cfg(test)]
                     additional_taproot_output_count: None,
                 }),
+                100,
             )
             .await
             .expect("RBF should succeed");
@@ -1263,7 +1293,14 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+            .send_rbf_tx(
+                try_to_send_id,
+                tx.clone(),
+                None,
+                current_fee_rate,
+                None,
+                100,
+            )
             .await
             .expect("RBF should succeed");
 
@@ -1334,6 +1371,7 @@ pub mod tests {
                     #[cfg(test)]
                     additional_taproot_output_count: None,
                 }),
+                100,
             )
             .await
             .expect("RBF should succeed");
@@ -1373,6 +1411,7 @@ pub mod tests {
                     #[cfg(test)]
                     additional_taproot_output_count: None,
                 }),
+                100,
             )
             .await
             .expect("RBF should succeed");

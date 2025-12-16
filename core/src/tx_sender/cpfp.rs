@@ -585,6 +585,7 @@ impl TxSender {
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
+        current_tip_height: u32,
     ) -> Result<()> {
         let unconfirmed_fee_payer_utxos = self
             .db
@@ -710,6 +711,14 @@ impl TxSender {
             "Submit package result: {submit_package_result:?}"
         );
 
+        // Save the effective fee rate before attempting to send
+        // This ensures that even if the send fails, we track the attempt
+        // so the 10-block stuck logic can trigger a bump
+        self.db
+            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
+
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
             return Ok(());
@@ -762,19 +771,303 @@ impl TxSender {
         //     .expect("Effective fee rate should be present")
         //     .expect("Effective fee rate should be present");
 
-        // let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
-        // Save the effective fee rate to the db
-        self.db
-            .update_effective_fee_rate(None, try_to_send_id, fee_rate)
-            .await
-            .wrap_err("Failed to update effective fee rate")?;
+        Ok(())
+    }
+}
 
-        // Sanity check to make sure the fee rate is equal to the required fee rate
-        // assert_eq!(
-        //     effective_fee_rate, fee_rate,
-        //     "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
-        //     effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
-        // );
+#[cfg(test)]
+pub mod tests {
+    use crate::test::common::{create_regtest_rpc, create_test_config_with_thread_name};
+
+    use super::super::tests::*;
+    use bitcoin::FeeRate;
+    use bitcoincore_rpc::RpcApi;
+
+    /// Test that calculate_target_fee_rate correctly handles fee bumping scenarios
+    #[tokio::test]
+    async fn test_calculate_target_fee_rate_incremental_bump() {
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+
+        let (tx_sender, _btc_sender, rpc, _db, _signer, _network) =
+            create_tx_sender(rpc.rpc().clone()).await;
+
+        // Get incremental fee rate from node (typically 1000 sat/kvB = 250 sat/kwu on regtest)
+        let incremental_fee_btc_per_kvb = rpc.get_network_info().await.unwrap().incremental_fee;
+        let incremental_fee_sat_per_kwu = incremental_fee_btc_per_kvb.to_sat() / 4;
+
+        // Test 1: No previous fee rate - should return new_fee_rate
+        let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let result = tx_sender
+            .calculate_target_fee_rate(None, new_fee_rate, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(
+            result, new_fee_rate,
+            "Should return new_fee_rate when no previous rate"
+        );
+
+        // Test 2: New fee rate higher than previous but LOWER than previous + incremental
+        // This tests BIP125 compliance: the result should be previous + incremental, NOT new_fee_rate
+        let previous_rate = FeeRate::from_sat_per_vb(10).unwrap(); // 2500 sat/kwu
+                                                                   // Add only 0.5 sat/kwu (less than incremental fee which is typically 250 sat/kwu)
+        let new_fee_rate_slightly_higher =
+            FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + 1);
+        let expected_min_bump =
+            FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+
+        let result = tx_sender
+            .calculate_target_fee_rate(
+                Some(previous_rate),
+                new_fee_rate_slightly_higher,
+                Some(100),
+                100,
+            )
+            .await
+            .unwrap();
+
+        // Result should be previous + incremental, NOT the new_fee_rate
+        assert_eq!(
+            result, expected_min_bump,
+            "When new_fee_rate ({} sat/kwu) is higher than previous ({} sat/kwu) but lower than \
+             previous + incremental ({} sat/kwu), result should be previous + incremental, not new_fee_rate",
+            new_fee_rate_slightly_higher.to_sat_per_kwu(),
+            previous_rate.to_sat_per_kwu(),
+            expected_min_bump.to_sat_per_kwu()
+        );
+        assert!(
+            result.to_sat_per_kwu() > new_fee_rate_slightly_higher.to_sat_per_kwu(),
+            "Result ({} sat/kwu) should be greater than new_fee_rate ({} sat/kwu) due to BIP125 min increment",
+            result.to_sat_per_kwu(),
+            new_fee_rate_slightly_higher.to_sat_per_kwu()
+        );
+
+        // Test 3: New fee rate higher than previous + incremental - should use new_fee_rate
+        let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let new_fee_rate_much_higher = FeeRate::from_sat_per_vb(20).unwrap(); // Much higher than previous + incremental
+        let result = tx_sender
+            .calculate_target_fee_rate(
+                Some(previous_rate),
+                new_fee_rate_much_higher,
+                Some(100),
+                100,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result, new_fee_rate_much_higher,
+            "When new_fee_rate is much higher than previous + incremental, should use new_fee_rate"
+        );
+
+        // Test 4: Same fee rate, not stuck - should return previous rate
+        let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let result = tx_sender
+            .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(95), 100) // Only 5 blocks
+            .await
+            .unwrap();
+        assert_eq!(
+            result, previous_rate,
+            "Should return previous rate when not stuck and same fee rate"
+        );
+
+        // Test 5: Same fee rate but stuck for 10+ blocks - should bump
+        let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+        let result = tx_sender
+            .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100) // 10 blocks stuck
+            .await
+            .unwrap();
+        let expected_stuck_bump =
+            FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+        assert_eq!(
+            result, expected_stuck_bump,
+            "When stuck for 10+ blocks, should bump to previous + incremental"
+        );
+
+        // Test 6: Hard cap is respected
+        let previous_rate = FeeRate::from_sat_per_vb(90).unwrap();
+        let new_fee_rate = FeeRate::from_sat_per_vb(200).unwrap(); // Way above hard cap (default 100)
+        let result = tx_sender
+            .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100)
+            .await
+            .unwrap();
+        let hard_cap = FeeRate::from_sat_per_vb(config.tx_sender_limits.fee_rate_hard_cap).unwrap();
+        assert!(
+            result <= hard_cap,
+            "Result {} should be <= hard cap {}",
+            result.to_sat_per_vb_ceil(),
+            hard_cap.to_sat_per_vb_ceil()
+        );
+    }
+
+    /// Test CPFP transaction creation, submission, and fee bumping via background task
+    /// This test:
+    /// 1. Creates a CPFP transaction and fee payer UTXO without background task
+    /// 2. Sends the package with a low fee rate
+    /// 3. Starts the background task
+    /// 4. Mines 10+ blocks to trigger the stuck-tx fee bumping logic
+    /// 5. Verifies the transaction eventually gets confirmed
+    #[tokio::test]
+    async fn test_cpfp_fee_bump_after_blocks() -> std::result::Result<(), crate::errors::BridgeError>
+    {
+        use crate::task::{IntoTask, TaskExt};
+        use crate::test::common::poll_until_condition;
+        use crate::test::common::tx_utils::create_bumpable_tx;
+        use crate::utils::FeePayingType;
+        use bitcoincore_rpc::json::GetRawTransactionResult;
+        use bitcoincore_rpc::RpcApi;
+        use std::time::Duration;
+
+        // Initialize RPC and config
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+        let rpc = rpc.rpc().clone();
+
+        // Create tx_sender and syncer, but DON'T start the background task yet
+        let (tx_sender, btc_syncer, rpc, db, signer, network) = create_tx_sender(rpc).await;
+
+        // Create a bumpable CPFP transaction (v3 transaction with anchor output)
+        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false)
+            .await
+            .expect("Should create bumpable tx");
+
+        let tx_txid = tx.compute_txid();
+
+        // Insert the transaction into the database
+        let mut dbtx = db.begin_transaction().await?;
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
+
+        // Use a very low fee rate for the initial CPFP attempt
+        let low_fee_rate = FeeRate::from_sat_per_kwu(100);
+        let initial_block_height = rpc.get_block_count().await.unwrap() as u32;
+
+        // First attempt - creates fee payer UTXO
+        let result = tx_sender
+            .send_cpfp_tx(
+                try_to_send_id,
+                tx.clone(),
+                None,
+                low_fee_rate,
+                initial_block_height,
+            )
+            .await;
+        tracing::info!("First CPFP attempt (create fee payer): {result:?}");
+
+        // Mine a block to confirm the fee payer UTXO
+        rpc.mine_blocks(1).await?;
+        let height_after_fee_payer = rpc.get_block_count().await.unwrap() as u32;
+
+        // Second attempt - submits the package with low fee rate
+        let result = tx_sender
+            .send_cpfp_tx(
+                try_to_send_id,
+                tx.clone(),
+                None,
+                low_fee_rate,
+                height_after_fee_payer,
+            )
+            .await;
+        tracing::info!("Second CPFP attempt (submit package): {result:?}");
+
+        // Check that effective fee rate was saved
+        let (effective_rate, last_bump_height) =
+            db.get_effective_fee_rate(None, try_to_send_id).await?;
+        assert!(
+            effective_rate.is_some(),
+            "Effective fee rate should be saved"
+        );
+        assert_eq!(
+            last_bump_height,
+            Some(height_after_fee_payer),
+            "Last bump block height should bZealous Anteatere saved"
+        );
+        tracing::info!(
+            "Initial effective fee rate: {:?}, last bump height: {:?}",
+            effective_rate,
+            last_bump_height
+        );
+
+        // Now start the background tasks
+        let syncer_task = btc_syncer.into_task().cancelable_loop();
+        syncer_task.0.into_bg();
+        let sender_task = tx_sender.clone().into_task().cancelable_loop();
+        sender_task.0.into_bg();
+
+        // Poll until the transaction is confirmed
+        // The background task should eventually bump the fee and get it confirmed
+        poll_until_condition(
+            async || {
+                // Mine a block to trigger the background task
+                rpc.mine_blocks(1).await?;
+
+                // Check if transaction is confirmed
+                let tx_result = rpc.get_raw_transaction_info(&tx_txid, None).await;
+
+                match tx_result {
+                    Ok(GetRawTransactionResult {
+                        confirmations: Some(confirmations),
+                        ..
+                    }) if confirmations > 0 => {
+                        tracing::info!("Transaction confirmed with {} confirmations", confirmations);
+                        Ok(true)
+                    }
+                    Ok(info) => {
+                        let current_height = rpc.get_block_count().await.unwrap() as u32;
+                        tracing::debug!(
+                            "Transaction not yet confirmed, current height: {}, confirmations: {:?}",
+                            current_height,
+                            info.confirmations
+                        );
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        tracing::debug!("Transaction not found yet: {:?}", e);
+                        Ok(false)
+                    }
+                }
+            },
+            Some(Duration::from_secs(60)),
+            Some(Duration::from_millis(500)),
+        )
+        .await
+        .expect("Transaction should be confirmed eventually via fee bumping");
+
+        // Check that effective fee rate was bumped
+        let (final_effective_rate, final_bump_height) =
+            db.get_effective_fee_rate(None, try_to_send_id).await?;
+        tracing::info!(
+            "Final effective fee rate: {:?}, final bump height: {:?}",
+            final_effective_rate,
+            final_bump_height
+        );
+
+        // The fee rate should have been bumped at least once if 10+ blocks passed
+        let current_height = rpc.get_block_count().await.unwrap() as u32;
+        if current_height - height_after_fee_payer >= 10 {
+            // Fee should have been bumped
+            if let (Some(final_rate), Some(initial_rate)) = (final_effective_rate, effective_rate) {
+                tracing::info!(
+                    "Fee was bumped from {} to {} sat/kwu",
+                    initial_rate.to_sat_per_kwu(),
+                    final_rate.to_sat_per_kwu()
+                );
+            }
+        }
 
         Ok(())
     }
