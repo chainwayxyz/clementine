@@ -717,7 +717,7 @@ impl Database {
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(
-            i64::try_from(fee_rate.to_sat_per_vb_ceil())
+            i64::try_from(fee_rate.to_sat_per_kwu())
                 .wrap_err("Failed to convert fee rate to i64")?,
         )
         .bind(
@@ -746,7 +746,7 @@ impl Database {
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
         .bind(
-            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
+            i64::try_from(effective_fee_rate.to_sat_per_kwu())
                 .wrap_err("Failed to convert effective fee rate to i64")?,
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
