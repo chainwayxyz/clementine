@@ -273,12 +273,28 @@ impl TxSender {
             let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
                 .inputs
                 .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
+                .zip(tx.input.iter())
+                .map(|(psbt_input, tx_input)| {
+                    // Try witness_utxo first (for segwit inputs)
+                    if let Some(witness_utxo) = psbt_input.witness_utxo.clone() {
+                        Ok(witness_utxo)
+                    } else if let Some(ref non_witness_tx) = psbt_input.non_witness_utxo {
+                        // For non-segwit inputs, extract the output from the previous transaction
+                        let vout = tx_input.previous_output.vout as usize;
+                        non_witness_tx
+                            .output
+                            .get(vout)
+                            .cloned()
+                            .ok_or_eyre(format!(
+                                "Output index {vout} out of bounds in previous transaction",
+                            ))
+                            .map_err(SendTxError::Other)
+                    } else {
+                        Err(eyre!(
+                            "Neither witness_utxo nor non_witness_utxo found for input"
+                        ))
                         .map_err(SendTxError::Other)
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
 
