@@ -49,7 +49,7 @@
 //! }
 //! ```
 //!
-//! ## TODO
+//! ## Will do
 //!
 //! Move `TxError` from `clementine_core` here once `TransactionType` is available in a shared crate.
 //! This will replace the `Transaction(eyre::Report)` variant with `Transaction(#[from] TxError)`.
@@ -219,7 +219,7 @@ pub enum FeeErr {
 pub enum BridgeError {
     #[error("Header chain prover returned an error: {0}")]
     Prover(#[from] HeaderChainProverError),
-    // TODO: Once `clementine-types` exists with `TransactionType`, move `TxError` here and use:
+    // Once `clementine-types` exists with `TransactionType`, move `TxError` here and use:
     // #[error("Failed to build transactions: {0}")]
     // Transaction(#[from] TxError),
     #[error("Failed to build transactions: {0}")]
