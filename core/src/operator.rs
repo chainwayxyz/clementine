@@ -299,15 +299,14 @@ where
                             .output
                             .get(outpoint.vout as usize)
                             .ok_or_eyre("Invalid vout index for collateral funding tx")?;
+                        if collateral_txout.script_pubkey != signer.address.script_pubkey() {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key. Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}", collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
+                        }
                         if collateral_txout.value
                             != config.protocol_paramset().collateral_funding_amount
                         {
                             return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
                                 Bridge collateral funding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_txout.value).into());
-                        }
-                        if collateral_txout.script_pubkey != signer.address.script_pubkey() {
-                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different script pubkey than the pubkey matching to the operator's   secret key. Script pubkey should correspond to taproot address with no scripts and internal key equal to the operator's xonly public key.
-                                Script pubkey in given outpoint: {:?}, Script pubkey should be: {:?}", collateral_txout.script_pubkey, signer.address.script_pubkey()).into());
                         }
                         *outpoint
                     }
