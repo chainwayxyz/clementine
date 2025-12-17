@@ -30,7 +30,7 @@ pub const TESTNET4_LC_IMAGE_ID: [u8; 32] =
     hex!("217bc300c2023f1697bedaf84d4397f91b569c5c8ad3ddacb03943fc123acdee");
 
 pub const MAINNET_LC_IMAGE_ID: [u8; 32] =
-    hex!("229fe23f6452336ab2808105d790ec63577d334d40c720aba8dae054f2c380f4");
+    hex!("970628d6e6dac5b4069872281e2db2653b1bdb7bf33b6a3452029027f4f73bab");
 
 // Work-only circuit method IDs for different networks.
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
