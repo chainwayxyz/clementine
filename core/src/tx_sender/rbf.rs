@@ -498,7 +498,7 @@ impl TxSender {
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
-            let bumped_psbt = match bump_result {
+            let mut bumped_psbt = match bump_result {
                 Err(e) => {
                     // Check for common errors indicating the tx is already confirmed or spent
                     let rpc_error_str = e.to_string();
@@ -548,6 +548,19 @@ impl TxSender {
                     return Err(SendTxError::Other(eyre!("psbt_bump_fee returned no psbt")));
                 }
             };
+
+            self.fill_in_utxo_info(&mut bumped_psbt)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_fill_in_utxo_info_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
 
             let bumped_psbt = self
                 .copy_witnesses(bumped_psbt, &tx)
