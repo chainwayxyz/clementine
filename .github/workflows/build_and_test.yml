@@ -46,6 +46,9 @@ jobs:
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES --release
 
+      - name: Compile in release test mode
+        run: cargo test $CARGOFLAGS_ALL_FEATURES --release --no-run 
+
   release_build:
     name: Release | No features | Compile and Test
     permissions:
