@@ -8,7 +8,7 @@ license = { workspace = true }
 rust-version = "1.88.0"
 
 [features]
-automation = ["clementine-errors/automation"]
+automation = []
 integration-tests = ["automation"]
 
 [build-dependencies]
