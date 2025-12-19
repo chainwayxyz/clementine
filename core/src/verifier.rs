@@ -1862,7 +1862,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -1874,9 +1874,30 @@ where
             .await?;
 
         #[cfg(test)]
+        let mut annex: Option<Vec<u8>> = None;
+
+        // #[cfg(test)]
+        // this variable is not used anywhere, but keeping it here in case we can incorpoate into tests
+        // let mut additional_taproot_output_count = None;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.use_small_annex {
+                annex = Some(vec![80u8; 10000]);
+            } else if self.config.test_params.use_large_annex {
+                annex = Some(vec![80u8; 3990000]);
+            } else if self.config.test_params.use_large_annex_and_output {
+                annex = Some(vec![80u8; 3000000]);
+                //additional_taproot_output_count = Some(2300);
+            } else if self.config.test_params.use_large_output {
+                //additional_taproot_output_count = Some(2300);
+            }
+        }
+
+        #[cfg(test)]
         let challenge_tx = {
             let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
+            if let Some(annex_bytes) = annex {
                 challenge_tx.input[0].witness.push(annex_bytes);
             }
             challenge_tx
@@ -1898,7 +1919,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 

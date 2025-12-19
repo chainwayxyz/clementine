@@ -2,6 +2,7 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
@@ -11,7 +12,7 @@ use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::taproot;
-use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
+use bitcoin::{Address, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::{BitcoinNodeCluster, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::{
@@ -302,11 +303,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
             &e2e.config,
             e2e.rpc,
             &withdrawal_address,
-            e2e.config.protocol_paramset().bridge_amount
-                - e2e
-                    .config
-                    .operator_withdrawal_fee_sats
-                    .unwrap_or(Amount::from_sat(0)),
+            e2e.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
         )
         .await;
 
