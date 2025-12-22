@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ServerAddr"],"fn":["create_aggregator_grpc_server","create_aggregator_unix_server","create_grpc_server","create_operator_grpc_server","create_operator_unix_server","create_verifier_grpc_server","create_verifier_unix_server"],"type":["ServerFuture"]};
+window.SIDEBAR_ITEMS = {"enum":["ServerAddr"],"fn":["create_aggregator_grpc_server","create_grpc_server","create_operator_grpc_server","create_verifier_grpc_server"]};

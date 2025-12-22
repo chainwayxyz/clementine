@@ -1053,16 +1053,12 @@
 <a href=#1053 id=1053 data-nosnippet>1053</a>
 <a href=#1054 id=1054 data-nosnippet>1054</a>        <span class="prelude-val">Ok</span>(())
 <a href=#1055 id=1055 data-nosnippet>1055</a>    }
-<a href=#1056 id=1056 data-nosnippet>1056</a>
-<a href=#1057 id=1057 data-nosnippet>1057</a>    <span class="kw">pub async fn </span>shutdown(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#1058 id=1058 data-nosnippet>1058</a>        <span class="self">self</span>.background_tasks.graceful_shutdown().<span class="kw">await</span>;
-<a href=#1059 id=1059 data-nosnippet>1059</a>    }
-<a href=#1060 id=1060 data-nosnippet>1060</a>}
-<a href=#1061 id=1061 data-nosnippet>1061</a>
-<a href=#1062 id=1062 data-nosnippet>1062</a><span class="kw">impl </span>Deref <span class="kw">for </span>AggregatorServer {
-<a href=#1063 id=1063 data-nosnippet>1063</a>    <span class="kw">type </span>Target = Aggregator;
-<a href=#1064 id=1064 data-nosnippet>1064</a>
-<a href=#1065 id=1065 data-nosnippet>1065</a>    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="self">Self</span>::Target {
-<a href=#1066 id=1066 data-nosnippet>1066</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.aggregator
-<a href=#1067 id=1067 data-nosnippet>1067</a>    }
-<a href=#1068 id=1068 data-nosnippet>1068</a>}</code></pre></div></section></main></body></html>
+<a href=#1056 id=1056 data-nosnippet>1056</a>}
+<a href=#1057 id=1057 data-nosnippet>1057</a>
+<a href=#1058 id=1058 data-nosnippet>1058</a><span class="kw">impl </span>Deref <span class="kw">for </span>AggregatorServer {
+<a href=#1059 id=1059 data-nosnippet>1059</a>    <span class="kw">type </span>Target = Aggregator;
+<a href=#1060 id=1060 data-nosnippet>1060</a>
+<a href=#1061 id=1061 data-nosnippet>1061</a>    <span class="kw">fn </span>deref(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="self">Self</span>::Target {
+<a href=#1062 id=1062 data-nosnippet>1062</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.aggregator
+<a href=#1063 id=1063 data-nosnippet>1063</a>    }
+<a href=#1064 id=1064 data-nosnippet>1064</a>}</code></pre></div></section></main></body></html>

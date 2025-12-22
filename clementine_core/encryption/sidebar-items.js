@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["EPHEMERAL_PUBKEY_LEN","MIN_ENCRYPTED_LEN"],"fn":["decrypt_bytes","encrypt_bytes"]};
+window.SIDEBAR_ITEMS = {"fn":["encrypt_bytes"]};

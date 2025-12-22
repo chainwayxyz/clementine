@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["calculate_taproot_leaf_depths","create_checksig_address","create_taproot_address","generate_deposit_address","generate_replacement_deposit_address","taproot_builder_with_scripts"]};
+window.SIDEBAR_ITEMS = {"fn":["calculate_taproot_leaf_depths","create_taproot_address","generate_deposit_address","generate_replacement_deposit_address","taproot_builder_with_scripts"]};
