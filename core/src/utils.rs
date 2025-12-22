@@ -596,6 +596,8 @@ pub enum FeePayingType {
 /// Information to re-sign an RBF transaction.
 /// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
 /// re-signed.
+/// This was needed for re-signing watchtower challenges with RBF because OP_RETURN outputs with >80bytes were not supported before
+/// bitcoin v30. As it is supported now, this is not needed anymore, but I am keeping it here in case it is useful in the future/if something changes with the standardness rules.
 ///
 /// - Not needed for SinglePlusAnyoneCanPay RBF txs.
 /// - Not needed for CPFP.

@@ -13,6 +13,7 @@
 use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::config::protocol::BLOCKS_PER_HOUR;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -407,7 +408,7 @@ impl Default for BridgeConfig {
             )
             .expect("known valid input"),
 
-            operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
+            operator_withdrawal_fee_sats: Some(NON_EPHEMERAL_ANCHOR_AMOUNT),
 
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string().into(),

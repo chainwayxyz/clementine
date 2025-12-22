@@ -36,27 +36,27 @@ runs:
       id: cache-bitcoin
       with:
         path: |
-          bitcoin-29.0-x86_64-linux-gnu.tar.gz
-          bitcoin-29.0/
-        key: bitcoin-29.0-x86_64-linux-gnu
+          bitcoin-30.0-x86_64-linux-gnu.tar.gz
+          bitcoin-30.0/
+        key: bitcoin-30.0-x86_64-linux-gnu
 
     - name: Download Bitcoin
       if: steps.cache-bitcoin.outputs.cache-hit != 'true'
       shell: bash
-      run: wget https://bitcoincore.org/bin/bitcoin-core-29.0/bitcoin-29.0-x86_64-linux-gnu.tar.gz
+      run: wget https://bitcoincore.org/bin/bitcoin-core-30.0/bitcoin-30.0-x86_64-linux-gnu.tar.gz
 
     - name: Unpack Bitcoin
       if: steps.cache-bitcoin.outputs.cache-hit != 'true'
       shell: bash
-      run: tar -xzvf bitcoin-29.0-x86_64-linux-gnu.tar.gz
+      run: tar -xzvf bitcoin-30.0-x86_64-linux-gnu.tar.gz
 
     - name: Set executable permissions
       shell: bash
-      run: chmod +x bitcoin-29.0/bin/*
+      run: chmod +x bitcoin-30.0/bin/*
 
     - name: Add bitcoin to path
       shell: bash
-      run: echo "$PWD/bitcoin-29.0/bin" >> $GITHUB_PATH
+      run: echo "$PWD/bitcoin-30.0/bin" >> $GITHUB_PATH
 
     - name: Install risc0
       shell: bash

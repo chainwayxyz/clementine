@@ -212,7 +212,7 @@ pub async fn send_tx(
                 round_idx: None,
             }),
             &tx,
-            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
+            if tx_type == TxType::Challenge {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
