@@ -42,6 +42,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES --release
@@ -81,6 +82,12 @@ jobs:
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          add-job-id-key: "false"
+          key: "release-no-automation"
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
@@ -145,6 +152,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
+          key: "debug-all-features"
 
       - name: Run unit tests
         id: unit_tests
@@ -225,6 +233,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Run unit tests
         id: unit_tests
@@ -335,6 +344,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Run tests
         run: |
