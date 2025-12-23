@@ -3,12 +3,9 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     XChaCha20Poly1305, XNonce,
 };
-use x25519_dalek::{
-    EphemeralSecret, PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret,
-};
-
-const MIN_ENCRYPTED_LEN: usize = 56;
-const EPHEMERAL_PUBKEY_LEN: usize = 32;
+#[cfg(test)]
+use x25519_dalek::StaticSecret as X25519StaticSecret;
+use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 /// Encrypts a message for a recipient using X25519 key agreement and XChaCha20Poly1305 authenticated encryption.
 ///
@@ -49,6 +46,11 @@ pub fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u
     Ok(output)
 }
 
+#[cfg(test)]
+const MIN_ENCRYPTED_LEN: usize = 56;
+#[cfg(test)]
+const EPHEMERAL_PUBKEY_LEN: usize = 32;
+
 /// Decrypts a message encrypted with `encrypt_bytes` using the recipient's X25519 private key.
 ///
 /// # Parameters
@@ -61,6 +63,7 @@ pub fn encrypt_bytes(recipient_pubkey: [u8; 32], message: &[u8]) -> Result<Vec<u
 /// # Returns
 /// - `Ok(Vec<u8>)`: The decrypted message bytes.
 /// - `Err(eyre::Report)`: If decryption fails or the input is invalid.
+#[cfg(test)]
 pub fn decrypt_bytes(recipient_privkey: &[u8], encrypted: &[u8]) -> Result<Vec<u8>, eyre::Report> {
     if encrypted.len() < MIN_ENCRYPTED_LEN {
         return Err(eyre::eyre!("Invalid encrypted length"));
