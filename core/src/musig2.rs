@@ -1,9 +1,9 @@
 //! # MuSig2
 //!
 //! Helper functions for the MuSig2 signature scheme.
+use crate::aggregator::VerifierId;
 #[cfg(test)]
 use crate::bitvm_client::SECP;
-use crate::aggregator::VerifierId;
 #[cfg(test)]
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{
