@@ -16,8 +16,6 @@ use bitcoin::{
 };
 use std::sync::Arc;
 
-pub type BlockHeight = u16;
-
 #[derive(Debug, Clone)]
 /// Represents a spendable transaction input, including previous output, scripts, and Taproot spend info.
 pub struct SpendableTxIn {
@@ -169,13 +167,6 @@ impl SpendableTxIn {
     /// Returns a reference to the Taproot spend info for this input, if any.
     pub fn get_spend_info(&self) -> &Option<TaprootSpendInfo> {
         &self.spendinfo
-    }
-
-    /// Sets the Taproot spend info for this input.
-    pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
-        self.spendinfo = spendinfo;
-        #[cfg(debug_assertions)]
-        self.check().expect("spendinfo is invalid in debug mode");
     }
 
     /// Checks the validity of the spendable input, ensuring script pubkey and merkle proof map are correct.

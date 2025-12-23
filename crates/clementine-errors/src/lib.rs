@@ -160,7 +160,6 @@ pub enum VerificationError {
 }
 
 /// Transaction sending errors.
-#[cfg(feature = "automation")]
 #[derive(Debug, Error)]
 pub enum SendTxError {
     #[error("Unconfirmed fee payer UTXOs left")]
@@ -179,7 +178,6 @@ pub enum SendTxError {
 }
 
 /// State machine errors.
-#[cfg(feature = "automation")]
 #[derive(Debug, Error)]
 pub enum StateMachineError {
     #[error("State machine received event that it doesn't know how to handle: {0}")]
@@ -270,7 +268,6 @@ pub enum BridgeError {
     Prover(#[from] HeaderChainProverError),
     #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),
-    #[cfg(feature = "automation")]
     #[error("Failed to send transactions: {0}")]
     SendTx(#[from] SendTxError),
     #[error("Aggregator error: {0}")]
@@ -281,7 +278,6 @@ pub enum BridgeError {
     SpendableTxIn(#[from] SpendableTxInError),
     #[error("Bitcoin RPC error: {0}")]
     BitcoinRPC(#[from] BitcoinRPCError),
-    #[cfg(feature = "automation")]
     #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
     #[error("RPC authentication error: {0}")]

@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "bridge-circuit-host"
-version = "0.6.0"
+version = "0.6.4"
 dependencies = [
  "alloy-rpc-types",
  "ark-bn254",
@@ -2181,7 +2181,7 @@ checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
 name = "clementine-core"
-version = "0.6.0"
+version = "0.6.4"
 dependencies = [
  "alloy",
  "alloy-sol-types",
@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "clementine-errors"
-version = "0.6.0"
+version = "0.6.4"
 dependencies = [
  "alloy",
  "bitcoin",
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "clementine-primitives"
-version = "0.6.0"
+version = "0.6.4"
 dependencies = [
  "bitcoin",
  "hex",

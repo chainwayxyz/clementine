@@ -397,10 +397,6 @@ where
             btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
-
-    pub async fn shutdown(&mut self) {
-        self.background_tasks.graceful_shutdown().await;
-    }
 }
 
 #[derive(Debug, Clone)]

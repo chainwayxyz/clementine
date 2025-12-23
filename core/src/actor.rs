@@ -20,7 +20,9 @@ use bitcoin::{
     Address, ScriptBuf, TapSighash, TapTweakHash,
 };
 use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
-use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
+use bitvm::signatures::winternitz;
+#[cfg(test)]
+use bitvm::signatures::winternitz::{BinarysearchVerifier, ToBytesConverter, Winternitz};
 use clementine_errors::BridgeError;
 use clementine_errors::TxError;
 use clementine_primitives::EVMAddress;
@@ -305,6 +307,7 @@ impl Actor {
     }
 
     /// Signs given data with Winternitz signature.
+    #[cfg(test)]
     pub fn sign_winternitz_signature(
         &self,
         path: WinternitzDerivationPath,

@@ -346,6 +346,7 @@ impl TxSender {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
     }

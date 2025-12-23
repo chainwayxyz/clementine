@@ -26,8 +26,6 @@ use tower::limit::RateLimitLayer;
 #[cfg(test)]
 use crate::test::common::ensure_test_certificates;
 
-pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
-
 /// Represents a network address that can be either TCP or Unix socket
 #[derive(Debug, Clone)]
 pub enum ServerAddr {
@@ -319,7 +317,7 @@ pub async fn create_aggregator_grpc_server(
 }
 
 // Functions for creating servers with Unix sockets (useful for tests)
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 pub async fn create_verifier_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -349,8 +347,8 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     }
 }
 
-#[cfg(not(unix))]
-pub async fn create_verifier_unix_server(
+#[cfg(all(not(unix), test))]
+pub async fn create_verifier_unix_server<C: CitreaClientT>(
     _config: BridgeConfig,
     _socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -359,7 +357,7 @@ pub async fn create_verifier_unix_server(
     ))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 pub async fn create_operator_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -389,8 +387,8 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     }
 }
 
-#[cfg(not(unix))]
-pub async fn create_operator_unix_server(
+#[cfg(all(not(unix), test))]
+pub async fn create_operator_unix_server<C: CitreaClientT>(
     _config: BridgeConfig,
     _socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -399,7 +397,7 @@ pub async fn create_operator_unix_server(
     ))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -420,7 +418,7 @@ pub async fn create_aggregator_unix_server(
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), test))]
 pub async fn create_aggregator_unix_server(
     _config: BridgeConfig,
     _socket_path: std::path::PathBuf,

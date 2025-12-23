@@ -5,8 +5,7 @@
 //! valid deposit addresses.
 
 use super::script::{
-    BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
-    TimelockScript,
+    BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
 use crate::bitvm_client;
 use crate::bitvm_client::SECP;
@@ -204,22 +203,6 @@ pub fn generate_replacement_deposit_address(
     let (addr, spend) =
         create_taproot_address(&[deposit_script, security_council_script], None, network);
     Ok((addr, spend))
-}
-
-/// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.
-///
-/// # Returns
-///
-/// See [`create_taproot_address`].
-///
-/// - [`Address`]: Checksig taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: Checksig address's taproot spending information
-pub fn create_checksig_address(
-    xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> (Address, TaprootSpendInfo) {
-    let script = CheckSig::new(xonly_pk);
-    create_taproot_address(&[script.to_script_buf()], None, network)
 }
 
 #[cfg(test)]

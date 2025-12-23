@@ -207,10 +207,6 @@ where
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
         })
     }
-
-    pub async fn shutdown(&mut self) {
-        self.background_tasks.graceful_shutdown().await;
-    }
 }
 
 impl<C> Operator<C>
