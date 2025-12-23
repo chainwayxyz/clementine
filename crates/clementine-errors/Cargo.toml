@@ -18,4 +18,3 @@ hex = { workspace = true }
 sqlx = { workspace = true }
 alloy = { workspace = true }
 reqwest = { workspace = true }
-
