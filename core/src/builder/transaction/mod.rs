@@ -57,10 +57,10 @@ use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
-use clementine_errors::BridgeError;
 #[cfg(test)]
 use bitcoin::OutPoint;
 use bitcoin::{Address, Amount, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 use hex;
 use input::UtxoVout;
 use serde::{Deserialize, Serialize};
