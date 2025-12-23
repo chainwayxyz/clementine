@@ -193,7 +193,6 @@ jobs:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
@@ -275,7 +274,6 @@ jobs:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-8
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
