@@ -159,14 +159,14 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
     rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 300;
+    let mut timeout_counter = 600;
     while rpc
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
         .await
         .unwrap()
         .is_some()
     {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {

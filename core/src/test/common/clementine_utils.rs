@@ -66,7 +66,14 @@ pub async fn payout_and_start_kickoff(
 
         match withdrawal_response {
             Ok(_) => break,
-            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+            Err(e) => {
+                tracing::info!("Withdrawal error: {:?}", e);
+                e2e.sequencer
+                    .client
+                    .send_publish_batch_request()
+                    .await
+                    .unwrap();
+            }
         };
         e2e.rpc
             .mine_blocks_while_synced(1, actors, Some(e2e))
@@ -203,7 +210,11 @@ pub async fn disprove_tests_common_setup(
 
     // generate a withdrawal
     let (withdrawal_utxo, payout_txout, sig) =
-        get_new_withdrawal_utxo_and_register_to_citrea(move_txid, e2e, &actors).await;
+        get_new_withdrawal_utxo_and_register_to_citrea(&[move_txid], e2e, &actors)
+            .await
+            .into_iter()
+            .next()
+            .expect("at least one withdrawal generated");
 
     // withdraw one with a kickoff with operator 0
     let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
@@ -275,11 +286,6 @@ pub async fn disprove_tests_common_setup(
         .await
         .unwrap();
     db_commit.commit().await.unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors, Some(e2e))
-        .await
-        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
