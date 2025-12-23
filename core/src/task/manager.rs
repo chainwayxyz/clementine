@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, RwLock};
 use tokio::task::{AbortHandle, JoinHandle};
+#[cfg(test)]
 use tokio::time::sleep;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -128,6 +129,7 @@ impl BackgroundTaskManager {
     }
 
     /// Gets the status of a single task by checking the task registry
+    #[cfg(test)]
     pub async fn get_task_status(&self, variant: TaskVariant) -> Option<TaskStatus> {
         self.task_registry
             .read()
@@ -188,6 +190,7 @@ impl BackgroundTaskManager {
     }
 
     /// Sends cancel signals to all tasks that have a cancel_tx
+    #[cfg(test)]
     async fn send_cancel_signals(&self) {
         let mut task_registry = self.task_registry.write().await;
         for (_, (_, _, cancel_tx)) in task_registry.iter_mut() {
@@ -217,6 +220,7 @@ impl BackgroundTaskManager {
     /// `graceful_shutdown_with_timeout` instead for cases where you need a
     /// timeout. The function polls tasks until they are finished with a 100ms
     /// poll interval.
+    #[cfg(test)]
     pub async fn graceful_shutdown(&mut self) {
         tracing::info!("Gracefully shutting down all tasks");
 
@@ -250,6 +254,7 @@ impl BackgroundTaskManager {
     ///   `graceful_shutdown` function polls tasks until they are finished with a
     ///   100ms poll interval, the timeout should be at least 100ms for the
     ///   timeout to be effective.
+    #[cfg(test)]
     pub async fn graceful_shutdown_with_timeout(&mut self, timeout: Duration) {
         let timeout_handle = tokio::time::timeout(timeout, self.graceful_shutdown());
 

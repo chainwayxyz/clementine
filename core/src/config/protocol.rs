@@ -15,8 +15,10 @@ use std::str::FromStr;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
+#[cfg(test)]
 pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
 
+#[cfg(test)]
 pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
@@ -328,6 +330,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+#[cfg(test)]
 pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
     num_round_txs: 2,
@@ -380,8 +383,8 @@ pub const SIGNET_TEST_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
 ];
 
 pub const MAINNET_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
-    154, 254, 2, 67, 66, 37, 230, 195, 3, 247, 101, 4, 196, 126, 226, 135, 163, 6, 165, 124, 119,
-    3, 143, 171, 85, 55, 9, 250, 45, 12, 140, 64,
+    129, 78, 18, 124, 221, 80, 148, 108, 252, 53, 139, 39, 96, 60, 162, 140, 241, 131, 111, 46, 52,
+    145, 169, 103, 131, 115, 17, 113, 68, 193, 151, 45,
 ];
 
 pub const TESTNET4_BRIDGE_CIRCUIT_CONSTANT: [u8; 32] = [
