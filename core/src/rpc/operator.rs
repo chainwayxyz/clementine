@@ -486,9 +486,6 @@ where
         &self,
         request: Request<clementine::Outpoints>,
     ) -> Result<Response<RawSignedTx>, Status> {
-        if self.operator.reimburse_addr != self.operator.signer.address {
-            return Err(Status::failed_precondition(format!("To be able to send from reimburse address to wallet, operator's reimburse address must be set to the same address as the signer address, reimburse address: {}, signer address: {}", self.operator.reimburse_addr, self.operator.signer.address)));
-        }
         let outpoints: Vec<OutPoint> = request
             .into_inner()
             .outpoints
