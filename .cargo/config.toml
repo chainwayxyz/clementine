@@ -1,5 +1,6 @@
 [alias]
-test_unit = "test --workspace --all-features -- --skip test::"
+test_unit_debug = "test --workspace --all-features -- --skip test::"
+test_unit_release = "test --workspace --all-features --release -- --skip test::"
 test_integration = "test --workspace --all-features -p clementine-core test:: -- --test-threads 7"
 test_integration_release = "test --release --workspace --all-features -p clementine-core test:: -- --test-threads 7"
 build_console = '''
