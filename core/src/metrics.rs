@@ -15,10 +15,10 @@ use tonic::async_trait;
 
 use crate::{
     database::Database,
-    errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     utils::{timed_request_base, NamedEntity},
 };
+use clementine_errors::BridgeError;
 use metrics_derive::Metrics;
 
 const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);

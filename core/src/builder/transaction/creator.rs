@@ -27,6 +27,7 @@ use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::operator_reimburse::DisprovePath;
+use crate::builder::transaction::TxError;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -35,7 +36,6 @@ use crate::builder::transaction::{
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
@@ -45,6 +45,7 @@ use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
 };
 use circuits_lib::bridge_circuit::deposit_constant;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;

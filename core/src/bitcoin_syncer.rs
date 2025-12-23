@@ -7,12 +7,12 @@
 use crate::{
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
-    errors::BridgeError,
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
     task::{IntoTask, RecoverableTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::time::Duration;
 use tonic::async_trait;

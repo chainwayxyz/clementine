@@ -27,7 +27,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::constants::NON_STANDARD_V3;
 use crate::deposit::{DepositData, KickoffData};
-use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
@@ -35,6 +34,7 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, TxOut, Txid};
+use clementine_errors::BridgeError;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

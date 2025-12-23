@@ -6,6 +6,7 @@ members = [
   # "risc0-circuits/bridge-circuit",
   # "risc0-circuits/work-only",
   "bridge-circuit-host",
+  "crates/clementine-errors",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.package]

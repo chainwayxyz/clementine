@@ -5,9 +5,9 @@
 
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::errors::BridgeError;
 use crate::utils::delayed_panic;
 use clap::Parser;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::env;
 use std::path::PathBuf;
@@ -244,7 +244,7 @@ fn get_config_from_args(args: Args) -> Result<BridgeConfig, BridgeError> {
 #[cfg(test)]
 mod tests {
     use super::{get_config_from_args, get_config_source, parse_cli_args, Command, ConfigSource};
-    use crate::errors::BridgeError;
+    use clementine_errors::BridgeError;
     use std::env;
     use std::fs::File;
     use std::io::Write;

@@ -2203,6 +2203,7 @@ dependencies = [
  "circuits-lib",
  "citrea-e2e",
  "clap",
+ "clementine-errors",
  "color-eyre",
  "ctor",
  "eyre",
@@ -2258,6 +2259,21 @@ dependencies = [
  "vergen-git2",
  "wiremock",
  "x25519-dalek",
+]
+
+[[package]]
+name = "clementine-errors"
+version = "0.6.4"
+dependencies = [
+ "alloy",
+ "bitcoin",
+ "eyre",
+ "hex",
+ "http 1.3.1",
+ "reqwest",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tonic",
 ]
 
 [[package]]
