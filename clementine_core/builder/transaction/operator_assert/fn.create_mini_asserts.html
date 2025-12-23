@@ -2,7 +2,7 @@
     kickoff_txhandler: &amp;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>,
     num_asserts: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.usize.html">usize</a>,
     paramset: &amp;'static <a class="struct" href="../../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&gt;, <a class="enum" href="../../../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for <code>mini_assert</code> transactions.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&gt;, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for <code>mini_assert</code> transactions.</p>
 <p>These transactions are used to commit BitVM assertions of operator’s proof that it paid the payout corresponding to the deposit.</p>
 <h2 id="inputs"><a class="doc-anchor" href="#inputs">§</a>Inputs</h2>
 <ol>
@@ -19,5 +19,5 @@
 <li><code>num_asserts</code> - Number of mini assert transactions to create.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for mini assert transactions, or a <a href="../../../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
+<p>A vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for mini assert transactions, or a [<code>BridgeError</code>] if construction fails.</p>
 </div></details></section></div></main></body></html>

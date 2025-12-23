@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["get_clients","operator_client_builder","verifier_client_builder"],"mod":["aggregator","clementine","ecdsa_verification_sig","error","interceptors","operator","parser","verifier"]};
+window.SIDEBAR_ITEMS = {"enum":["ParserError"],"fn":["get_clients","operator_client_builder","verifier_client_builder"],"mod":["aggregator","clementine","ecdsa_verification_sig","error","interceptors","operator","parser","verifier"]};

@@ -4,15 +4,15 @@
 <a href=#4 id=4 data-nosnippet>4</a>
 <a href=#5 id=5 data-nosnippet>5</a></span><span class="kw">use super</span>::{wrapper::TxidDB, Database, DatabaseTransaction};
 <a href=#6 id=6 data-nosnippet>6</a><span class="kw">use crate</span>::{
-<a href=#7 id=7 data-nosnippet>7</a>    errors::BridgeError,
-<a href=#8 id=8 data-nosnippet>8</a>    execute_query_with_tx,
-<a href=#9 id=9 data-nosnippet>9</a>    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
-<a href=#10 id=10 data-nosnippet>10</a>    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
-<a href=#11 id=11 data-nosnippet>11</a>};
-<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span>bitcoin::{
-<a href=#13 id=13 data-nosnippet>13</a>    consensus::{deserialize, serialize},
-<a href=#14 id=14 data-nosnippet>14</a>    Amount, FeeRate, Transaction, Txid,
-<a href=#15 id=15 data-nosnippet>15</a>};
+<a href=#7 id=7 data-nosnippet>7</a>    execute_query_with_tx,
+<a href=#8 id=8 data-nosnippet>8</a>    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
+<a href=#9 id=9 data-nosnippet>9</a>    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
+<a href=#10 id=10 data-nosnippet>10</a>};
+<a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span>bitcoin::{
+<a href=#12 id=12 data-nosnippet>12</a>    consensus::{deserialize, serialize},
+<a href=#13 id=13 data-nosnippet>13</a>    Amount, FeeRate, Transaction, Txid,
+<a href=#14 id=14 data-nosnippet>14</a>};
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span>eyre::{Context, OptionExt};
 <a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>sqlx::Executor;
 <a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span>std::ops::DerefMut;

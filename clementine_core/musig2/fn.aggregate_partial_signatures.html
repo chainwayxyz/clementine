@@ -4,5 +4,5 @@
     agg_nonce: AggregatedNonce,
     partial_sigs: &amp;[(PartialSignature, PublicNonce)],
     message: Message,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Signature, <a class="enum" href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Aggregates the partial signatures into a single aggregated signature and verifies the aggregated signature. If PARTIAL_SIG_VERIFICATION is set to true, each partial signature will also be verified.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Signature, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Aggregates the partial signatures into a single aggregated signature and verifies the aggregated signature. If PARTIAL_SIG_VERIFICATION is set to true, each partial signature will also be verified.</p>
 </div></details></section></div></main></body></html>

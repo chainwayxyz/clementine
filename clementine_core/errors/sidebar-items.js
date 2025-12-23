@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["BridgeError","FeeErr"],"trait":["ErrorExt","ResultExt"]};
+window.SIDEBAR_ITEMS = {};

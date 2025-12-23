@@ -3,7 +3,7 @@
     nofn_xonly_pk: XOnlyPublicKey,
     network: Network,
     security_council: <a class="struct" href="../../deposit/struct.SecurityCouncil.html" title="struct clementine_core::deposit::SecurityCouncil">SecurityCouncil</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(Address, TaprootSpendInfo), <a class="enum" href="../../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Builds a Taproot address specifically for replacement deposits.
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(Address, TaprootSpendInfo), BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Builds a Taproot address specifically for replacement deposits.
 Replacement deposits are to replace old move_to_vault transactions in case any issue is found on the bridge.
 This address incorporates a script committing to an old move transaction ID
 and a multisig script for the security council.

@@ -3,7 +3,7 @@
     rpc: &amp;<a class="struct" href="../extended_bitcoin_rpc/struct.ExtendedBitcoinRpc.html" title="struct clementine_core::extended_bitcoin_rpc::ExtendedBitcoinRpc">ExtendedBitcoinRpc</a>,
     current_height: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.u32.html">u32</a>,
     finality_depth: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.u32.html">u32</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="struct.BlockInfo.html" title="struct clementine_core::bitcoin_syncer::BlockInfo">BlockInfo</a>&gt;&gt;, <a class="enum" href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Fetches the next block from Bitcoin, if it exists. Will also fetch previous
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="struct.BlockInfo.html" title="struct clementine_core::bitcoin_syncer::BlockInfo">BlockInfo</a>&gt;&gt;, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Fetches the next block from Bitcoin, if it exists. Will also fetch previous
 blocks if the parent is missing, and give an error if the number of reorged blocks is greater than the finality depth.</p>
 <h2 id="parameters"><a class="doc-anchor" href="#parameters">§</a>Parameters</h2>
 <ul>
@@ -13,6 +13,6 @@ blocks if the parent is missing, and give an error if the number of reorged bloc
 <ul>
 <li><a href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html#variant.None" title="variant core::option::Option::None"><code>None</code></a> - If no new block is available.</li>
 <li><a href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec"><code>Vec&lt;BlockInfo&gt;</code></a> - If new blocks are found.</li>
-<li><a href="../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError"><code>BridgeError</code></a> - If the number of reorged blocks is greater than the finality depth or db/rpc errors.</li>
+<li>[<code>BridgeError</code>] - If the number of reorged blocks is greater than the finality depth or db/rpc errors.</li>
 </ul>
 </div></details></section></div></main></body></html>

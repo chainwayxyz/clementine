@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AggregatorError","BitcoinRPCError","BridgeError","FeeErr","HeaderChainProverError","ParserError","SendTxError","SpendableTxInError","StateMachineError","VerificationError"],"trait":["ErrorExt","ResultExt"]};

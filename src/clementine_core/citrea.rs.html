@@ -2,32 +2,32 @@
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <a href=#4 id=4 data-nosnippet>4</a><span class="kw">use </span><span class="kw">crate</span>::database::DatabaseTransaction;
-<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use crate</span>::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
-<a href=#7 id=7 data-nosnippet>7</a><span class="kw">use </span>alloy::{
-<a href=#8 id=8 data-nosnippet>8</a>    eips::{BlockId, BlockNumberOrTag},
-<a href=#9 id=9 data-nosnippet>9</a>    network::EthereumWallet,
-<a href=#10 id=10 data-nosnippet>10</a>    primitives::{keccak256, U256},
-<a href=#11 id=11 data-nosnippet>11</a>    providers::{
-<a href=#12 id=12 data-nosnippet>12</a>        fillers::{
-<a href=#13 id=13 data-nosnippet>13</a>            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-<a href=#14 id=14 data-nosnippet>14</a>            WalletFiller,
-<a href=#15 id=15 data-nosnippet>15</a>        },
-<a href=#16 id=16 data-nosnippet>16</a>        Provider, ProviderBuilder, RootProvider,
-<a href=#17 id=17 data-nosnippet>17</a>    },
-<a href=#18 id=18 data-nosnippet>18</a>    rpc::types::{EIP1186AccountProofResponse, Filter, Log},
-<a href=#19 id=19 data-nosnippet>19</a>    signers::{local::PrivateKeySigner, Signer},
-<a href=#20 id=20 data-nosnippet>20</a>    sol,
-<a href=#21 id=21 data-nosnippet>21</a>    sol_types::SolEvent,
-<a href=#22 id=22 data-nosnippet>22</a>    transports::http::reqwest::Url,
-<a href=#23 id=23 data-nosnippet>23</a>};
-<a href=#24 id=24 data-nosnippet>24</a><span class="kw">use </span>bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
-<a href=#25 id=25 data-nosnippet>25</a><span class="kw">use </span>bridge_circuit_host::receipt_from_inner;
-<a href=#26 id=26 data-nosnippet>26</a><span class="kw">use </span>circuits_lib::bridge_circuit::{
-<a href=#27 id=27 data-nosnippet>27</a>    lc_proof::check_method_id,
-<a href=#28 id=28 data-nosnippet>28</a>    structs::{LightClientProof, StorageProof},
-<a href=#29 id=29 data-nosnippet>29</a>};
-<a href=#30 id=30 data-nosnippet>30</a><span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use crate</span>::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
+<a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span>alloy::{
+<a href=#7 id=7 data-nosnippet>7</a>    eips::{BlockId, BlockNumberOrTag},
+<a href=#8 id=8 data-nosnippet>8</a>    network::EthereumWallet,
+<a href=#9 id=9 data-nosnippet>9</a>    primitives::{keccak256, U256},
+<a href=#10 id=10 data-nosnippet>10</a>    providers::{
+<a href=#11 id=11 data-nosnippet>11</a>        fillers::{
+<a href=#12 id=12 data-nosnippet>12</a>            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+<a href=#13 id=13 data-nosnippet>13</a>            WalletFiller,
+<a href=#14 id=14 data-nosnippet>14</a>        },
+<a href=#15 id=15 data-nosnippet>15</a>        Provider, ProviderBuilder, RootProvider,
+<a href=#16 id=16 data-nosnippet>16</a>    },
+<a href=#17 id=17 data-nosnippet>17</a>    rpc::types::{EIP1186AccountProofResponse, Filter, Log},
+<a href=#18 id=18 data-nosnippet>18</a>    signers::{local::PrivateKeySigner, Signer},
+<a href=#19 id=19 data-nosnippet>19</a>    sol,
+<a href=#20 id=20 data-nosnippet>20</a>    sol_types::SolEvent,
+<a href=#21 id=21 data-nosnippet>21</a>    transports::http::reqwest::Url,
+<a href=#22 id=22 data-nosnippet>22</a>};
+<a href=#23 id=23 data-nosnippet>23</a><span class="kw">use </span>bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+<a href=#24 id=24 data-nosnippet>24</a><span class="kw">use </span>bridge_circuit_host::receipt_from_inner;
+<a href=#25 id=25 data-nosnippet>25</a><span class="kw">use </span>circuits_lib::bridge_circuit::{
+<a href=#26 id=26 data-nosnippet>26</a>    lc_proof::check_method_id,
+<a href=#27 id=27 data-nosnippet>27</a>    structs::{LightClientProof, StorageProof},
+<a href=#28 id=28 data-nosnippet>28</a>};
+<a href=#29 id=29 data-nosnippet>29</a><span class="kw">use </span>citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+<a href=#30 id=30 data-nosnippet>30</a><span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#31 id=31 data-nosnippet>31</a><span class="kw">use </span>eyre::Context;
 <a href=#32 id=32 data-nosnippet>32</a><span class="kw">use </span>jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 <a href=#33 id=33 data-nosnippet>33</a><span class="kw">use </span>jsonrpsee::proc_macros::rpc;

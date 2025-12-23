@@ -875,18 +875,18 @@
 <a href=#875 id=875 data-nosnippet>875</a>        op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
 <a href=#876 id=876 data-nosnippet>876</a>    };
 <a href=#877 id=877 data-nosnippet>877</a>    <span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
-<a href=#878 id=878 data-nosnippet>878</a>    <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<a href=#879 id=879 data-nosnippet>879</a>    <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-<a href=#880 id=880 data-nosnippet>880</a>    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
-<a href=#881 id=881 data-nosnippet>881</a>    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-<a href=#882 id=882 data-nosnippet>882</a>    <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
-<a href=#883 id=883 data-nosnippet>883</a>    <span class="kw">use </span><span class="kw">crate</span>::test::common::tx_utils::create_bg_tx_sender;
-<a href=#884 id=884 data-nosnippet>884</a>    <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
-<a href=#885 id=885 data-nosnippet>885</a>    <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
-<a href=#886 id=886 data-nosnippet>886</a>    <span class="kw">use </span>bitcoin::hashes::Hash;
-<a href=#887 id=887 data-nosnippet>887</a>    <span class="kw">use </span>bitcoin::transaction::Version;
-<a href=#888 id=888 data-nosnippet>888</a>    <span class="kw">use </span>bitcoin::TxOut;
-<a href=#889 id=889 data-nosnippet>889</a>    <span class="kw">use </span>bitcoincore_rpc::json::GetRawTransactionResult;
+<a href=#878 id=878 data-nosnippet>878</a>    <span class="kw">use </span><span class="kw">crate</span>::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+<a href=#879 id=879 data-nosnippet>879</a>    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::tagged_signature::SignatureId;
+<a href=#880 id=880 data-nosnippet>880</a>    <span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+<a href=#881 id=881 data-nosnippet>881</a>    <span class="kw">use </span><span class="kw">crate</span>::task::{IntoTask, TaskExt};
+<a href=#882 id=882 data-nosnippet>882</a>    <span class="kw">use </span><span class="kw">crate</span>::test::common::tx_utils::create_bg_tx_sender;
+<a href=#883 id=883 data-nosnippet>883</a>    <span class="kw">use </span><span class="kw">crate</span>::test::common::<span class="kw-2">*</span>;
+<a href=#884 id=884 data-nosnippet>884</a>    <span class="kw">use </span><span class="kw">crate</span>::utils::FeePayingType;
+<a href=#885 id=885 data-nosnippet>885</a>    <span class="kw">use </span>bitcoin::hashes::Hash;
+<a href=#886 id=886 data-nosnippet>886</a>    <span class="kw">use </span>bitcoin::transaction::Version;
+<a href=#887 id=887 data-nosnippet>887</a>    <span class="kw">use </span>bitcoin::TxOut;
+<a href=#888 id=888 data-nosnippet>888</a>    <span class="kw">use </span>bitcoincore_rpc::json::GetRawTransactionResult;
+<a href=#889 id=889 data-nosnippet>889</a>    <span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#890 id=890 data-nosnippet>890</a>    <span class="kw">use </span>std::result::Result;
 <a href=#891 id=891 data-nosnippet>891</a>    <span class="kw">use </span>std::time::Duration;
 <a href=#892 id=892 data-nosnippet>892</a>

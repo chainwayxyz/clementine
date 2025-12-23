@@ -9,11 +9,11 @@
 <a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span><span class="kw">crate</span>::builder::transaction::<span class="kw-2">*</span>;
 <a href=#10 id=10 data-nosnippet>10</a><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
 <a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span><span class="kw">crate</span>::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
-<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use crate</span>::{builder, EVMAddress};
-<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>bitcoin::script::PushBytesBuf;
-<a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span>bitcoin::{Sequence, TxOut, WitnessVersion};
+<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+<a href=#13 id=13 data-nosnippet>13</a><span class="kw">use crate</span>::{builder, EVMAddress};
+<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span>bitcoin::script::PushBytesBuf;
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>bitcoin::{Sequence, TxOut, WitnessVersion};
+<a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>eyre::Context;
 <a href=#18 id=18 data-nosnippet>18</a>
 <a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span><span class="self">self</span>::input::UtxoVout;

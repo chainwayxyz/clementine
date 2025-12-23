@@ -12,18 +12,18 @@
 <a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::citrea::CitreaClientT;
 <a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::compatibility::ActorWithConfig;
 <a href=#14 id=14 data-nosnippet>14</a><span class="kw">use </span><span class="kw">crate</span>::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
-<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt <span class="kw">as _</span>;
-<a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
-<a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, monitor_standalone_task, timed_request};
-<a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use crate</span>::{constants, fetch_next_optional_message_from_stream};
-<a href=#20 id=20 data-nosnippet>20</a><span class="kw">use crate</span>::{
-<a href=#21 id=21 data-nosnippet>21</a>    fetch_next_message_from_stream,
-<a href=#22 id=22 data-nosnippet>22</a>    rpc::parser::{<span class="self">self</span>},
-<a href=#23 id=23 data-nosnippet>23</a>};
-<a href=#24 id=24 data-nosnippet>24</a><span class="kw">use </span>alloy::primitives::PrimitiveSignature;
-<a href=#25 id=25 data-nosnippet>25</a><span class="kw">use </span>bitcoin::Witness;
-<a href=#26 id=26 data-nosnippet>26</a><span class="kw">use </span>clementine::verifier_deposit_finalize_params::Params;
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
+<a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span><span class="kw">crate</span>::utils::{get_vergen_response, monitor_standalone_task, timed_request};
+<a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span><span class="kw">crate</span>::verifier::VerifierServer;
+<a href=#18 id=18 data-nosnippet>18</a><span class="kw">use crate</span>::{constants, fetch_next_optional_message_from_stream};
+<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use crate</span>::{
+<a href=#20 id=20 data-nosnippet>20</a>    fetch_next_message_from_stream,
+<a href=#21 id=21 data-nosnippet>21</a>    rpc::parser::{<span class="self">self</span>},
+<a href=#22 id=22 data-nosnippet>22</a>};
+<a href=#23 id=23 data-nosnippet>23</a><span class="kw">use </span>alloy::primitives::PrimitiveSignature;
+<a href=#24 id=24 data-nosnippet>24</a><span class="kw">use </span>bitcoin::Witness;
+<a href=#25 id=25 data-nosnippet>25</a><span class="kw">use </span>clementine::verifier_deposit_finalize_params::Params;
+<a href=#26 id=26 data-nosnippet>26</a><span class="kw">use </span>clementine_errors::ResultExt <span class="kw">as _</span>;
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">use </span>eyre::Context <span class="kw">as _</span>;
 <a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span>secp256k1::musig::AggregatedNonce;
 <a href=#29 id=29 data-nosnippet>29</a><span class="kw">use </span>tokio::sync::mpsc::{<span class="self">self</span>};

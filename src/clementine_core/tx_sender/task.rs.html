@@ -9,14 +9,14 @@
 <a href=#9 id=9 data-nosnippet>9</a>//! and not in the [`Bitcoin Syncer`](crate::bitcoin_syncer) database.
 <a href=#10 id=10 data-nosnippet>10</a>
 <a href=#11 id=11 data-nosnippet>11</a></span><span class="kw">use </span><span class="kw">super</span>::TxSender;
-<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::errors::ResultExt;
-<a href=#13 id=13 data-nosnippet>13</a><span class="kw">use </span><span class="kw">crate</span>::task::{IgnoreError, TaskVariant, WithDelay};
-<a href=#14 id=14 data-nosnippet>14</a><span class="kw">use crate</span>::{
-<a href=#15 id=15 data-nosnippet>15</a>    bitcoin_syncer::BitcoinSyncerEvent,
-<a href=#16 id=16 data-nosnippet>16</a>    database::Database,
-<a href=#17 id=17 data-nosnippet>17</a>    errors::BridgeError,
-<a href=#18 id=18 data-nosnippet>18</a>    task::{IntoTask, Task, TaskExt},
-<a href=#19 id=19 data-nosnippet>19</a>};
+<a href=#12 id=12 data-nosnippet>12</a><span class="kw">use </span><span class="kw">crate</span>::task::{IgnoreError, TaskVariant, WithDelay};
+<a href=#13 id=13 data-nosnippet>13</a><span class="kw">use crate</span>::{
+<a href=#14 id=14 data-nosnippet>14</a>    bitcoin_syncer::BitcoinSyncerEvent,
+<a href=#15 id=15 data-nosnippet>15</a>    database::Database,
+<a href=#16 id=16 data-nosnippet>16</a>    task::{IntoTask, Task, TaskExt},
+<a href=#17 id=17 data-nosnippet>17</a>};
+<a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span>clementine_errors::BridgeError;
+<a href=#19 id=19 data-nosnippet>19</a><span class="kw">use </span>clementine_errors::ResultExt;
 <a href=#20 id=20 data-nosnippet>20</a><span class="kw">use </span>std::time::Duration;
 <a href=#21 id=21 data-nosnippet>21</a><span class="kw">use </span>tonic::async_trait;
 <a href=#22 id=22 data-nosnippet>22</a>

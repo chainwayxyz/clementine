@@ -4,7 +4,7 @@
     operator_xonly_pk: XOnlyPublicKey,
     user_sig: Signature,
     _network: Network,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&lt;<a class="struct" href="struct.Signed.html" title="struct clementine_core::builder::transaction::Signed">Signed</a>&gt;, <a class="enum" href="../../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>payout_tx</code>.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&lt;<a class="struct" href="struct.Signed.html" title="struct clementine_core::builder::transaction::Signed">Signed</a>&gt;, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>payout_tx</code>.</p>
 <p>This transaction is sent by the operator to front a peg-out, after which operator will send a kickoff transaction to get reimbursed.</p>
 <h2 id="inputs"><a class="doc-anchor" href="#inputs">§</a>Inputs</h2>
 <ol>
@@ -24,5 +24,5 @@
 <li><code>network</code> - The Bitcoin network.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A <a href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the payout transaction, or a <a href="../../errors/enum.BridgeError.html" title="enum clementine_core::errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
+<p>A <a href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the payout transaction, or a [<code>BridgeError</code>] if construction fails.</p>
 </div></details></section></div></main></body></html>

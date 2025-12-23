@@ -7,12 +7,12 @@
 <a href=#7 id=7 data-nosnippet>7</a>
 <a href=#8 id=8 data-nosnippet>8</a><span class="kw">use crate</span>::{
 <a href=#9 id=9 data-nosnippet>9</a>    database::Database,
-<a href=#10 id=10 data-nosnippet>10</a>    errors::BridgeError,
-<a href=#11 id=11 data-nosnippet>11</a>    extended_bitcoin_rpc::ExtendedBitcoinRpc,
-<a href=#12 id=12 data-nosnippet>12</a>    metrics::L1_SYNC_STATUS,
-<a href=#13 id=13 data-nosnippet>13</a>    task::{Task, TaskVariant},
-<a href=#14 id=14 data-nosnippet>14</a>    utils::NamedEntity,
-<a href=#15 id=15 data-nosnippet>15</a>};
+<a href=#10 id=10 data-nosnippet>10</a>    extended_bitcoin_rpc::ExtendedBitcoinRpc,
+<a href=#11 id=11 data-nosnippet>11</a>    metrics::L1_SYNC_STATUS,
+<a href=#12 id=12 data-nosnippet>12</a>    task::{Task, TaskVariant},
+<a href=#13 id=13 data-nosnippet>13</a>    utils::NamedEntity,
+<a href=#14 id=14 data-nosnippet>14</a>};
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#16 id=16 data-nosnippet>16</a>
 <a href=#17 id=17 data-nosnippet>17</a><span class="doccomment">/// The interval at which the entity metrics are polled and published
 <a href=#18 id=18 data-nosnippet>18</a>/// (Not sent to Prometheus at this interval, since we use a pull-based http listener)

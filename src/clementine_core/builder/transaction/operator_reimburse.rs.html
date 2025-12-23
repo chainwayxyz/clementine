@@ -27,14 +27,14 @@
 <a href=#27 id=27 data-nosnippet>27</a><span class="kw">use </span><span class="kw">crate</span>::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 <a href=#28 id=28 data-nosnippet>28</a><span class="kw">use </span><span class="kw">crate</span>::constants::NON_STANDARD_V3;
 <a href=#29 id=29 data-nosnippet>29</a><span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData};
-<a href=#30 id=30 data-nosnippet>30</a><span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
-<a href=#31 id=31 data-nosnippet>31</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::NormalSignatureKind;
-<a href=#32 id=32 data-nosnippet>32</a><span class="kw">use crate</span>::{builder, UTXO};
-<a href=#33 id=33 data-nosnippet>33</a><span class="kw">use </span>bitcoin::hashes::Hash;
-<a href=#34 id=34 data-nosnippet>34</a><span class="kw">use </span>bitcoin::script::PushBytesBuf;
-<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span>bitcoin::ScriptBuf;
-<a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span>bitcoin::XOnlyPublicKey;
-<a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span>bitcoin::{taproot, TxOut, Txid};
+<a href=#30 id=30 data-nosnippet>30</a><span class="kw">use </span><span class="kw">crate</span>::rpc::clementine::NormalSignatureKind;
+<a href=#31 id=31 data-nosnippet>31</a><span class="kw">use crate</span>::{builder, UTXO};
+<a href=#32 id=32 data-nosnippet>32</a><span class="kw">use </span>bitcoin::hashes::Hash;
+<a href=#33 id=33 data-nosnippet>33</a><span class="kw">use </span>bitcoin::script::PushBytesBuf;
+<a href=#34 id=34 data-nosnippet>34</a><span class="kw">use </span>bitcoin::ScriptBuf;
+<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span>bitcoin::XOnlyPublicKey;
+<a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span>bitcoin::{taproot, TxOut, Txid};
+<a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span>clementine_errors::BridgeError;
 <a href=#38 id=38 data-nosnippet>38</a><span class="kw">use </span>std::sync::Arc;
 <a href=#39 id=39 data-nosnippet>39</a>
 <a href=#40 id=40 data-nosnippet>40</a><span class="attr">#[derive(Debug, Clone)]
