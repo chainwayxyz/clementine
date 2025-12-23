@@ -2008,7 +2008,7 @@ where
             .rpc
             .get_new_address(None, Some(AddressType::Bech32m))
             .await
-            .wrap_err("Failed to get new address for reimbursement output")?
+            .wrap_err("Failed to get new wallet address for transfer")?
             .require_network(self.config.protocol_paramset().network)
             .wrap_err("Failed to get new address, bitcoin rpc might not match the network")?
             .script_pubkey();

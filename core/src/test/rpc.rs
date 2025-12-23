@@ -236,7 +236,6 @@ async fn operator_transfer_to_btc_wallet() {
                 .unwrap();
 
         // check that collateral in ready to reimburse tx cannot be sent
-        // (it won't fail right now because it's bugged, but we check anyway)
         let ready_to_reimburse_txid = ready_to_reimburse_tx.compute_txid();
         // wait until burnunusedkickoffconnectors tx is on chain
         get_txid_where_utxo_is_spent(rpc, OutPoint::new(round_txid, 1))
