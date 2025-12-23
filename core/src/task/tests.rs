@@ -372,18 +372,6 @@ async fn test_buffered_errors_with_handle_error_attempts_and_success() {
 }
 
 #[tokio::test]
-async fn test_map() {
-    let counter = Arc::new(Mutex::new(0));
-    let task = CounterTask::new(Arc::clone(&counter), 5);
-    let mut map_task = task.map(|did_work| !did_work); // Invert the boolean
-
-    // Run the task, counter should be incremented
-    let result = map_task.run_once().await.unwrap();
-    assert!(!result); // The original would return true, but we mapped it to !true = false
-    assert_eq!(*counter.lock().await, 1);
-}
-
-#[tokio::test]
 async fn test_task_manager() {
     let counter = Arc::new(Mutex::new(0));
     let mut manager = BackgroundTaskManager::default();

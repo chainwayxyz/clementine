@@ -938,28 +938,6 @@ impl Database {
             })
             .collect::<Result<Vec<_>, BridgeError>>()
     }
-
-    /// Purges debug information for a successfully sent TX
-    pub async fn purge_tx_debug_info(
-        &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
-        tx_id: u32,
-    ) -> Result<(), BridgeError> {
-        let queries = [
-            "DELETE FROM tx_sender_debug_state_changes WHERE tx_id = $1",
-            "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
-            "DELETE FROM tx_sender_debug_sending_state WHERE tx_id = $1",
-        ];
-
-        for query_str in queries {
-            let query = sqlx::query(query_str)
-                .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
-
-            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
