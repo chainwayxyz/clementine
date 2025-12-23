@@ -46,7 +46,6 @@ use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
 use crate::deposit::DepositData;
 #[cfg(test)]
 use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
