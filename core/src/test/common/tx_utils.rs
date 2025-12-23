@@ -15,7 +15,7 @@ use crate::config::BridgeConfig;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::database::Database;
 use crate::errors::BridgeError;
-use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, MINE_BLOCK_COUNT};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
 use crate::task::{IntoTask, TaskExt};
@@ -61,8 +61,9 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
         Err(_) => true,
         Ok(val) => val.is_some(),
     } {
-        rpc.mine_blocks_while_synced(1, actors, e2e).await?;
-        max_blocks_to_mine -= 1;
+        rpc.mine_blocks_while_synced(MINE_BLOCK_COUNT, actors, e2e)
+            .await?;
+        max_blocks_to_mine -= MINE_BLOCK_COUNT;
 
         if max_blocks_to_mine == 0 {
             bail!(
@@ -245,16 +246,22 @@ pub async fn get_txid_where_utxo_is_spent(
 ) -> Result<Txid, eyre::Error> {
     ensure_outpoint_spent(rpc, utxo).await?;
     let current_height = rpc.get_block_count().await?;
-    let hash = rpc.get_block_hash(current_height).await?;
-    let block = rpc.get_block(&hash).await?;
-    let tx = block
-        .txdata
-        .iter()
-        .find(|txid| txid.input.iter().any(|input| input.previous_output == utxo))
-        .ok_or(eyre::eyre!(
-            "utxo not found in block where utxo was supposedly spent"
-        ))?;
-    Ok(tx.compute_txid())
+    for i in 0..MINE_BLOCK_COUNT {
+        let hash = rpc.get_block_hash(current_height - i).await?;
+        let block = rpc.get_block(&hash).await?;
+        let tx = block
+            .txdata
+            .iter()
+            .find(|txid| txid.input.iter().any(|input| input.previous_output == utxo));
+        if let Some(tx) = tx {
+            return Ok(tx.compute_txid());
+        }
+    }
+    bail!(
+        "utxo {:?} not found in the last {} blocks",
+        utxo,
+        MINE_BLOCK_COUNT
+    );
 }
 
 pub async fn ensure_tx_onchain(rpc: &ExtendedBitcoinRpc, tx: Txid) -> Result<(), eyre::Error> {
@@ -271,7 +278,7 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedBitcoinRpc, tx: Txid) -> Result<(),
             }
 
             // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
-            rpc.mine_blocks(1).await?;
+            rpc.mine_blocks(MINE_BLOCK_COUNT).await?;
             // mine after tx is sent to mempool - with a timeout
             let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
             Ok(false)
@@ -290,7 +297,7 @@ pub async fn ensure_outpoint_spent(
 ) -> Result<(), eyre::Error> {
     poll_until_condition(
         async || {
-            rpc.mine_blocks(1).await?;
+            rpc.mine_blocks(MINE_BLOCK_COUNT).await?;
             rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)
         },
         Some(Duration::from_secs(500)),
