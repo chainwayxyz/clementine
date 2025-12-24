@@ -223,14 +223,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut withdrawal_infos = Vec::new();
 
         tracing::info!("Mining withdrawal utxos");
-        for move_txid in move_txids.iter() {
-            let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(
-                    *move_txid,
-                    &citrea_e2e_data,
-                    &actors,
-                )
-                .await;
+        for (withdrawal_utxo, payout_txout, sig) in
+            get_new_withdrawal_utxo_and_register_to_citrea(&move_txids, &citrea_e2e_data, &actors)
+                .await
+        {
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }
@@ -283,14 +279,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
-        for move_txid in new_move_txids.iter() {
-            let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(
-                    *move_txid,
-                    &citrea_e2e_data,
-                    &actors,
-                )
-                .await;
+        for (withdrawal_utxo, payout_txout, sig) in get_new_withdrawal_utxo_and_register_to_citrea(
+            &new_move_txids,
+            &citrea_e2e_data,
+            &actors,
+        )
+        .await
+        {
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }
