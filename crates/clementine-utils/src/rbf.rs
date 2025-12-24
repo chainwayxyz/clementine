@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// - Not needed for SinglePlusAnyoneCanPay RBF txs.
 /// - Not needed for CPFP.
 /// - Only signs for a keypath spend
-// TODO(perf): Consider adding `#[cfg(any(test, feature = "test-fields"))]` back to
+// Consider adding `#[cfg(any(test, feature = "test-fields"))]` back to
 // `annex` and `additional_taproot_output_count` fields to reduce struct size in production.
 // These fields are only used for testing large transaction scenarios.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]

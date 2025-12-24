@@ -13,6 +13,7 @@ use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
+#[cfg(automation)]
 use crate::tx_sender_ext::TxSenderClientExt;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;

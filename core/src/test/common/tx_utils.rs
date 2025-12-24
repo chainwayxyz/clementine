@@ -18,7 +18,9 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
+#[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient, TxSenderDatabase};
+#[cfg(feature = "automation")]
 use crate::tx_sender_ext::CoreTxBuilder;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
