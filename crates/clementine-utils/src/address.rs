@@ -90,26 +90,6 @@ pub fn create_taproot_address(
     (taproot_address, tree_info)
 }
 
-/// Creates a P2A (anchor) output for Child Pays For Parent (CPFP) fee bumping.
-///
-/// # Returns
-///
-/// A [`TxOut`] with a statically defined script and value, used as an anchor output in protocol transactions. The TxOut is spendable by anyone.
-pub fn anchor_output(amount: Amount) -> TxOut {
-    TxOut {
-        value: amount,
-        script_pubkey: ScriptBuf::from_hex(
-            "51204e45544845524c414e4453424954564d503241414e43484f525749544e455353",
-        )
-        .expect("valid anchor script"),
-    }
-}
-
-/// A non-ephemeral anchor output. It is used in tx's that should have a non-ephemeral anchor.
-/// Because ephemeral anchors force the tx to have 0 fee.
-pub fn non_ephemeral_anchor_output() -> TxOut {
-    anchor_output(Amount::from_sat(240))
-}
 
 /// Creates an OP_RETURN output with the given data slice.
 ///
@@ -133,7 +113,7 @@ pub fn op_return_txout<S: AsRef<[u8]>>(slice: S) -> TxOut {
 pub fn is_p2a_anchor(output: &TxOut) -> bool {
     output.script_pubkey
         == ScriptBuf::from_hex(
-            "51204e45544845524c414e4453424954564d503241414e43484f525749544e455353",
+            "51024e73",
         )
         .expect("valid anchor script")
 }
