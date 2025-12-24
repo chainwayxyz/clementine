@@ -7,7 +7,9 @@ members = [
   # "risc0-circuits/work-only",
   "bridge-circuit-host",
   "crates/clementine-errors",
+  "crates/clementine-primitives",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+
 
 [workspace.package]
 version = "0.6.4"

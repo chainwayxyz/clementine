@@ -11,9 +11,7 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
-    TxHandlerBuilder, DEFAULT_SEQUENCE,
+    ContractContext, DEFAULT_SEQUENCE, KickoffWinternitzKeys, TxHandler, TxHandlerBuilder, create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, create_round_txhandlers
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -22,6 +20,7 @@ use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
 
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
@@ -33,7 +32,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, constants, UTXO};
+use crate::{builder, constants};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
@@ -41,6 +40,8 @@ use bitcoin::{taproot, Address, Amount, BlockHash, OutPoint, ScriptBuf, Transact
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
+use clementine_primitives::UTXO;
+use clementine_primitives::{PublicHash, RoundIndex};
 
 use eyre::{eyre, Context, OptionExt};
 use std::collections::HashMap;
@@ -70,60 +71,6 @@ use {
     },
     circuits_lib::bridge_circuit::structs::LightClientProof,
 };
-
-pub type PublicHash = [u8; 20];
-
-/// Round index is used to represent the round index safely.
-/// Collateral represents the collateral utxo.
-/// Round(index) represents the rounds of the bridge operators, index is 0-indexed.
-/// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
-)]
-pub enum RoundIndex {
-    Collateral,
-    Round(usize), // 0-indexed
-}
-
-impl RoundIndex {
-    /// Converts the round to a 0-indexed index.
-    pub fn to_index(&self) -> usize {
-        match self {
-            RoundIndex::Collateral => 0,
-            RoundIndex::Round(index) => *index + 1,
-        }
-    }
-
-    /// Converts a 0-indexed index to a RoundIndex.
-    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
-    pub fn from_index(index: usize) -> Self {
-        if index == 0 {
-            RoundIndex::Collateral
-        } else {
-            RoundIndex::Round(index - 1)
-        }
-    }
-
-    /// Returns the next RoundIndex.
-    pub fn next_round(&self) -> Self {
-        match self {
-            RoundIndex::Collateral => RoundIndex::Round(0),
-            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
-        }
-    }
-
-    /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
-    /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
-        Self::iter_rounds_range(0, num_rounds)
-    }
-
-    /// Creates an iterator over rounds from start to end (exclusive)
-    /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
-        (start..end).map(RoundIndex::Round)
-    }
-}
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
@@ -2543,11 +2490,11 @@ mod states {
 
     use super::*;
     use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
-        TxHandlerCache,
+        create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
     use crate::states::{block_cache, Duty, Owner, StateManager};
+    use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 

@@ -5,8 +5,6 @@ use bitcoincore_rpc::RpcApi;
 
 use crate::actor::Actor;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::{KickoffId, Outpoints, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
@@ -14,6 +12,7 @@ use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, run_single_deposit,
     test_actors::TestActors,
 };
+use clementine_primitives::{RoundIndex, TransactionType};
 
 #[tokio::test]
 #[cfg(feature = "automation")]
