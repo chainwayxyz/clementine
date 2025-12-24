@@ -11,7 +11,9 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    ContractContext, DEFAULT_SEQUENCE, KickoffWinternitzKeys, TxHandler, TxHandlerBuilder, create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, create_round_txhandlers
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TxHandler, TxHandlerBuilder,
+    DEFAULT_SEQUENCE,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
