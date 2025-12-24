@@ -5,7 +5,7 @@
     output_script_pubkey: ScriptBuf,
     output_amount: Amount,
     signature: PrimitiveSignature,
-) -&gt; <a class="type" href="https://docs.rs/eyre/0.6.12/eyre/type.Result.html" title="type eyre::Result">Result</a>&lt;Address, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Recover the address from the signature
+) -&gt; <a class="type" href="https://docs.rs/eyre/0.6.12/eyre/type.Result.html" title="type eyre::Result">Result</a>&lt;Address, <a class="enum" href="../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Recover the address from the signature
 EIP712 hash is calculated from optimistic payout params
 Signature is the signature of the eip712 hash</p>
 <p>Parameters:</p>

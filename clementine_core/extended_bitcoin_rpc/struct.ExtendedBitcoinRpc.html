@@ -39,7 +39,7 @@ connection attempts for retryable errors using exponential backoff.</p>
     operator_data: &amp;<a class="struct" href="../deposit/struct.OperatorData.html" title="struct clementine_core::deposit::OperatorData">OperatorData</a>,
     kickoff_wpks: &amp;<a class="struct" href="../builder/transaction/struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys">KickoffWinternitzKeys</a>,
     paramset: &amp;'static <a class="struct" href="../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.bool.html">bool</a>, BridgeError&gt;</h4></section></summary><div class="docblock"><p>Checks if an operator’s collateral is valid and available for use.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.bool.html">bool</a>, <a class="enum" href="../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</h4></section></summary><div class="docblock"><p>Checks if an operator’s collateral is valid and available for use.</p>
 <p>This function validates the operator’s collateral by:</p>
 <ol>
 <li>Verifying the collateral UTXO exists and has the correct amount</li>
@@ -58,7 +58,7 @@ connection attempts for retryable errors using exponential backoff.</p>
 </ul>
 <h5 id="errors-1"><a class="doc-anchor" href="#errors-1">§</a>Errors</h5>
 <ul>
-<li>[<code>BridgeError</code>]: If there was an error retrieving transaction data, creating round transactions,
+<li><a href="../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a>: If there was an error retrieving transaction data, creating round transactions,
 or checking UTXO status</li>
 </ul>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.get_blockhash_of_tx" class="method"><a class="src rightside" href="../../src/clementine_core/extended_bitcoin_rpc.rs.html#612-621">Source</a><h4 class="code-header">pub async fn <a href="#method.get_blockhash_of_tx" class="fn">get_blockhash_of_tx</a>(

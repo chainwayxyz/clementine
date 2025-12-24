@@ -3,7 +3,7 @@
     operator_reimbursement_address: &amp;Address,
     challenger_evm_address: <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;EVMAddress&gt;,
     paramset: &amp;'static <a class="struct" href="../../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>challenge</code> transaction.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, <a class="enum" href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>challenge</code> transaction.</p>
 <p>This transaction is used to reimburse an operator for a valid challenge, intended to cover their costs for sending asserts transactions,
 and potentially cover their opportunity cost as their reimbursements are delayed due to the challenge. This cost of a challenge is also
 used to disincentivize sending challenges for kickoffs that are correct. In case the challenge is correct and operator is proved to be
@@ -25,5 +25,5 @@ malicious, the challenge cost will be reimbursed using the operator’s collater
 <li><code>paramset</code> - Protocol parameter set.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the challenge transaction, or a [<code>BridgeError</code>] if construction fails.</p>
+<p>A <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the challenge transaction, or a <a href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
 </div></details></section></div></main></body></html>

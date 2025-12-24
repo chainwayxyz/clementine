@@ -4,7 +4,7 @@
     deposit_data: <a class="struct" href="../../deposit/struct.DepositData.html" title="struct clementine_core::deposit::DepositData">DepositData</a>,
     deposit_blockhash: BlockHash,
     yield_kickoff_txid: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.bool.html">bool</a>,
-) -&gt; impl Stream&lt;Item = <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(TapSighash, <a class="struct" href="struct.SignatureInfo.html" title="struct clementine_core::builder::sighash::SignatureInfo">SignatureInfo</a>), BridgeError&gt;&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Generates the sighash stream for all N-of-N (verifier) signatures required for a deposit. See <a href="https://citrea.xyz/clementine_whitepaper.pdf">clementine whitepaper</a> for details on the transactions.</p>
+) -&gt; impl Stream&lt;Item = <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(TapSighash, <a class="struct" href="struct.SignatureInfo.html" title="struct clementine_core::builder::sighash::SignatureInfo">SignatureInfo</a>), <a class="enum" href="../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Generates the sighash stream for all N-of-N (verifier) signatures required for a deposit. See <a href="https://citrea.xyz/clementine_whitepaper.pdf">clementine whitepaper</a> for details on the transactions.</p>
 <p>For a given deposit, for each operator and round, generates the sighash stream for all protocol-required transactions.
 If <code>yield_kickoff_txid</code> is true, yields the kickoff txid as a special entry.</p>
 <h2 id="arguments"><a class="doc-anchor" href="#arguments">§</a>Arguments</h2>
@@ -16,5 +16,5 @@ If <code>yield_kickoff_txid</code> is true, yields the kickoff txid as a special
 <li><code>yield_kickoff_txid</code> - Whether to yield the kickoff txid as a special entry.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>An async stream of ([<code>TapSighash</code>], <a href="struct.SignatureInfo.html" title="struct clementine_core::builder::sighash::SignatureInfo"><code>SignatureInfo</code></a>) pairs, or [<code>BridgeError</code>] on failure.</p>
+<p>An async stream of ([<code>TapSighash</code>], <a href="struct.SignatureInfo.html" title="struct clementine_core::builder::sighash::SignatureInfo"><code>SignatureInfo</code></a>) pairs, or <a href="../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a> on failure.</p>
 </div></details></section></div></main></body></html>

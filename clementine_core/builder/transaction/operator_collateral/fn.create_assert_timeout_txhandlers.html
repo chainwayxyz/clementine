@@ -3,7 +3,7 @@
     round_txhandler: &amp;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>,
     num_asserts: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.usize.html">usize</a>,
     paramset: &amp;'static <a class="struct" href="../../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&gt;, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for <code>assert_timeout_tx</code> transactions.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>&gt;, <a class="enum" href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for <code>assert_timeout_tx</code> transactions.</p>
 <p>These transactions can be sent by anyone if the operator did not send their asserts in time, burning their burn connector and kickoff finalizer.</p>
 <h2 id="inputs"><a class="doc-anchor" href="#inputs">§</a>Inputs</h2>
 <ol>
@@ -23,5 +23,5 @@
 <li><code>paramset</code> - Protocol parameter set.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for all assert timeout transactions, or a [<code>BridgeError</code>] if construction fails.</p>
+<p>A vector of <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for all assert timeout transactions, or a <a href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
 </div></details></section></div></main></body></html>

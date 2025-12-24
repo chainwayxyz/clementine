@@ -5,7 +5,7 @@
     index: RoundIndex,
     pubkeys: &amp;<a class="struct" href="../struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys">KickoffWinternitzKeys</a>,
     paramset: &amp;'static <a class="struct" href="../../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, <a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>), BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates the nth (1-indexed) <code>round_txhandler</code> and <code>reimburse_generator_txhandler</code> pair for a specific operator.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, <a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>), <a class="enum" href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates the nth (1-indexed) <code>round_txhandler</code> and <code>reimburse_generator_txhandler</code> pair for a specific operator.</p>
 <h2 id="arguments"><a class="doc-anchor" href="#arguments">§</a>Arguments</h2>
 <ul>
 <li><code>operator_xonly_pk</code> - The operator’s x-only public key.</li>
@@ -16,5 +16,5 @@
 <li><code>paramset</code> - Protocol parameter set.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A tuple of (<code>TxHandler</code> for the round, <code>TxHandler</code> for ready-to-reimburse), or a [<code>BridgeError</code>] if construction fails.</p>
+<p>A tuple of (<code>TxHandler</code> for the round, <code>TxHandler</code> for ready-to-reimburse), or a <a href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
 </div></details></section></div></main></body></html>
