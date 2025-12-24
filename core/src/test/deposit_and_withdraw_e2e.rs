@@ -262,7 +262,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let new_op_sk = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
         let new_verifier_index = actors.num_total_verifiers - 1;
         actors
-            .add_operator(new_op_sk, new_verifier_index)
+            .add_operator(new_op_sk, new_verifier_index, None, None)
             .await
             .unwrap();
 
