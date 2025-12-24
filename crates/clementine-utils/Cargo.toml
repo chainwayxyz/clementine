@@ -16,3 +16,4 @@ bitcoin = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
 eyre = { workspace = true }
+secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }

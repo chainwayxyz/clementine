@@ -808,25 +808,6 @@ mod tests {
         use secrecy::SecretString;
 
         #[tokio::test]
-        async fn test_rpc_call_retry_with_invalid_credentials() {
-            let mut config = create_test_config_with_thread_name().await;
-            let regtest = create_regtest_rpc(&mut config).await;
-
-            // Get a working connection first
-            let _working_rpc = regtest.rpc();
-            let url = config.bitcoin_rpc_url.clone();
-
-            // Create connection with invalid credentials
-            let invalid_user = SecretString::new("invalid_user".to_string().into());
-            let invalid_password = SecretString::new("invalid_password".to_string().into());
-
-            let res = ExtendedBitcoinRpc::connect(url, invalid_user, invalid_password, None).await;
-
-            assert!(res.is_err());
-            assert!(!res.unwrap_err().is_retryable());
-        }
-
-        #[tokio::test]
         async fn test_rpc_call_retry_with_invalid_host() {
             let user = SecretString::new("user".to_string().into());
             let password = SecretString::new("password".to_string().into());

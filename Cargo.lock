@@ -2218,6 +2218,7 @@ dependencies = [
  "clementine-errors",
  "clementine-extended-rpc",
  "clementine-primitives",
+ "clementine-tx-sender",
  "clementine-utils",
  "color-eyre",
  "ctor",
@@ -2316,9 +2317,37 @@ name = "clementine-primitives"
 version = "0.6.4"
 dependencies = [
  "bitcoin",
+ "eyre",
  "hex",
+ "lazy_static",
+ "secp256k1 0.31.0",
  "serde",
  "sqlx",
+]
+
+[[package]]
+name = "clementine-tx-sender"
+version = "0.6.4"
+dependencies = [
+ "async-trait",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "clementine-config",
+ "clementine-errors",
+ "clementine-extended-rpc",
+ "clementine-primitives",
+ "clementine-utils",
+ "eyre",
+ "hex",
+ "rand 0.8.5",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -2329,6 +2358,7 @@ dependencies = [
  "clementine-errors",
  "clementine-primitives",
  "eyre",
+ "secp256k1 0.31.0",
  "serde",
  "sqlx",
 ]

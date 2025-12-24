@@ -274,7 +274,7 @@ pub async fn disprove_tests_common_setup(
     tx_sender
         .client()
         .insert_try_to_send(
-            &mut db_commit,
+            Some(&mut db_commit),
             None,
             &challenge_tx,
             FeePayingType::RBF,

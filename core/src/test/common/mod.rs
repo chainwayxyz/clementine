@@ -729,7 +729,7 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     tx_sender
         .client()
         .insert_try_to_send(
-            &mut db_commit,
+            Some(&mut db_commit),
             None,
             &signed_replacement_deposit_tx,
             FeePayingType::CPFP,

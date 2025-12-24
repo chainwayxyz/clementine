@@ -130,13 +130,14 @@ pub mod operator;
 pub mod rpc;
 pub mod servers;
 pub mod task;
+pub mod tx_sender_ext;
 pub mod utils;
 pub mod verifier;
 
 #[cfg(feature = "automation")]
 pub mod states;
 #[cfg(feature = "automation")]
-pub mod tx_sender;
+pub use clementine_tx_sender as tx_sender;
 
 #[cfg(test)]
 pub mod test;

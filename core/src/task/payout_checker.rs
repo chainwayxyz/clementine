@@ -99,7 +99,7 @@ where
             .await?;
 
         #[cfg(feature = "automation")]
-        self.operator.end_round(&mut dbtx).await?;
+        self.operator.end_round(Some(&mut dbtx)).await?;
 
         self.db
             .mark_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)

@@ -23,7 +23,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn save_state_machines(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         kickoff_machines: Vec<(String, String)>,
         round_machines: Vec<(String, XOnlyPublicKey)>,
         block_height: i32,
@@ -114,7 +114,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn get_next_height_to_process(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Option<i32>, BridgeError> {
         let query = sqlx::query_as(
@@ -140,7 +140,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_kickoff_machines(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Vec<(String, String, i32)>, BridgeError> {
         let query = sqlx::query_as(
@@ -170,7 +170,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_round_machines(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Vec<(String, XOnlyPublicKey, i32)>, BridgeError> {
         let query = sqlx::query_as(

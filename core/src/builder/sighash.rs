@@ -33,7 +33,7 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
-use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
+use bitcoin::{TapSighash, XOnlyPublicKey};
 use clementine_errors::BridgeError;
 use clementine_errors::TransactionType;
 use clementine_primitives::RoundIndex;
@@ -133,15 +133,8 @@ pub struct PartialSignatureInfo {
     pub kickoff_utxo_idx: usize,
 }
 
-/// Contains information about the spend path that is needed to sign the utxo.
-/// If it is KeyPath, it also includes the merkle root hash of the scripts as
-/// the root hash is needed to tweak the key before signing. For ScriptPath nothing is needed.
-#[derive(Copy, Clone, Debug)]
-pub enum TapTweakData {
-    KeyPath(Option<TapNodeHash>),
-    ScriptPath,
-    Unknown,
-}
+/// information about the spend path that is needed to sign the utxo.
+pub use clementine_utils::TapTweakData;
 
 /// Contains information to uniquely identify a single signature in the deposit.
 /// operator_idx, round_idx, and kickoff_utxo_idx uniquely identify a kickoff.

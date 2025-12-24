@@ -10,4 +10,7 @@ bitcoin = { workspace = true }
 serde = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 sqlx = { workspace = true, features = ["derive"] }
+lazy_static = { workspace = true }
+secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
+eyre = { workspace = true }
 

@@ -94,7 +94,7 @@ pub async fn create_and_sign_txs(
     config: BridgeConfig,
     context: ContractContext,
     block_hash: Option<[u8; 20]>, //to sign kickoff
-    dbtx: Option<DatabaseTransaction<'_, '_>>,
+    dbtx: Option<DatabaseTransaction<'_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     let txhandlers = builder::transaction::create_txhandlers(
         match context.is_context_for_kickoff() {
@@ -233,7 +233,7 @@ where
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<(TransactionType, Transaction, RbfSigningInfo), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -336,7 +336,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -425,7 +425,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         commit_data: Vec<Vec<Vec<u8>>>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -508,7 +508,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         block_hash: BlockHash,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         let deposit_data = self
             .db

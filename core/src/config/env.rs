@@ -255,6 +255,7 @@ impl BridgeConfig {
 mod tests {
     use secrecy::ExposeSecret;
 
+    use crate::config::protocol::ProtocolParamsetExt;
     use crate::config::{
         protocol::{ProtocolParamset, REGTEST_PARAMSET},
         BridgeConfig,

@@ -331,6 +331,13 @@ impl BridgeConfig {
 
         Ok(())
     }
+
+    pub fn mempool_config(&self) -> clementine_tx_sender::MempoolConfig {
+        clementine_tx_sender::MempoolConfig {
+            host: self.mempool_api_host.clone(),
+            endpoint: self.mempool_api_endpoint.clone(),
+        }
+    }
 }
 
 // only needed for one test

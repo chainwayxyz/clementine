@@ -1,7 +1,7 @@
 //! Extended Bitcoin RPC client with retry logic.
 
 use async_trait::async_trait;
-use bitcoin::{Amount, FeeRate, Network, OutPoint, TxOut, Txid};
+use bitcoin::{Address, Amount, FeeRate, Network, OutPoint, TxOut, Txid};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use clementine_errors::{BitcoinRPCError, FeeErr};
 use eyre::{eyre, Context, OptionExt};
@@ -10,14 +10,11 @@ use secrecy::{ExposeSecret, SecretString};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tokio_retry::RetryIf;
 
 pub use crate::retry::{RetryConfig, RetryableError};
-
-#[cfg(any(test, feature = "test-utils"))]
-use bitcoin::Address;
-use tokio::sync::RwLock;
 
 /// Result type for RPC operations.
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
@@ -425,7 +422,7 @@ impl ExtendedBitcoinRpc {
             }
         };
 
-        let address = Address::from_str(&address)
+        let address = Address::from_str(address.as_str())
             .wrap_err("Invalid address format")?
             .assume_checked();
         let blocks = self

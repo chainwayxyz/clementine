@@ -1,0 +1,31 @@
+[package]
+name = "clementine-tx-sender"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+bitcoin = { workspace = true, features = ["serde"] }
+bitcoincore-rpc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+eyre = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
+
+clementine-errors = { path = "../clementine-errors" }
+clementine-primitives = { path = "../clementine-primitives" }
+clementine-config = { path = "../clementine-config" }
+clementine-utils = { path = "../clementine-utils" }
+clementine-extended-rpc = { path = "../clementine-extended-rpc" }
+
+[dev-dependencies]
+wiremock = "0.5"
+rand = { workspace = true }
+secrecy = { workspace = true }

@@ -11,6 +11,7 @@ members = [
   "crates/clementine-config",
   "crates/clementine-utils",
   "crates/clementine-extended-rpc",
+  "crates/clementine-tx-sender",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 
