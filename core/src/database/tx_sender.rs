@@ -4,7 +4,6 @@
 
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
-    errors::BridgeError,
     execute_query_with_tx,
     tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
     utils::{FeePayingType, RbfSigningInfo, TxMetadata},
@@ -13,6 +12,7 @@ use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
+use clementine_errors::BridgeError;
 use eyre::{Context, OptionExt};
 use sqlx::Executor;
 use std::ops::DerefMut;

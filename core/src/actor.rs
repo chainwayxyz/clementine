@@ -5,9 +5,9 @@ use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
+use crate::builder::transaction::TxError;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::{BridgeError, TxError};
 use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
@@ -26,19 +26,12 @@ use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz;
 #[cfg(test)]
 use bitvm::signatures::winternitz::{BinarysearchVerifier, ToBytesConverter, Winternitz};
+use clementine_errors::BridgeError;
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
-pub enum VerificationError {
-    #[error("Invalid hex")]
-    InvalidHex,
-    #[error("Invalid length")]
-    InvalidLength,
-    #[error("Invalid signature")]
-    InvalidSignature,
-}
+pub use clementine_errors::VerificationError;
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
