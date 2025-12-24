@@ -525,6 +525,10 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
                 let entry = rpc_clone.get_mempool_entry(&fee_payer.0).await;
 
                 if entry.is_err() {
+                    // if fee payer is already onchain, skip
+                    if rpc_clone.is_tx_on_chain(&fee_payer.0).await? {
+                        continue;
+                    }
                     tracing::error!(
                         "Fee payer utxo with txid of {} is not in mempool: {:?}",
                         fee_payer.0,
