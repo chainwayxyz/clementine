@@ -16,7 +16,6 @@
 //! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::config::BridgeConfig;
-use crate::errors::ResultExt;
 use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
@@ -28,6 +27,7 @@ use crate::{
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
+use clementine_errors::ResultExt;
 use eyre::OptionExt;
 
 #[cfg(test)]
@@ -90,22 +90,7 @@ pub struct ActivatedWithOutpoint {
     pub relative_block_height: u32,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum SendTxError {
-    #[error("Unconfirmed fee payer UTXOs left")]
-    UnconfirmedFeePayerUTXOsLeft,
-    #[error("Insufficient fee payer amount")]
-    InsufficientFeePayerAmount,
-
-    #[error("Failed to create a PSBT for fee bump")]
-    PsbtError(String),
-
-    #[error("Network error: {0}")]
-    NetworkError(String),
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::SendTxError;
 
 type Result<T> = std::result::Result<T, SendTxError>;
 
@@ -361,6 +346,7 @@ impl TxSender {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
     }
@@ -432,13 +418,13 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::config::protocol::ProtocolParamset;
-    use crate::errors::BridgeError;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::task::{IntoTask, TaskExt};
     use crate::test::common::tx_utils::{create_bg_tx_sender, create_bumpable_tx};
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::SecretKey;
+    use clementine_errors::BridgeError;
     use serde_json::json;
     use std::ops::Mul;
     use std::result::Result;

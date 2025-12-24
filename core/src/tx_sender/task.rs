@@ -9,14 +9,14 @@
 //! and not in the [`Bitcoin Syncer`](crate::bitcoin_syncer) database.
 
 use super::TxSender;
-use crate::errors::ResultExt;
 use crate::task::{IgnoreError, TaskVariant, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
-    errors::BridgeError,
     task::{IntoTask, Task, TaskExt},
 };
+use clementine_errors::BridgeError;
+use clementine_errors::ResultExt;
 use std::time::Duration;
 use tonic::async_trait;
 

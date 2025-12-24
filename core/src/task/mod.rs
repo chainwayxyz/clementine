@@ -5,7 +5,7 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::sleep;
 use tonic::async_trait;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 pub mod aggregator_metric_publisher;
 pub mod entity_metric_publisher;
@@ -283,28 +283,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct Map<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> {
-    inner: T,
-    map: F,
-}
-
-#[async_trait]
-impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Task for Map<T, F> {
-    type Output = T::Output;
-    const VARIANT: TaskVariant = T::VARIANT;
-
-    #[track_caller]
-    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let result = self.inner.run_once().await;
-        let output = match result {
-            Ok(output) => (self.map)(output),
-            Err(e) => return Err(e),
-        };
-        Ok(output)
-    }
-}
-
 /// A task that ignores errors from the inner task and returns a default value.
 #[derive(Debug)]
 pub struct IgnoreError<T: Task + Sized>
@@ -364,12 +342,6 @@ pub trait TaskExt: Task + Sized {
         Self: RecoverableTask,
         Self::Output: Default;
 
-    /// Maps the task's `Ok()` output using the given function.
-    fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
-        self,
-        map: F,
-    ) -> Map<Self, F>;
-
     /// Ignores errors from the task.
     fn ignore_error(self) -> IgnoreError<Self>
     where
@@ -421,13 +393,6 @@ impl<T: Task + Sized> TaskExt for T {
             handle_error_attempts,
             wait_between_recover_attempts,
         )
-    }
-
-    fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
-        self,
-        map: F,
-    ) -> Map<Self, F> {
-        Map { inner: self, map }
     }
 
     fn ignore_error(self) -> IgnoreError<Self>

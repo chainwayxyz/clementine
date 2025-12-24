@@ -8,12 +8,13 @@ use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
-    actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
+    actor::Actor, builder, config::BridgeConfig, database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_errors::BridgeError;
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 

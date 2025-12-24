@@ -5,9 +5,9 @@
 
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::errors::BridgeError;
 use crate::utils::delayed_panic;
 use clap::Parser;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::env;
 use std::path::PathBuf;
@@ -54,19 +54,6 @@ pub enum Command {
     TestActor,
     /// Generate BitVM cache files
     GenerateBitvmCache,
-}
-
-impl Command {
-    /// Get the actor type if this is an actor command, None for utility commands
-    pub fn actor(&self) -> Option<Actor> {
-        match self {
-            Command::Verifier => Some(Actor::Verifier),
-            Command::Operator => Some(Actor::Operator),
-            Command::Aggregator => Some(Actor::Aggregator),
-            Command::TestActor => Some(Actor::TestActor),
-            Command::GenerateBitvmCache => None,
-        }
-    }
 }
 
 /// Parse given iterator with our clap Args and handle help/version cases.
@@ -257,7 +244,7 @@ fn get_config_from_args(args: Args) -> Result<BridgeConfig, BridgeError> {
 #[cfg(test)]
 mod tests {
     use super::{get_config_from_args, get_config_source, parse_cli_args, Command, ConfigSource};
-    use crate::errors::BridgeError;
+    use clementine_errors::BridgeError;
     use std::env;
     use std::fs::File;
     use std::io::Write;

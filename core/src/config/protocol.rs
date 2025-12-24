@@ -1,11 +1,11 @@
 use crate::config::env::read_string_from_env_then_parse;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
-use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use bridge_circuit_host::utils::is_dev_mode;
 use circuits_lib::bridge_circuit::constants::{
     DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
 };
+use clementine_errors::BridgeError;
 use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -15,8 +15,10 @@ use std::str::FromStr;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
+#[cfg(test)]
 pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
 
+#[cfg(test)]
 pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
@@ -328,6 +330,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+#[cfg(test)]
 pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
     num_round_txs: 2,

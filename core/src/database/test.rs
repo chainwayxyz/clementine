@@ -2,10 +2,10 @@ use crate::database::DatabaseTransaction;
 use crate::utils::TxMetadata;
 use crate::{
     database::{Database, TxidDB},
-    errors::BridgeError,
     execute_query_with_tx,
 };
 use bitcoin::{Amount, FeeRate, Txid};
+use clementine_errors::BridgeError;
 use eyre::Context;
 
 impl Database {

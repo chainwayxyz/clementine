@@ -9,8 +9,8 @@ use tokio::sync::Mutex;
 use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
-    errors::BridgeError,
 };
+use clementine_errors::BridgeError;
 
 use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
 

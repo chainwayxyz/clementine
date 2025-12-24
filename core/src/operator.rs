@@ -16,8 +16,8 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use clementine_errors::BridgeError;
 
 use crate::metrics::L1SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, StoppedTasks};
@@ -67,7 +67,6 @@ use {
     std::collections::HashMap,
 };
 
-pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20];
 
 /// Round index is used to represent the round index safely.
@@ -258,10 +257,6 @@ where
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
         })
-    }
-
-    pub async fn shutdown(&mut self) {
-        self.background_tasks.graceful_shutdown().await;
     }
 }
 

@@ -6,9 +6,9 @@ use crate::{
         default_grpc_limits, default_tx_sender_limits, GrpcLimits, TelemetryConfig, TxSenderLimits,
     },
     deposit::SecurityCouncil,
-    errors::BridgeError,
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
