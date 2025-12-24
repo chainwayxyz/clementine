@@ -12,9 +12,7 @@ use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
 use clementine_errors::{BridgeError, ResultExt as _, RoundIndex, TransactionType};
 use clementine_primitives::NON_STANDARD_V3;
 use clementine_tx_sender::client::TxSenderClient;
-use clementine_tx_sender::{
-    TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder, DEFAULT_SEQUENCE,
-};
+use clementine_tx_sender::{TxSender, TxSenderSigner, TxSenderTxBuilder, DEFAULT_SEQUENCE};
 use clementine_utils::FeePayingType;
 use tonic::async_trait;
 

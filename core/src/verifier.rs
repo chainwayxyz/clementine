@@ -1897,7 +1897,7 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    &self.config.protocol_paramset(),
+                    self.config.protocol_paramset(),
                     Some(rbf_info),
                 )
                 .await?;
@@ -2753,7 +2753,7 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &self.config.protocol_paramset(),
+                self.config.protocol_paramset(),
                 None,
             )
             .await?;

@@ -1179,7 +1179,6 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
     ) -> Result<Option<clementine_primitives::BitcoinSyncerEvent>, BridgeError> {
         self.fetch_next_bitcoin_syncer_evt(tx, consumer_handle)
             .await
-            .map(|opt| opt.map(Into::into))
     }
 
     async fn get_block_info_from_id(

@@ -947,8 +947,7 @@ impl Aggregator {
                 &[],
                 &[],
             )
-            .await
-            .map_err(BridgeError::from)?;
+            .await?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
@@ -1237,7 +1236,7 @@ impl ClementineAggregator for AggregatorServer {
                         opt_payout_tx,
                         &[],
                         None,
-                        &self.config.protocol_paramset(),
+                        self.config.protocol_paramset(),
                         None,
                     )
                     .await

@@ -1239,7 +1239,7 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(dbtx.as_deref_mut(), current_round_index.next_round())
+            .update_current_round_index(dbtx, current_round_index.next_round())
             .await?;
 
         Ok(())
@@ -1650,7 +1650,7 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    &self.config.protocol_paramset(),
+                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -1691,7 +1691,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                dbtx.as_deref_mut(),
+                dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -1702,7 +1702,7 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
-                &self.config.protocol_paramset(),
+                self.config.protocol_paramset(),
                 None,
             )
             .await?;
