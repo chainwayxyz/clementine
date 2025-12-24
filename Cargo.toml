@@ -8,6 +8,9 @@ members = [
   "bridge-circuit-host",
   "crates/clementine-errors",
   "crates/clementine-primitives",
+  "crates/clementine-config",
+  "crates/clementine-utils",
+  "crates/clementine-extended-rpc",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 

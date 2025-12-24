@@ -13,7 +13,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::database::Database;
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, MINE_BLOCK_COUNT};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _, MINE_BLOCK_COUNT};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
 use crate::task::{IntoTask, TaskExt};

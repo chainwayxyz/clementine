@@ -286,14 +286,13 @@ where
 
         let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
 
+        // The annex and additional_taproot_output_count fields are only used for testing.
+        // Consider using cfg(test) if struct size optimization is needed.
         #[cfg(test)]
-        let mut annex: Option<Vec<u8>> = None;
+        let (annex, additional_taproot_output_count) = {
+            let mut annex: Option<Vec<u8>> = None;
+            let mut additional_taproot_output_count = None;
 
-        #[cfg(test)]
-        let mut additional_taproot_output_count = None;
-
-        #[cfg(test)]
-        {
             if self.config.test_params.use_small_annex {
                 annex = Some(vec![80u8; 10000]);
             } else if self.config.test_params.use_large_annex {
@@ -304,7 +303,11 @@ where
             } else if self.config.test_params.use_large_output {
                 additional_taproot_output_count = Some(2300);
             }
-        }
+            (annex, additional_taproot_output_count)
+        };
+
+        #[cfg(not(test))]
+        let (annex, additional_taproot_output_count) = (None, None);
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
@@ -312,9 +315,7 @@ where
             RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: merkle_root,
-                #[cfg(test)]
                 annex,
-                #[cfg(test)]
                 additional_taproot_output_count,
             },
         ))

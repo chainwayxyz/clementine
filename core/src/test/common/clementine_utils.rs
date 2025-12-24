@@ -5,6 +5,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::extended_bitcoin_rpc::TestRpcExtensions as _;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{
     OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
