@@ -12,8 +12,6 @@ use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::{DEFAULT_CHANNEL_SIZE, RESTART_BACKGROUND_TASKS_TIMEOUT};
 use crate::deposit::DepositData;
-use crate::errors::BridgeError;
-use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
@@ -25,6 +23,8 @@ use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use clementine_errors::BridgeError;
+use clementine_errors::ResultExt;
 use eyre::Context;
 use futures::TryFutureExt;
 use std::convert::TryInto;

@@ -2,10 +2,10 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::config::BridgeConfig;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
-use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::primitives::U256;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
@@ -19,6 +19,7 @@ use citrea_e2e::{
     framework::TestFramework,
     node::{Node, NodeKind},
 };
+use clementine_errors::BridgeError;
 pub use client_mock::*;
 use eyre::Context;
 use jsonrpsee::http_client::HttpClient;

@@ -13,6 +13,7 @@
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::Amount;
+#[cfg(test)]
 use bitcoin::BlockHash;
 use bitcoin::FeeRate;
 use bitcoin::Network;
@@ -47,8 +48,8 @@ use crate::builder::transaction::TransactionType;
 use crate::builder::transaction::TxHandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
-use crate::errors::{BridgeError, FeeErr};
 use crate::operator::RoundIndex;
+use clementine_errors::{BridgeError, FeeErr};
 
 #[cfg(test)]
 use crate::test::common::citrea::CitreaE2EData;
@@ -276,21 +277,7 @@ impl std::fmt::Debug for ExtendedBitcoinRpc {
     }
 }
 
-/// Errors that can occur during Bitcoin RPC operations.
-#[derive(Debug, thiserror::Error)]
-pub enum BitcoinRPCError {
-    #[error("Failed to bump fee for Txid of {0} and feerate of {1}")]
-    BumpFeeError(Txid, FeeRate),
-    #[error("Failed to bump fee: UTXO is already spent")]
-    BumpFeeUTXOSpent(OutPoint),
-    #[error("Transaction is already in block: {0}")]
-    TransactionAlreadyInBlock(BlockHash),
-    #[error("Transaction is not confirmed")]
-    TransactionNotConfirmed,
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::BitcoinRPCError;
 
 impl ExtendedBitcoinRpc {
     /// Connects to Bitcoin RPC server with built-in retry mechanism.
