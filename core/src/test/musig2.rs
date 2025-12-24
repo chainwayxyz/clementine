@@ -2,7 +2,7 @@ use crate::bitvm_client::SECP;
 use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
@@ -20,6 +20,7 @@ use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
 use secp256k1::musig::AggregatedNonce;
 use std::sync::Arc;
 

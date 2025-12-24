@@ -26,8 +26,7 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
-            DEFAULT_SEQUENCE,
+            input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
@@ -37,6 +36,7 @@ use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use clementine_errors::{ErrorExt, ResultExt};
+use clementine_primitives::TransactionType;
 use eyre::eyre;
 use eyre::Context;
 use std::collections::HashSet;

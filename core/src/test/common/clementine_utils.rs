@@ -2,7 +2,6 @@
 
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
@@ -18,6 +17,7 @@ use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
@@ -244,7 +244,7 @@ pub async fn disprove_tests_common_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: crate::operator::RoundIndex::Round(0),
+                round_idx: clementine_primitives::RoundIndex::Round(0),
                 kickoff_idx: kickoff_idx as u32,
             }
             .into(),

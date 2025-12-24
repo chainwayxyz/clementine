@@ -8,7 +8,6 @@ use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
-    builder::transaction::TransactionType,
     config::BridgeConfig,
     deposit::SecurityCouncil,
     rpc::clementine::{
@@ -17,8 +16,9 @@ use clementine_core::{
         Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
         SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
     },
-    EVMAddress,
 };
+use clementine_errors::TransactionType;
+use clementine_primitives::EVMAddress;
 use tonic::Request;
 
 #[derive(Parser)]

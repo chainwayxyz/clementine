@@ -25,7 +25,6 @@ use crate::rpc::clementine::{
     SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
-use crate::EVMAddress;
 use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
@@ -33,6 +32,7 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use clementine_errors::BridgeError;
+use clementine_primitives::EVMAddress;
 use eyre::Context;
 pub use setup_utils::*;
 use std::path::Path;

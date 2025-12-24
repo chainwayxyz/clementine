@@ -4,13 +4,11 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::TransactionType;
 use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
@@ -18,6 +16,8 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use clementine_errors::BridgeError;
+use clementine_errors::TransactionType;
+use clementine_primitives::RoundIndex;
 use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
