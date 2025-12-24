@@ -90,7 +90,6 @@ pub fn create_taproot_address(
     (taproot_address, tree_info)
 }
 
-
 /// Creates an OP_RETURN output with the given data slice.
 ///
 /// # Arguments
@@ -111,9 +110,5 @@ pub fn op_return_txout<S: AsRef<[u8]>>(slice: S) -> TxOut {
 
 /// Helper function to check if a TxOut is a P2A anchor.
 pub fn is_p2a_anchor(output: &TxOut) -> bool {
-    output.script_pubkey
-        == ScriptBuf::from_hex(
-            "51024e73",
-        )
-        .expect("valid anchor script")
+    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid anchor script")
 }
