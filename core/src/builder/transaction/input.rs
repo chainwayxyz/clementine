@@ -15,9 +15,6 @@ use bitcoin::{
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
 };
 use std::sync::Arc;
-use thiserror::Error;
-
-pub type BlockHeight = u16;
 
 #[derive(Debug, Clone)]
 /// Represents a spendable transaction input, including previous output, scripts, and Taproot spend info.
@@ -31,20 +28,7 @@ pub struct SpendableTxIn {
     spendinfo: Option<TaprootSpendInfo>,
 }
 
-#[derive(Clone, Debug, Error, PartialEq)]
-/// Error type for spendable input construction and validation.
-pub enum SpendableTxInError {
-    #[error(
-        "The taproot spend info contains an incomplete merkle proof map. Some scripts are missing."
-    )]
-    IncompleteMerkleProofMap,
-
-    #[error("The script_pubkey of the previous output does not match the expected script_pubkey for the taproot spending information.")]
-    IncorrectScriptPubkey,
-
-    #[error("Error creating a spendable txin: {0}")]
-    Error(String),
-}
+pub use clementine_errors::SpendableTxInError;
 
 #[derive(Debug, Clone, Copy)]
 /// Enumerates protocol-specific UTXO output indices for transaction construction.
@@ -183,13 +167,6 @@ impl SpendableTxIn {
     /// Returns a reference to the Taproot spend info for this input, if any.
     pub fn get_spend_info(&self) -> &Option<TaprootSpendInfo> {
         &self.spendinfo
-    }
-
-    /// Sets the Taproot spend info for this input.
-    pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
-        self.spendinfo = spendinfo;
-        #[cfg(debug_assertions)]
-        self.check().expect("spendinfo is invalid in debug mode");
     }
 
     /// Checks the validity of the spendable input, ensuring script pubkey and merkle proof map are correct.

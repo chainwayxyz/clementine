@@ -2,7 +2,8 @@ use eyre::OptionExt;
 use tokio::time::Duration;
 use tonic::async_trait;
 
-use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
+use crate::{citrea::CitreaClientT, database::Database, operator::Operator};
+use clementine_errors::BridgeError;
 
 use super::{Task, TaskVariant};
 

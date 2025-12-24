@@ -9,11 +9,11 @@ use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
-use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use crate::{builder, EVMAddress};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
+use clementine_errors::BridgeError;
 use eyre::Context;
 
 use self::input::UtxoVout;

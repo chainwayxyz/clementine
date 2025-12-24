@@ -13,10 +13,12 @@
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::Amount;
+#[cfg(test)]
 use bitcoin::BlockHash;
 use bitcoin::FeeRate;
 use bitcoin::Network;
 use bitcoin::OutPoint;
+#[cfg(test)]
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
 use bitcoin::Txid;
@@ -46,8 +48,8 @@ use crate::builder::transaction::TransactionType;
 use crate::builder::transaction::TxHandler;
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
-use crate::errors::{BridgeError, FeeErr};
 use crate::operator::RoundIndex;
+use clementine_errors::{BridgeError, FeeErr};
 
 #[cfg(test)]
 use crate::test::common::citrea::CitreaE2EData;
@@ -275,21 +277,7 @@ impl std::fmt::Debug for ExtendedBitcoinRpc {
     }
 }
 
-/// Errors that can occur during Bitcoin RPC operations.
-#[derive(Debug, thiserror::Error)]
-pub enum BitcoinRPCError {
-    #[error("Failed to bump fee for Txid of {0} and feerate of {1}")]
-    BumpFeeError(Txid, FeeRate),
-    #[error("Failed to bump fee: UTXO is already spent")]
-    BumpFeeUTXOSpent(OutPoint),
-    #[error("Transaction is already in block: {0}")]
-    TransactionAlreadyInBlock(BlockHash),
-    #[error("Transaction is not confirmed")]
-    TransactionNotConfirmed,
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::BitcoinRPCError;
 
 impl ExtendedBitcoinRpc {
     /// Connects to Bitcoin RPC server with built-in retry mechanism.
@@ -403,6 +391,7 @@ impl ExtendedBitcoinRpc {
     ///
     /// - [`BitcoinRPCError`]: If the transaction is not confirmed (0) or if
     ///   there was an error retrieving the transaction info.
+    #[cfg(test)]
     pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32> {
         let raw_tx_res = self
             .get_raw_transaction_info(txid, None)
@@ -720,6 +709,7 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// - [`bool`]: `true` if the UTXO has the expected address and amount, `false` otherwise.
+    #[cfg(test)]
     pub async fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
@@ -931,6 +921,7 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// - [`usize`]: The number of transactions in the mempool.
+    #[cfg(test)]
     pub async fn mempool_size(&self) -> Result<usize> {
         let mempool_info = self
             .get_mempool_info()
@@ -1153,6 +1144,7 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// - [`ExtendedBitcoinRpc`]: A new instance of ExtendedBitcoinRpc with a new client connection.
+    #[cfg(test)]
     pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
         Ok(Self {
             url: self.url.clone(),

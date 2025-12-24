@@ -3,10 +3,10 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, errors::BridgeError,
-    execute_query_with_tx,
+    bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, execute_query_with_tx,
 };
 use bitcoin::{BlockHash, OutPoint, Txid};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use std::ops::DerefMut;
 
@@ -257,6 +257,7 @@ impl Database {
     }
 
     /// Gets all the txids that are contained in the block with the given id
+    #[cfg(test)]
     pub async fn get_block_txids(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

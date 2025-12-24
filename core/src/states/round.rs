@@ -7,9 +7,10 @@ use crate::deposit::OperatorData;
 use crate::operator::RoundIndex;
 use crate::{
     builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
-    errors::{BridgeError, TxError},
+    errors::TxError,
 };
 use bitcoin::OutPoint;
+use clementine_errors::BridgeError;
 use serde_with::serde_as;
 
 use super::{
