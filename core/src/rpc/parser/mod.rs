@@ -1,6 +1,6 @@
 use super::clementine::{
-    self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
-    TransactionRequest, WinternitzPubkey,
+    self, DepositParams, FeeType, Outpoint, RawSignedTx, SchnorrSig, TransactionRequest,
+    WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
@@ -13,10 +13,10 @@ use crate::deposit::{
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
-use crate::utils::{FeePayingType, RbfSigningInfo};
+use crate::utils::FeePayingType;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::Context;
 use std::fmt::{Debug, Display};
@@ -106,40 +106,6 @@ macro_rules! fetch_next_optional_message_from_stream {
     ($stream:expr, $field:ident) => {
         $stream.message().await?.and_then(|msg| msg.$field)
     };
-}
-
-impl From<RbfSigningInfo> for RbfSigningInfoRpc {
-    fn from(value: RbfSigningInfo) -> Self {
-        RbfSigningInfoRpc {
-            merkle_root: value
-                .tweak_merkle_root
-                .map_or(vec![], |root| root.to_byte_array().to_vec()),
-            vout: value.vout,
-        }
-    }
-}
-
-impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
-    type Error = BridgeError;
-
-    fn try_from(value: RbfSigningInfoRpc) -> Result<Self, Self::Error> {
-        Ok(RbfSigningInfo {
-            tweak_merkle_root: if value.merkle_root.is_empty() {
-                None
-            } else {
-                Some(
-                    TapNodeHash::from_slice(&value.merkle_root).wrap_err(eyre::eyre!(
-                        "Failed to convert merkle root bytes from rpc to TapNodeHash"
-                    ))?,
-                )
-            },
-            vout: value.vout,
-            #[cfg(test)]
-            annex: None,
-            #[cfg(test)]
-            additional_taproot_output_count: None,
-        })
-    }
 }
 
 impl TryFrom<Outpoint> for OutPoint {

@@ -311,7 +311,7 @@ impl TxSender {
                 "Processing TX in try_to_send_unconfirmed_txs with fee rate {new_fee_rate}",
             );
 
-            let (tx_metadata, tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+            let (tx_metadata, tx, fee_paying_type, seen_block_id) =
                 match self.db.get_try_to_send_tx(None, id).await {
                     Ok(res) => res,
                     Err(e) => {
@@ -346,10 +346,7 @@ impl TxSender {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
                 FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
-                FeePayingType::RBF => {
-                    self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
-                        .await
-                }
+                FeePayingType::RBF => self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate).await,
                 FeePayingType::NoFunding => self.send_no_funding_tx(id, tx, tx_metadata).await,
             };
 
@@ -517,7 +514,6 @@ mod tests {
                 None,
                 &tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -531,7 +527,6 @@ mod tests {
                 None,
                 &tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -563,9 +558,9 @@ mod tests {
 
         poll_until_condition(
             async || {
-                let (_, _, _, tx_id1_seen_block_id, _) =
+                let (_, _, _, tx_id1_seen_block_id) =
                     db.get_try_to_send_tx(None, tx_id1).await.unwrap();
-                let (_, _, _, tx_id2_seen_block_id, _) =
+                let (_, _, _, tx_id2_seen_block_id) =
                     db.get_try_to_send_tx(None, tx_id2).await.unwrap();
 
                 // Wait for tx sender to catch up to bitcoin syncer
@@ -709,7 +704,6 @@ mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::NoFunding,
-                None,
                 &[], // No cancel outpoints
                 &[], // No cancel txids
                 &[], // No activate txids

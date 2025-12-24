@@ -649,7 +649,7 @@ service ClementineVerifier {
 
   // Signs the verifiers own watchtower challenge tx in the corresponding
   // kickoff and returns the signed raw tx
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawTxWithRbfInfo) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawSignedTx) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }
@@ -676,16 +676,6 @@ message SignedTxWithType {
 
 message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
-}
-
-message RbfSigningInfoRpc {
-  bytes merkle_root = 1;
-  uint32 vout = 2;
-}
-
-message RawTxWithRbfInfo {
-  bytes raw_tx = 1;
-  RbfSigningInfoRpc rbf_info = 2;
 }
 
 message OperatorWithrawalResponse {

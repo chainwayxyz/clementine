@@ -1752,7 +1752,6 @@ where
                             &signed_txs,
                             Some(tx_metadata),
                             &self.config,
-                            None,
                         )
                         .await?;
                 }
@@ -1771,7 +1770,6 @@ where
                             }),
                             signed_tx,
                             FeePayingType::CPFP,
-                            None,
                             &[OutPoint {
                                 txid: kickoff_txid,
                                 vout: UtxoVout::KickoffFinalizer.get_vout(),
@@ -1915,7 +1913,6 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
-                    None,
                 )
                 .await?;
 
@@ -2114,7 +2111,6 @@ where
                             deposit_outpoint: None,
                         }),
                         &self.config,
-                        None,
                     )
                     .await?;
             }
@@ -2477,7 +2473,6 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
                 &self.config,
-                None,
             )
             .await?;
         Ok(())
@@ -2771,7 +2766,6 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
                 &self.config,
-                None,
             )
             .await?;
         Ok(())

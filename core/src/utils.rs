@@ -3,7 +3,7 @@ use crate::config::TelemetryConfig;
 use crate::errors::BridgeError;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
-use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};
+use bitcoin::{OutPoint, ScriptBuf, XOnlyPublicKey};
 use eyre::Context as _;
 use futures::future::join_all;
 use http::HeaderValue;
@@ -593,24 +593,6 @@ pub enum FeePayingType {
     NoFunding,
 }
 
-/// Information to re-sign an RBF transaction.
-/// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
-/// re-signed.
-/// This was needed for re-signing watchtower challenges with RBF because OP_RETURN outputs with >80bytes were not supported before
-/// bitcoin v30. As it is supported now, this is not needed anymore, but I am keeping it here in case it is useful in the future/if something changes with the standardness rules.
-///
-/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
-/// - Not needed for CPFP.
-/// - Only signs for a keypath spend
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct RbfSigningInfo {
-    pub vout: u32,
-    pub tweak_merkle_root: Option<TapNodeHash>,
-    #[cfg(test)]
-    pub annex: Option<Vec<u8>>,
-    #[cfg(test)]
-    pub additional_taproot_output_count: Option<u32>,
-}
 pub trait Last20Bytes {
     fn last_20_bytes(&self) -> [u8; 20];
 }

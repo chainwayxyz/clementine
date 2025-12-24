@@ -733,7 +733,6 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
             None,
             &signed_replacement_deposit_tx,
             FeePayingType::CPFP,
-            None,
             &[],
             &[],
             &[],

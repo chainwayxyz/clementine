@@ -950,7 +950,6 @@ impl Aggregator {
                 }),
                 &tx,
                 FeePayingType::RBF,
-                None,
                 &[],
                 &[],
                 &[],
@@ -1247,7 +1246,6 @@ impl ClementineAggregator for AggregatorServer {
                         &[],
                         None,
                         &self.config,
-                        None,
                     )
                     .await
                     .map_to_status()?;
@@ -1295,7 +1293,6 @@ impl ClementineAggregator for AggregatorServer {
                     None,
                     &signed_tx,
                     fee_type.try_into()?,
-                    None,
                     &[],
                     &[],
                     &[],
@@ -2082,7 +2079,6 @@ impl ClementineAggregator for AggregatorServer {
                     }),
                     &movetx,
                     FeePayingType::CPFP,
-                    None,
                     &[],
                     &[],
                     &[],

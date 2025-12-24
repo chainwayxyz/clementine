@@ -132,7 +132,6 @@ impl TestCase for TxSenderReorgBehavior {
                 None,
                 &tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],

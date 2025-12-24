@@ -7,7 +7,7 @@ use crate::{
     errors::BridgeError,
     execute_query_with_tx,
     tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
-    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
+    utils::{FeePayingType, TxMetadata},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -514,16 +514,14 @@ impl Database {
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
         txid: Txid,
-        rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) VALUES ($1, $2::fee_paying_type, $3, $4, $5) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
         .bind(serde_json::to_string(&tx_metadata).wrap_err("Failed to encode tx_metadata to JSON")?)
-        .bind(TxidDB(txid))
-        .bind(serde_json::to_string(&rbf_signing_info).wrap_err("Failed to encode tx_metadata to JSON")?);
+        .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         u32::try_from(id)
@@ -760,31 +758,14 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<
-        (
-            Option<TxMetadata>,
-            Transaction,
-            FeePayingType,
-            Option<u32>,
-            Option<RbfSigningInfo>,
-        ),
-        BridgeError,
-    > {
-        let query = sqlx::query_as::<
-            _,
-            (
-                Option<String>,
-                Option<Vec<u8>>,
-                FeePayingType,
-                Option<i32>,
-                Option<String>,
-            ),
-        >(
-            "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id, rbf_signing_info
+    ) -> Result<(Option<TxMetadata>, Transaction, FeePayingType, Option<u32>), BridgeError> {
+        let query =
+            sqlx::query_as::<_, (Option<String>, Option<Vec<u8>>, FeePayingType, Option<i32>)>(
+                "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
-        )
-        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+            )
+            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
@@ -802,9 +783,6 @@ impl Database {
                 .map(u32::try_from)
                 .transpose()
                 .wrap_err("Failed to convert seen_block_id to u32")?,
-            serde_json::from_str(result.4.as_deref().unwrap_or("null")).wrap_err_with(|| {
-                format!("Failed to decode rbf_signing_info from {:?}", result.4)
-            })?,
         ))
     }
 
@@ -948,7 +926,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{Block, OutPoint, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -967,24 +945,17 @@ mod tests {
 
         // Test saving tx
         let txid = tx.compute_txid();
-        let rbfinfo = Some(RbfSigningInfo {
-            vout: 123,
-            tweak_merkle_root: Some(TapNodeHash::all_zeros()),
-            annex: None,
-            additional_taproot_output_count: None,
-        });
         let id = db
-            .save_tx(None, None, &tx, FeePayingType::CPFP, txid, rbfinfo.clone())
+            .save_tx(None, None, &tx, FeePayingType::CPFP, txid)
             .await
             .unwrap();
 
         // Test retrieving tx
-        let (_, retrieved_tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+        let (_, retrieved_tx, fee_paying_type, seen_block_id) =
             db.get_try_to_send_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
         assert_eq!(seen_block_id, None);
-        assert_eq!(rbf_signing_info, rbfinfo);
     }
 
     #[tokio::test]
@@ -1008,7 +979,6 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
-                None,
             )
             .await
             .unwrap();
@@ -1056,7 +1026,6 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
-                None,
             )
             .await
             .unwrap();
@@ -1106,7 +1075,6 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
-                None,
             )
             .await
             .unwrap();
@@ -1154,7 +1122,6 @@ mod tests {
                 &tx1,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
-                None,
             )
             .await
             .unwrap();
@@ -1165,7 +1132,6 @@ mod tests {
                 &tx2,
                 FeePayingType::RBF,
                 Txid::all_zeros(),
-                None,
             )
             .await
             .unwrap();
@@ -1234,7 +1200,6 @@ mod tests {
                 &tx,
                 FeePayingType::RBF,
                 tx.compute_txid(),
-                None,
             )
             .await
             .unwrap();

@@ -592,20 +592,6 @@ pub struct SignedTxsWithType {
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RbfSigningInfoRpc {
-    #[prost(bytes = "vec", tag = "1")]
-    pub merkle_root: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint32, tag = "2")]
-    pub vout: u32,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RawTxWithRbfInfo {
-    #[prost(bytes = "vec", tag = "1")]
-    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag = "2")]
-    pub rbf_info: ::core::option::Option<RbfSigningInfoRpc>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorWithrawalResponse {
     #[prost(message, optional, tag = "1")]
     pub operator_xonly_pk: ::core::option::Option<XOnlyPublicKeyRpc>,
@@ -1991,10 +1977,7 @@ pub mod clementine_verifier_client {
         pub async fn internal_create_watchtower_challenge(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RawTxWithRbfInfo>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -3607,10 +3590,7 @@ pub mod clementine_verifier_server {
         async fn internal_create_watchtower_challenge(
             &self,
             request: tonic::Request<super::TransactionRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RawTxWithRbfInfo>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         async fn vergen(
             &self,
             request: tonic::Request<super::Empty>,
@@ -4316,7 +4296,7 @@ pub mod clementine_verifier_server {
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
                     for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::RawTxWithRbfInfo;
+                        type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

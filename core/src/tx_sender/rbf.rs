@@ -1,11 +1,7 @@
 use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
-use crate::builder::{self};
-use crate::utils::RbfSigningInfo;
 use bitcoin::script::Instruction;
-use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::taproot::{self};
 use bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
-use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
+use bitcoin::{Psbt, TxOut, Txid};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
     WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
@@ -126,7 +122,14 @@ impl TxSender {
 
         for (idx, input) in initial_tx.input.iter().enumerate() {
             if let Some(sig) = input.witness.nth(0) {
+                tracing::warn!(
+                    "sig: {:?}, sig len: {}, sig 64 : {:x}",
+                    sig,
+                    sig.len(),
+                    sig[64]
+                );
                 if sig.len() == 65 && sig[64] == 0x83 {
+                    tracing::warn!("SAP signature detected {idx}");
                     // This is a S+AP signature, copy it over
                     decoded_psbt.inputs[idx].final_script_witness = Some(input.witness.clone());
                 }
@@ -235,116 +238,6 @@ impl TxSender {
             .await
             .map_err(|e| eyre!(e).into())
     }
-    /// Given a PSBT with inputs that've been signed by the wallet except for our new input,
-    /// we have to sign the first input with our self.signer actor.
-    ///
-    /// Assumes that the first input is the input with our key.
-    ///
-    /// # Returns
-    /// The signed PSBT as a base64-encoded string.
-    pub async fn attempt_sign_psbt(
-        &self,
-        psbt: String,
-        rbf_signing_info: RbfSigningInfo,
-    ) -> Result<String> {
-        // Parse the PSBT from string
-        let mut decoded_psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e))?;
-
-        // Ensure we have inputs to sign
-        if decoded_psbt.inputs.is_empty() {
-            return Err(eyre!("PSBT has no inputs to sign").into());
-        }
-
-        let input_index = rbf_signing_info.vout as usize;
-
-        // Get the transaction to calculate the sighash
-        let tx = decoded_psbt.unsigned_tx.clone();
-        let mut sighash_cache = SighashCache::new(&tx);
-
-        // Determine the sighash type (default to ALL if not specified)
-        let sighash_type = decoded_psbt.inputs[input_index]
-            .sighash_type
-            .unwrap_or((TapSighashType::Default).into());
-
-        // For Taproot key path spending
-        if let Ok(tap_sighash_type) = sighash_type.taproot_hash_ty() {
-            // Calculate the sighash for this input
-            // Extract previous outputs from the PSBT
-            let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
-                .inputs
-                .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
-                        .map_err(SendTxError::Other)
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            let sighash = sighash_cache
-                .taproot_key_spend_signature_hash(
-                    input_index,
-                    &Prevouts::All(&prevouts),
-                    tap_sighash_type,
-                )
-                .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
-
-            #[cfg(test)]
-            let mut sighash = sighash;
-
-            #[cfg(test)]
-            {
-                use bitcoin::sighash::Annex;
-                // This should provide the Sighash for the key spend
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let annex = Annex::new(annex_bytes).unwrap();
-                    sighash = sighash_cache
-                        .taproot_signature_hash(
-                            input_index,
-                            &Prevouts::All(&prevouts),
-                            Some(annex),
-                            None,
-                            tap_sighash_type,
-                        )
-                        .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
-                }
-            }
-
-            // Sign the sighash with our signer
-            let signature = self
-                .signer
-                .sign_with_tweak_data(
-                    sighash,
-                    builder::sighash::TapTweakData::KeyPath(rbf_signing_info.tweak_merkle_root),
-                    None,
-                )
-                .map_err(|e| eyre!("Failed to sign input: {}", e))?;
-
-            // Add the signature to the PSBT
-            decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot::Signature {
-                signature,
-                sighash_type: tap_sighash_type,
-            });
-
-            decoded_psbt.inputs[input_index].final_script_witness =
-                Some(Witness::from_slice(&[signature.serialize()]));
-
-            #[cfg(test)]
-            {
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let mut witness = Witness::from_slice(&[signature.serialize()]);
-                    witness.push(annex_bytes);
-                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
-                    tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
-                }
-            }
-            // Serialize the signed PSBT back to base64
-            Ok(decoded_psbt.to_string())
-        } else {
-            Err(eyre!("Only Taproot key path signing is currently supported").into())
-        }
-    }
 
     #[track_caller]
     pub fn handle_err(
@@ -427,7 +320,6 @@ impl TxSender {
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
-        rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -539,6 +431,13 @@ impl TxSender {
                 .await
                 .wrap_err("Failed to fill SAP signatures")?;
 
+            // let decoded_psbt = Psbt::from_str(&bumped_psbt).map_err(|e| eyre!(e))?;
+            // tracing::warn!(
+            //     "decoded_psbt before wallet process: {:?}\nOriginal tx: {:?}",
+            //     decoded_psbt,
+            //     tx
+            // );
+
             // Wallet first pass
             // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
             let process_result = self
@@ -547,20 +446,30 @@ impl TxSender {
                 .await;
 
             let processed_psbt = match process_result {
-                Ok(res) if res.complete => res.psbt,
-                // attempt to sign
                 Ok(res) => {
-                    let Some(rbf_signing_info) = rbf_signing_info else {
-                        return Err(eyre!(
-                            "RBF signing info is required for non SighashSingle RBF txs"
-                        )
-                        .into());
-                    };
-                    self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?
+                    // let decoded_psbt = Psbt::from_str(&res.psbt).map_err(|e| eyre!(e))?;
+                    // tracing::warn!("decoded_psbt: {:?}", decoded_psbt);
+                    if res.complete {
+                        res.psbt
+                    } else {
+                        let err_msg =
+                            format!("wallet_process_psbt returned incomplete PSBT: {res:?}");
+                        log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "rbf_psbt_sign_failed",
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(
+                            "wallet_process_psbt returned incomplete PSBT"
+                        )));
+                    }
                 }
                 Err(e) => {
                     let err_msg = format!("wallet_process_psbt error: {e}");
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db
@@ -759,19 +668,7 @@ impl TxSender {
                     err
                 })?;
 
-            if let Some(rbf_signing_info) = rbf_signing_info {
-                psbt = self
-                    .attempt_sign_psbt(process_result.psbt, rbf_signing_info)
-                    .await
-                    .map_err(|err| {
-                        let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
-                        self.handle_err(format!("{err:?}"), "rbf_psbt_sign_failed", try_to_send_id);
-
-                        err
-                    })?;
-            } else {
-                psbt = process_result.psbt;
-            }
+            psbt = process_result.psbt;
 
             tracing::debug!(try_to_send_id, "Successfully processed initial RBF PSBT");
 
@@ -868,6 +765,7 @@ pub mod tests {
     use super::super::tests::*;
     use super::*;
     use crate::actor::Actor;
+    use crate::builder;
     use crate::builder::script::SpendPath;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
@@ -878,7 +776,7 @@ pub mod tests {
     use crate::errors::BridgeError;
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
-    use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+    use crate::rpc::clementine::NormalSignatureKind;
     use crate::task::{IntoTask, TaskExt};
     use crate::test::common::tx_utils::create_bg_tx_sender;
     use crate::test::common::*;
@@ -909,11 +807,7 @@ pub mod tests {
         let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(version)
             .add_input(
-                if !requires_initial_funding {
-                    SignatureId::from(NormalSignatureKind::Challenge)
-                } else {
-                    SignatureId::from((NumberedSignatureKind::WatchtowerChallenge, 0i32))
-                },
+                SignatureId::from(NormalSignatureKind::Challenge),
                 SpendableTxIn::new(
                     outpoint,
                     TxOut {
@@ -1013,11 +907,10 @@ pub mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::RBF,
-                None, // should not be resigning challenge tx
-                &[],  // No cancel outpoints
-                &[],  // No cancel txids
-                &[],  // No activate txids
-                &[],  // No activate outpoints
+                &[], // No cancel outpoints
+                &[], // No cancel txids
+                &[], // No activate txids
+                &[], // No activate outpoints
             )
             .await?;
         dbtx.commit().await?;
@@ -1027,7 +920,7 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1071,14 +964,6 @@ pub mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::RBF,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
                 &[], // No activate txids
@@ -1092,20 +977,7 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(
-                try_to_send_id,
-                tx.clone(),
-                None,
-                current_fee_rate,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
-            )
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1149,14 +1021,6 @@ pub mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::RBF,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
                 &[], // No cancel outpoints
                 &[], // No cancel txids
                 &[], // No activate txids
@@ -1170,20 +1034,7 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(
-                try_to_send_id,
-                tx.clone(),
-                None,
-                current_fee_rate,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
-            )
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1233,7 +1084,6 @@ pub mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::RBF,
-                None,
                 &[], // No cancel outpoints
                 &[], // No cancel txids
                 &[], // No activate txids
@@ -1247,7 +1097,7 @@ pub mod tests {
 
         // Test send_rbf_tx
         tx_sender
-            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1292,7 +1142,6 @@ pub mod tests {
                 None, // No metadata
                 &tx,
                 FeePayingType::RBF,
-                None,
                 &[], // No cancel outpoints
                 &[], // No cancel txids
                 &[], // No activate txids
@@ -1305,20 +1154,7 @@ pub mod tests {
 
         // Create initial TX
         tx_sender
-            .send_rbf_tx(
-                try_to_send_id,
-                tx.clone(),
-                None,
-                current_fee_rate,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
-            )
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1344,20 +1180,7 @@ pub mod tests {
 
         // try to send tx with a bumped fee.
         tx_sender
-            .send_rbf_tx(
-                try_to_send_id,
-                tx.clone(),
-                None,
-                higher_fee_rate,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
-            )
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, higher_fee_rate)
             .await
             .expect("RBF should succeed");
 
@@ -1400,24 +1223,7 @@ pub mod tests {
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         client
-            .insert_try_to_send(
-                &mut dbtx,
-                None,
-                &tx,
-                FeePayingType::RBF,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                    #[cfg(test)]
-                    annex: None,
-                    #[cfg(test)]
-                    additional_taproot_output_count: None,
-                }),
-                &[],
-                &[],
-                &[],
-                &[],
-            )
+            .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, &[], &[], &[], &[])
             .await
             .unwrap();
         dbtx.commit().await.unwrap();

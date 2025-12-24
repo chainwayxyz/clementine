@@ -426,7 +426,6 @@ where
                 }),
                 round_tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -1008,7 +1007,6 @@ where
                             &signed_txs,
                             tx_metadata,
                             &self.config,
-                            None,
                         )
                         .await?;
                 }
@@ -1069,7 +1067,6 @@ where
                 }),
                 first_round_tx.get_cached_tx(),
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -1227,7 +1224,6 @@ where
                 }),
                 burn_unspent_kickoff_connectors_tx.get_cached_tx(),
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -1248,7 +1244,6 @@ where
                 }),
                 ready_to_reimburse_tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[],
@@ -1269,7 +1264,6 @@ where
                 }),
                 next_round_tx,
                 FeePayingType::CPFP,
-                None,
                 &[],
                 &[],
                 &[ActivatedWithTxid {
@@ -1698,7 +1692,6 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
-                    None,
                 )
                 .await?;
         }
@@ -1751,7 +1744,6 @@ where
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
                 &self.config,
-                None,
             )
             .await?;
         Ok(())
@@ -2473,7 +2465,6 @@ mod states {
                                             &signed_txs,
                                             tx_metadata,
                                             &self.config,
-                                            None,
                                         )
                                         .await?;
                                 }

@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, VergenResponse,
+    OperatorParams, OptimisticPayoutParams, PartialSig, VergenResponse,
     VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
 };
 use super::error;
@@ -13,7 +13,7 @@ use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
 use crate::errors::ResultExt as _;
-use crate::rpc::clementine::{CompatibilityParamsRpc, VerifierDepositFinalizeResponse};
+use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, VerifierDepositFinalizeResponse};
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
 use crate::verifier::VerifierServer;
 use crate::{constants, fetch_next_optional_message_from_stream};
@@ -133,7 +133,7 @@ where
     async fn internal_create_watchtower_challenge(
         &self,
         request: tonic::Request<super::TransactionRequest>,
-    ) -> std::result::Result<tonic::Response<super::RawTxWithRbfInfo>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
         tracing::warn!(
             "Internal create watchtower challenge rpc called with request: {:?}",
             request
@@ -163,9 +163,8 @@ where
             )
             .await?;
 
-        Ok(Response::new(RawTxWithRbfInfo {
+        Ok(Response::new(RawSignedTx {
             raw_tx: bitcoin::consensus::serialize(&signed_tx),
-            rbf_info: None,
         }))
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;

@@ -9,7 +9,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
 use crate::operator::RoundIndex;
 use crate::rpc;
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::{
     builder::transaction::TransactionType,
     config::BridgeConfig,
@@ -70,12 +70,12 @@ impl TxSenderClient {
         tx_metadata: Option<TxMetadata>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
-        rbf_signing_info: Option<RbfSigningInfo>,
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32> {
+        // TODO: Add migration to remove rbf_signing_info from the database table after other merges
         let txid = signed_tx.compute_txid();
 
         tracing::debug!(
@@ -99,14 +99,7 @@ impl TxSenderClient {
 
         let try_to_send_id = self
             .db
-            .save_tx(
-                Some(dbtx),
-                tx_metadata,
-                signed_tx,
-                fee_paying_type,
-                txid,
-                rbf_signing_info,
-            )
+            .save_tx(Some(dbtx), tx_metadata, signed_tx, fee_paying_type, txid)
             .await
             .map_to_eyre()?;
 
@@ -225,7 +218,6 @@ impl TxSenderClient {
         related_txs: &[(TransactionType, Transaction)],
         tx_metadata: Option<TxMetadata>,
         config: &BridgeConfig,
-        rbf_info: Option<RbfSigningInfo>,
     ) -> Result<u32> {
         let tx_metadata = tx_metadata.map(|mut data| {
             data.tx_type = tx_type;
@@ -258,7 +250,6 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -272,7 +263,6 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::RBF,
-                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -299,7 +289,6 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    rbf_info,
                     &[OutPoint {
                         txid: kickoff_txid,
                         vout: UtxoVout::KickoffFinalizer.get_vout(),
@@ -326,7 +315,6 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -347,7 +335,6 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::NoFunding,
-                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -374,7 +361,7 @@ impl TxSenderClient {
     pub async fn debug_tx(&self, id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
         use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
 
-        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) =
+        let (tx_metadata, tx, fee_paying_type, seen_block_id) =
             self.db.get_try_to_send_tx(None, id).await.map_to_eyre()?;
 
         let submission_errors = self

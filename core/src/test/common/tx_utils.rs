@@ -22,7 +22,7 @@ use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::transaction::Version;
 use bitcoin::{block, Amount, OutPoint, Transaction, TxOut, Txid};
@@ -195,7 +195,6 @@ pub async fn send_tx(
     rpc: &ExtendedBitcoinRpc,
     raw_tx: &[u8],
     tx_type: TxType,
-    rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
@@ -217,7 +216,6 @@ pub async fn send_tx(
             } else {
                 FeePayingType::CPFP
             },
-            rbf_info,
             &[],
             &[],
             &[],
@@ -317,7 +315,7 @@ pub async fn send_tx_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .unwrap();
-    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
+    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type)
         .await
         .context(format!("failed to send {tx_type:?} transaction"))?;
     Ok(())

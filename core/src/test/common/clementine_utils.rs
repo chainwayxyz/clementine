@@ -266,7 +266,6 @@ pub async fn disprove_tests_common_setup(
             None,
             &challenge_tx,
             FeePayingType::RBF,
-            None,
             &[],
             &[],
             &[],

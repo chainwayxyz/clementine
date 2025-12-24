@@ -257,7 +257,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
             TxType::WatchtowerChallenge(verifier_idx),
-            None,
         )
         .await
         .context(format!(
@@ -298,7 +297,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             &rpc,
             tx.raw_tx.as_slice(),
             TxType::MiniAssert(assert_idx),
-            None,
         )
         .await
         .context(format!(
@@ -349,7 +347,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         &rpc,
         reimburse_tx.raw_tx.as_slice(),
         TxType::Reimburse,
-        None,
     )
     .await
     .context("failed to send reimburse transaction")?;
@@ -404,7 +401,6 @@ pub async fn run_simple_assert_flow(
             &rpc,
             tx.raw_tx.as_slice(),
             tx.transaction_type.unwrap().try_into().unwrap(),
-            None,
         )
         .await?;
     }
@@ -465,7 +461,6 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         &rpc,
         watchtower_challenge_tx.raw_tx.as_slice(),
         TxType::WatchtowerChallenge(watchtower_idx),
-        None,
     )
     .await
     .context(format!(
