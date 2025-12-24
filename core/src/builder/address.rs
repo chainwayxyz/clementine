@@ -7,10 +7,10 @@
 use super::script::{
     BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
 };
+use crate::bitvm_client;
 use crate::bitvm_client::SECP;
 use crate::deposit::SecurityCouncil;
 use crate::utils::ScriptBufExt;
-use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
@@ -18,6 +18,7 @@ use bitcoin::{
     Address, ScriptBuf,
 };
 use clementine_errors::BridgeError;
+use clementine_primitives::EVMAddress;
 
 use eyre::Context;
 

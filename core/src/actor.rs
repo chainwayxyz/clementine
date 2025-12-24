@@ -5,13 +5,10 @@ use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
-use crate::builder::transaction::TxError;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
-use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use crate::EVMAddress;
 use alloy::signers::k256;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::hashes::hash160;
@@ -27,6 +24,9 @@ use bitvm::signatures::winternitz;
 #[cfg(test)]
 use bitvm::signatures::winternitz::{BinarysearchVerifier, ToBytesConverter, Winternitz};
 use clementine_errors::BridgeError;
+use clementine_errors::TxError;
+use clementine_primitives::EVMAddress;
+use clementine_primitives::{PublicHash, RoundIndex};
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -798,7 +798,8 @@ mod tests {
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
+    use crate::builder::transaction::{TxHandler, TxHandlerBuilder};
+    use clementine_errors::TransactionType;
 
     use crate::bitvm_client::SECP;
     use crate::rpc::clementine::NormalSignatureKind;
