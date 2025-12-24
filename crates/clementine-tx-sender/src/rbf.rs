@@ -429,7 +429,7 @@ where
     /// * `tx_metadata` - Optional metadata associated with the transaction.
     /// * `fee_rate` - The target fee rate for the RBF replacement.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
-    pub(super) async fn send_rbf_tx(
+    pub async fn send_rbf_tx(
         &self,
         try_to_send_id: u32,
         tx: Transaction,

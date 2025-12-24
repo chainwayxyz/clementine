@@ -243,6 +243,7 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError>;
 
     /// Save a fee payer transaction.
+    #[allow(clippy::too_many_arguments)]
     async fn save_fee_payer_tx(
         &self,
         dbtx: Option<&mut Self::Transaction>,
@@ -681,7 +682,7 @@ where
     /// * `Ok(())` - If the transaction was successfully broadcast.
     /// * `Err(SendTxError)` - If the broadcast failed.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
-    async fn send_no_funding_tx(
+    pub async fn send_no_funding_tx(
         &self,
         try_to_send_id: u32,
         tx: Transaction,

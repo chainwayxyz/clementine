@@ -2347,7 +2347,6 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "wiremock",
 ]
 
 [[package]]

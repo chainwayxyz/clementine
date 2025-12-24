@@ -26,6 +26,5 @@ clementine-utils = { path = "../clementine-utils" }
 clementine-extended-rpc = { path = "../clementine-extended-rpc" }
 
 [dev-dependencies]
-wiremock = "0.5"
 rand = { workspace = true }
 secrecy = { workspace = true }
