@@ -1,7 +1,6 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -11,10 +10,11 @@ use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
-use crate::{EVMAddress, UTXO};
 use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
+use clementine_primitives::{EVMAddress, UTXO};
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
@@ -439,10 +439,11 @@ impl NamedEntity for MockOwner {
 mod states {
     use super::*;
     use crate::builder::block_cache;
-    use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+    use crate::builder::transaction::{ContractContext, TxHandler};
     use crate::database::DatabaseTransaction;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
+    use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use tonic::async_trait;

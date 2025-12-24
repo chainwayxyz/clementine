@@ -1,8 +1,8 @@
 use crate::config::BridgeConfig;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData};
-use crate::operator::RoundIndex;
 use crate::utils::NamedEntity;
+use clementine_primitives::RoundIndex;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use crate::builder::transaction::ContractContext;
 
-use crate::builder::transaction::TransactionType;
+use clementine_primitives::TransactionType;
 
 use clementine_errors::BridgeError;
 

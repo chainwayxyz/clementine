@@ -25,7 +25,7 @@ use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
-use clementine_errors::BridgeError;
+use clementine_errors::{BridgeError, TransactionType, TxError};
 use std::sync::Arc;
 
 pub enum RoundTxInput {

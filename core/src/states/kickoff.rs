@@ -7,12 +7,11 @@ use statig::prelude::*;
 
 use crate::{
     bitvm_client::ClementineBitVMPublicKeys,
-    builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, TransactionType,
-    },
+    builder::transaction::{input::UtxoVout, remove_txhandler_from_map, ContractContext},
     deposit::{DepositData, KickoffData},
 };
 use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
 
 use super::{
     block_cache::BlockCache,

@@ -416,7 +416,7 @@ mod tests {
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::config::protocol::ProtocolParamset;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::task::{IntoTask, TaskExt};
@@ -425,6 +425,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::SecretKey;
     use clementine_errors::BridgeError;
+    use clementine_primitives::TransactionType;
     use serde_json::json;
     use std::ops::Mul;
     use std::result::Result;

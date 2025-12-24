@@ -3,14 +3,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use tokio::sync::RwLock;
 
+use crate::builder::transaction::{input::UtxoVout, ContractContext};
 use crate::deposit::OperatorData;
-use crate::operator::RoundIndex;
-use crate::{
-    builder::transaction::{input::UtxoVout, ContractContext, TransactionType},
-    errors::TxError,
-};
 use bitcoin::OutPoint;
 use clementine_errors::BridgeError;
+use clementine_errors::TxError;
+use clementine_primitives::RoundIndex;
+use clementine_primitives::TransactionType;
 use serde_with::serde_as;
 
 use super::{

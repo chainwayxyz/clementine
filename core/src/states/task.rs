@@ -205,7 +205,7 @@ mod tests {
     use tonic::async_trait;
 
     use crate::{
-        builder::transaction::{ContractContext, TransactionType, TxHandler},
+        builder::transaction::{ContractContext, TxHandler},
         config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
@@ -213,6 +213,7 @@ mod tests {
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
+    use clementine_primitives::TransactionType;
 
     use super::*;
 

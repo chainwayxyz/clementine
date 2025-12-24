@@ -5,7 +5,7 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
@@ -43,7 +43,6 @@ use crate::test::common::{
 };
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::initialize_logger;
-use crate::{EVMAddress, UTXO};
 use async_trait::async_trait;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
@@ -56,6 +55,8 @@ use citrea_e2e::{
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
 };
+use clementine_primitives::TransactionType;
+use clementine_primitives::{EVMAddress, UTXO};
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;
@@ -222,14 +223,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut withdrawal_infos = Vec::new();
 
         tracing::info!("Mining withdrawal utxos");
-        for move_txid in move_txids.iter() {
-            let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(
-                    *move_txid,
-                    &citrea_e2e_data,
-                    &actors,
-                )
-                .await;
+        for (withdrawal_utxo, payout_txout, sig) in
+            get_new_withdrawal_utxo_and_register_to_citrea(&move_txids, &citrea_e2e_data, &actors)
+                .await
+        {
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }
@@ -282,14 +279,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
-        for move_txid in new_move_txids.iter() {
-            let (withdrawal_utxo, payout_txout, sig) =
-                get_new_withdrawal_utxo_and_register_to_citrea(
-                    *move_txid,
-                    &citrea_e2e_data,
-                    &actors,
-                )
-                .await;
+        for (withdrawal_utxo, payout_txout, sig) in get_new_withdrawal_utxo_and_register_to_citrea(
+            &new_move_txids,
+            &citrea_e2e_data,
+            &actors,
+        )
+        .await
+        {
             withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
             withdrawal_index += 1;
         }

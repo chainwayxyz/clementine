@@ -871,9 +871,7 @@ pub mod tests {
     use crate::builder::script::SpendPath;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{
-        op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
-    };
+    use crate::builder::transaction::{op_return_txout, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -887,6 +885,7 @@ pub mod tests {
     use bitcoin::TxOut;
     use bitcoincore_rpc::json::GetRawTransactionResult;
     use clementine_errors::BridgeError;
+    use clementine_primitives::TransactionType;
     use std::result::Result;
     use std::time::Duration;
 
