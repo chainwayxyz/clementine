@@ -7,6 +7,7 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use alloy::primitives::U256;
+use alloy::providers::Provider;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
@@ -155,21 +156,66 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-/// Wait until the light client contract is updated to the given block height
+/// Wait until the light client contract is updated so that given txid is proven
+/// or if no txid is given the current finalized block height is proven.
 pub async fn wait_until_lc_contract_updated(
     client: &HttpClient,
-    block_height: u64,
+    e2e: &CitreaE2EData<'_>,
+    actors: &TestActors<CitreaClient>,
+    txid: Option<Txid>,
 ) -> Result<(), BridgeError> {
+    let height;
+    if let Some(txid) = txid {
+        let mut confirmations = u64::from(e2e.rpc.confirmation_blocks(&txid).await?);
+        if confirmations <= DEFAULT_FINALITY_DEPTH {
+            e2e.rpc
+                .mine_blocks_while_synced(
+                    DEFAULT_FINALITY_DEPTH - confirmations + 1, // 1 extra, idk why
+                    actors,
+                    Some(e2e),
+                )
+                .await
+                .unwrap();
+            confirmations = DEFAULT_FINALITY_DEPTH;
+        }
+        let cur_height = e2e
+            .rpc
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?;
+        height = cur_height - confirmations + 1;
+    } else {
+        height = e2e
+            .rpc
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?
+            - DEFAULT_FINALITY_DEPTH
+            + 1;
+    }
     let mut attempts = 0;
     let max_attempts = 600;
 
+    let current_chain_height = e2e.rpc.get_block_count().await.unwrap();
+
     while attempts < max_attempts {
         let block_number = block_number(client).await?;
-        if block_number >= block_height as u32 {
+        tracing::info!(
+            "LC block number: {block_number}, current chain height: {current_chain_height}, requested height: {height}",
+        );
+        if block_number >= height as u32 {
             break;
         }
         attempts += 1;
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to send publish batch request: {e}"))?;
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+    if attempts == max_attempts {
+        return Err(eyre::eyre!("LC block number is less than requested height {height}").into());
     }
     Ok(())
 }
@@ -219,147 +265,185 @@ pub struct CitreaE2EData<'a> {
     pub rpc: &'a ExtendedBitcoinRpc,
 }
 
-/// Creates a new withdrawal utxo and register to citrea using safeWithdraw
-/// First it registers the deposit to Citrea.
+/// Creates new withdrawal utxos and registers them to Citrea using safeWithdraw
+/// For each move txid, it first registers the deposit to Citrea.
 /// After it is registered a new utxo is created and mined, it is registered to citrea
 /// using safeWithdraw. Afterwards, this utxo is saved on contract and operators can use this
 /// utxo to fulfill withdrawals.
 ///
 /// # Parameters
 ///
-/// - `move_txid`: Move txid of the deposit.
+/// - `move_txids`: Move txids of the deposits.
 /// - `e2e`: Citrea e2e data.
 /// - `actors`: Test actors.
 ///
 /// # Returns
 ///
-/// A tuple of:
+/// A vector of tuples of:
 ///
 /// - [`OutPoint`]: UTXO for the given withdrawal.
 /// - [`TxOut`]: Output corresponding to the withdrawal.
 /// - [`schnorr::Signature`]: Signature for the withdrawal utxo.
 pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
-    move_txid: Txid,
+    move_txids: &[Txid],
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
-) -> (OutPoint, TxOut, taproot::Signature) {
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
-        .await
-        .unwrap();
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
-        .await
-        .unwrap();
-    // Send deposit to Citrea
-    let (tx, block, block_height) = get_tx_information_for_citrea(e2e, move_txid).await.unwrap();
+) -> Vec<(OutPoint, TxOut, taproot::Signature)> {
+    let mut results = Vec::with_capacity(move_txids.len());
+    let mut pending_withdrawals = Vec::with_capacity(move_txids.len());
 
-    tracing::info!("Depositing to Citrea...");
-
-    deposit(
-        e2e.rpc,
-        e2e.sequencer.client.http_client().clone(),
-        block,
-        block_height.try_into().unwrap(),
-        tx,
-    )
-    .await
-    .unwrap();
-
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(1, actors, Some(e2e))
-        .await
-        .unwrap();
-
-    // Wait for the deposit to be processed.
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // After the deposit, the balance should be non-zero.
-    assert_ne!(
-        eth_get_balance(
-            e2e.sequencer.client.http_client().clone(),
-            clementine_primitives::EVMAddress([1; 20]),
+    // First, wait for all move txids to be reflected in the LC contract before proceeding.
+    for move_txid in move_txids {
+        wait_until_lc_contract_updated(
+            e2e.sequencer.client.http_client(),
+            e2e,
+            actors,
+            Some(*move_txid),
         )
         .await
-        .unwrap(),
-        0
-    );
+        .unwrap();
+    }
 
-    tracing::info!("Deposit operations are successful.");
+    // Process deposits and construct withdrawal transactions for each move txid.
+    for move_txid in move_txids {
+        // Send deposit to Citrea
+        let (tx, block, block_height) = get_tx_information_for_citrea(e2e, *move_txid)
+            .await
+            .unwrap();
 
-    // Prepare withdrawal transaction.
-    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-    let withdrawal_address = Address::p2tr(
-        &SECP,
-        user_sk.x_only_public_key(&SECP).0,
-        None,
-        e2e.config.protocol_paramset().network,
-    );
-    let (withdrawal_utxo_with_txout, payout_txout, sig) =
-        generate_withdrawal_transaction_and_signature(
-            &e2e.config,
+        tracing::info!("Depositing to Citrea...");
+
+        deposit(
             e2e.rpc,
-            &withdrawal_address,
-            e2e.config.protocol_paramset().bridge_amount
-                - e2e
-                    .config
-                    .operator_withdrawal_fee_sats
-                    .unwrap_or(Amount::from_sat(0)),
+            e2e.sequencer.client.http_client().clone(),
+            block,
+            block_height.try_into().unwrap(),
+            tx,
         )
-        .await;
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
-        .await
-        .unwrap();
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
         .await
         .unwrap();
 
-    let params = get_citrea_safe_withdraw_params(
-        e2e.rpc,
-        withdrawal_utxo_with_txout.clone(),
-        payout_txout.clone(),
-        sig,
-    )
-    .await
-    .unwrap();
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .unwrap();
 
-    tracing::info!("Params: {:?}", params);
+        // Wait for the deposit to be processed.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
-    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+        // After the deposit, the balance should be non-zero.
+        assert_ne!(
+            eth_get_balance(
+                e2e.sequencer.client.http_client().clone(),
+                clementine_primitives::EVMAddress([1; 20]),
+            )
+            .await
+            .unwrap(),
+            0
+        );
 
-    let citrea_withdrawal_tx = e2e
+        tracing::info!("Deposit operations are successful.");
+
+        // Prepare withdrawal transaction.
+        let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
+        let withdrawal_address = Address::p2tr(
+            &SECP,
+            user_sk.x_only_public_key(&SECP).0,
+            None,
+            e2e.config.protocol_paramset().network,
+        );
+        let (withdrawal_utxo_with_txout, payout_txout, sig) =
+            generate_withdrawal_transaction_and_signature(
+                &e2e.config,
+                e2e.rpc,
+                &withdrawal_address,
+                e2e.config.protocol_paramset().bridge_amount
+                    - e2e
+                        .config
+                        .operator_withdrawal_fee_sats
+                        .unwrap_or(Amount::from_sat(0)),
+            )
+            .await;
+
+        pending_withdrawals.push((withdrawal_utxo_with_txout, payout_txout, sig));
+    }
+
+    // Mine once for all pending withdrawals, then wait for LC updates for all of them together.
+    if !pending_withdrawals.is_empty() {
+        e2e.rpc
+            .mine_blocks_while_synced(1, actors, Some(e2e))
+            .await
+            .unwrap();
+
+        for (withdrawal_utxo_with_txout, _, _) in &pending_withdrawals {
+            wait_until_lc_contract_updated(
+                e2e.sequencer.client.http_client(),
+                e2e,
+                actors,
+                Some(withdrawal_utxo_with_txout.outpoint.txid),
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    // Register all withdrawals on Citrea.
+    let mut current_nonce = e2e
         .citrea_client
         .contract
-        .safeWithdraw(params.0, params.1, params.2, params.3, params.4)
-        .value(U256::from(
-            e2e.config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
-        ))
-        .send()
+        .provider()
+        .get_transaction_count(e2e.citrea_client.wallet_address)
         .await
-        .unwrap();
-    tracing::info!("Withdrawal TX sent in Citrea");
-
-    // 1. force sequencer to commit
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
-    tracing::info!("Publish batch request sent");
-
-    let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-    tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
+        .unwrap_or(0);
+    tracing::info!("Current nonce: {current_nonce}");
+    let mut pending_citrea_txs = Vec::with_capacity(pending_withdrawals.len());
+    for (withdrawal_utxo_with_txout, payout_txout, sig) in pending_withdrawals {
+        let params = get_citrea_safe_withdraw_params(
+            e2e.rpc,
+            withdrawal_utxo_with_txout.clone(),
+            payout_txout.clone(),
+            sig,
+        )
         .await
         .unwrap();
 
-    (withdrawal_utxo, payout_txout, sig)
+        tracing::info!("Params: {:?}", params);
+
+        let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+        tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+
+        let citrea_withdrawal_tx = e2e
+            .citrea_client
+            .contract
+            .safeWithdraw(params.0, params.1, params.2, params.3, params.4)
+            .nonce(current_nonce)
+            .value(U256::from(
+                e2e.config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
+            ))
+            .send()
+            .await
+            .unwrap();
+        tracing::info!("Withdrawal TX sent in Citrea");
+
+        current_nonce += 1;
+        pending_citrea_txs.push(citrea_withdrawal_tx);
+        results.push((withdrawal_utxo, payout_txout, sig));
+    }
+
+    // Commit once at the end to reduce block usage.
+    if !results.is_empty() {
+        force_sequencer_to_commit(e2e.sequencer).await.unwrap();
+        tracing::info!("Publish batch request sent");
+
+        // Check receipts after commit to ensure all txs are finalized.
+        for tx in pending_citrea_txs {
+            let receipt = tx.get_receipt().await.unwrap();
+            tracing::info!("Citrea withdrawal tx receipt: {:?}", receipt);
+        }
+    }
+
+    results
 }
 
 /// call citrea_testPublishBlock max_l2_blocks_per_commitment times
@@ -394,12 +478,14 @@ pub async fn register_replacement_deposit_to_citrea(
     deposit_id: u32,
     actors: &TestActors<CitreaClient>,
 ) -> eyre::Result<()> {
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
-        .await
-        .unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    force_sequencer_to_commit(e2e.sequencer).await.unwrap();
+    wait_until_lc_contract_updated(
+        e2e.sequencer.client.http_client(),
+        e2e,
+        actors,
+        Some(replacement_move_txid),
+    )
+    .await?;
+
     tracing::info!("Setting operator to our address");
     // first set our address as operator
     let set_operator_tx = e2e
@@ -428,10 +514,6 @@ pub async fn register_replacement_deposit_to_citrea(
         .wait_for_l1_height(block_height, None)
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for light client to sync: {:?}", e))?;
-
-    wait_until_lc_contract_updated(e2e.sequencer.client.http_client(), block_height)
-        .await
-        .unwrap();
 
     let (replace_tx, tx_proof, sha_script_pubkeys) = get_citrea_deposit_params(
         e2e.rpc,

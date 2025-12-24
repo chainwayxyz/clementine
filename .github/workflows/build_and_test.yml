@@ -41,7 +41,8 @@ jobs:
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS_ALL_FEATURES --release
@@ -81,6 +82,12 @@ jobs:
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          add-job-id-key: "false"
+          key: "release-no-automation"
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
@@ -144,14 +151,15 @@ jobs:
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: "debug-all-features"
 
       - name: Run unit tests
         id: unit_tests
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test_unit 2>&1 | tee unit_test_output.log
+          cargo test_unit_debug 2>&1 | tee unit_test_output.log
 
       - name: Check for specific test failure and run generate_deposit_state
         if: failure()
@@ -185,7 +193,6 @@ jobs:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
@@ -224,14 +231,15 @@ jobs:
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Run unit tests
         id: unit_tests
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test_unit --release 2>&1 | tee unit_test_output.log
+          cargo test_unit_release 2>&1 | tee unit_test_output.log
 
       - name: Check for specific test failure and run generate_deposit_state
         if: failure()
@@ -266,7 +274,6 @@ jobs:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-8
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
@@ -334,7 +341,8 @@ jobs:
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: "release-all-features"
 
       - name: Run tests
         run: |

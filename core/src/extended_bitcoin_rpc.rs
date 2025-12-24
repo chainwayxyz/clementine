@@ -63,6 +63,9 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const MAX_RETRY_ATTEMPTS: usize = 50;
 
+#[cfg(test)]
+pub const MINE_BLOCK_COUNT: u64 = 3;
+
 #[derive(Clone)]
 pub struct RetryConfig {
     pub initial_delay_millis: u64,
@@ -816,12 +819,14 @@ impl ExtendedBitcoinRpc {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    da0.generate(1)
+                    let num_mine_blocks =
+                        std::cmp::min(MINE_BLOCK_COUNT, reorg_blocks - mined_blocks.len() as u64);
+                    da0.generate(num_mine_blocks)
                         .await
                         .wrap_err("Failed to generate blocks")?;
                     // da1 will be canonical
                     let new_blocks = da1
-                        .generate(1)
+                        .generate(num_mine_blocks)
                         .await
                         .wrap_err("Failed to generate blocks")?;
                     mined_blocks.extend(new_blocks);
@@ -848,7 +853,11 @@ impl ExtendedBitcoinRpc {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    mined_blocks.extend(self.mine_blocks(1).await?);
+                    let num_mine_blocks = std::cmp::min(
+                        MINE_BLOCK_COUNT,
+                        (reorg_blocks + block_num + 1) - mined_blocks.len() as u64,
+                    );
+                    mined_blocks.extend(self.mine_blocks(num_mine_blocks).await?);
                 }
                 Ok(mined_blocks)
             }
@@ -861,7 +870,9 @@ impl ExtendedBitcoinRpc {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    let new_blocks = self.mine_blocks(1).await?;
+                    let num_mine_blocks =
+                        std::cmp::min(MINE_BLOCK_COUNT, block_num - mined_blocks.len() as u64);
+                    let new_blocks = self.mine_blocks(num_mine_blocks).await?;
                     mined_blocks.extend(new_blocks);
                 }
                 Ok(mined_blocks)
