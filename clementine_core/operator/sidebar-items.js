@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["RoundIndex"],"mod":["states"],"struct":["Operator","OperatorServer"],"type":["PublicHash"]};
+window.SIDEBAR_ITEMS = {"mod":["states"],"struct":["Operator","OperatorServer"]};

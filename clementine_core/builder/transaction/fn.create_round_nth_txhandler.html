@@ -2,7 +2,7 @@
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    index: <a class="enum" href="../../operator/enum.RoundIndex.html" title="enum clementine_core::operator::RoundIndex">RoundIndex</a>,
+    index: RoundIndex,
     pubkeys: &amp;<a class="struct" href="struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys">KickoffWinternitzKeys</a>,
     paramset: &amp;'static <a class="struct" href="../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;(<a class="struct" href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, <a class="struct" href="struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>), BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates the nth (1-indexed) <code>round_txhandler</code> and <code>reimburse_generator_txhandler</code> pair for a specific operator.</p>

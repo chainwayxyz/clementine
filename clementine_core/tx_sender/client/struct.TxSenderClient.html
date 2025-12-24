@@ -41,9 +41,9 @@ must be explicitly provided via the <code>activate_txids</code> and <code>activa
 </div></details><details class="toggle method-toggle" open><summary><section id="method.add_tx_to_queue" class="method"><a class="src rightside" href="../../../src/clementine_core/tx_sender/client.rs.html#220-363">Source</a><h4 class="code-header">pub async fn <a href="#method.add_tx_to_queue" class="fn">add_tx_to_queue</a>&lt;'a&gt;(
     &amp;'a self,
     dbtx: <a class="type" href="../../database/type.DatabaseTransaction.html" title="type clementine_core::database::DatabaseTransaction">DatabaseTransaction</a>&lt;'a, '_&gt;,
-    tx_type: <a class="enum" href="../../builder/transaction/enum.TransactionType.html" title="enum clementine_core::builder::transaction::TransactionType">TransactionType</a>,
+    tx_type: TransactionType,
     signed_tx: &amp;Transaction,
-    related_txs: &amp;[(<a class="enum" href="../../builder/transaction/enum.TransactionType.html" title="enum clementine_core::builder::transaction::TransactionType">TransactionType</a>, Transaction)],
+    related_txs: &amp;[(TransactionType, Transaction)],
     tx_metadata: <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../../utils/struct.TxMetadata.html" title="struct clementine_core::utils::TxMetadata">TxMetadata</a>&gt;,
     config: &amp;<a class="struct" href="../../config/struct.BridgeConfig.html" title="struct clementine_core::config::BridgeConfig">BridgeConfig</a>,
     rbf_info: <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../../utils/struct.RbfSigningInfo.html" title="struct clementine_core::utils::RbfSigningInfo">RbfSigningInfo</a>&gt;,

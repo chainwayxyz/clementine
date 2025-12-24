@@ -26,17 +26,17 @@
 <a href=#26 id=26 data-nosnippet>26</a>        <span class="self">self</span>,
 <a href=#27 id=27 data-nosnippet>27</a>        script::SpendPath,
 <a href=#28 id=28 data-nosnippet>28</a>        transaction::{
-<a href=#29 id=29 data-nosnippet>29</a>            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
-<a href=#30 id=30 data-nosnippet>30</a>            DEFAULT_SEQUENCE,
-<a href=#31 id=31 data-nosnippet>31</a>        },
-<a href=#32 id=32 data-nosnippet>32</a>    },
-<a href=#33 id=33 data-nosnippet>33</a>    constants::MIN_TAPROOT_AMOUNT,
-<a href=#34 id=34 data-nosnippet>34</a>    rpc::clementine::NormalSignatureKind,
-<a href=#35 id=35 data-nosnippet>35</a>};
-<a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span>bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
-<a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span>bitcoincore_rpc::PackageSubmissionResult;
-<a href=#38 id=38 data-nosnippet>38</a><span class="kw">use </span>bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-<a href=#39 id=39 data-nosnippet>39</a><span class="kw">use </span>clementine_errors::{ErrorExt, ResultExt};
+<a href=#29 id=29 data-nosnippet>29</a>            input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
+<a href=#30 id=30 data-nosnippet>30</a>        },
+<a href=#31 id=31 data-nosnippet>31</a>    },
+<a href=#32 id=32 data-nosnippet>32</a>    constants::MIN_TAPROOT_AMOUNT,
+<a href=#33 id=33 data-nosnippet>33</a>    rpc::clementine::NormalSignatureKind,
+<a href=#34 id=34 data-nosnippet>34</a>};
+<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span>bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+<a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span>bitcoincore_rpc::PackageSubmissionResult;
+<a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span>bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+<a href=#38 id=38 data-nosnippet>38</a><span class="kw">use </span>clementine_errors::{ErrorExt, ResultExt};
+<a href=#39 id=39 data-nosnippet>39</a><span class="kw">use </span>clementine_primitives::TransactionType;
 <a href=#40 id=40 data-nosnippet>40</a><span class="kw">use </span>eyre::eyre;
 <a href=#41 id=41 data-nosnippet>41</a><span class="kw">use </span>eyre::Context;
 <a href=#42 id=42 data-nosnippet>42</a><span class="kw">use </span>std::collections::HashSet;
