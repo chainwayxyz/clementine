@@ -156,25 +156,6 @@ impl ExtendedBitcoinRpc {
             .map(|addr| addr.assume_checked())
             .map_err(Into::into)
     }
-    ///
-    /// This method attempts to connect to the Bitcoin RPC server and creates a new
-    /// [`ExtendedBitcoinRpc`] instance. It includes retry logic that will retry
-    /// connection attempts for retryable errors using exponential backoff.
-    ///
-    /// # Parameters
-    ///
-    /// * `url` - The RPC server URL
-    /// * `user` - Username for RPC authentication
-    /// * `password` - Password for RPC authentication
-    /// * `retry_config` - Optional retry configuration. If None, uses default config.
-    ///
-    /// # Returns
-    ///
-    /// - [`Result<ExtendedBitcoinRpc>`]: A new ExtendedBitcoinRpc instance on success
-    ///
-    /// # Errors
-    ///
-    /// - [`BitcoinRPCError`]: If connection fails after all retry attempts or ping fails
     /// Returns the number of confirmations for a transaction.
     ///
     /// # Parameters
