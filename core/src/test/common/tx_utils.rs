@@ -246,7 +246,7 @@ pub async fn get_txid_where_utxo_is_spent(
 ) -> Result<Txid, eyre::Error> {
     ensure_outpoint_spent(rpc, utxo).await?;
     let current_height = rpc.get_block_count().await?;
-    for i in 0..MINE_BLOCK_COUNT {
+    for i in 0..MINE_BLOCK_COUNT * 2 {
         let hash = rpc.get_block_hash(current_height - i).await?;
         let block = rpc.get_block(&hash).await?;
         let tx = block
@@ -260,7 +260,7 @@ pub async fn get_txid_where_utxo_is_spent(
     bail!(
         "utxo {:?} not found in the last {} blocks",
         utxo,
-        MINE_BLOCK_COUNT
+        MINE_BLOCK_COUNT * 2
     );
 }
 
@@ -298,7 +298,13 @@ pub async fn ensure_outpoint_spent(
     poll_until_condition(
         async || {
             rpc.mine_blocks(MINE_BLOCK_COUNT).await?;
-            rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)
+            match rpc.is_utxo_spent(&outpoint).await {
+                Ok(spent) => Ok(spent),
+                Err(e) => {
+                    tracing::warn!("Error while checking if outpoint is spent: {e}");
+                    Ok(false)
+                }
+            }
         },
         Some(Duration::from_secs(500)),
         None,
