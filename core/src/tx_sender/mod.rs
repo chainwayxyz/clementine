@@ -42,9 +42,6 @@ mod task;
 pub use client::TxSenderClient;
 pub use task::TxSenderTask;
 
-/// Number of blocks after which a stuck transaction should be fee-bumped
-const FEE_BUMP_AFTER_BLOCKS: u32 = 10;
-
 // Define a macro for logging errors and saving them to the database
 macro_rules! log_error_for_tx {
     ($db:expr, $try_to_send_id:expr, $err:expr) => {{
@@ -195,7 +192,8 @@ impl TxSender {
         // Check if the tx has been stuck for 10+ blocks
         let is_stuck = match last_bump_block_height {
             Some(block_height) => {
-                current_tip_height.saturating_sub(block_height) >= FEE_BUMP_AFTER_BLOCKS
+                current_tip_height.saturating_sub(block_height)
+                    >= self.config.tx_sender_limits.fee_bump_after_blocks
             }
             None => false,
         };
@@ -227,8 +225,8 @@ impl TxSender {
             let capped_result = std::cmp::min(result, hard_cap);
 
             tracing::debug!(
-                "TX stuck for {} blocks, forcing fee bump from {} to {} sat/kwu (hard cap: {} sat/kwu)",
-                FEE_BUMP_AFTER_BLOCKS,
+                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kwu (hard cap: {} sat/kwu)",
+                self.config.tx_sender_limits.fee_bump_after_blocks,
                 previous_rate.to_sat_per_kwu(),
                 capped_result.to_sat_per_kwu(),
                 hard_cap.to_sat_per_kwu()
