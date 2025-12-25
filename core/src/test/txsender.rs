@@ -1296,3 +1296,256 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
+    let mut config = create_test_config_with_thread_name().await;
+    let rpc = create_regtest_rpc(&mut config).await;
+
+    let (tx_sender, btc_sender, rpc, db, signer, network) =
+        create_local_tx_sender(rpc.rpc().clone()).await;
+    let pair = btc_sender.into_task().cancelable_loop();
+    pair.0.into_bg();
+
+    // Create a bumpable transaction that requires initial funding
+    let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
+
+    // Insert the transaction into the database
+    let mut dbtx = db.begin_transaction().await?;
+    let try_to_send_id = tx_sender
+        .client()
+        .insert_try_to_send(
+            Some(&mut dbtx),
+            None,
+            &tx,
+            FeePayingType::RBF,
+            Some(RbfSigningInfo {
+                vout: 0,
+                tweak_merkle_root: None,
+                #[cfg(test)]
+                annex: None,
+                #[cfg(test)]
+                additional_taproot_output_count: None,
+            }),
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await?;
+    dbtx.commit().await?;
+
+    let current_fee_rate = tx_sender.get_fee_rate().await?;
+
+    // Test send_rbf_tx
+    tx_sender
+        .send_rbf_tx(
+            try_to_send_id,
+            tx.clone(),
+            None,
+            current_fee_rate,
+            Some(RbfSigningInfo {
+                vout: 0,
+                tweak_merkle_root: None,
+                #[cfg(test)]
+                annex: None,
+                #[cfg(test)]
+                additional_taproot_output_count: None,
+            }),
+        )
+        .await
+        .expect("RBF should succeed");
+
+    // Verify that the transaction was fee-bumped
+    let tx_debug_info = tx_sender
+        .client()
+        .debug_tx(try_to_send_id)
+        .await
+        .expect("Transaction should have debug info");
+
+    // Get the actual transaction from the mempool
+    let sent_tx = rpc
+        .get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+        ))
+        .await
+        .expect("Transaction should be in mempool");
+
+    // Check that the transaction has new input (wallet added funding)
+    assert_eq!(sent_tx.input.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
+    // This is the case with no initial funding required, corresponding to the Challenge transaction.
+
+    let mut config = create_test_config_with_thread_name().await;
+    let rpc = create_regtest_rpc(&mut config).await;
+
+    let (tx_sender, btc_sender, rpc, db, signer, network) =
+        create_local_tx_sender(rpc.rpc().clone()).await;
+    let pair = btc_sender.into_task().cancelable_loop();
+    pair.0.into_bg();
+
+    // Create a bumpable transaction
+    let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
+
+    // Insert the transaction into the database
+    let mut dbtx = db.begin_transaction().await?;
+    let try_to_send_id = tx_sender
+        .client()
+        .insert_try_to_send(
+            Some(&mut dbtx),
+            None,
+            &tx,
+            FeePayingType::RBF,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await?;
+    dbtx.commit().await?;
+
+    let current_fee_rate = tx_sender.get_fee_rate().await?;
+
+    // Test send_rbf_tx with no signing info
+    tx_sender
+        .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+        .await
+        .expect("RBF should succeed");
+
+    // Verify that the transaction was fee-bumped
+    let tx_debug_info = tx_sender
+        .client()
+        .debug_tx(try_to_send_id)
+        .await
+        .expect("Transaction should have debug info");
+
+    // Get the actual transaction from the mempool
+    rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+        tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+    ))
+    .await
+    .expect("Transaction should be in mempool");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
+    let mut config = create_test_config_with_thread_name().await;
+    let rpc = create_regtest_rpc(&mut config).await;
+
+    let (tx_sender, btc_sender, rpc, db, signer, network) =
+        create_local_tx_sender(rpc.rpc().clone()).await;
+    let pair = btc_sender.into_task().cancelable_loop();
+    pair.0.into_bg();
+
+    // Create a bumpable transaction
+    let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
+
+    // Insert the transaction into the database
+    let mut dbtx = db.begin_transaction().await?;
+    let try_to_send_id = tx_sender
+        .client()
+        .insert_try_to_send(
+            Some(&mut dbtx),
+            None,
+            &tx,
+            FeePayingType::RBF,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await?;
+    dbtx.commit().await?;
+
+    let current_fee_rate = tx_sender.get_fee_rate().await?;
+
+    // Create initial TX
+    tx_sender
+        .send_rbf_tx(
+            try_to_send_id,
+            tx.clone(),
+            None,
+            current_fee_rate,
+            Some(RbfSigningInfo {
+                vout: 0,
+                tweak_merkle_root: None,
+                #[cfg(test)]
+                annex: None,
+                #[cfg(test)]
+                additional_taproot_output_count: None,
+            }),
+        )
+        .await
+        .expect("RBF should succeed");
+
+    // Verify that the transaction was saved in db
+    let tx_debug_info = tx_sender
+        .client()
+        .debug_tx(try_to_send_id)
+        .await
+        .expect("Transaction should have debug info");
+
+    // Verify that TX is in mempool
+    let initial_txid = tx_debug_info.txid.unwrap().txid;
+    rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+        initial_txid.clone().try_into().unwrap(),
+    ))
+    .await
+    .expect("Transaction should be in mempool");
+
+    // Increase fee rate
+    let higher_fee_rate = current_fee_rate.checked_mul(2).unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // try to send tx with a bumped fee.
+    tx_sender
+        .send_rbf_tx(
+            try_to_send_id,
+            tx.clone(),
+            None,
+            higher_fee_rate,
+            Some(RbfSigningInfo {
+                vout: 0,
+                tweak_merkle_root: None,
+                #[cfg(test)]
+                annex: None,
+                #[cfg(test)]
+                additional_taproot_output_count: None,
+            }),
+        )
+        .await
+        .expect("RBF should succeed");
+
+    // Verify that the transaction was saved in db
+    let tx_debug_info = tx_sender
+        .client()
+        .debug_tx(try_to_send_id)
+        .await
+        .expect("Transaction should have debug info");
+
+    // Verify that TX is in mempool
+    let changed_txid = tx_debug_info.txid.unwrap().txid;
+    rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+        changed_txid.clone().try_into().unwrap(),
+    ))
+    .await
+    .expect("Transaction should be in mempool");
+
+    // Verify that tx has changed.
+    assert_ne!(
+        changed_txid, initial_txid,
+        "Transaction should have been bumped"
+    );
+
+    Ok(())
+}
