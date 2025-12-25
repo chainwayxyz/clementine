@@ -453,7 +453,7 @@ mod states {
     impl Owner for MockOwner {
         async fn handle_duty(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             self.cached_duties.lock().await.push(duty);
@@ -462,7 +462,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _tx_type: TransactionType,
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -471,7 +471,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _block_id: u32,
             _block_height: u32,
             _block_cache: Arc<block_cache::BlockCache>,

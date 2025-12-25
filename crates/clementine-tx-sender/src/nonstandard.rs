@@ -1,14 +1,15 @@
-//! TxSender for nonstandard transactions.
-//!
-//! This module contains the logic for sending nonstandard transactions for various bitcoin networks.
+use crate::{log_error_for_tx, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
 use bitcoin::consensus::serialize;
 use bitcoin::Transaction;
-use hex;
+use clementine_errors::SendTxError;
 use std::collections::HashMap;
 
-use super::{log_error_for_tx, SendTxError, TxSender};
-
-impl TxSender {
+impl<S, D, B> TxSender<S, D, B>
+where
+    S: TxSenderSigner,
+    D: TxSenderDatabase,
+    B: TxSenderTxBuilder,
+{
     /// Checks if a bridge transaction is nonstandard. Keep in mind that these are not all cases where a transaction is nonstandard.
     /// We only check non-standard types that clementine generates by default in non-standard mode.
     /// Currently checks these cases:

@@ -4,6 +4,7 @@
 //! for easy generation of help messages and handling arguments.
 
 use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::ProtocolParamsetExt;
 use crate::config::BridgeConfig;
 use crate::utils::delayed_panic;
 use clap::Parser;

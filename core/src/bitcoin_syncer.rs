@@ -31,28 +31,7 @@ struct BlockInfo {
     height: u32,
 }
 
-/// Events emitted by the Bitcoin syncer.
-/// It emits the block_id of the block in the db that was saved.
-#[derive(Clone, Debug)]
-pub enum BitcoinSyncerEvent {
-    NewBlock(u32),
-    ReorgedBlock(u32),
-}
-
-impl TryFrom<(String, i32)> for BitcoinSyncerEvent {
-    type Error = eyre::Report;
-    fn try_from(value: (String, i32)) -> Result<Self, Self::Error> {
-        match value.0.as_str() {
-            "new_block" => Ok(BitcoinSyncerEvent::NewBlock(
-                u32::try_from(value.1).wrap_err(BridgeError::IntConversionError)?,
-            )),
-            "reorged_block" => Ok(BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(value.1).wrap_err(BridgeError::IntConversionError)?,
-            )),
-            _ => Err(eyre::eyre!("Invalid event type: {}", value.0)),
-        }
-    }
-}
+pub use clementine_primitives::BitcoinSyncerEvent;
 
 /// Trait for handling new blocks as they are finalized
 #[async_trait]
@@ -60,7 +39,7 @@ pub trait BlockHandler: Send + Sync + 'static {
     /// Handle a new finalized block
     async fn handle_new_block(
         &mut self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
@@ -91,7 +70,7 @@ async fn fetch_block_info_from_height(
 /// Saves a Bitcoin block's metadata and it's transactions into the database.
 pub(crate) async fn save_block(
     db: &Database,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     block: &bitcoin::Block,
     block_height: u32,
 ) -> Result<u32, BridgeError> {
@@ -133,7 +112,7 @@ pub(crate) async fn save_block(
 }
 async fn _get_block_info_from_hash(
     db: &Database,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     rpc: &ExtendedBitcoinRpc,
     hash: BlockHash,
 ) -> Result<(BlockInfo, Vec<Vec<OutPoint>>), BridgeError> {
@@ -163,7 +142,7 @@ async fn _get_block_info_from_hash(
 /// Saves a Bitcoin transaction and its spent UTXOs to the database.
 async fn save_transaction_spent_utxos(
     db: &Database,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     tx: &bitcoin::Transaction,
     block_id: u32,
 ) -> Result<(), BridgeError> {
@@ -185,7 +164,7 @@ async fn save_transaction_spent_utxos(
 }
 async fn _get_transaction_spent_utxos(
     db: &Database,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     txid: bitcoin::Txid,
 ) -> Result<Vec<OutPoint>, BridgeError> {
     let utxos = db.get_spent_utxos_for_txid(Some(dbtx), txid).await?;
@@ -320,7 +299,7 @@ async fn fetch_new_blocks(
 #[tracing::instrument(skip(db, dbtx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 async fn handle_reorg_events(
     db: &Database,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     common_ancestor_height: u32,
 ) -> Result<(), BridgeError> {
     let reorg_blocks = db
@@ -342,7 +321,7 @@ async fn handle_reorg_events(
 async fn process_new_blocks(
     db: &Database,
     rpc: &ExtendedBitcoinRpc,
-    dbtx: DatabaseTransaction<'_, '_>,
+    dbtx: DatabaseTransaction<'_>,
     new_blocks: &[BlockInfo],
 ) -> Result<(), BridgeError> {
     for block_info in new_blocks {

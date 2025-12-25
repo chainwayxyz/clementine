@@ -44,7 +44,7 @@ pub struct Database {
 }
 
 /// Database transaction for Postgres.
-pub type DatabaseTransaction<'a, 'b> = &'a mut sqlx::Transaction<'b, Postgres>;
+pub type DatabaseTransaction<'a> = &'a mut sqlx::Transaction<'static, Postgres>;
 
 /// Executes a query with a transaction if it is provided.
 ///
@@ -117,7 +117,7 @@ impl Database {
 
     pub async fn is_pgmq_installed(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<bool, BridgeError> {
         let query = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pgmq' AND table_name = 'meta'"

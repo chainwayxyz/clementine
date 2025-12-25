@@ -428,7 +428,7 @@ where
 
             let mut dbtx = self.operator.db.begin_transaction().await?;
 
-            self.operator.end_round(&mut dbtx).await?;
+            self.operator.end_round(Some(&mut dbtx)).await?;
 
             dbtx.commit()
                 .await

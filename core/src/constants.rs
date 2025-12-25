@@ -1,10 +1,10 @@
-use bitcoin::{transaction::Version, Address, Amount, ScriptBuf};
+use bitcoin::{Address, Amount, ScriptBuf};
 
 /// The amount of the non-ephemeral P2A anchor output.
 pub const NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(240);
 
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
-pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
+pub use clementine_primitives::MIN_TAPROOT_AMOUNT;
 
 pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
@@ -85,7 +85,7 @@ mod timeout {
     pub const WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes
 }
 
-pub const NON_STANDARD_V3: Version = Version(3);
+pub use clementine_primitives::NON_STANDARD_V3;
 
 lazy_static::lazy_static! {
   pub static ref BURN_SCRIPT: ScriptBuf = ("1111111111111111111114oLvT2")

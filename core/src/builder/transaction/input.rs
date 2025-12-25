@@ -4,11 +4,9 @@
 //! It provides abstractions for spendable inputs, input errors, correctness checks, supporting Taproot and script path spends.
 //!
 
-use crate::bitvm_client;
 use crate::builder::script::SpendableScript;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::{address::create_taproot_address, script::SpendPath};
-use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
@@ -30,66 +28,7 @@ pub struct SpendableTxIn {
 
 pub use clementine_errors::SpendableTxInError;
 
-#[derive(Debug, Clone, Copy)]
-/// Enumerates protocol-specific UTXO output indices for transaction construction.
-/// Used to identify the vout of specific UTXOs in protocol transactions.
-pub enum UtxoVout {
-    /// The vout of the assert utxo in KickoffTx
-    Assert(usize),
-    /// The vout of the watchtower challenge utxo in KickoffTx
-    WatchtowerChallenge(usize),
-    /// The vout of the watchtower challenge ack utxo in KickoffTx
-    WatchtowerChallengeAck(usize),
-    /// The vout of the challenge utxo in KickoffTx
-    Challenge,
-    /// The vout of the kickoff finalizer utxo in KickoffTx
-    KickoffFinalizer,
-    /// The vout of the reimburse utxo in KickoffTx
-    ReimburseInKickoff,
-    /// The vout of the disprove utxo in KickoffTx
-    Disprove,
-    /// The vout of the latest blockhash utxo in KickoffTx
-    LatestBlockhash,
-    /// The vout of the deposited btc utxo in MoveTx
-    DepositInMove,
-    /// The vout of the reimburse connector utxo in RoundTx
-    ReimburseInRound(usize, &'static ProtocolParamset),
-    /// The vout of the kickoff utxo in RoundTx
-    Kickoff(usize),
-    /// The vout of the collateral utxo in RoundTx
-    CollateralInRound,
-    /// The vout of the collateral utxo in ReadyToReimburseTx
-    CollateralInReadyToReimburse,
-}
-
-impl UtxoVout {
-    /// Returns the vout index for this UTXO in the corresponding transaction.
-    pub fn get_vout(self) -> u32 {
-        match self {
-            UtxoVout::Assert(idx) => idx as u32 + 5,
-            UtxoVout::WatchtowerChallenge(idx) => {
-                (2 * idx + 5 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-                    as u32
-            }
-            UtxoVout::WatchtowerChallengeAck(idx) => {
-                (2 * idx + 6 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-                    as u32
-            }
-            UtxoVout::Challenge => 0,
-            UtxoVout::KickoffFinalizer => 1,
-            UtxoVout::ReimburseInKickoff => 2,
-            UtxoVout::Disprove => 3,
-            UtxoVout::LatestBlockhash => 4,
-            UtxoVout::ReimburseInRound(idx, paramset) => {
-                (paramset.num_kickoffs_per_round + idx + 1) as u32
-            }
-            UtxoVout::Kickoff(idx) => idx as u32 + 1,
-            UtxoVout::DepositInMove => 0,
-            UtxoVout::CollateralInRound => 0,
-            UtxoVout::CollateralInReadyToReimburse => 0,
-        }
-    }
-}
+pub use clementine_primitives::{UtxoVout, NUMBER_OF_ASSERT_TXS};
 
 impl SpendableTxIn {
     /// Returns a reference to the previous output (TxOut) for this input.
@@ -321,5 +260,15 @@ impl SpentTxIn {
             script_sig: ScriptBuf::default(),
             witness: self.witness.clone().unwrap_or_default(),
         }
+    }
+}
+
+impl clementine_tx_sender::SpendableInputInfo for SpendableTxIn {
+    fn get_prevout(&self) -> &TxOut {
+        &self.prevout
+    }
+
+    fn get_outpoint(&self) -> OutPoint {
+        self.previous_outpoint
     }
 }

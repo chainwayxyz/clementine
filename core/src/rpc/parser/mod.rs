@@ -109,9 +109,8 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
                 )
             },
             vout: value.vout,
-            #[cfg(test)]
+            // Always None when deserializing from RPC - these fields are only used in tests
             annex: None,
-            #[cfg(test)]
             additional_taproot_output_count: None,
         })
     }

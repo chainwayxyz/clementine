@@ -362,8 +362,10 @@ pub fn create_reimburse_txhandler(
         )
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            round_txhandler
-                .get_spendable_output(UtxoVout::ReimburseInRound(kickoff_idx, paramset))?,
+            round_txhandler.get_spendable_output(UtxoVout::ReimburseInRound(
+                kickoff_idx,
+                paramset.num_kickoffs_per_round,
+            ))?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );

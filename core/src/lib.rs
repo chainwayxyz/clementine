@@ -136,7 +136,9 @@ pub mod verifier;
 #[cfg(feature = "automation")]
 pub mod states;
 #[cfg(feature = "automation")]
-pub mod tx_sender;
+pub use clementine_tx_sender as tx_sender;
+#[cfg(feature = "automation")]
+pub mod tx_sender_ext;
 
 #[cfg(test)]
 pub mod test;

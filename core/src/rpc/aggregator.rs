@@ -61,7 +61,6 @@ use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
-
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
@@ -932,7 +931,7 @@ impl Aggregator {
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
-                &mut dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     deposit_outpoint: None,
                     operator_xonly_pk: None,
@@ -948,8 +947,7 @@ impl Aggregator {
                 &[],
                 &[],
             )
-            .await
-            .map_err(BridgeError::from)?;
+            .await?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
@@ -1233,12 +1231,12 @@ impl ClementineAggregator for AggregatorServer {
                 let mut dbtx = self.db.begin_transaction().await?;
                 self.tx_sender
                     .add_tx_to_queue(
-                        &mut dbtx,
+                        Some(&mut dbtx),
                         TransactionType::OptimisticPayout,
                         opt_payout_tx,
                         &[],
                         None,
-                        &self.config,
+                        self.config.protocol_paramset(),
                         None,
                     )
                     .await
@@ -1283,7 +1281,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    &mut dbtx,
+                    Some(&mut dbtx),
                     None,
                     &signed_tx,
                     fee_type.try_into()?,
@@ -2064,7 +2062,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    &mut dbtx,
+                    Some(&mut dbtx),
                     Some(TxMetadata {
                         deposit_outpoint: Some(deposit_outpoint),
                         operator_xonly_pk: None,

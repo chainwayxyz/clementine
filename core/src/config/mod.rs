@@ -170,44 +170,27 @@ pub struct BridgeConfig {
     pub tx_sender_limits: TxSenderLimits,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct GrpcLimits {
-    pub max_message_size: usize,
-    pub timeout_secs: u64,
-    pub tcp_keepalive_secs: u64,
-    pub req_concurrency_limit: usize,
-    pub ratelimit_req_count: usize,
-    pub ratelimit_req_interval_secs: u64,
-}
+// Re-export types from clementine-config
+pub use clementine_config::{GrpcLimits, TxSenderLimits};
 
 fn default_grpc_limits() -> GrpcLimits {
-    GrpcLimits {
-        max_message_size: 4 * 1024 * 1024,
-        timeout_secs: 12 * 60 * 60, // 12 hours
-        tcp_keepalive_secs: 60,
-        req_concurrency_limit: 300, // 100 deposits at the same time
-        ratelimit_req_count: 1000,
-        ratelimit_req_interval_secs: 60,
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct TxSenderLimits {
-    pub fee_rate_hard_cap: u64,
-    pub mempool_fee_rate_multiplier: u64,
-    pub mempool_fee_rate_offset_sat_kvb: u64,
-    /// The time to wait before bumping the fee of a fee payer UTXO
-    /// We wait a bit because after bumping the fee, the unconfirmed change utxo that is in the bumped tx will not be able to be spent (so won't be used to create new fee payer utxos) until that fee payer tx confirms
-    pub cpfp_fee_payer_bump_wait_time_seconds: u64,
+    GrpcLimits::default()
 }
 
 fn default_tx_sender_limits() -> TxSenderLimits {
-    TxSenderLimits {
-        fee_rate_hard_cap: 100,
-        mempool_fee_rate_multiplier: 1,
-        mempool_fee_rate_offset_sat_kvb: 0,
-        cpfp_fee_payer_bump_wait_time_seconds: 60 * 60, // 1 hour in seconds
-    }
+    TxSenderLimits::default()
+}
+
+/// Extension trait for GrpcLimits to add from_env method
+pub trait GrpcLimitsExt {
+    /// Create GrpcLimits from environment variables.
+    fn from_env() -> Result<GrpcLimits, BridgeError>;
+}
+
+/// Extension trait for TxSenderLimits to add from_env method
+pub trait TxSenderLimitsExt {
+    /// Create TxSenderLimits from environment variables.
+    fn from_env() -> Result<TxSenderLimits, BridgeError>;
 }
 
 impl BridgeConfig {
@@ -348,6 +331,13 @@ impl BridgeConfig {
 
         Ok(())
     }
+
+    pub fn mempool_config(&self) -> clementine_tx_sender::MempoolConfig {
+        clementine_tx_sender::MempoolConfig {
+            host: self.mempool_api_host.clone(),
+            endpoint: self.mempool_api_endpoint.clone(),
+        }
+    }
 }
 
 // only needed for one test
@@ -482,26 +472,20 @@ impl Default for BridgeConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TelemetryConfig {
-    pub host: String,
-    pub port: u16,
+// Re-export TelemetryConfig from clementine-config
+pub use clementine_config::TelemetryConfig;
+
+/// Extension trait for TelemetryConfig to add from_env method
+pub trait TelemetryConfigExt {
+    /// Create a TelemetryConfig from environment variables.
+    fn from_env() -> Result<TelemetryConfig, BridgeError>;
 }
 
-impl Default for TelemetryConfig {
-    fn default() -> Self {
-        Self {
-            host: "0.0.0.0".to_string(),
-            port: 8081,
-        }
-    }
-}
-
-impl TelemetryConfig {
-    pub fn from_env() -> Result<Self, BridgeError> {
+impl TelemetryConfigExt for TelemetryConfig {
+    fn from_env() -> Result<TelemetryConfig, BridgeError> {
         let host = read_string_from_env("TELEMETRY_HOST")?;
         let port = read_string_from_env_then_parse::<u16>("TELEMETRY_PORT")?;
-        Ok(Self { host, port })
+        Ok(TelemetryConfig { host, port })
     }
 }
 

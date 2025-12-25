@@ -18,7 +18,8 @@ use crate::test::common::{
     citrea, create_actors, create_test_config_with_thread_name, get_deposit_address,
     mine_once_after_in_mempool,
 };
-use crate::tx_sender::TxSender;
+use crate::tx_sender::{TxSender, TxSenderClient};
+use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
 use crate::utils::FeePayingType;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
@@ -101,14 +102,16 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender = TxSender::new(
+        let tx_sender = TxSender::<Actor, Database, CoreTxBuilder>::new(
             actor.clone(),
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.clone(),
+            config.protocol_paramset(),
+            config.tx_sender_limits.clone(),
+            config.mempool_config(),
         );
-        let tx_sender_client = tx_sender.client();
+        let tx_sender_client: TxSenderClient<Database> = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();
 
@@ -129,7 +132,7 @@ impl TestCase for TxSenderReorgBehavior {
         let mut dbtx = db.begin_transaction().await.unwrap();
         let id = tx_sender_client
             .insert_try_to_send(
-                &mut dbtx,
+                Some(&mut dbtx),
                 None,
                 &tx,
                 FeePayingType::CPFP,

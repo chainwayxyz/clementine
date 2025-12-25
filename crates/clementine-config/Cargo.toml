@@ -1,0 +1,12 @@
+[package]
+name = "clementine-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clementine-errors = { path = "../clementine-errors" }
+bitcoin = { workspace = true }
+serde = { workspace = true }
+eyre = { workspace = true }
+toml = { workspace = true }
