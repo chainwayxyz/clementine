@@ -160,7 +160,6 @@ pub trait TxSenderSigner: Send + Sync {
         &self,
         sighash: bitcoin::TapSighash,
         tweak_data: TapTweakData,
-        tweak_cache: Option<&mut ()>, // Placeholder for cache TODO: Remove this placeholder
     ) -> Result<schnorr::Signature, BridgeError>;
 }
 

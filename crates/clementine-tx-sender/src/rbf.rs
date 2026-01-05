@@ -325,7 +325,6 @@ where
                 .sign_with_tweak_data(
                     sighash,
                     TapTweakData::KeyPath(rbf_signing_info.tweak_merkle_root),
-                    None,
                 )
                 .map_err(|e| eyre!("Failed to sign input: {}", e))?;
 

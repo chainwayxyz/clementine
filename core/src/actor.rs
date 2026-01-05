@@ -224,7 +224,6 @@ impl clementine_tx_sender::TxSenderSigner for Actor {
         &self,
         sighash: bitcoin::TapSighash,
         tweak_data: TapTweakData,
-        _tweak_cache: Option<&mut ()>,
     ) -> Result<schnorr::Signature, clementine_errors::BridgeError> {
         self.sign_with_tweak_data(sighash, tweak_data, None)
     }

@@ -83,7 +83,7 @@ impl TxSenderTxBuilder for CoreTxBuilder {
                 .calculate_pubkey_spend_sighash(fee_payer_input, bitcoin::TapSighashType::Default)
                 .map_err(|e| BridgeError::Eyre(eyre::eyre!("{}", e)))?;
             let signature = signer
-                .sign_with_tweak_data(sighash, TapTweakData::KeyPath(None), None)
+                .sign_with_tweak_data(sighash, TapTweakData::KeyPath(None))
                 .map_err(|e| BridgeError::Eyre(eyre::eyre!("{}", e)))?;
             tx_handler
                 .set_p2tr_key_spend_witness(
