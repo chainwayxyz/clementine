@@ -901,7 +901,7 @@ where
                 ).into());
             }
             // start the next round to be able to get reimbursement for the payout
-            self.end_round(Some(dbtx)).await?;
+            self.end_round(dbtx).await?;
         }
 
         // get signed txs,
@@ -993,7 +993,7 @@ where
     #[cfg(feature = "automation")]
     async fn start_first_round(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_>>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
         // try to send the first round tx
@@ -1012,7 +1012,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -1032,7 +1032,7 @@ where
 
         // update current round index to 1
         self.db
-            .update_current_round_index(dbtx, RoundIndex::Round(0))
+            .update_current_round_index(Some(dbtx), RoundIndex::Round(0))
             .await?;
 
         Ok(())
@@ -1041,10 +1041,10 @@ where
     #[cfg(feature = "automation")]
     pub async fn end_round<'a>(
         &'a self,
-        mut dbtx: Option<DatabaseTransaction<'a>>,
+        mut dbtx: DatabaseTransaction<'a>,
     ) -> Result<(), BridgeError> {
         // get current round index
-        let current_round_index = self.db.get_current_round_index(dbtx.as_deref_mut()).await?;
+        let current_round_index = self.db.get_current_round_index(Some(&mut dbtx)).await?;
 
         let mut activation_prerequisites = Vec::new();
 
@@ -1113,7 +1113,7 @@ where
             let kickoff_txid = self
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
-                    dbtx.as_deref_mut(),
+                    Some(&mut dbtx),
                     current_round_index,
                     kickoff_connector_idx,
                 )
@@ -1136,7 +1136,7 @@ where
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
                         .mark_kickoff_connector_as_used(
-                            dbtx.as_deref_mut(),
+                            Some(&mut dbtx),
                             current_round_index,
                             kickoff_connector_idx,
                             None,
@@ -1170,7 +1170,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1191,7 +1191,7 @@ where
         // send ready to reimburse tx
         self.tx_sender
             .insert_try_to_send(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1212,7 +1212,7 @@ where
         // send next round tx
         self.tx_sender
             .insert_try_to_send(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1239,7 +1239,7 @@ where
 
         // update current round index
         self.db
-            .update_current_round_index(dbtx, current_round_index.next_round())
+            .update_current_round_index(Some(dbtx), current_round_index.next_round())
             .await?;
 
         Ok(())
@@ -1248,7 +1248,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_>>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
@@ -1266,7 +1266,7 @@ where
         let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
             self.db.clone(),
             &context,
-            dbtx.as_deref_mut(),
+            Some(&mut dbtx),
         );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
@@ -1295,7 +1295,7 @@ where
 
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
-            .get_payout_info_from_move_txid(dbtx.as_deref_mut(), move_txid)
+            .get_payout_info_from_move_txid(Some(&mut dbtx), move_txid)
             .await
             .wrap_err("Failed to get payout info from db during sending asserts.")?
             .ok_or_eyre(format!(
@@ -1317,7 +1317,7 @@ where
 
         let (payout_block_height, payout_block) = self
             .db
-            .get_full_block_from_hash(dbtx.as_deref_mut(), payout_block_hash)
+            .get_full_block_from_hash(Some(&mut dbtx), payout_block_hash)
             .await?
             .ok_or_eyre(format!(
                 "Payout block {payout_op_xonly_pk:?} {payout_block_hash:?} not found in db",
@@ -1339,7 +1339,7 @@ where
                 payout_block_height as u64,
                 deposit_idx as u32,
                 &self.db,
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 self.config.protocol_paramset(),
             )
             .await?;
@@ -1395,7 +1395,7 @@ where
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
             .fetch_and_save_missing_blocks(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 &self.rpc,
                 self.config.protocol_paramset().genesis_height,
                 rpc_current_finalized_height + 1,
@@ -1404,14 +1404,14 @@ where
 
         let current_height = self
             .db
-            .get_latest_finalized_block_height(dbtx.as_deref_mut())
+            .get_latest_finalized_block_height(Some(&mut dbtx))
             .await?
             .ok_or_eyre("Failed to get current finalized block height")?;
 
         let block_hashes = self
             .db
             .get_block_info_from_range(
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
                 self.config.protocol_paramset().genesis_height as u64,
                 current_height,
             )
@@ -1632,14 +1632,14 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
             )
             .await?;
 
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    dbtx.as_deref_mut(),
+                    Some(&mut dbtx),
                     tx_type,
                     &tx,
                     &[],
@@ -1669,7 +1669,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_latest_blockhash(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_>>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
@@ -1683,7 +1683,7 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
-                dbtx.as_deref_mut(),
+                Some(&mut dbtx),
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
@@ -1691,7 +1691,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                dbtx,
+                Some(dbtx),
                 tx_type,
                 &tx,
                 &[],
@@ -2531,7 +2531,7 @@ mod states {
                     tracing::info!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, number of watchtower_challenges: {}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                     self.send_asserts(
-                        Some(dbtx),
+                        dbtx,
                         kickoff_data,
                         deposit_data,
                         watchtower_challenges,
@@ -2548,13 +2548,8 @@ mod states {
                     latest_blockhash,
                 } => {
                     tracing::info!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                    self.send_latest_blockhash(
-                        Some(dbtx),
-                        kickoff_data,
-                        deposit_data,
-                        latest_blockhash,
-                    )
-                    .await?;
+                    self.send_latest_blockhash(dbtx, kickoff_data, deposit_data, latest_blockhash)
+                        .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::CheckIfKickoff {

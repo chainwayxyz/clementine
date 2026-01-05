@@ -26,7 +26,7 @@ use clementine_errors::BridgeError;
 use clementine_errors::TxError;
 use clementine_primitives::EVMAddress;
 use clementine_primitives::{PublicHash, RoundIndex};
-use clementine_utils::rbf::TapTweakData;
+use clementine_utils::sign::TapTweakData;
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
 use sha2::Sha256;

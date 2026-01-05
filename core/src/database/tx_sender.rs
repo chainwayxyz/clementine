@@ -809,7 +809,6 @@ impl Database {
     // Debug Functions
 
     /// Saves a TX submission error to the debug table
-    /// Saves a TX submission error to the debug table
     pub async fn save_tx_debug_submission_error(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
