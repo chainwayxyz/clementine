@@ -42,7 +42,7 @@ use clementine_primitives::BitcoinSyncerEvent;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
-use clementine_utils::rbf::TapTweakData;
+use clementine_utils::sign::TapTweakData;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::OptionExt;
 use serde::{Deserialize, Serialize};
@@ -160,7 +160,7 @@ pub trait TxSenderSigner: Send + Sync {
         &self,
         sighash: bitcoin::TapSighash,
         tweak_data: TapTweakData,
-        tweak_cache: Option<&mut ()>, // Placeholder for cache
+        tweak_cache: Option<&mut ()>, // Placeholder for cache TODO: Remove this placeholder
     ) -> Result<schnorr::Signature, BridgeError>;
 }
 

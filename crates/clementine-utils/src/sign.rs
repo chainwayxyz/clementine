@@ -1,4 +1,4 @@
-//! RBF (Replace-By-Fee) signing information.
+//! Signing information for taproot spends.
 
 use bitcoin::TapNodeHash;
 use serde::{Deserialize, Serialize};

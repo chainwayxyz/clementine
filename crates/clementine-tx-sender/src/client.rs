@@ -355,7 +355,7 @@ where
                 .await
             }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!("Higher level transaction types should not be added to the queue");
+                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue");
             }
         }
     }

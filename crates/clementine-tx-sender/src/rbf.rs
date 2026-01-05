@@ -10,7 +10,7 @@ use bitcoincore_rpc::json::{
 };
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::SendTxError;
-use clementine_utils::rbf::TapTweakData;
+use clementine_utils::sign::TapTweakData;
 use clementine_utils::{RbfSigningInfo, TxMetadata};
 use eyre::Context;
 use eyre::{eyre, OptionExt};
