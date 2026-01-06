@@ -240,6 +240,11 @@ impl TestCase for TxSenderReorgBehavior {
         );
         tracing::info!("fee payer txid: {:?}, main txid: {:?}", fee_payer, txid);
 
+        tracing::info!(
+            "Main cpfp mempool entry: {:?}",
+            rpc.get_mempool_entry(&txid).await
+        );
+
         assert!(rpc
             .get_raw_transaction_info(&fee_payer, None)
             .await
@@ -256,54 +261,14 @@ impl TestCase for TxSenderReorgBehavior {
             .blockhash
             .is_some());
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let start = std::time::Instant::now();
-        loop {
-            tracing::warn!(
-                "tx info: {:?}",
-                rpc.get_raw_transaction_info(&txid, None).await.unwrap()
-            );
-            if start.elapsed() > Duration::from_secs(10) {
-                panic!("Timeout waiting for tx to be in mempool");
-            }
-            // Transaction should be included in the next block.
-            tracing::warn!("------- {:?}", rpc.get_mempool_entry(&txid).await.unwrap());
-
-            // let x = db
-            //     .get_sendable_txs(
-            //         None,
-            //         FeeRate::from_sat_per_vb_unchecked(1),
-            //         rpc.get_block_count().await.unwrap() as u32,
-            //     )
-            //     .await
-            //     .unwrap();
-            // tracing::warn!("bfpt: {:?}", x);
-            rpc.mine_blocks(1).await.unwrap();
-            let current_tip_hash = rpc.get_best_block_hash().await?;
-
-            if rpc
-                .get_raw_transaction_info(&txid, None)
-                .await
-                .unwrap()
-                .blockhash
-                .is_none()
-            {
-                tracing::debug!("Transaction not in mempool yet");
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-
-            assert_eq!(
-                rpc.get_raw_transaction_info(&txid, None)
-                    .await
-                    .unwrap()
-                    .blockhash
-                    .unwrap(),
-                current_tip_hash
-            );
-            break;
-        }
+        // with bitcoin v30, the feepayer + cpfp 1p1c package can both be in the mempool together
+        // so they will get mined together in the same block
+        assert!(rpc
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_some(),);
 
         Ok(())
     }

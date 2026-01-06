@@ -14,7 +14,7 @@ use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::KickoffData;
 use crate::operator::Operator;
-use crate::utils::{Last20Bytes, RbfSigningInfo};
+use crate::utils::Last20Bytes;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -228,13 +228,12 @@ where
     /// A tuple of:
     ///     1. TransactionType: WatchtowerChallenge
     ///     2. Transaction: Signed watchtower challenge transaction
-    ///     3. RbfSigningInfo: Rbf signing info for the watchtower challenge (for re-signing the transaction after a rbf input is added to the tx)
     pub async fn create_watchtower_challenge(
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
         dbtx: Option<DatabaseTransaction<'_>>,
-    ) -> Result<(TransactionType, Transaction, RbfSigningInfo), BridgeError> {
+    ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
         }
@@ -275,7 +274,7 @@ where
 
         let watchtower_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
 
-        let watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
+        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
             watchtower_index,
             commit_data,
@@ -284,40 +283,12 @@ where
             &self.config.test_params,
         )?;
 
-        let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
-
-        // The annex and additional_taproot_output_count fields are only used for testing.
-        // Consider using cfg(test) if struct size optimization is needed.
-        #[cfg(test)]
-        let (annex, additional_taproot_output_count) = {
-            let mut annex: Option<Vec<u8>> = None;
-            let mut additional_taproot_output_count = None;
-
-            if self.config.test_params.use_small_annex {
-                annex = Some(vec![80u8; 10000]);
-            } else if self.config.test_params.use_large_annex {
-                annex = Some(vec![80u8; 3990000]);
-            } else if self.config.test_params.use_large_annex_and_output {
-                annex = Some(vec![80u8; 3000000]);
-                additional_taproot_output_count = Some(2300);
-            } else if self.config.test_params.use_large_output {
-                additional_taproot_output_count = Some(2300);
-            }
-            (annex, additional_taproot_output_count)
-        };
-
-        #[cfg(not(test))]
-        let (annex, additional_taproot_output_count) = (None, None);
+        self.signer
+            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[], None)?;
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
             watchtower_challenge_txhandler.get_cached_tx().clone(),
-            RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: merkle_root,
-                annex,
-                additional_taproot_output_count,
-            },
         ))
     }
 

@@ -1,6 +1,5 @@
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_groth16::VerifyingKey;
-use bitcoin::{opcodes, script::Instruction, Transaction};
 use risc0_circuit_recursion::control_id::BN254_IDENTITY_CONTROL_ID;
 use risc0_zkvm::{sha::Digestible, SuccinctReceiptVerifierParameters, SystemState};
 use sha2::{Digest, Sha256};
@@ -296,20 +295,42 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     result
 }
 
-pub fn total_work_from_wt_tx(wt_tx: &Transaction) -> [u8; 16] {
-    let output = wt_tx.output[2].clone();
-    let mut instructions = output.script_pubkey.instructions();
-    if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
-        if let Some(Ok(Instruction::PushBytes(data))) = instructions.next() {
-            let data_bytes = data.as_bytes();
-            let total_work: [u8; 16] = data_bytes[64..]
+pub fn total_work_from_wt_tx(wt_tx: &bitcoin::Transaction) -> [u8; 16] {
+    use circuits_lib::bridge_circuit::parse_op_return_data;
+    match wt_tx.output.as_slice() {
+        // Single OP_RETURN output with 144 bytes
+        [op_return_output, ..] if op_return_output.script_pubkey.is_op_return() => {
+            // If the first output is OP_RETURN, we expect a single output with 144 bytes
+            let Some(Ok(whole_output)) = parse_op_return_data(&op_return_output.script_pubkey)
+                .map(TryInto::<[u8; 144]>::try_into)
+            else {
+                panic!("Failed to parse OP_RETURN data");
+            };
+            whole_output[128..144]
                 .try_into()
-                .expect("Expected total work data to be exactly 16 bytes long after OP_RETURN");
-            return total_work;
+                .expect("Cannot fail: slicing 16 bytes from 144-byte array")
         }
-        panic!("Expected OP_RETURN followed by data");
+        // Otherwise, we expect three outputs:
+        // 1. [out1, out2, out3] where out1 and out2 are P2TR outputs
+        //    and out3 is an OP_RETURN output with 80 bytes
+        [out1, out2, out3, ..]
+            if out1.script_pubkey.is_p2tr()
+                && out2.script_pubkey.is_p2tr()
+                && out3.script_pubkey.is_op_return() =>
+        {
+            let Some(Ok(third_output)) =
+                parse_op_return_data(&out3.script_pubkey).map(TryInto::<[u8; 80]>::try_into)
+            else {
+                panic!("Failed to parse OP_RETURN data");
+            };
+
+            // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+            // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+            borsh::from_slice(&third_output[64..])
+                .expect("Cannot fail: deserializing 16 bytes from 16-byte slice")
+        }
+        _ => panic!("Invalid watchtower challenge transaction output format"),
     }
-    panic!("Expected OP_RETURN instruction in the transaction output script");
 }
 
 /// Convert a recursion VM seal (i.e. succinct receipt) into a JSON format compatible with the

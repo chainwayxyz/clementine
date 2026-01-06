@@ -244,6 +244,7 @@ where
             | TransactionType::OptimisticPayout
             | TransactionType::ReadyToReimburse
             | TransactionType::ReplacementDeposit
+            | TransactionType::WatchtowerChallenge(_)
             | TransactionType::AssertTimeout(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
@@ -259,9 +260,7 @@ where
                 )
                 .await
             }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Payout => {
+            TransactionType::Challenge | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,

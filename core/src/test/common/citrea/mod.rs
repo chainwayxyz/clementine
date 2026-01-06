@@ -11,8 +11,8 @@ use alloy::providers::Provider;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::taproot;
-use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
+use bitcoin::{taproot, Amount};
+use bitcoin::{Address, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::{BitcoinNodeCluster, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::{

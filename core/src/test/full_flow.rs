@@ -15,7 +15,6 @@ use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, Tr
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
-use crate::utils::RbfSigningInfo;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use clementine_primitives::RoundIndex;
@@ -253,18 +252,13 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             "Sending watchtower challenge transaction for watchtower {}",
             verifier_idx
         );
-        let rbf_info: Option<RbfSigningInfo> = watchtower_challenge_tx
-            .rbf_info
-            .map(|rbf_rpc| rbf_rpc.try_into().unwrap());
-
-        tracing::warn!("Watchtower challenge rbf info: {:?}", rbf_info);
 
         send_tx(
             &tx_senders[verifier_idx].clone(),
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
             TxType::WatchtowerChallenge(verifier_idx),
-            rbf_info,
+            None,
         )
         .await
         .context(format!(
@@ -467,15 +461,12 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         "Sending watchtower challenge transaction for watchtower {}",
         watchtower_idx
     );
-    let rbf_info: Option<RbfSigningInfo> = watchtower_challenge_tx
-        .rbf_info
-        .map(|rbf_rpc| rbf_rpc.try_into().unwrap());
     send_tx(
         &tx_sender,
         &rpc,
         watchtower_challenge_tx.raw_tx.as_slice(),
         TxType::WatchtowerChallenge(watchtower_idx),
-        rbf_info,
+        None,
     )
     .await
     .context(format!(
