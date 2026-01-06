@@ -21,9 +21,9 @@
 pub use crate::builder::block_cache;
 use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
-use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::states::block_cache::BlockCache;
+use clementine_errors::BridgeError;
 use eyre::{Context, OptionExt};
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
@@ -35,7 +35,6 @@ use statig::prelude::*;
 use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::sync::Mutex;
 
 pub mod context;
@@ -48,14 +47,7 @@ pub mod task;
 pub use context::{Duty, Owner};
 pub use event::SystemEvent;
 
-#[derive(Debug, Error)]
-pub enum StateMachineError {
-    #[error("State machine received event that it doesn't know how to handle: {0}")]
-    UnhandledEvent(String),
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use clementine_errors::StateMachineError;
 pub(crate) enum ContextProcessResult<
     T: Owner,
     M: IntoStateMachine,
@@ -211,7 +203,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     async fn get_block(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
         height: u32,
     ) -> Result<bitcoin::Block, BridgeError> {
         match self.db.get_full_block(dbtx, height).await? {

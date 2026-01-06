@@ -1,8 +1,8 @@
 use crate::config::BridgeConfig;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData};
-use crate::operator::RoundIndex;
 use crate::utils::NamedEntity;
+use clementine_primitives::RoundIndex;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -22,9 +22,9 @@ use std::collections::BTreeMap;
 
 use crate::builder::transaction::ContractContext;
 
-use crate::builder::transaction::TransactionType;
+use clementine_primitives::TransactionType;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 use std::collections::HashSet;
 
@@ -55,6 +55,12 @@ pub enum Duty {
         block_height: u32,
         witness: Witness,
         challenged_before: bool,
+    },
+    /// This duty is sent after a kickoff is detected and added to the state manager.
+    /// It includes the kickoff data so that the owner can add the relevant txs to the tx sender.
+    AddRelevantTxsToTxSender {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
     },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
@@ -115,14 +121,14 @@ pub trait Owner: Clone + NamedEntity {
     /// Handle a protocol-related duty
     async fn handle_duty(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         duty: Duty,
     ) -> Result<DutyResult, BridgeError>;
 
     /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
@@ -130,12 +136,19 @@ pub trait Owner: Clone + NamedEntity {
     /// Handle a new finalized block
     async fn handle_finalized_block(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError>;
+
+    /// Check if a kickoff is relevant for the owner
+    /// For verifiers, all kickoffs are relevant
+    /// For operators, only kickoffs of their own are relevant, which will be checked by a trait fn override
+    fn is_kickoff_relevant_for_owner(&self, _kickoff_data: &KickoffData) -> bool {
+        true
+    }
 }
 
 /// Context for the state machine

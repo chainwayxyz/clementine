@@ -1,14 +1,10 @@
-use crate::builder::transaction::TransactionType;
 use crate::config::TelemetryConfig;
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
-use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 use eyre::Context as _;
 use futures::future::join_all;
 use http::HeaderValue;
 use metrics_exporter_prometheus::PrometheusBuilder;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::future::Future;
@@ -25,6 +21,12 @@ use tracing::level_filters::LevelFilter;
 use tracing::{debug_span, Instrument, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
+
+// Re-export types from clementine-utils
+pub use clementine_utils::{
+    FeePayingType, Last20Bytes, NamedEntity, RbfSigningInfo, ScriptBufExt, TryLast20Bytes,
+    TxMetadata,
+};
 
 /// Initializes a [`tracing`] subscriber depending on the environment.
 /// [`EnvFilter`] is used with an optional default level. Sets up the
@@ -525,132 +527,9 @@ where
     }
 }
 
-/// A trait for entities that have a name, operator, verifier, etc.
-/// Used to distinguish between state machines with different owners in the database,
-/// and to provide a human-readable name for the entity for task names.
-pub trait NamedEntity: Sync + Send + 'static {
-    /// A string identifier for this owner type used to distinguish between
-    /// state machines with different owners in the database.
-    ///
-    /// ## Example
-    /// "operator", "verifier", "user"
-    const ENTITY_NAME: &'static str;
-
-    /// Consumer ID for the tx sender task.
-    const TX_SENDER_CONSUMER_ID: &'static str;
-
-    /// Consumer ID for the finalized block task with no automation.
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str;
-
-    /// Consumer ID for the finalized block task with automation.
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str;
-}
-
-#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct TxMetadata {
-    pub deposit_outpoint: Option<OutPoint>,
-    pub operator_xonly_pk: Option<XOnlyPublicKey>,
-    pub round_idx: Option<RoundIndex>,
-    pub kickoff_idx: Option<u32>,
-    pub tx_type: TransactionType,
-}
-
-impl std::fmt::Debug for TxMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut dbg_struct = f.debug_struct("TxMetadata");
-        if let Some(deposit_outpoint) = self.deposit_outpoint {
-            dbg_struct.field("deposit_outpoint", &deposit_outpoint);
-        }
-        if let Some(operator_xonly_pk) = self.operator_xonly_pk {
-            dbg_struct.field("operator_xonly_pk", &operator_xonly_pk);
-        }
-        if let Some(round_idx) = self.round_idx {
-            dbg_struct.field("round_idx", &round_idx);
-        }
-        if let Some(kickoff_idx) = self.kickoff_idx {
-            dbg_struct.field("kickoff_idx", &kickoff_idx);
-        }
-        dbg_struct.field("tx_type", &self.tx_type);
-        dbg_struct.finish()
-    }
-}
-
-/// Specifies the fee bumping strategy used for a transaction.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
-#[sqlx(type_name = "fee_paying_type", rename_all = "lowercase")]
-pub enum FeePayingType {
-    /// Child-Pays-For-Parent: A new "child" transaction is created, spending an output
-    /// from the original "parent" transaction. The child pays a high fee, sufficient
-    /// to cover both its own cost and the parent's fee deficit, incentivizing miners
-    /// to confirm both together. Specifically, we utilize "fee payer" UTXOs.
-    CPFP,
-    /// Replace-By-Fee: The original unconfirmed transaction is replaced with a new
-    /// version that includes a higher fee. The original transaction must signal
-    /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
-    RBF,
-    /// The transaction has already been funded and no fee is needed.
-    /// Currently used for disprove tx as it has operator's collateral as input.
-    NoFunding,
-}
-
-/// Information to re-sign an RBF transaction.
-/// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
-/// re-signed.
-/// This was needed for re-signing watchtower challenges with RBF because OP_RETURN outputs with >80bytes were not supported before
-/// bitcoin v30. As it is supported now, this is not needed anymore, but I am keeping it here in case it is useful in the future/if something changes with the standardness rules.
-///
-/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
-/// - Not needed for CPFP.
-/// - Only signs for a keypath spend
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct RbfSigningInfo {
-    pub vout: u32,
-    pub tweak_merkle_root: Option<TapNodeHash>,
-    #[cfg(test)]
-    pub annex: Option<Vec<u8>>,
-    #[cfg(test)]
-    pub additional_taproot_output_count: Option<u32>,
-}
-pub trait Last20Bytes {
-    fn last_20_bytes(&self) -> [u8; 20];
-}
-
-pub trait TryLast20Bytes {
-    fn try_last_20_bytes(self) -> Result<[u8; 20], BridgeError>;
-}
-
-impl Last20Bytes for [u8; 32] {
-    fn last_20_bytes(&self) -> [u8; 20] {
-        self.try_last_20_bytes().expect("will not happen")
-    }
-}
-
-pub trait ScriptBufExt {
-    fn try_get_taproot_pk(&self) -> Result<XOnlyPublicKey, BridgeError>;
-}
-
-impl ScriptBufExt for ScriptBuf {
-    fn try_get_taproot_pk(&self) -> Result<XOnlyPublicKey, BridgeError> {
-        if !self.is_p2tr() {
-            return Err(eyre::eyre!("Script is not a valid P2TR script (not 34 bytes)").into());
-        }
-
-        Ok(XOnlyPublicKey::from_slice(&self.as_bytes()[2..34])
-            .wrap_err("Failed to parse XOnlyPublicKey from script")?)
-    }
-}
-
-impl TryLast20Bytes for &[u8] {
-    fn try_last_20_bytes(self) -> Result<[u8; 20], BridgeError> {
-        if self.len() < 20 {
-            return Err(eyre::eyre!("Input is too short to contain 20 bytes").into());
-        }
-        let mut result = [0u8; 20];
-
-        result.copy_from_slice(&self[self.len() - 20..]);
-        Ok(result)
-    }
-}
+// NOTE: NamedEntity, TxMetadata, FeePayingType, RbfSigningInfo,
+// Last20Bytes, TryLast20Bytes, ScriptBufExt are now re-exported
+// from clementine-utils at the top of this file.
 
 /// Wraps a future with a timeout, returning a `Status::deadline_exceeded` gRPC error
 /// if the future does not complete within the specified duration.

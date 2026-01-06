@@ -2,7 +2,8 @@ use eyre::OptionExt;
 use tokio::time::Duration;
 use tonic::async_trait;
 
-use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
+use crate::{citrea::CitreaClientT, database::Database, operator::Operator};
+use clementine_errors::BridgeError;
 
 use super::{Task, TaskVariant};
 
@@ -63,7 +64,7 @@ where
             .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)
             .await?;
         if deposit_data.is_none() {
-            return Err(eyre::eyre!("Deposit data not found").into());
+            return Err(eyre::eyre!("Fronted withdrawal for move tx {move_to_vault_txid} found, but the signatures for the deposit are not found in the db.").into());
         }
 
         let deposit_data = deposit_data.expect("Must be Some");

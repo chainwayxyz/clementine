@@ -1,19 +1,20 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
-    actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
+    actor::Actor, builder, config::BridgeConfig, database::Database,
     extended_bitcoin_rpc::ExtendedBitcoinRpc, musig2::AggregateFromPublicKeys,
 };
-use crate::{EVMAddress, UTXO};
 use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
+use clementine_primitives::{EVMAddress, UTXO};
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
 
@@ -438,10 +439,11 @@ impl NamedEntity for MockOwner {
 mod states {
     use super::*;
     use crate::builder::block_cache;
-    use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+    use crate::builder::transaction::{ContractContext, TxHandler};
     use crate::database::DatabaseTransaction;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
+    use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use tonic::async_trait;
@@ -451,7 +453,7 @@ mod states {
     impl Owner for MockOwner {
         async fn handle_duty(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             self.cached_duties.lock().await.push(duty);
@@ -460,7 +462,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _tx_type: TransactionType,
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -469,7 +471,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _block_id: u32,
             _block_height: u32,
             _block_cache: Arc<block_cache::BlockCache>,

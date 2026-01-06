@@ -5,13 +5,14 @@ use tokio::task::{self, JoinHandle};
 use tokio::time::sleep;
 use tonic::async_trait;
 
-use crate::errors::BridgeError;
+use clementine_errors::BridgeError;
 
 pub mod aggregator_metric_publisher;
 pub mod entity_metric_publisher;
 pub mod manager;
 pub mod payout_checker;
 pub mod status_monitor;
+pub mod tx_sender;
 
 /// The variant of the task, used for identifying the task in the status monitor
 /// Create a new enum variant for each task that you want to track in the status monitor

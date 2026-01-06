@@ -1,0 +1,20 @@
+[package]
+name = "clementine-errors"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+clementine-primitives = { path = "../clementine-primitives" }
+thiserror = { workspace = true }
+eyre = { workspace = true }
+tonic = { workspace = true }
+http = { workspace = true }
+
+# External crates whose errors we wrap
+bitcoin = { workspace = true }
+hex = { workspace = true }
+sqlx = { workspace = true }
+alloy = { workspace = true }
+reqwest = { workspace = true }

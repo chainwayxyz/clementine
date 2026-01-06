@@ -68,6 +68,12 @@ citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
+clementine-errors = { path = "../crates/clementine-errors" }
+clementine-primitives = { path = "../crates/clementine-primitives" }
+clementine-config = { path = "../crates/clementine-config" }
+clementine-utils = { path = "../crates/clementine-utils" }
+clementine-extended-rpc = { path = "../crates/clementine-extended-rpc", features = ["test-utils"] }
+clementine-tx-sender = { path = "../crates/clementine-tx-sender" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }

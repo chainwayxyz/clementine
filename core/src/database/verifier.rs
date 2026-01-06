@@ -8,8 +8,9 @@ use super::{
     wrapper::{BlockHashDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::execute_query_with_tx;
 use bitcoin::{BlockHash, OutPoint, Txid, XOnlyPublicKey};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use sqlx::QueryBuilder;
 
@@ -18,7 +19,7 @@ impl Database {
     /// If no deposits exist, returns None
     pub async fn get_last_deposit_idx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
@@ -33,7 +34,7 @@ impl Database {
     /// If no withdrawals with UTXOs exist, returns None.
     pub async fn get_last_withdrawal_idx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
             "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
@@ -48,7 +49,7 @@ impl Database {
 
     pub async fn upsert_move_to_vault_txid_from_citrea_deposit(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         citrea_idx: u32,
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
@@ -67,7 +68,7 @@ impl Database {
 
     pub async fn get_move_to_vault_txid_from_citrea_deposit(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         citrea_idx: u32,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB,)>(
@@ -83,7 +84,7 @@ impl Database {
 
     pub async fn update_replacement_deposit_move_txid(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         idx: u32,
         new_move_txid: Txid,
     ) -> Result<(), BridgeError> {
@@ -106,7 +107,7 @@ impl Database {
 
     pub async fn update_withdrawal_utxo_from_citrea_withdrawal(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         citrea_idx: u32,
         withdrawal_utxo: OutPoint,
         withdrawal_batch_proof_bitcoin_block_height: u32,
@@ -137,7 +138,7 @@ impl Database {
     /// If there is no withdrawal utxo set for the deposit, an error is returned
     pub async fn get_withdrawal_utxo_from_citrea_withdrawal(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         citrea_idx: u32,
     ) -> Result<OutPoint, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
@@ -168,7 +169,7 @@ impl Database {
     /// block id.
     pub async fn get_payout_txs_for_withdrawal_utxos(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_id: u32,
     ) -> Result<Vec<(u32, Txid)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB)>(
@@ -197,7 +198,7 @@ impl Database {
     /// Sets the given payout txs' txid and operator index for the given index.
     pub async fn update_payout_txs_and_payer_operator_xonly_pk(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         payout_txs_and_payer_operator_xonly_pk: Vec<(
             u32,
             Txid,
@@ -251,7 +252,7 @@ impl Database {
 
     pub async fn get_payout_info_from_move_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_to_vault_txid: Txid,
     ) -> Result<Option<(Option<XOnlyPublicKey>, BlockHash, Txid, i32)>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<XOnlyPublicKeyDB>, BlockHashDB, TxidDB, i32)>(
@@ -280,7 +281,7 @@ impl Database {
 
     pub async fn get_first_unhandled_payout_by_operator_xonly_pk(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
@@ -313,7 +314,7 @@ impl Database {
 
     pub async fn get_payer_xonly_pk_blockhash_and_kickoff_txid_from_deposit_id(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
     ) -> Result<(Option<XOnlyPublicKey>, Option<BlockHash>, Option<Txid>), BridgeError> {
         let query = sqlx::query_as::<
@@ -346,7 +347,7 @@ impl Database {
 
     pub async fn mark_payout_handled(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         citrea_idx: u32,
         kickoff_txid: Txid,
     ) -> Result<(), BridgeError> {
@@ -362,7 +363,7 @@ impl Database {
 
     pub async fn get_handled_payout_kickoff_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         payout_txid: Txid,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>,)>(

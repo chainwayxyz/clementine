@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::Witness;
+use bitcoin::{consensus::Encodable, Witness};
 use eyre::OptionExt;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
@@ -9,8 +9,9 @@ use tokio::sync::Mutex;
 use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
-    errors::BridgeError,
+    states::Duty,
 };
+use clementine_errors::BridgeError;
 
 use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
 
@@ -43,11 +44,11 @@ pub enum SystemEvent {
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Appends a  message to the state manager's message queue to create a new round state machine
     pub async fn dispatch_new_round_machine(
-        db: Database,
-        tx: DatabaseTransaction<'_, '_>,
+        db: &Database,
+        tx: DatabaseTransaction<'_>,
         operator_data: OperatorData,
     ) -> Result<(), eyre::Report> {
-        let queue_name = StateManager::<T>::queue_name();
+        let queue_name = Self::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
 
         let message = SystemEvent::NewOperator { operator_data };
@@ -60,15 +61,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     /// Appends a  message to the state manager's message queue to create a new kickoff state machine
     pub async fn dispatch_new_kickoff_machine(
-        db: Database,
-        tx: DatabaseTransaction<'_, '_>,
+        db: &Database,
+        tx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
     ) -> Result<(), eyre::Report> {
-        let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        let queue_name = Self::queue_name();
 
         let message = SystemEvent::NewKickoff {
             kickoff_data,
@@ -169,6 +170,59 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                // if kickoff is not relevant for the owner, do not process it
+                // only case right now is if owner is operator and kickoff is not of their own
+                if !self.owner.is_kickoff_relevant_for_owner(&kickoff_data) {
+                    return Ok(());
+                }
+
+                // check for duplicates
+                for kickoff_machine in self.kickoff_machines.iter() {
+                    let matches = [
+                        kickoff_machine.kickoff_data == kickoff_data,
+                        kickoff_machine.deposit_data == deposit_data,
+                        kickoff_machine.payout_blockhash == payout_blockhash,
+                        kickoff_machine.kickoff_height == kickoff_height,
+                    ];
+                    let match_count = matches.iter().filter(|&&b| b).count();
+
+                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
+                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
+                    match match_count {
+                        4 => return Ok(()), // exact duplicate, skip
+                        0 => {}             // no match, continue checking other machines
+                        n => {
+                            let mut raw_payout_blockhash = Vec::new();
+                            payout_blockhash
+                                .consensus_encode(&mut raw_payout_blockhash)
+                                .map_err(|e| {
+                                    eyre::eyre!("Error encoding payout blockhash: {}", e)
+                                })?;
+                            let payout_blockhash_hex = hex::encode(raw_payout_blockhash);
+                            let mut raw_existing_payout_blockhash = Vec::new();
+                            kickoff_machine
+                                .payout_blockhash
+                                .consensus_encode(&mut raw_existing_payout_blockhash)
+                                .map_err(|e| {
+                                    eyre::eyre!("Error encoding existing payout blockhash: {}", e)
+                                })?;
+                            let existing_payout_blockhash_hex =
+                                hex::encode(raw_existing_payout_blockhash);
+                            return Err(eyre::eyre!(
+                            "Partial kickoff match detected ({n} of 4 fields match). This indicates data corruption or inconsistency. New kickoff data: {:?}, Existing kickoff data: {:?}, New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
+                            kickoff_data,
+                            kickoff_machine.kickoff_data,
+                            deposit_data,
+                            kickoff_machine.deposit_data,
+                            kickoff_height,
+                            kickoff_machine.kickoff_height,
+                            payout_blockhash_hex,
+                            existing_payout_blockhash_hex,
+                            ).into());
+                        }
+                    }
+                }
+
                 // Initialize context using the block just before the kickoff height
                 // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
@@ -195,7 +249,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
-                    deposit_data,
+                    deposit_data.clone(),
                     payout_blockhash,
                 )
                 .uninitialized_state_machine()
@@ -217,6 +271,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
+                // if everything is fine, add the relevant txs to the tx sender
+                // this will already be added normally, but if there was a db loss and we are resyncing, the txs will not be added.
+                // so we add them with this duty.
+                context
+                    .dispatch_duty(Duty::AddRelevantTxsToTxSender {
+                        kickoff_data,
+                        deposit_data,
+                    })
+                    .await?;
             }
         };
 

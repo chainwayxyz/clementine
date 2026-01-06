@@ -1,10 +1,9 @@
 //! # MuSig2
 //!
 //! Helper functions for the MuSig2 signature scheme.
-
+use crate::aggregator::VerifierId;
 #[cfg(test)]
 use crate::bitvm_client::SECP;
-use crate::{aggregator::VerifierId, errors::BridgeError};
 #[cfg(test)]
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{
@@ -13,6 +12,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     TapNodeHash, XOnlyPublicKey,
 };
+use clementine_errors::BridgeError;
 use eyre::Context;
 use lazy_static::lazy_static;
 use secp256k1::{
@@ -293,7 +293,7 @@ pub fn partial_sign(
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
-    use crate::builder::transaction::{TransactionType, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         bitvm_client::{self, SECP},
@@ -301,7 +301,6 @@ mod tests {
             self,
             transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
         },
-        errors::BridgeError,
         musig2::{
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
             partial_sign, AggregateFromPublicKeys,
@@ -314,6 +313,8 @@ mod tests {
         secp256k1::{schnorr, Message, PublicKey},
         Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
+    use clementine_errors::BridgeError;
+    use clementine_primitives::TransactionType;
     use secp256k1::rand::Rng;
     use std::sync::Arc;
     use std::vec;

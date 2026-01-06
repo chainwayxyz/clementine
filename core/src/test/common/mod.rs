@@ -19,20 +19,20 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::errors::BridgeError;
-use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
     SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
-use crate::EVMAddress;
 use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_errors::BridgeError;
+use clementine_primitives::EVMAddress;
 use eyre::Context;
 pub use setup_utils::*;
 use std::path::Path;
@@ -729,7 +729,7 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     tx_sender
         .client()
         .insert_try_to_send(
-            &mut db_commit,
+            Some(&mut db_commit),
             None,
             &signed_replacement_deposit_tx,
             FeePayingType::CPFP,

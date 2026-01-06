@@ -12,8 +12,6 @@ use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::{DEFAULT_CHANNEL_SIZE, RESTART_BACKGROUND_TASKS_TIMEOUT};
 use crate::deposit::DepositData;
-use crate::errors::BridgeError;
-use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
@@ -25,8 +23,11 @@ use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use clementine_errors::BridgeError;
+use clementine_errors::ResultExt;
 use eyre::Context;
 use futures::TryFutureExt;
+use std::convert::TryInto;
 use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -478,5 +479,58 @@ where
             .get_reimbursement_txs(deposit_outpoint)
             .await?;
         Ok(Response::new(txs.into()))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn transfer_to_btc_wallet(
+        &self,
+        request: Request<clementine::Outpoints>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let outpoints: Vec<OutPoint> = request
+            .into_inner()
+            .outpoints
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid outpoint: {e}")))?;
+
+        if outpoints.is_empty() {
+            return Err(Status::invalid_argument("No outpoints provided"));
+        }
+
+        let mut inputs = Vec::with_capacity(outpoints.len());
+
+        for outpoint in outpoints {
+            tracing::info!(
+                "TransferToBtcWallet rpc called with outpoint: {:?}",
+                outpoint
+            );
+
+            let txout = self
+                .operator
+                .rpc
+                .get_txout_from_outpoint(&outpoint)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to get txout: {e}")))?;
+
+            if txout.script_pubkey != self.operator.signer.address.script_pubkey() {
+                return Err(Status::invalid_argument(format!(
+                    "Outpoint script_pubkey does not match operator's address. Expected: {:?}, Got: {:?}",
+                    self.operator.signer.address.script_pubkey(),
+                    txout.script_pubkey
+                )));
+            }
+
+            inputs.push((outpoint, txout));
+        }
+
+        let signed_tx = self
+            .operator
+            .transfer_outpoints_to_wallet(inputs)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to send outpoints to wallet: {e}")))?;
+
+        tracing::info!("Successfully created transaction sending outpoints to wallet");
+        Ok(Response::new(RawSignedTx::from(&signed_tx)))
     }
 }

@@ -3,8 +3,9 @@
 //! This module includes database functions which are mainly used by a verifier.
 
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::execute_query_with_tx;
 use bitcoin::Txid;
+use clementine_errors::BridgeError;
 use eyre;
 use sqlx::QueryBuilder;
 
@@ -12,7 +13,7 @@ impl Database {
     /// Sets a signed emergency stop transaction for a given move transaction ID
     pub async fn insert_signed_emergency_stop_tx_if_not_exists(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_txid: &Txid,
         encrypted_emergency_stop_tx: &[u8],
     ) -> Result<(), BridgeError> {
@@ -31,7 +32,7 @@ impl Database {
     /// Gets emergency stop transactions for a list of move transaction IDs
     pub async fn get_emergency_stop_txs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_txids: Vec<Txid>,
     ) -> Result<Vec<(Txid, Vec<u8>)>, BridgeError> {
         if move_txids.is_empty() {
@@ -63,15 +64,13 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        builder::transaction::{TransactionType, TxHandlerBuilder},
-        test::common::*,
-    };
+    use crate::{builder::transaction::TxHandlerBuilder, test::common::*};
     use bitcoin::{
         consensus::{self},
         hashes::Hash,
         Transaction, Txid,
     };
+    use clementine_primitives::TransactionType;
     fn create_test_transaction() -> Transaction {
         let tx_handler = TxHandlerBuilder::new(TransactionType::Dummy).finalize();
         tx_handler.get_cached_tx().clone()

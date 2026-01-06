@@ -7,13 +7,13 @@ use semver::VersionReq;
 use crate::aggregator::Aggregator;
 use crate::bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, ProtocolParamsetExt};
 use crate::config::BridgeConfig;
 use crate::deposit::SecurityCouncil;
-use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::CompatibilityParamsRpc;
 use crate::verifier::Verifier;
+use clementine_errors::BridgeError;
 
 /// Parameters related to protocol configuration that can affect contract transactions, Citrea syncing, and version compatibility. This must not include sensitive information.
 #[derive(Clone, Debug)]
@@ -192,6 +192,7 @@ impl ActorWithConfig for Aggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::protocol::ProtocolParamsetExt;
     use crate::{
         config::protocol::{REGTEST_PARAMSET, TESTNET4_TEST_PARAMSET},
         rpc::clementine::{entity_data_with_id::DataResult, Empty},

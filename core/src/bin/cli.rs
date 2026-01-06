@@ -8,17 +8,18 @@ use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
-    builder::transaction::TransactionType,
     config::BridgeConfig,
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
         entity_data_with_id::DataResult, Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit,
-        Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
-        SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
+        Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, Outpoints,
+        ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
+        XOnlyPublicKeys,
     },
-    EVMAddress,
 };
+use clementine_errors::TransactionType;
+use clementine_primitives::EVMAddress;
 use tonic::Request;
 
 #[derive(Parser)]
@@ -98,6 +99,11 @@ enum OperatorCommands {
     GetCompatibilityParams,
     /// Get entity status
     GetEntityStatus,
+    /// Transfer outpoints from operator's address to the BTC wallet
+    TransferToBtcWallet {
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
+        outpoints: Vec<String>,
+    },
     // Add other operator commands as needed
 }
 
@@ -452,6 +458,43 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("Entity status:\n{params:#?}");
+        }
+        OperatorCommands::TransferToBtcWallet { outpoints } => {
+            if outpoints.is_empty() {
+                println!("Error: At least one outpoint is required");
+                return;
+            }
+
+            let mut parsed_outpoints = Vec::new();
+            for outpoint_str in outpoints {
+                let bitcoin_outpoint: bitcoin::OutPoint = match outpoint_str.parse() {
+                    Ok(op) => op,
+                    Err(e) => {
+                        println!("Error: Failed to parse outpoint '{outpoint_str}': {e}");
+                        return;
+                    }
+                };
+
+                parsed_outpoints.push(clementine::Outpoint::from(bitcoin_outpoint));
+            }
+
+            println!(
+                "Transferring {} outpoint(s) to BTC wallet",
+                parsed_outpoints.len()
+            );
+            let response = operator
+                .transfer_to_btc_wallet(Request::new(Outpoints {
+                    outpoints: parsed_outpoints,
+                }))
+                .await
+                .expect("Failed to make a request to operator");
+
+            let raw_tx = response.into_inner().raw_tx;
+            let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw_tx)
+                .expect("Failed to deserialize transaction");
+            let txid = tx.compute_txid();
+            println!("Transaction created: {txid}");
+            println!("Raw transaction: {}", hex::encode(raw_tx));
         }
     }
 }

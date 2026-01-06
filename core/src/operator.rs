@@ -3,24 +3,29 @@ use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::address::create_taproot_address;
+use crate::builder::script::SpendPath;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::input::UtxoVout;
+use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TransactionType, TxHandler,
+    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TxHandler, TxHandlerBuilder,
+    DEFAULT_SEQUENCE,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use clementine_errors::BridgeError;
+use clementine_primitives::TransactionType;
 
 use crate::metrics::L1SyncStatusProvider;
-use crate::rpc::clementine::{EntityStatus, StoppedTasks};
+use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -29,7 +34,7 @@ use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
 use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
-use crate::{builder, constants, UTXO};
+use crate::{builder, constants};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
@@ -37,8 +42,11 @@ use bitcoin::{taproot, Address, Amount, BlockHash, OutPoint, ScriptBuf, Transact
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
+use clementine_primitives::UTXO;
+use clementine_primitives::{PublicHash, RoundIndex};
 
-use eyre::{Context, OptionExt};
+use eyre::{eyre, Context, OptionExt};
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -64,62 +72,7 @@ use {
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
     circuits_lib::bridge_circuit::structs::LightClientProof,
-    std::collections::HashMap,
 };
-
-pub type PublicHash = [u8; 20];
-
-/// Round index is used to represent the round index safely.
-/// Collateral represents the collateral utxo.
-/// Round(index) represents the rounds of the bridge operators, index is 0-indexed.
-/// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
-)]
-pub enum RoundIndex {
-    Collateral,
-    Round(usize), // 0-indexed
-}
-
-impl RoundIndex {
-    /// Converts the round to a 0-indexed index.
-    pub fn to_index(&self) -> usize {
-        match self {
-            RoundIndex::Collateral => 0,
-            RoundIndex::Round(index) => *index + 1,
-        }
-    }
-
-    /// Converts a 0-indexed index to a RoundIndex.
-    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
-    pub fn from_index(index: usize) -> Self {
-        if index == 0 {
-            RoundIndex::Collateral
-        } else {
-            RoundIndex::Round(index - 1)
-        }
-    }
-
-    /// Returns the next RoundIndex.
-    pub fn next_round(&self) -> Self {
-        match self {
-            RoundIndex::Collateral => RoundIndex::Round(0),
-            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
-        }
-    }
-
-    /// Creates an iterator over rounds from 0 to num_rounds (exclusive)
-    /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
-        Self::iter_rounds_range(0, num_rounds)
-    }
-
-    /// Creates an iterator over rounds from start to end (exclusive)
-    /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
-        (start..end).map(RoundIndex::Round)
-    }
-}
 
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
@@ -135,7 +88,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient,
+    pub tx_sender: TxSenderClient<Database>,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -416,7 +369,7 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
-                &mut dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -558,12 +511,8 @@ where
             )
             .await?;
 
-        StateManager::<Operator<C>>::dispatch_new_round_machine(
-            self.db.clone(),
-            &mut dbtx,
-            self.data(),
-        )
-        .await?;
+        StateManager::<Operator<C>>::dispatch_new_round_machine(&self.db, &mut dbtx, self.data())
+            .await?;
         dbtx.commit().await?;
         Ok(())
     }
@@ -914,7 +863,7 @@ where
 
     pub async fn handle_finalized_payout<'a>(
         &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
+        dbtx: DatabaseTransaction<'a>,
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<bitcoin::Txid, BridgeError> {
@@ -1002,12 +951,12 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            dbtx,
+                            Some(dbtx),
                             *tx_type,
                             signed_tx,
                             &signed_txs,
                             tx_metadata,
-                            &self.config,
+                            self.config.protocol_paramset(),
                             None,
                         )
                         .await?;
@@ -1040,7 +989,7 @@ where
     #[cfg(feature = "automation")]
     async fn start_first_round(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
         // try to send the first round tx
@@ -1059,7 +1008,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -1088,10 +1037,10 @@ where
     #[cfg(feature = "automation")]
     pub async fn end_round<'a>(
         &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
+        mut dbtx: DatabaseTransaction<'a>,
     ) -> Result<(), BridgeError> {
         // get current round index
-        let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
+        let current_round_index = self.db.get_current_round_index(Some(&mut dbtx)).await?;
 
         let mut activation_prerequisites = Vec::new();
 
@@ -1160,7 +1109,7 @@ where
             let kickoff_txid = self
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
-                    Some(dbtx),
+                    Some(&mut dbtx),
                     current_round_index,
                     kickoff_connector_idx,
                 )
@@ -1183,7 +1132,7 @@ where
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
                         .mark_kickoff_connector_as_used(
-                            Some(dbtx),
+                            Some(&mut dbtx),
                             current_round_index,
                             kickoff_connector_idx,
                             None,
@@ -1217,7 +1166,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1238,7 +1187,7 @@ where
         // send ready to reimburse tx
         self.tx_sender
             .insert_try_to_send(
-                dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1259,7 +1208,7 @@ where
         // send next round tx
         self.tx_sender
             .insert_try_to_send(
-                dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1295,7 +1244,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
@@ -1313,7 +1262,7 @@ where
         let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
             self.db.clone(),
             &context,
-            Some(dbtx),
+            Some(&mut dbtx),
         );
         let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
@@ -1342,7 +1291,7 @@ where
 
         let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
-            .get_payout_info_from_move_txid(Some(dbtx), move_txid)
+            .get_payout_info_from_move_txid(Some(&mut dbtx), move_txid)
             .await
             .wrap_err("Failed to get payout info from db during sending asserts.")?
             .ok_or_eyre(format!(
@@ -1364,7 +1313,7 @@ where
 
         let (payout_block_height, payout_block) = self
             .db
-            .get_full_block_from_hash(Some(dbtx), payout_block_hash)
+            .get_full_block_from_hash(Some(&mut dbtx), payout_block_hash)
             .await?
             .ok_or_eyre(format!(
                 "Payout block {payout_op_xonly_pk:?} {payout_block_hash:?} not found in db",
@@ -1386,7 +1335,7 @@ where
                 payout_block_height as u64,
                 deposit_idx as u32,
                 &self.db,
-                Some(dbtx),
+                Some(&mut dbtx),
                 self.config.protocol_paramset(),
             )
             .await?;
@@ -1442,7 +1391,7 @@ where
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
             .fetch_and_save_missing_blocks(
-                Some(dbtx),
+                Some(&mut dbtx),
                 &self.rpc,
                 self.config.protocol_paramset().genesis_height,
                 rpc_current_finalized_height + 1,
@@ -1451,14 +1400,14 @@ where
 
         let current_height = self
             .db
-            .get_latest_finalized_block_height(Some(dbtx))
+            .get_latest_finalized_block_height(Some(&mut dbtx))
             .await?
             .ok_or_eyre("Failed to get current finalized block height")?;
 
         let block_hashes = self
             .db
             .get_block_info_from_range(
-                Some(dbtx),
+                Some(&mut dbtx),
                 self.config.protocol_paramset().genesis_height as u64,
                 current_height,
             )
@@ -1679,14 +1628,14 @@ where
                     asserts,
                     &public_inputs.challenge_sending_watchtowers,
                 ),
-                Some(dbtx),
+                Some(&mut dbtx),
             )
             .await?;
 
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    dbtx,
+                    Some(&mut dbtx),
                     tx_type,
                     &tx,
                     &[],
@@ -1697,7 +1646,7 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    &self.config,
+                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -1705,7 +1654,6 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "automation")]
     fn data(&self) -> OperatorData {
         OperatorData {
             xonly_pk: self.signer.xonly_public_key,
@@ -1717,7 +1665,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_latest_blockhash(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
@@ -1731,7 +1679,7 @@ where
                     kickoff_data,
                 },
                 latest_blockhash,
-                Some(dbtx),
+                Some(&mut dbtx),
             )
             .await?;
         if tx_type != TransactionType::LatestBlockhash {
@@ -1739,7 +1687,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                dbtx,
+                Some(dbtx),
                 tx_type,
                 &tx,
                 &[],
@@ -1750,7 +1698,7 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
-                &self.config,
+                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -1760,7 +1708,7 @@ where
     /// For a deposit_id checks that the payer for that deposit is the operator, and the payout blockhash and kickoff txid are set.
     async fn validate_payer_is_operator(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
     ) -> Result<(BlockHash, Txid), BridgeError> {
         let (payer_xonly_pk, payout_blockhash, kickoff_txid) = self
@@ -1815,7 +1763,7 @@ where
 
     async fn get_next_txs_to_send(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         deposit_data: &mut DepositData,
         payout_blockhash: BlockHash,
         kickoff_txid: Txid,
@@ -1965,6 +1913,198 @@ where
         Ok(txs_to_send)
     }
 
+    /// Transfers the given outpoints to the operator's btc wallet address.
+    /// The outpoints must belong to the operator's taproot address (xonly key, no merkle root).
+    /// The function also checks if any outpoint is the collateral of the operator, and returns an error if so.
+    /// # Arguments
+    /// - inputs: A vector of tuples, each containing an outpoint and the corresponding txout.
+    /// # Returns
+    /// - The signed transaction that sends the given outpoints to the operator's btc wallet address.
+    pub async fn transfer_outpoints_to_wallet(
+        &self,
+        inputs: Vec<(OutPoint, TxOut)>,
+    ) -> Result<Transaction, BridgeError> {
+        if inputs.is_empty() {
+            return Err(eyre!("No outpoints provided for transfer").into());
+        }
+
+        // check if any outpoint is a collateral outpoint
+        let collateral_outpoints = self
+            .get_all_collateral_outpoints()
+            .await
+            .wrap_err("Failed to get all collateral outpoints")?;
+        for (outpoint, _) in inputs.iter() {
+            if collateral_outpoints.contains_key(outpoint) {
+                let (round_idx, tx_type) = collateral_outpoints
+                    .get(outpoint)
+                    .expect("Collateral outpoint should be found in the map");
+                return Err(
+                    eyre!("Cannot transfer collateral outpoint {outpoint} belonging to {round_idx:?} {tx_type:?} to wallet").into(),
+                );
+            }
+        }
+
+        let destination_script = self
+            .rpc
+            .get_new_address(None, Some(AddressType::Bech32m))
+            .await
+            .wrap_err("Failed to get new wallet address for transfer")?
+            .require_network(self.config.protocol_paramset().network)
+            .wrap_err("Failed to get new address, bitcoin rpc might not match the network")?
+            .script_pubkey();
+
+        let (_, spendinfo) = create_taproot_address(
+            &[],
+            Some(self.signer.xonly_public_key),
+            self.config.protocol_paramset().network,
+        );
+
+        let total_input_value = inputs.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
+            acc.checked_add(txout.value)
+                .ok_or_else(|| eyre!("Input values overflowed while summing"))
+        })?;
+
+        let mut output_txout = TxOut {
+            value: total_input_value,
+            script_pubkey: destination_script,
+        };
+
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(bitcoin::transaction::Version::TWO);
+
+        for (outpoint, txout) in inputs.iter() {
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+
+        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
+
+        let mut txhandler = builder.finalize();
+
+        let fee_rate = self
+            .rpc
+            .get_fee_rate(
+                self.config.protocol_paramset().network,
+                &self.config.mempool_api_host,
+                &self.config.mempool_api_endpoint,
+                self.config.tx_sender_limits.mempool_fee_rate_multiplier,
+                self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
+                self.config.tx_sender_limits.fee_rate_hard_cap,
+            )
+            .await
+            .wrap_err("Failed to get fee rate for transfer to wallet tx")?;
+
+        // Sign to account for witness weight when calculating fees.
+        self.signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
+
+        let tx_weight_wu = txhandler.get_cached_tx().weight().to_wu();
+        let fee_sat = (fee_rate.to_sat_per_kwu() * tx_weight_wu).div_ceil(1000);
+        let fee = Amount::from_sat(fee_sat);
+
+        output_txout.value = output_txout
+            .value
+            .checked_sub(fee)
+            .ok_or_else(|| eyre!("Calculated fee exceeds total input value"))?;
+
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(bitcoin::transaction::Version::TWO);
+
+        for (outpoint, txout) in inputs.iter() {
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+
+        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
+
+        let mut txhandler = builder.finalize();
+
+        self.signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
+
+        let signed_tx = txhandler.get_cached_tx().clone();
+
+        self.rpc
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send from operator's address to btc wallet address")?;
+
+        Ok(signed_tx)
+    }
+
+    /// Gets all collateral outpoints for the operator.
+    /// Returns a map of outpoint to the round index it belongs to.
+    async fn get_all_collateral_outpoints(
+        &self,
+    ) -> Result<HashMap<OutPoint, (RoundIndex, TransactionType)>, BridgeError> {
+        let mut outpoints = HashMap::new();
+        outpoints.insert(
+            self.collateral_funding_outpoint,
+            (RoundIndex::Collateral, TransactionType::Round),
+        );
+
+        // Fetch operator kickoff winternitz public keys to build round txs
+        let operator_winternitz_public_keys = self
+            .db
+            .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
+            .await?;
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+            self.config.protocol_paramset().num_round_txs,
+        )?;
+        let operator_data = self.data();
+
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+
+        // Collect collateral outpoints for each round
+        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+            let txhandlers = create_round_txhandlers(
+                self.config.protocol_paramset(),
+                round_idx,
+                &operator_data,
+                &kickoff_wpks,
+                prev_ready_to_reimburse.as_ref(),
+            )?;
+
+            let round_tx = txhandlers
+                .iter()
+                .find(|txhandler| txhandler.get_transaction_type() == TransactionType::Round)
+                .ok_or(eyre::eyre!("Round tx not found in txhandlers"))?;
+            let collateral_outpoint = OutPoint {
+                txid: *round_tx.get_txid(),
+                vout: UtxoVout::CollateralInRound.get_vout(),
+            };
+            outpoints.insert(collateral_outpoint, (round_idx, TransactionType::Round));
+
+            let ready_to_reimburse_tx = txhandlers
+                .iter()
+                .find(|txhandler| {
+                    txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
+                })
+                .ok_or(eyre::eyre!("Ready to reimburse tx not found in txhandlers"))?;
+            let ready_to_reimburse_collateral_outpoint = OutPoint {
+                txid: *ready_to_reimburse_tx.get_txid(),
+                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+            };
+            outpoints.insert(
+                ready_to_reimburse_collateral_outpoint,
+                (round_idx, TransactionType::ReadyToReimburse),
+            );
+            prev_ready_to_reimburse = Some(ready_to_reimburse_tx.clone());
+        }
+
+        Ok(outpoints)
+    }
+
     /// For a given deposit outpoint, get the txs that are needed to reimburse the deposit.
     /// To avoid operator getting slashed, this function only returns the next tx that needs to be sent
     /// This fn can track and enable sending of these transactions during a normal reimbursement process.
@@ -2034,7 +2174,7 @@ where
     /// able to advance to the next round.
     async fn advance_round_manually(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         if round_idx == RoundIndex::Collateral {
@@ -2143,7 +2283,7 @@ where
     /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
         round_txid: Txid,
         current_chain_height: u32,
@@ -2237,7 +2377,7 @@ where
     /// Validates that all kickoff finalizers are spent for the given round.
     async fn validate_all_kickoff_finalizers_spent(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
         current_chain_height: u32,
     ) -> Result<(), BridgeError> {
@@ -2294,7 +2434,7 @@ where
     /// Checks if the next round tx is on chain, if it is, updates the database, otherwise returns the round tx that needs to be sent.
     async fn send_next_round_tx(
         &self,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let next_round_context = ContractContext::new_context_for_round(
@@ -2328,6 +2468,62 @@ where
             Ok(vec![])
         }
     }
+
+    /// Adds relevant transactions to tx_sender queue for a kickoff.
+    /// Used during resync to ensure all necessary txs are queued.
+    #[cfg(feature = "automation")]
+    async fn queue_relevant_txs_for_new_kickoff(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let context = ContractContext::new_context_for_kickoff(
+            kickoff_data,
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+        );
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            context,
+            // dummy blockhash, as kickoff is already sent and payout blockhash does not affect the txid, we can use a dummy blockhash
+            Some([0u8; 20]),
+            Some(dbtx),
+        )
+        .await?;
+        let tx_metadata = Some(TxMetadata {
+            tx_type: TransactionType::Dummy,
+            operator_xonly_pk: Some(self.signer.xonly_public_key),
+            round_idx: Some(kickoff_data.round_idx),
+            kickoff_idx: Some(kickoff_data.kickoff_idx),
+            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+        });
+        for (tx_type, signed_tx) in &signed_txs {
+            match *tx_type {
+                TransactionType::OperatorChallengeAck(_)
+                | TransactionType::WatchtowerChallengeTimeout(_)
+                | TransactionType::ChallengeTimeout
+                | TransactionType::DisproveTimeout
+                | TransactionType::Reimburse => {
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            Some(dbtx),
+                            *tx_type,
+                            signed_tx,
+                            &signed_txs,
+                            tx_metadata,
+                            self.config.protocol_paramset(),
+                            None,
+                        )
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<C> NamedEntity for Operator<C>
@@ -2348,11 +2544,11 @@ mod states {
 
     use super::*;
     use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandler,
-        TxHandlerCache,
+        create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
     use crate::states::{block_cache, Duty, Owner, StateManager};
+    use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -2363,7 +2559,7 @@ mod states {
     {
         async fn handle_duty(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             match duty {
@@ -2377,6 +2573,16 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
+                Duty::AddRelevantTxsToTxSender {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    tracing::info!("Operator {:?} called add relevant txs to tx sender with kickoff_data: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data);
+                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
                 Duty::SendOperatorAsserts {
                     kickoff_data,
                     deposit_data,
@@ -2427,7 +2633,7 @@ mod states {
                         .await?;
                     if let Some((deposit_data, kickoff_data)) = kickoff_data {
                         StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
+                            &self.db,
                             dbtx,
                             kickoff_data,
                             block_height,
@@ -2437,49 +2643,8 @@ mod states {
                         .await?;
 
                         // resend relevant txs
-                        let context = ContractContext::new_context_for_kickoff(
-                            kickoff_data,
-                            deposit_data.clone(),
-                            self.config.protocol_paramset(),
-                        );
-                        let signed_txs = create_and_sign_txs(
-                            self.db.clone(),
-                            &self.signer,
-                            self.config.clone(),
-                            context,
-                            Some([0u8; 20]),
-                            Some(dbtx),
-                        )
-                        .await?;
-                        let tx_metadata = Some(TxMetadata {
-                            tx_type: TransactionType::Dummy,
-                            operator_xonly_pk: Some(self.signer.xonly_public_key),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        });
-                        for (tx_type, signed_tx) in &signed_txs {
-                            match *tx_type {
-                                TransactionType::OperatorChallengeAck(_)
-                                | TransactionType::WatchtowerChallengeTimeout(_)
-                                | TransactionType::ChallengeTimeout
-                                | TransactionType::DisproveTimeout
-                                | TransactionType::Reimburse => {
-                                    self.tx_sender
-                                        .add_tx_to_queue(
-                                            dbtx,
-                                            *tx_type,
-                                            signed_tx,
-                                            &signed_txs,
-                                            tx_metadata,
-                                            &self.config,
-                                            None,
-                                        )
-                                        .await?;
-                                }
-                                _ => {}
-                            }
-                        }
+                        self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                            .await?;
                     }
 
                     Ok(DutyResult::Handled)
@@ -2489,7 +2654,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -2507,13 +2672,17 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _block_id: u32,
             _block_height: u32,
             _block_cache: Arc<block_cache::BlockCache>,
             _light_client_proof_wait_interval_secs: Option<u32>,
         ) -> Result<(), BridgeError> {
             Ok(())
+        }
+
+        fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {
+            kickoff_data.operator_xonly_pk == self.signer.xonly_public_key
         }
     }
 }

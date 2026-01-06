@@ -108,9 +108,6 @@
 //! `#[cfg(feature = "integration-tests")]` attribute. This ensures that the
 //! integration and unit tests can be run separately.
 
-use bitcoin::{OutPoint, Txid};
-use serde::{Deserialize, Serialize};
-
 pub mod actor;
 pub mod aggregator;
 pub mod bitcoin_syncer;
@@ -139,58 +136,9 @@ pub mod verifier;
 #[cfg(feature = "automation")]
 pub mod states;
 #[cfg(feature = "automation")]
-pub mod tx_sender;
+pub use clementine_tx_sender as tx_sender;
+#[cfg(feature = "automation")]
+pub mod tx_sender_ext;
 
 #[cfg(test)]
 pub mod test;
-
-macro_rules! impl_try_from_vec_u8 {
-    ($name:ident, $size:expr) => {
-        impl TryFrom<Vec<u8>> for $name {
-            type Error = &'static str;
-
-            fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-                if value.len() == $size {
-                    Ok($name(value.try_into().unwrap()))
-                } else {
-                    Err(concat!("Expected a Vec<u8> of length ", stringify!($size)))
-                }
-            }
-        }
-    };
-}
-
-pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
-// pub type HashTree = Vec<Vec<HashType>>;
-// pub type PreimageTree = Vec<Vec<PreimageType>>;
-pub type InscriptionTxs = (OutPoint, Txid);
-
-/// Type alias for EVM address
-#[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
-
-impl_try_from_vec_u8!(EVMAddress, 20);
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct UTXO {
-    pub outpoint: OutPoint,
-    pub txout: bitcoin::TxOut,
-}
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, sqlx::Type)]
-#[sqlx(type_name = "bytea")]
-pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);
-
-impl_try_from_vec_u8!(ByteArray66, 66);
-
-#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, sqlx::Type)]
-#[sqlx(type_name = "bytea")]
-pub struct ByteArray32(#[serde(with = "hex::serde")] pub [u8; 32]);
-
-impl_try_from_vec_u8!(ByteArray32, 32);
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
-#[sqlx(type_name = "bytea")]
-pub struct ByteArray64(#[serde(with = "hex::serde")] pub [u8; 64]);
-
-impl_try_from_vec_u8!(ByteArray64, 64);

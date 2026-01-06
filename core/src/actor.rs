@@ -3,15 +3,11 @@ use std::collections::HashMap;
 
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
-use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::{BridgeError, TxError};
-use crate::operator::{PublicHash, RoundIndex};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use crate::EVMAddress;
 use alloy::signers::k256;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::hashes::hash160;
@@ -26,19 +22,16 @@ use bitcoin::{Network, OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz;
 #[cfg(test)]
 use bitvm::signatures::winternitz::{BinarysearchVerifier, ToBytesConverter, Winternitz};
+use clementine_errors::BridgeError;
+use clementine_errors::TxError;
+use clementine_primitives::EVMAddress;
+use clementine_primitives::{PublicHash, RoundIndex};
+use clementine_utils::sign::TapTweakData;
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
-pub enum VerificationError {
-    #[error("Invalid hex")]
-    InvalidHex,
-    #[error("Invalid length")]
-    InvalidLength,
-    #[error("Invalid signature")]
-    InvalidSignature,
-}
+pub use clementine_errors::VerificationError;
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -216,6 +209,24 @@ pub struct Actor {
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
+}
+
+impl clementine_tx_sender::TxSenderSigner for Actor {
+    fn address(&self) -> &Address {
+        &self.address
+    }
+
+    fn xonly_public_key(&self) -> XOnlyPublicKey {
+        self.xonly_public_key
+    }
+
+    fn sign_with_tweak_data(
+        &self,
+        sighash: bitcoin::TapSighash,
+        tweak_data: TapTweakData,
+    ) -> Result<schnorr::Signature, clementine_errors::BridgeError> {
+        self.sign_with_tweak_data(sighash, tweak_data, None)
+    }
 }
 
 impl Actor {
@@ -805,7 +816,8 @@ mod tests {
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
+    use crate::builder::transaction::{TxHandler, TxHandlerBuilder};
+    use clementine_errors::TransactionType;
 
     use crate::bitvm_client::SECP;
     use crate::rpc::clementine::NormalSignatureKind;

@@ -14,7 +14,7 @@ use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
+    create_optimistic_payout_txhandler, Signed, TxHandler,
 };
 use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
@@ -26,7 +26,6 @@ use crate::constants::{
     SETUP_COMPLETION_TIMEOUT, WITHDRAWAL_TIMEOUT,
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
-use crate::errors::{ErrorExt, ResultExt};
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
@@ -38,11 +37,9 @@ use crate::utils::{
     try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
-use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
-    errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
 };
@@ -50,6 +47,10 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
+use clementine_errors::BridgeError;
+use clementine_errors::TransactionType;
+use clementine_errors::{ErrorExt, ResultExt};
+use clementine_primitives::UTXO;
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
 use futures::{
@@ -60,26 +61,16 @@ use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
-
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
 }
 
-#[derive(Debug, Clone)]
 struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum AggregatorError {
-    #[error("Failed to receive from {stream_name} stream.")]
-    InputStreamEndedEarlyUnknownSize { stream_name: String },
-    #[error("Failed to send to {stream_name} stream.")]
-    OutputStreamEndedEarly { stream_name: String },
-    #[error("Failed to send request to {request_name} stream.")]
-    RequestFailed { request_name: String },
-}
+use clementine_errors::AggregatorError;
 
 async fn get_next_pub_nonces(
     nonce_streams: &mut [impl Stream<Item = Result<PublicNonce, BridgeError>>
@@ -940,7 +931,7 @@ impl Aggregator {
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
-                &mut dbtx,
+                Some(&mut dbtx),
                 Some(TxMetadata {
                     deposit_outpoint: None,
                     operator_xonly_pk: None,
@@ -956,8 +947,7 @@ impl Aggregator {
                 &[],
                 &[],
             )
-            .await
-            .map_err(BridgeError::from)?;
+            .await?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {e}")))?;
@@ -1241,12 +1231,12 @@ impl ClementineAggregator for AggregatorServer {
                 let mut dbtx = self.db.begin_transaction().await?;
                 self.tx_sender
                     .add_tx_to_queue(
-                        &mut dbtx,
+                        Some(&mut dbtx),
                         TransactionType::OptimisticPayout,
                         opt_payout_tx,
                         &[],
                         None,
-                        &self.config,
+                        self.config.protocol_paramset(),
                         None,
                     )
                     .await
@@ -1291,7 +1281,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    &mut dbtx,
+                    Some(&mut dbtx),
                     None,
                     &signed_tx,
                     fee_type.try_into()?,
@@ -2072,7 +2062,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    &mut dbtx,
+                    Some(&mut dbtx),
                     Some(TxMetadata {
                         deposit_outpoint: Some(deposit_outpoint),
                         operator_xonly_pk: None,
@@ -2102,6 +2092,7 @@ impl ClementineAggregator for AggregatorServer {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
+    use crate::builder;
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
@@ -2112,9 +2103,9 @@ mod tests {
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
-    use crate::{builder, EVMAddress};
     use bitcoin::hashes::Hash;
     use bitcoincore_rpc::RpcApi;
+    use clementine_primitives::EVMAddress;
     use eyre::Context;
     use std::time::Duration;
     use tokio::time::sleep;

@@ -4,20 +4,20 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::TransactionType;
 use crate::constants::{MAX_BYTES_PER_WINTERNITZ_KEY, MAX_WINTERNITZ_DIGITS_PER_KEY};
 use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
-use crate::errors::BridgeError;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use clementine_errors::BridgeError;
+use clementine_errors::TransactionType;
+use clementine_primitives::RoundIndex;
 use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -26,32 +26,7 @@ use tonic::Status;
 pub mod operator;
 pub mod verifier;
 
-#[derive(Debug, Clone, thiserror::Error)]
-pub enum ParserError {
-    // RPC errors
-    #[error("RPC function field {0} is required")]
-    RPCRequiredParam(&'static str),
-    #[error("RPC function parameter {0} is malformed")]
-    RPCParamMalformed(String),
-    #[error("RPC function parameter {0} is oversized: {1}")]
-    RPCParamOversized(String, usize),
-}
-
-impl From<ParserError> for tonic::Status {
-    fn from(value: ParserError) -> Self {
-        match value {
-            ParserError::RPCRequiredParam(field) => {
-                Status::invalid_argument(format!("RPC function field {field} is required."))
-            }
-            ParserError::RPCParamMalformed(field) => {
-                Status::invalid_argument(format!("RPC function parameter {field} is malformed."))
-            }
-            ParserError::RPCParamOversized(field, size) => Status::invalid_argument(format!(
-                "RPC function parameter {field} is oversized: {size}",
-            )),
-        }
-    }
-}
+pub use clementine_errors::ParserError;
 
 #[allow(dead_code)]
 #[allow(clippy::result_large_err)]
@@ -134,9 +109,8 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
                 )
             },
             vout: value.vout,
-            #[cfg(test)]
+            // Always None when deserializing from RPC - these fields are only used in tests
             annex: None,
-            #[cfg(test)]
             additional_taproot_output_count: None,
         })
     }

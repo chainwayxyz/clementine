@@ -2,11 +2,11 @@ use crate::{
     citrea::CitreaClientT,
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
-    errors::BridgeError,
 };
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use clementine_errors::BridgeError;
 use eyre::Context;
 use risc0_zkvm::Receipt;
 use std::{
@@ -92,7 +92,7 @@ impl CitreaClientT for MockCitreaClient {
         _payout_block_height: u64,
         _deposit_index: u32,
         _db: &Database,
-        _dbtx: Option<DatabaseTransaction<'_, '_>>,
+        _dbtx: Option<DatabaseTransaction<'_>>,
         _paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError> {
         Ok(borsh::from_slice(include_bytes!(

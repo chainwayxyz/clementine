@@ -8,18 +8,19 @@ use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::KickoffData;
-use crate::errors::{BridgeError, TxError};
-use crate::operator::{Operator, RoundIndex};
+use crate::operator::Operator;
 use crate::utils::Last20Bytes;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use clementine_errors::BridgeError;
+use clementine_errors::{TransactionType, TxError};
+use clementine_primitives::RoundIndex;
 use eyre::Context;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
@@ -93,7 +94,7 @@ pub async fn create_and_sign_txs(
     config: BridgeConfig,
     context: ContractContext,
     block_hash: Option<[u8; 20]>, //to sign kickoff
-    dbtx: Option<DatabaseTransaction<'_, '_>>,
+    dbtx: Option<DatabaseTransaction<'_>>,
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     let txhandlers = builder::transaction::create_txhandlers(
         match context.is_context_for_kickoff() {
@@ -231,7 +232,7 @@ where
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -306,7 +307,7 @@ where
         &self,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_round(
             operator_xonly_pk,
@@ -395,7 +396,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         commit_data: Vec<Vec<Vec<u8>>>,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -478,7 +479,7 @@ where
         &self,
         assert_data: TransactionRequestData,
         block_hash: BlockHash,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         let deposit_data = self
             .db

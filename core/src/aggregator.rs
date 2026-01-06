@@ -26,7 +26,6 @@ use crate::utils::{
 use crate::{
     config::BridgeConfig,
     database::Database,
-    errors::BridgeError,
     rpc::{
         self,
         clementine::{
@@ -37,6 +36,7 @@ use crate::{
 };
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
+use clementine_errors::BridgeError;
 use eyre::Context;
 use futures::future::join_all;
 use std::future::Future;
@@ -59,7 +59,7 @@ pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     #[cfg(feature = "automation")]
-    pub(crate) tx_sender: TxSenderClient,
+    pub(crate) tx_sender: TxSenderClient<Database>,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     verifier_keys: Arc<RwLock<Vec<Option<PublicKey>>>>,

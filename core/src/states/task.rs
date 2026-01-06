@@ -11,10 +11,10 @@ use tonic::async_trait;
 
 use crate::{
     config::protocol::ProtocolParamset,
-    errors::BridgeError,
     states::SystemEvent,
     task::{Task, TaskExt},
 };
+use clementine_errors::BridgeError;
 
 use super::{context::Owner, StateManager};
 
@@ -37,7 +37,7 @@ impl BlockHandler for QueueBlockHandler {
     /// State manager will process the block after reading the event from the queue.
     async fn handle_new_block(
         &mut self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
@@ -205,7 +205,7 @@ mod tests {
     use tonic::async_trait;
 
     use crate::{
-        builder::transaction::{ContractContext, TransactionType, TxHandler},
+        builder::transaction::{ContractContext, TxHandler},
         config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
@@ -213,6 +213,7 @@ mod tests {
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
+    use clementine_primitives::TransactionType;
 
     use super::*;
 
@@ -232,7 +233,7 @@ mod tests {
     impl Owner for MockHandler {
         async fn handle_duty(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _: Duty,
         ) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
@@ -240,7 +241,7 @@ mod tests {
 
         async fn create_txhandlers(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _: TransactionType,
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -249,7 +250,7 @@ mod tests {
 
         async fn handle_finalized_block(
             &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
+            _dbtx: DatabaseTransaction<'_>,
             _block_id: u32,
             _block_height: u32,
             _block_cache: Arc<block_cache::BlockCache>,
