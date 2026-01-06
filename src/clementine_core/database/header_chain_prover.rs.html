@@ -21,7 +21,7 @@
 <a href=#21 id=21 data-nosnippet>21</a>    /// proof.
 <a href=#22 id=22 data-nosnippet>22</a>    </span><span class="kw">pub async fn </span>save_unproven_finalized_block(
 <a href=#23 id=23 data-nosnippet>23</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#24 id=24 data-nosnippet>24</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#24 id=24 data-nosnippet>24</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#25 id=25 data-nosnippet>25</a>        block_hash: block::BlockHash,
 <a href=#26 id=26 data-nosnippet>26</a>        block_header: block::Header,
 <a href=#27 id=27 data-nosnippet>27</a>        block_height: u64,
@@ -40,7 +40,7 @@
 <a href=#40 id=40 data-nosnippet>40</a>    <span class="doccomment">/// Collect block info from rpc and save it to hcp table.
 <a href=#41 id=41 data-nosnippet>41</a>    </span><span class="kw">async fn </span>save_block_infos_within_range(
 <a href=#42 id=42 data-nosnippet>42</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#43 id=43 data-nosnippet>43</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#43 id=43 data-nosnippet>43</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#44 id=44 data-nosnippet>44</a>        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
 <a href=#45 id=45 data-nosnippet>45</a>        height_start: u32,
 <a href=#46 id=46 data-nosnippet>46</a>        height_end: u32,
@@ -84,7 +84,7 @@
 <a href=#84 id=84 data-nosnippet>84</a>    /// as they are needed for spv and hcp proofs.
 <a href=#85 id=85 data-nosnippet>85</a>    </span><span class="kw">pub async fn </span>fetch_and_save_missing_blocks(
 <a href=#86 id=86 data-nosnippet>86</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#87 id=87 data-nosnippet>87</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#88 id=88 data-nosnippet>88</a>        rpc: <span class="kw-2">&amp;</span>ExtendedBitcoinRpc,
 <a href=#89 id=89 data-nosnippet>89</a>        genesis_height: u32,
 <a href=#90 id=90 data-nosnippet>90</a>        until_height: u32,
@@ -117,7 +117,7 @@
 <a href=#117 id=117 data-nosnippet>117</a>    /// inclusive on both ends.
 <a href=#118 id=118 data-nosnippet>118</a>    </span><span class="kw">pub async fn </span>get_block_info_from_range(
 <a href=#119 id=119 data-nosnippet>119</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#120 id=120 data-nosnippet>120</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#120 id=120 data-nosnippet>120</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#121 id=121 data-nosnippet>121</a>        start_height: u64,
 <a href=#122 id=122 data-nosnippet>122</a>        end_height: u64,
 <a href=#123 id=123 data-nosnippet>123</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(BlockHash, Header)&gt;, BridgeError&gt; {
@@ -152,7 +152,7 @@
 <a href=#152 id=152 data-nosnippet>152</a>    /// - [`u32`] - Block's height
 <a href=#153 id=153 data-nosnippet>153</a>    </span><span class="kw">pub async fn </span>get_block_info_from_hash_hcp(
 <a href=#154 id=154 data-nosnippet>154</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#155 id=155 data-nosnippet>155</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#155 id=155 data-nosnippet>155</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#156 id=156 data-nosnippet>156</a>        block_hash: BlockHash,
 <a href=#157 id=157 data-nosnippet>157</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, Header, u32)&gt;, BridgeError&gt; {
 <a href=#158 id=158 data-nosnippet>158</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>    <span class="doccomment">/// Returns latest finalized blocks height from the database.
 <a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">pub async fn </span>get_latest_finalized_block_height(
 <a href=#174 id=174 data-nosnippet>174</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#175 id=175 data-nosnippet>175</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#175 id=175 data-nosnippet>175</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#176 id=176 data-nosnippet>176</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u64&gt;, BridgeError&gt; {
 <a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span>query =
 <a href=#178 id=178 data-nosnippet>178</a>            sqlx::query_as(<span class="string">"SELECT height FROM header_chain_proofs ORDER BY height DESC LIMIT 1;"</span>);
@@ -197,7 +197,7 @@
 <a href=#197 id=197 data-nosnippet>197</a>    /// - [`Receipt`] - Previous block's proof
 <a href=#198 id=198 data-nosnippet>198</a>    </span><span class="kw">pub async fn </span>get_next_unproven_block(
 <a href=#199 id=199 data-nosnippet>199</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#201 id=201 data-nosnippet>201</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, Header, u64, Receipt)&gt;, BridgeError&gt; {
 <a href=#202 id=202 data-nosnippet>202</a>        <span class="kw">let </span>latest_proven_block_height = <span class="self">self
 <a href=#203 id=203 data-nosnippet>203</a>            </span>.get_latest_proven_block_info(tx.as_deref_mut())
@@ -313,7 +313,7 @@
 <a href=#313 id=313 data-nosnippet>313</a>    /// - [`u64`] - Height of the block
 <a href=#314 id=314 data-nosnippet>314</a>    </span><span class="kw">pub async fn </span>get_latest_proven_block_info(
 <a href=#315 id=315 data-nosnippet>315</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#316 id=316 data-nosnippet>316</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#316 id=316 data-nosnippet>316</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#317 id=317 data-nosnippet>317</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, Header, u64)&gt;, BridgeError&gt; {
 <a href=#318 id=318 data-nosnippet>318</a>        <span class="kw">let </span>query = sqlx::query_as(
 <a href=#319 id=319 data-nosnippet>319</a>            <span class="string">"SELECT block_hash, block_header, height
@@ -348,7 +348,7 @@
 <a href=#348 id=348 data-nosnippet>348</a>    /// - [`u64`] - Height of the block
 <a href=#349 id=349 data-nosnippet>349</a>    </span><span class="kw">pub async fn </span>get_latest_proven_block_info_until_height(
 <a href=#350 id=350 data-nosnippet>350</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#351 id=351 data-nosnippet>351</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#351 id=351 data-nosnippet>351</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#352 id=352 data-nosnippet>352</a>        height: u32,
 <a href=#353 id=353 data-nosnippet>353</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, Header, u64)&gt;, BridgeError&gt; {
 <a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -378,7 +378,7 @@
 <a href=#378 id=378 data-nosnippet>378</a>    /// hash.
 <a href=#379 id=379 data-nosnippet>379</a>    </span><span class="kw">pub async fn </span>set_block_proof(
 <a href=#380 id=380 data-nosnippet>380</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#381 id=381 data-nosnippet>381</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#381 id=381 data-nosnippet>381</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#382 id=382 data-nosnippet>382</a>        hash: block::BlockHash,
 <a href=#383 id=383 data-nosnippet>383</a>        proof: Receipt,
 <a href=#384 id=384 data-nosnippet>384</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -396,7 +396,7 @@
 <a href=#396 id=396 data-nosnippet>396</a>    <span class="doccomment">/// Gets a block's proof by referring to it by it's hash.
 <a href=#397 id=397 data-nosnippet>397</a>    </span><span class="kw">pub async fn </span>get_block_proof_by_hash(
 <a href=#398 id=398 data-nosnippet>398</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#399 id=399 data-nosnippet>399</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#399 id=399 data-nosnippet>399</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#400 id=400 data-nosnippet>400</a>        hash: block::BlockHash,
 <a href=#401 id=401 data-nosnippet>401</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Receipt&gt;, BridgeError&gt; {
 <a href=#402 id=402 data-nosnippet>402</a>        <span class="kw">let </span>query = sqlx::query_as(<span class="string">"SELECT proof FROM header_chain_proofs WHERE block_hash = $1"</span>)

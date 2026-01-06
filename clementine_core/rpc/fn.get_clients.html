@@ -3,7 +3,7 @@
     connect: F,
     config: &amp;<a class="struct" href="../config/struct.BridgeConfig.html" title="struct clementine_core::config::BridgeConfig">BridgeConfig</a>,
     use_client_cert: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.bool.html">bool</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;CLIENT&gt;, <a class="enum" href="../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;<div class="where">where
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;CLIENT&gt;, BridgeError&gt;<div class="where">where
     F: <a class="trait" href="https://doc.rust-lang.org/1.88.0/core/ops/function/trait.Fn.html" title="trait core::ops::function::Fn">Fn</a>(<a class="struct" href="https://docs.rs/tonic/0.12.3/tonic/transport/channel/struct.Channel.html" title="struct tonic::transport::channel::Channel">Channel</a>) -&gt; CLIENT,</div></code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Returns gRPC clients.</p>
 <h2 id="parameters"><a class="doc-anchor" href="#parameters">§</a>Parameters</h2>
 <ul>

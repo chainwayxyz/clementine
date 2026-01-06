@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_RETRY_ATTEMPTS"],"enum":["BitcoinRPCError"],"fn":["get_fee_rate_from_mempool_space"],"struct":["ExtendedBitcoinRpc","RetryConfig"],"trait":["RetryableError"],"type":["Result"]};
+window.SIDEBAR_ITEMS = {"enum":["BitcoinRPCError"],"fn":["get_fee_rate_from_mempool_space"],"struct":["ExtendedBitcoinRpc","RetryConfig"],"trait":["BridgeRpcQueries","RetryableError"]};

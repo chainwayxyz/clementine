@@ -39,7 +39,7 @@
 <a href=#39 id=39 data-nosnippet>39</a>    /// previous deposits. This function should give an error if an operator changed its data.
 <a href=#40 id=40 data-nosnippet>40</a>    </span><span class="kw">pub async fn </span>insert_operator_if_not_exists(
 <a href=#41 id=41 data-nosnippet>41</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#42 id=42 data-nosnippet>42</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#42 id=42 data-nosnippet>42</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#43 id=43 data-nosnippet>43</a>        xonly_pubkey: XOnlyPublicKey,
 <a href=#44 id=44 data-nosnippet>44</a>        wallet_address: <span class="kw-2">&amp;</span>bitcoin::Address,
 <a href=#45 id=45 data-nosnippet>45</a>        collateral_funding_outpoint: OutPoint,
@@ -72,7 +72,7 @@
 <a href=#72 id=72 data-nosnippet>72</a>
 <a href=#73 id=73 data-nosnippet>73</a>    <span class="kw">pub async fn </span>get_operators(
 <a href=#74 id=74 data-nosnippet>74</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#75 id=75 data-nosnippet>75</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#75 id=75 data-nosnippet>75</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#76 id=76 data-nosnippet>76</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(XOnlyPublicKey, bitcoin::Address, OutPoint)&gt;, BridgeError&gt; {
 <a href=#77 id=77 data-nosnippet>77</a>        <span class="kw">let </span>query = sqlx::query_as(
 <a href=#78 id=78 data-nosnippet>78</a>            <span class="string">"SELECT xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators;"
@@ -96,7 +96,7 @@
 <a href=#96 id=96 data-nosnippet>96</a>
 <a href=#97 id=97 data-nosnippet>97</a>    <span class="kw">pub async fn </span>get_operator(
 <a href=#98 id=98 data-nosnippet>98</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#99 id=99 data-nosnippet>99</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#99 id=99 data-nosnippet>99</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#100 id=100 data-nosnippet>100</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#101 id=101 data-nosnippet>101</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;OperatorData&gt;, BridgeError&gt; {
 <a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -130,7 +130,7 @@
 <a href=#130 id=130 data-nosnippet>130</a>    /// even if they are changed.
 <a href=#131 id=131 data-nosnippet>131</a>    </span><span class="kw">pub async fn </span>insert_unspent_kickoff_sigs_if_not_exist(
 <a href=#132 id=132 data-nosnippet>132</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#133 id=133 data-nosnippet>133</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#133 id=133 data-nosnippet>133</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#134 id=134 data-nosnippet>134</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#135 id=135 data-nosnippet>135</a>        round_idx: RoundIndex,
 <a href=#136 id=136 data-nosnippet>136</a>        signatures: Vec&lt;TaggedSignature&gt;,
@@ -147,7 +147,7 @@
 <a href=#147 id=147 data-nosnippet>147</a>    <span class="doccomment">/// Get unspent kickoff sigs for a specific operator and round.
 <a href=#148 id=148 data-nosnippet>148</a>    </span><span class="kw">pub async fn </span>get_unspent_kickoff_sigs(
 <a href=#149 id=149 data-nosnippet>149</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#150 id=150 data-nosnippet>150</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#150 id=150 data-nosnippet>150</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#151 id=151 data-nosnippet>151</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#152 id=152 data-nosnippet>152</a>        round_idx: RoundIndex,
 <a href=#153 id=153 data-nosnippet>153</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Vec&lt;TaggedSignature&gt;&gt;, BridgeError&gt; {
@@ -168,7 +168,7 @@
 <a href=#168 id=168 data-nosnippet>168</a>    <span class="doccomment">/// Sets Winternitz public keys for bitvm related inputs of an operator.
 <a href=#169 id=169 data-nosnippet>169</a>    </span><span class="kw">pub async fn </span>insert_operator_bitvm_keys_if_not_exist(
 <a href=#170 id=170 data-nosnippet>170</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#171 id=171 data-nosnippet>171</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#171 id=171 data-nosnippet>171</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#172 id=172 data-nosnippet>172</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#173 id=173 data-nosnippet>173</a>        deposit_outpoint: OutPoint,
 <a href=#174 id=174 data-nosnippet>174</a>        winternitz_public_key: Vec&lt;WinternitzPublicKey&gt;,
@@ -193,7 +193,7 @@
 <a href=#193 id=193 data-nosnippet>193</a>    <span class="doccomment">/// Gets Winternitz public keys for bitvm related inputs of an operator.
 <a href=#194 id=194 data-nosnippet>194</a>    </span><span class="kw">pub async fn </span>get_operator_bitvm_keys(
 <a href=#195 id=195 data-nosnippet>195</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#196 id=196 data-nosnippet>196</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#196 id=196 data-nosnippet>196</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#197 id=197 data-nosnippet>197</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#198 id=198 data-nosnippet>198</a>        deposit_outpoint: OutPoint,
 <a href=#199 id=199 data-nosnippet>199</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;winternitz::PublicKey&gt;, BridgeError&gt; {
@@ -221,7 +221,7 @@
 <a href=#221 id=221 data-nosnippet>221</a>    /// operators round tx's will change.
 <a href=#222 id=222 data-nosnippet>222</a>    </span><span class="kw">pub async fn </span>insert_operator_kickoff_winternitz_public_keys_if_not_exist(
 <a href=#223 id=223 data-nosnippet>223</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#224 id=224 data-nosnippet>224</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#225 id=225 data-nosnippet>225</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#226 id=226 data-nosnippet>226</a>        winternitz_public_key: Vec&lt;WinternitzPublicKey&gt;,
 <a href=#227 id=227 data-nosnippet>227</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -256,7 +256,7 @@
 <a href=#256 id=256 data-nosnippet>256</a>    /// operator and a watchtower.
 <a href=#257 id=257 data-nosnippet>257</a>    </span><span class="kw">pub async fn </span>get_operator_kickoff_winternitz_public_keys(
 <a href=#258 id=258 data-nosnippet>258</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#259 id=259 data-nosnippet>259</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#259 id=259 data-nosnippet>259</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#260 id=260 data-nosnippet>260</a>        op_xonly_pk: XOnlyPublicKey,
 <a href=#261 id=261 data-nosnippet>261</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;winternitz::PublicKey&gt;, BridgeError&gt; {
 <a href=#262 id=262 data-nosnippet>262</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -277,7 +277,7 @@
 <a href=#277 id=277 data-nosnippet>277</a>    /// will be overwritten by the new hashes.
 <a href=#278 id=278 data-nosnippet>278</a>    </span><span class="kw">pub async fn </span>insert_operator_challenge_ack_hashes_if_not_exist(
 <a href=#279 id=279 data-nosnippet>279</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#280 id=280 data-nosnippet>280</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#280 id=280 data-nosnippet>280</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#281 id=281 data-nosnippet>281</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#282 id=282 data-nosnippet>282</a>        deposit_outpoint: OutPoint,
 <a href=#283 id=283 data-nosnippet>283</a>        public_hashes: <span class="kw-2">&amp;</span>Vec&lt;[u8; <span class="number">20</span>]&gt;,
@@ -318,7 +318,7 @@
 <a href=#318 id=318 data-nosnippet>318</a>    /// tx and kickoff index combination.
 <a href=#319 id=319 data-nosnippet>319</a>    </span><span class="kw">pub async fn </span>get_operators_challenge_ack_hashes(
 <a href=#320 id=320 data-nosnippet>320</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#321 id=321 data-nosnippet>321</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#321 id=321 data-nosnippet>321</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#322 id=322 data-nosnippet>322</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#323 id=323 data-nosnippet>323</a>        deposit_outpoint: OutPoint,
 <a href=#324 id=324 data-nosnippet>324</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Vec&lt;PublicHash&gt;&gt;, BridgeError&gt; {
@@ -358,7 +358,7 @@
 <a href=#358 id=358 data-nosnippet>358</a>    /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
 <a href=#359 id=359 data-nosnippet>359</a>    </span><span class="kw">pub async fn </span>insert_deposit_data_if_not_exists(
 <a href=#360 id=360 data-nosnippet>360</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#361 id=361 data-nosnippet>361</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#361 id=361 data-nosnippet>361</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#362 id=362 data-nosnippet>362</a>        deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
 <a href=#363 id=363 data-nosnippet>363</a>        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 <a href=#364 id=364 data-nosnippet>364</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
@@ -431,7 +431,7 @@
 <a href=#431 id=431 data-nosnippet>431</a>
 <a href=#432 id=432 data-nosnippet>432</a>    <span class="kw">pub async fn </span>get_deposit_data_with_move_tx(
 <a href=#433 id=433 data-nosnippet>433</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#434 id=434 data-nosnippet>434</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#434 id=434 data-nosnippet>434</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#435 id=435 data-nosnippet>435</a>        move_to_vault_txid: Txid,
 <a href=#436 id=436 data-nosnippet>436</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;DepositData&gt;, BridgeError&gt; {
 <a href=#437 id=437 data-nosnippet>437</a>        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (DepositParamsDB,)&gt;(
@@ -455,7 +455,7 @@
 <a href=#455 id=455 data-nosnippet>455</a>
 <a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">pub async fn </span>get_deposit_data(
 <a href=#457 id=457 data-nosnippet>457</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#458 id=458 data-nosnippet>458</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#458 id=458 data-nosnippet>458</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#459 id=459 data-nosnippet>459</a>        deposit_outpoint: OutPoint,
 <a href=#460 id=460 data-nosnippet>460</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(u32, DepositData)&gt;, BridgeError&gt; {
 <a href=#461 id=461 data-nosnippet>461</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -485,7 +485,7 @@
 <a href=#485 id=485 data-nosnippet>485</a>    </span><span class="attr">#[allow(clippy::too_many_arguments)]
 <a href=#486 id=486 data-nosnippet>486</a>    </span><span class="kw">pub async fn </span>insert_deposit_signatures_if_not_exist(
 <a href=#487 id=487 data-nosnippet>487</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#488 id=488 data-nosnippet>488</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#488 id=488 data-nosnippet>488</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#489 id=489 data-nosnippet>489</a>        deposit_outpoint: OutPoint,
 <a href=#490 id=490 data-nosnippet>490</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#491 id=491 data-nosnippet>491</a>        round_idx: RoundIndex,
@@ -544,7 +544,7 @@
 <a href=#544 id=544 data-nosnippet>544</a>    <span class="doccomment">/// Gets a unique int for a deposit outpoint
 <a href=#545 id=545 data-nosnippet>545</a>    </span><span class="kw">pub async fn </span>get_deposit_id(
 <a href=#546 id=546 data-nosnippet>546</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#547 id=547 data-nosnippet>547</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#547 id=547 data-nosnippet>547</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#548 id=548 data-nosnippet>548</a>        deposit_outpoint: OutPoint,
 <a href=#549 id=549 data-nosnippet>549</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
 <a href=#550 id=550 data-nosnippet>550</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -573,7 +573,7 @@
 <a href=#573 id=573 data-nosnippet>573</a>    <span class="doccomment">/// For a given kickoff txid, get the deposit outpoint that corresponds to it
 <a href=#574 id=574 data-nosnippet>574</a>    </span><span class="kw">pub async fn </span>get_deposit_outpoint_for_kickoff_txid(
 <a href=#575 id=575 data-nosnippet>575</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#576 id=576 data-nosnippet>576</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#576 id=576 data-nosnippet>576</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#577 id=577 data-nosnippet>577</a>        kickoff_txid: Txid,
 <a href=#578 id=578 data-nosnippet>578</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;OutPoint, BridgeError&gt; {
 <a href=#579 id=579 data-nosnippet>579</a>        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (OutPointDB,)&gt;(
@@ -592,7 +592,7 @@
 <a href=#592 id=592 data-nosnippet>592</a>    /// txin it belongs to easily.
 <a href=#593 id=593 data-nosnippet>593</a>    </span><span class="kw">pub async fn </span>get_deposit_signatures(
 <a href=#594 id=594 data-nosnippet>594</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#595 id=595 data-nosnippet>595</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#595 id=595 data-nosnippet>595</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#596 id=596 data-nosnippet>596</a>        deposit_outpoint: OutPoint,
 <a href=#597 id=597 data-nosnippet>597</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#598 id=598 data-nosnippet>598</a>        round_idx: RoundIndex,
@@ -624,7 +624,7 @@
 <a href=#624 id=624 data-nosnippet>624</a>    <span class="doccomment">/// Retrieves the light client proof for a deposit to be used while sending an assert.
 <a href=#625 id=625 data-nosnippet>625</a>    </span><span class="kw">pub async fn </span>get_lcp_for_assert(
 <a href=#626 id=626 data-nosnippet>626</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#627 id=627 data-nosnippet>627</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#627 id=627 data-nosnippet>627</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#628 id=628 data-nosnippet>628</a>        deposit_id: u32,
 <a href=#629 id=629 data-nosnippet>629</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Receipt&gt;, BridgeError&gt; {
 <a href=#630 id=630 data-nosnippet>630</a>        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (ReceiptDB,)&gt;(
@@ -641,7 +641,7 @@
 <a href=#641 id=641 data-nosnippet>641</a>    /// We save first before sending kickoff to be sure we have the LCP available if we need to assert.
 <a href=#642 id=642 data-nosnippet>642</a>    </span><span class="kw">pub async fn </span>insert_lcp_for_assert(
 <a href=#643 id=643 data-nosnippet>643</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#644 id=644 data-nosnippet>644</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#644 id=644 data-nosnippet>644</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#645 id=645 data-nosnippet>645</a>        deposit_id: u32,
 <a href=#646 id=646 data-nosnippet>646</a>        lcp: Receipt,
 <a href=#647 id=647 data-nosnippet>647</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -660,7 +660,7 @@
 <a href=#660 id=660 data-nosnippet>660</a>
 <a href=#661 id=661 data-nosnippet>661</a>    <span class="kw">pub async fn </span>get_deposit_data_with_kickoff_txid(
 <a href=#662 id=662 data-nosnippet>662</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#663 id=663 data-nosnippet>663</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#663 id=663 data-nosnippet>663</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#664 id=664 data-nosnippet>664</a>        kickoff_txid: Txid,
 <a href=#665 id=665 data-nosnippet>665</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(DepositData, KickoffData)&gt;, BridgeError&gt; {
 <a href=#666 id=666 data-nosnippet>666</a>        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (DepositParamsDB, XOnlyPublicKeyDB, i32, i32)&gt;(
@@ -699,7 +699,7 @@
 <a href=#699 id=699 data-nosnippet>699</a>    /// can prevent us to regenerate previously signed kickoff tx's.
 <a href=#700 id=700 data-nosnippet>700</a>    </span><span class="kw">pub async fn </span>insert_bitvm_setup_if_not_exists(
 <a href=#701 id=701 data-nosnippet>701</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#702 id=702 data-nosnippet>702</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#702 id=702 data-nosnippet>702</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#703 id=703 data-nosnippet>703</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#704 id=704 data-nosnippet>704</a>        deposit_outpoint: OutPoint,
 <a href=#705 id=705 data-nosnippet>705</a>        assert_tx_addrs: <span class="kw">impl </span>AsRef&lt;[[u8; <span class="number">32</span>]]&gt;,
@@ -754,7 +754,7 @@
 <a href=#754 id=754 data-nosnippet>754</a>    <span class="doccomment">/// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
 <a href=#755 id=755 data-nosnippet>755</a>    </span><span class="kw">pub async fn </span>get_bitvm_setup(
 <a href=#756 id=756 data-nosnippet>756</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#757 id=757 data-nosnippet>757</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#757 id=757 data-nosnippet>757</a>        <span class="kw-2">mut </span>tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#758 id=758 data-nosnippet>758</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#759 id=759 data-nosnippet>759</a>        deposit_outpoint: OutPoint,
 <a href=#760 id=760 data-nosnippet>760</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitvmSetup&gt;, BridgeError&gt; {
@@ -802,7 +802,7 @@
 <a href=#802 id=802 data-nosnippet>802</a>
 <a href=#803 id=803 data-nosnippet>803</a>    <span class="kw">pub async fn </span>mark_kickoff_connector_as_used(
 <a href=#804 id=804 data-nosnippet>804</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#805 id=805 data-nosnippet>805</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#805 id=805 data-nosnippet>805</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#806 id=806 data-nosnippet>806</a>        round_idx: RoundIndex,
 <a href=#807 id=807 data-nosnippet>807</a>        kickoff_connector_idx: u32,
 <a href=#808 id=808 data-nosnippet>808</a>        kickoff_txid: <span class="prelude-ty">Option</span>&lt;Txid&gt;,
@@ -826,7 +826,7 @@
 <a href=#826 id=826 data-nosnippet>826</a>
 <a href=#827 id=827 data-nosnippet>827</a>    <span class="kw">pub async fn </span>get_kickoff_connector_for_kickoff_txid(
 <a href=#828 id=828 data-nosnippet>828</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#829 id=829 data-nosnippet>829</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#829 id=829 data-nosnippet>829</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#830 id=830 data-nosnippet>830</a>        kickoff_txid: Txid,
 <a href=#831 id=831 data-nosnippet>831</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(RoundIndex, u32), BridgeError&gt; {
 <a href=#832 id=832 data-nosnippet>832</a>        <span class="kw">let </span>query = sqlx::query_as::&lt;<span class="kw">_</span>, (i32, i32)&gt;(
@@ -851,7 +851,7 @@
 <a href=#851 id=851 data-nosnippet>851</a>
 <a href=#852 id=852 data-nosnippet>852</a>    <span class="kw">pub async fn </span>get_kickoff_txid_for_used_kickoff_connector(
 <a href=#853 id=853 data-nosnippet>853</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#854 id=854 data-nosnippet>854</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#854 id=854 data-nosnippet>854</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#855 id=855 data-nosnippet>855</a>        round_idx: RoundIndex,
 <a href=#856 id=856 data-nosnippet>856</a>        kickoff_connector_idx: u32,
 <a href=#857 id=857 data-nosnippet>857</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;Txid&gt;, BridgeError&gt; {
@@ -871,7 +871,7 @@
 <a href=#871 id=871 data-nosnippet>871</a>
 <a href=#872 id=872 data-nosnippet>872</a>    <span class="kw">pub async fn </span>get_unused_and_signed_kickoff_connector(
 <a href=#873 id=873 data-nosnippet>873</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#874 id=874 data-nosnippet>874</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#874 id=874 data-nosnippet>874</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#875 id=875 data-nosnippet>875</a>        deposit_id: u32,
 <a href=#876 id=876 data-nosnippet>876</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#877 id=877 data-nosnippet>877</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(RoundIndex, u32)&gt;, BridgeError&gt; {
@@ -917,7 +917,7 @@
 <a href=#917 id=917 data-nosnippet>917</a>
 <a href=#918 id=918 data-nosnippet>918</a>    <span class="kw">pub async fn </span>get_current_round_index(
 <a href=#919 id=919 data-nosnippet>919</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#920 id=920 data-nosnippet>920</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#920 id=920 data-nosnippet>920</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#921 id=921 data-nosnippet>921</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;RoundIndex, BridgeError&gt; {
 <a href=#922 id=922 data-nosnippet>922</a>        <span class="kw">let </span>query =
 <a href=#923 id=923 data-nosnippet>923</a>            sqlx::query_as::&lt;<span class="kw">_</span>, (i32,)&gt;(<span class="string">"SELECT round_idx FROM current_round_index WHERE id = 1"</span>);
@@ -929,7 +929,7 @@
 <a href=#929 id=929 data-nosnippet>929</a>
 <a href=#930 id=930 data-nosnippet>930</a>    <span class="kw">pub async fn </span>update_current_round_index(
 <a href=#931 id=931 data-nosnippet>931</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#932 id=932 data-nosnippet>932</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#932 id=932 data-nosnippet>932</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#933 id=933 data-nosnippet>933</a>        round_idx: RoundIndex,
 <a href=#934 id=934 data-nosnippet>934</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
 <a href=#935 id=935 data-nosnippet>935</a>        <span class="kw">let </span>query = sqlx::query(<span class="string">"UPDATE current_round_index SET round_idx = $1 WHERE id = 1"</span>)

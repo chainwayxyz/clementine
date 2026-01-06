@@ -88,7 +88,7 @@
 <a href=#88 id=88 data-nosnippet>88</a>    <span class="kw">pub </span>collateral_funding_outpoint: OutPoint,
 <a href=#89 id=89 data-nosnippet>89</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) reimburse_addr: Address,
 <a href=#90 id=90 data-nosnippet>90</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
-<a href=#91 id=91 data-nosnippet>91</a>    </span><span class="kw">pub </span>tx_sender: TxSenderClient,
+<a href=#91 id=91 data-nosnippet>91</a>    </span><span class="kw">pub </span>tx_sender: TxSenderClient&lt;Database&gt;,
 <a href=#92 id=92 data-nosnippet>92</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">pub </span>header_chain_prover: HeaderChainProver,
 <a href=#94 id=94 data-nosnippet>94</a>    <span class="kw">pub </span>citrea_client: C,
@@ -369,7 +369,7 @@
 <a href=#369 id=369 data-nosnippet>369</a>        <span class="kw">let </span><span class="kw-2">mut </span>dbtx = <span class="self">self</span>.db.begin_transaction().<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#370 id=370 data-nosnippet>370</a>        <span class="self">self</span>.tx_sender
 <a href=#371 id=371 data-nosnippet>371</a>            .insert_try_to_send(
-<a href=#372 id=372 data-nosnippet>372</a>                <span class="kw-2">&amp;mut </span>dbtx,
+<a href=#372 id=372 data-nosnippet>372</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#373 id=373 data-nosnippet>373</a>                <span class="prelude-val">Some</span>(TxMetadata {
 <a href=#374 id=374 data-nosnippet>374</a>                    tx_type: TransactionType::Round,
 <a href=#375 id=375 data-nosnippet>375</a>                    operator_xonly_pk: <span class="prelude-val">None</span>,
@@ -867,7 +867,7 @@
 <a href=#867 id=867 data-nosnippet>867</a>
 <a href=#868 id=868 data-nosnippet>868</a>    <span class="kw">pub async fn </span>handle_finalized_payout&lt;<span class="lifetime">'a</span>&gt;(
 <a href=#869 id=869 data-nosnippet>869</a>        <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="self">self</span>,
-<a href=#870 id=870 data-nosnippet>870</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#870 id=870 data-nosnippet>870</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;,
 <a href=#871 id=871 data-nosnippet>871</a>        deposit_outpoint: OutPoint,
 <a href=#872 id=872 data-nosnippet>872</a>        payout_tx_blockhash: BlockHash,
 <a href=#873 id=873 data-nosnippet>873</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;bitcoin::Txid, BridgeError&gt; {
@@ -955,12 +955,12 @@
 <a href=#955 id=955 data-nosnippet>955</a>                    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#956 id=956 data-nosnippet>956</a>                    </span><span class="self">self</span>.tx_sender
 <a href=#957 id=957 data-nosnippet>957</a>                        .add_tx_to_queue(
-<a href=#958 id=958 data-nosnippet>958</a>                            dbtx,
+<a href=#958 id=958 data-nosnippet>958</a>                            <span class="prelude-val">Some</span>(dbtx),
 <a href=#959 id=959 data-nosnippet>959</a>                            <span class="kw-2">*</span>tx_type,
 <a href=#960 id=960 data-nosnippet>960</a>                            signed_tx,
 <a href=#961 id=961 data-nosnippet>961</a>                            <span class="kw-2">&amp;</span>signed_txs,
 <a href=#962 id=962 data-nosnippet>962</a>                            tx_metadata,
-<a href=#963 id=963 data-nosnippet>963</a>                            <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+<a href=#963 id=963 data-nosnippet>963</a>                            <span class="self">self</span>.config.protocol_paramset(),
 <a href=#964 id=964 data-nosnippet>964</a>                            <span class="prelude-val">None</span>,
 <a href=#965 id=965 data-nosnippet>965</a>                        )
 <a href=#966 id=966 data-nosnippet>966</a>                        .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -993,7 +993,7 @@
 <a href=#993 id=993 data-nosnippet>993</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#994 id=994 data-nosnippet>994</a>    </span><span class="kw">async fn </span>start_first_round(
 <a href=#995 id=995 data-nosnippet>995</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#996 id=996 data-nosnippet>996</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#996 id=996 data-nosnippet>996</a>        <span class="kw-2">mut </span>dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#997 id=997 data-nosnippet>997</a>        kickoff_wpks: KickoffWinternitzKeys,
 <a href=#998 id=998 data-nosnippet>998</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
 <a href=#999 id=999 data-nosnippet>999</a>        <span class="comment">// try to send the first round tx
@@ -1012,7 +1012,7 @@
 <a href=#1012 id=1012 data-nosnippet>1012</a>
 <a href=#1013 id=1013 data-nosnippet>1013</a>        <span class="self">self</span>.tx_sender
 <a href=#1014 id=1014 data-nosnippet>1014</a>            .insert_try_to_send(
-<a href=#1015 id=1015 data-nosnippet>1015</a>                dbtx,
+<a href=#1015 id=1015 data-nosnippet>1015</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1016 id=1016 data-nosnippet>1016</a>                <span class="prelude-val">Some</span>(TxMetadata {
 <a href=#1017 id=1017 data-nosnippet>1017</a>                    tx_type: TransactionType::Round,
 <a href=#1018 id=1018 data-nosnippet>1018</a>                    operator_xonly_pk: <span class="prelude-val">None</span>,
@@ -1041,10 +1041,10 @@
 <a href=#1041 id=1041 data-nosnippet>1041</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#1042 id=1042 data-nosnippet>1042</a>    </span><span class="kw">pub async fn </span>end_round&lt;<span class="lifetime">'a</span>&gt;(
 <a href=#1043 id=1043 data-nosnippet>1043</a>        <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="self">self</span>,
-<a href=#1044 id=1044 data-nosnippet>1044</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#1044 id=1044 data-nosnippet>1044</a>        <span class="kw-2">mut </span>dbtx: DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;,
 <a href=#1045 id=1045 data-nosnippet>1045</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
 <a href=#1046 id=1046 data-nosnippet>1046</a>        <span class="comment">// get current round index
-<a href=#1047 id=1047 data-nosnippet>1047</a>        </span><span class="kw">let </span>current_round_index = <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#1047 id=1047 data-nosnippet>1047</a>        </span><span class="kw">let </span>current_round_index = <span class="self">self</span>.db.get_current_round_index(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx)).<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#1048 id=1048 data-nosnippet>1048</a>
 <a href=#1049 id=1049 data-nosnippet>1049</a>        <span class="kw">let </span><span class="kw-2">mut </span>activation_prerequisites = Vec::new();
 <a href=#1050 id=1050 data-nosnippet>1050</a>
@@ -1113,7 +1113,7 @@
 <a href=#1113 id=1113 data-nosnippet>1113</a>            <span class="kw">let </span>kickoff_txid = <span class="self">self
 <a href=#1114 id=1114 data-nosnippet>1114</a>                </span>.db
 <a href=#1115 id=1115 data-nosnippet>1115</a>                .get_kickoff_txid_for_used_kickoff_connector(
-<a href=#1116 id=1116 data-nosnippet>1116</a>                    <span class="prelude-val">Some</span>(dbtx),
+<a href=#1116 id=1116 data-nosnippet>1116</a>                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1117 id=1117 data-nosnippet>1117</a>                    current_round_index,
 <a href=#1118 id=1118 data-nosnippet>1118</a>                    kickoff_connector_idx,
 <a href=#1119 id=1119 data-nosnippet>1119</a>                )
@@ -1136,7 +1136,7 @@
 <a href=#1136 id=1136 data-nosnippet>1136</a>                    unspent_kickoff_connector_indices.push(kickoff_connector_idx <span class="kw">as </span>usize);
 <a href=#1137 id=1137 data-nosnippet>1137</a>                    <span class="self">self</span>.db
 <a href=#1138 id=1138 data-nosnippet>1138</a>                        .mark_kickoff_connector_as_used(
-<a href=#1139 id=1139 data-nosnippet>1139</a>                            <span class="prelude-val">Some</span>(dbtx),
+<a href=#1139 id=1139 data-nosnippet>1139</a>                            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1140 id=1140 data-nosnippet>1140</a>                            current_round_index,
 <a href=#1141 id=1141 data-nosnippet>1141</a>                            kickoff_connector_idx,
 <a href=#1142 id=1142 data-nosnippet>1142</a>                            <span class="prelude-val">None</span>,
@@ -1170,7 +1170,7 @@
 <a href=#1170 id=1170 data-nosnippet>1170</a>
 <a href=#1171 id=1171 data-nosnippet>1171</a>        <span class="self">self</span>.tx_sender
 <a href=#1172 id=1172 data-nosnippet>1172</a>            .insert_try_to_send(
-<a href=#1173 id=1173 data-nosnippet>1173</a>                dbtx,
+<a href=#1173 id=1173 data-nosnippet>1173</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1174 id=1174 data-nosnippet>1174</a>                <span class="prelude-val">Some</span>(TxMetadata {
 <a href=#1175 id=1175 data-nosnippet>1175</a>                    tx_type: TransactionType::BurnUnusedKickoffConnectors,
 <a href=#1176 id=1176 data-nosnippet>1176</a>                    operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
@@ -1191,7 +1191,7 @@
 <a href=#1191 id=1191 data-nosnippet>1191</a>        <span class="comment">// send ready to reimburse tx
 <a href=#1192 id=1192 data-nosnippet>1192</a>        </span><span class="self">self</span>.tx_sender
 <a href=#1193 id=1193 data-nosnippet>1193</a>            .insert_try_to_send(
-<a href=#1194 id=1194 data-nosnippet>1194</a>                dbtx,
+<a href=#1194 id=1194 data-nosnippet>1194</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1195 id=1195 data-nosnippet>1195</a>                <span class="prelude-val">Some</span>(TxMetadata {
 <a href=#1196 id=1196 data-nosnippet>1196</a>                    tx_type: TransactionType::ReadyToReimburse,
 <a href=#1197 id=1197 data-nosnippet>1197</a>                    operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
@@ -1212,7 +1212,7 @@
 <a href=#1212 id=1212 data-nosnippet>1212</a>        <span class="comment">// send next round tx
 <a href=#1213 id=1213 data-nosnippet>1213</a>        </span><span class="self">self</span>.tx_sender
 <a href=#1214 id=1214 data-nosnippet>1214</a>            .insert_try_to_send(
-<a href=#1215 id=1215 data-nosnippet>1215</a>                dbtx,
+<a href=#1215 id=1215 data-nosnippet>1215</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1216 id=1216 data-nosnippet>1216</a>                <span class="prelude-val">Some</span>(TxMetadata {
 <a href=#1217 id=1217 data-nosnippet>1217</a>                    tx_type: TransactionType::Round,
 <a href=#1218 id=1218 data-nosnippet>1218</a>                    operator_xonly_pk: <span class="prelude-val">Some</span>(<span class="self">self</span>.signer.xonly_public_key),
@@ -1248,7 +1248,7 @@
 <a href=#1248 id=1248 data-nosnippet>1248</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#1249 id=1249 data-nosnippet>1249</a>    </span><span class="kw">async fn </span>send_asserts(
 <a href=#1250 id=1250 data-nosnippet>1250</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#1251 id=1251 data-nosnippet>1251</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#1251 id=1251 data-nosnippet>1251</a>        <span class="kw-2">mut </span>dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#1252 id=1252 data-nosnippet>1252</a>        kickoff_data: KickoffData,
 <a href=#1253 id=1253 data-nosnippet>1253</a>        deposit_data: DepositData,
 <a href=#1254 id=1254 data-nosnippet>1254</a>        watchtower_challenges: HashMap&lt;usize, Transaction&gt;,
@@ -1266,7 +1266,7 @@
 <a href=#1266 id=1266 data-nosnippet>1266</a>        <span class="kw">let </span><span class="kw-2">mut </span>db_cache = <span class="kw">crate</span>::builder::transaction::ReimburseDbCache::from_context(
 <a href=#1267 id=1267 data-nosnippet>1267</a>            <span class="self">self</span>.db.clone(),
 <a href=#1268 id=1268 data-nosnippet>1268</a>            <span class="kw-2">&amp;</span>context,
-<a href=#1269 id=1269 data-nosnippet>1269</a>            <span class="prelude-val">Some</span>(dbtx),
+<a href=#1269 id=1269 data-nosnippet>1269</a>            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1270 id=1270 data-nosnippet>1270</a>        );
 <a href=#1271 id=1271 data-nosnippet>1271</a>        <span class="kw">let </span>txhandlers = builder::transaction::create_txhandlers(
 <a href=#1272 id=1272 data-nosnippet>1272</a>            TransactionType::Kickoff,
@@ -1295,7 +1295,7 @@
 <a href=#1295 id=1295 data-nosnippet>1295</a>
 <a href=#1296 id=1296 data-nosnippet>1296</a>        <span class="kw">let </span>(payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = <span class="self">self
 <a href=#1297 id=1297 data-nosnippet>1297</a>            </span>.db
-<a href=#1298 id=1298 data-nosnippet>1298</a>            .get_payout_info_from_move_txid(<span class="prelude-val">Some</span>(dbtx), move_txid)
+<a href=#1298 id=1298 data-nosnippet>1298</a>            .get_payout_info_from_move_txid(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), move_txid)
 <a href=#1299 id=1299 data-nosnippet>1299</a>            .<span class="kw">await
 <a href=#1300 id=1300 data-nosnippet>1300</a>            </span>.wrap_err(<span class="string">"Failed to get payout info from db during sending asserts."</span>)<span class="question-mark">?
 <a href=#1301 id=1301 data-nosnippet>1301</a>            </span>.ok_or_eyre(<span class="macro">format!</span>(
@@ -1317,7 +1317,7 @@
 <a href=#1317 id=1317 data-nosnippet>1317</a>
 <a href=#1318 id=1318 data-nosnippet>1318</a>        <span class="kw">let </span>(payout_block_height, payout_block) = <span class="self">self
 <a href=#1319 id=1319 data-nosnippet>1319</a>            </span>.db
-<a href=#1320 id=1320 data-nosnippet>1320</a>            .get_full_block_from_hash(<span class="prelude-val">Some</span>(dbtx), payout_block_hash)
+<a href=#1320 id=1320 data-nosnippet>1320</a>            .get_full_block_from_hash(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), payout_block_hash)
 <a href=#1321 id=1321 data-nosnippet>1321</a>            .<span class="kw">await</span><span class="question-mark">?
 <a href=#1322 id=1322 data-nosnippet>1322</a>            </span>.ok_or_eyre(<span class="macro">format!</span>(
 <a href=#1323 id=1323 data-nosnippet>1323</a>                <span class="string">"Payout block {payout_op_xonly_pk:?} {payout_block_hash:?} not found in db"</span>,
@@ -1339,7 +1339,7 @@
 <a href=#1339 id=1339 data-nosnippet>1339</a>                payout_block_height <span class="kw">as </span>u64,
 <a href=#1340 id=1340 data-nosnippet>1340</a>                deposit_idx <span class="kw">as </span>u32,
 <a href=#1341 id=1341 data-nosnippet>1341</a>                <span class="kw-2">&amp;</span><span class="self">self</span>.db,
-<a href=#1342 id=1342 data-nosnippet>1342</a>                <span class="prelude-val">Some</span>(dbtx),
+<a href=#1342 id=1342 data-nosnippet>1342</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1343 id=1343 data-nosnippet>1343</a>                <span class="self">self</span>.config.protocol_paramset(),
 <a href=#1344 id=1344 data-nosnippet>1344</a>            )
 <a href=#1345 id=1345 data-nosnippet>1345</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -1395,7 +1395,7 @@
 <a href=#1395 id=1395 data-nosnippet>1395</a>        <span class="comment">// update headers in case the sync (state machine handle_finalized_block) is behind
 <a href=#1396 id=1396 data-nosnippet>1396</a>        </span><span class="self">self</span>.db
 <a href=#1397 id=1397 data-nosnippet>1397</a>            .fetch_and_save_missing_blocks(
-<a href=#1398 id=1398 data-nosnippet>1398</a>                <span class="prelude-val">Some</span>(dbtx),
+<a href=#1398 id=1398 data-nosnippet>1398</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1399 id=1399 data-nosnippet>1399</a>                <span class="kw-2">&amp;</span><span class="self">self</span>.rpc,
 <a href=#1400 id=1400 data-nosnippet>1400</a>                <span class="self">self</span>.config.protocol_paramset().genesis_height,
 <a href=#1401 id=1401 data-nosnippet>1401</a>                rpc_current_finalized_height + <span class="number">1</span>,
@@ -1404,14 +1404,14 @@
 <a href=#1404 id=1404 data-nosnippet>1404</a>
 <a href=#1405 id=1405 data-nosnippet>1405</a>        <span class="kw">let </span>current_height = <span class="self">self
 <a href=#1406 id=1406 data-nosnippet>1406</a>            </span>.db
-<a href=#1407 id=1407 data-nosnippet>1407</a>            .get_latest_finalized_block_height(<span class="prelude-val">Some</span>(dbtx))
+<a href=#1407 id=1407 data-nosnippet>1407</a>            .get_latest_finalized_block_height(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx))
 <a href=#1408 id=1408 data-nosnippet>1408</a>            .<span class="kw">await</span><span class="question-mark">?
 <a href=#1409 id=1409 data-nosnippet>1409</a>            </span>.ok_or_eyre(<span class="string">"Failed to get current finalized block height"</span>)<span class="question-mark">?</span>;
 <a href=#1410 id=1410 data-nosnippet>1410</a>
 <a href=#1411 id=1411 data-nosnippet>1411</a>        <span class="kw">let </span>block_hashes = <span class="self">self
 <a href=#1412 id=1412 data-nosnippet>1412</a>            </span>.db
 <a href=#1413 id=1413 data-nosnippet>1413</a>            .get_block_info_from_range(
-<a href=#1414 id=1414 data-nosnippet>1414</a>                <span class="prelude-val">Some</span>(dbtx),
+<a href=#1414 id=1414 data-nosnippet>1414</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1415 id=1415 data-nosnippet>1415</a>                <span class="self">self</span>.config.protocol_paramset().genesis_height <span class="kw">as </span>u64,
 <a href=#1416 id=1416 data-nosnippet>1416</a>                current_height,
 <a href=#1417 id=1417 data-nosnippet>1417</a>            )
@@ -1632,14 +1632,14 @@
 <a href=#1632 id=1632 data-nosnippet>1632</a>                    asserts,
 <a href=#1633 id=1633 data-nosnippet>1633</a>                    <span class="kw-2">&amp;</span>public_inputs.challenge_sending_watchtowers,
 <a href=#1634 id=1634 data-nosnippet>1634</a>                ),
-<a href=#1635 id=1635 data-nosnippet>1635</a>                <span class="prelude-val">Some</span>(dbtx),
+<a href=#1635 id=1635 data-nosnippet>1635</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1636 id=1636 data-nosnippet>1636</a>            )
 <a href=#1637 id=1637 data-nosnippet>1637</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#1638 id=1638 data-nosnippet>1638</a>
 <a href=#1639 id=1639 data-nosnippet>1639</a>        <span class="kw">for </span>(tx_type, tx) <span class="kw">in </span>assert_txs {
 <a href=#1640 id=1640 data-nosnippet>1640</a>            <span class="self">self</span>.tx_sender
 <a href=#1641 id=1641 data-nosnippet>1641</a>                .add_tx_to_queue(
-<a href=#1642 id=1642 data-nosnippet>1642</a>                    dbtx,
+<a href=#1642 id=1642 data-nosnippet>1642</a>                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1643 id=1643 data-nosnippet>1643</a>                    tx_type,
 <a href=#1644 id=1644 data-nosnippet>1644</a>                    <span class="kw-2">&amp;</span>tx,
 <a href=#1645 id=1645 data-nosnippet>1645</a>                    <span class="kw-2">&amp;</span>[],
@@ -1650,7 +1650,7 @@
 <a href=#1650 id=1650 data-nosnippet>1650</a>                        kickoff_idx: <span class="prelude-val">Some</span>(kickoff_data.kickoff_idx),
 <a href=#1651 id=1651 data-nosnippet>1651</a>                        deposit_outpoint: <span class="prelude-val">Some</span>(deposit_data.get_deposit_outpoint()),
 <a href=#1652 id=1652 data-nosnippet>1652</a>                    }),
-<a href=#1653 id=1653 data-nosnippet>1653</a>                    <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+<a href=#1653 id=1653 data-nosnippet>1653</a>                    <span class="self">self</span>.config.protocol_paramset(),
 <a href=#1654 id=1654 data-nosnippet>1654</a>                    <span class="prelude-val">None</span>,
 <a href=#1655 id=1655 data-nosnippet>1655</a>                )
 <a href=#1656 id=1656 data-nosnippet>1656</a>                .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -1669,7 +1669,7 @@
 <a href=#1669 id=1669 data-nosnippet>1669</a>    <span class="attr">#[cfg(feature = <span class="string">"automation"</span>)]
 <a href=#1670 id=1670 data-nosnippet>1670</a>    </span><span class="kw">async fn </span>send_latest_blockhash(
 <a href=#1671 id=1671 data-nosnippet>1671</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#1672 id=1672 data-nosnippet>1672</a>        dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#1672 id=1672 data-nosnippet>1672</a>        <span class="kw-2">mut </span>dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#1673 id=1673 data-nosnippet>1673</a>        kickoff_data: KickoffData,
 <a href=#1674 id=1674 data-nosnippet>1674</a>        deposit_data: DepositData,
 <a href=#1675 id=1675 data-nosnippet>1675</a>        latest_blockhash: BlockHash,
@@ -1683,7 +1683,7 @@
 <a href=#1683 id=1683 data-nosnippet>1683</a>                    kickoff_data,
 <a href=#1684 id=1684 data-nosnippet>1684</a>                },
 <a href=#1685 id=1685 data-nosnippet>1685</a>                latest_blockhash,
-<a href=#1686 id=1686 data-nosnippet>1686</a>                <span class="prelude-val">Some</span>(dbtx),
+<a href=#1686 id=1686 data-nosnippet>1686</a>                <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
 <a href=#1687 id=1687 data-nosnippet>1687</a>            )
 <a href=#1688 id=1688 data-nosnippet>1688</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#1689 id=1689 data-nosnippet>1689</a>        <span class="kw">if </span>tx_type != TransactionType::LatestBlockhash {
@@ -1691,7 +1691,7 @@
 <a href=#1691 id=1691 data-nosnippet>1691</a>        }
 <a href=#1692 id=1692 data-nosnippet>1692</a>        <span class="self">self</span>.tx_sender
 <a href=#1693 id=1693 data-nosnippet>1693</a>            .add_tx_to_queue(
-<a href=#1694 id=1694 data-nosnippet>1694</a>                dbtx,
+<a href=#1694 id=1694 data-nosnippet>1694</a>                <span class="prelude-val">Some</span>(dbtx),
 <a href=#1695 id=1695 data-nosnippet>1695</a>                tx_type,
 <a href=#1696 id=1696 data-nosnippet>1696</a>                <span class="kw-2">&amp;</span>tx,
 <a href=#1697 id=1697 data-nosnippet>1697</a>                <span class="kw-2">&amp;</span>[],
@@ -1702,7 +1702,7 @@
 <a href=#1702 id=1702 data-nosnippet>1702</a>                    kickoff_idx: <span class="prelude-val">Some</span>(kickoff_data.kickoff_idx),
 <a href=#1703 id=1703 data-nosnippet>1703</a>                    deposit_outpoint: <span class="prelude-val">Some</span>(deposit_outpoint),
 <a href=#1704 id=1704 data-nosnippet>1704</a>                }),
-<a href=#1705 id=1705 data-nosnippet>1705</a>                <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+<a href=#1705 id=1705 data-nosnippet>1705</a>                <span class="self">self</span>.config.protocol_paramset(),
 <a href=#1706 id=1706 data-nosnippet>1706</a>                <span class="prelude-val">None</span>,
 <a href=#1707 id=1707 data-nosnippet>1707</a>            )
 <a href=#1708 id=1708 data-nosnippet>1708</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -1712,7 +1712,7 @@
 <a href=#1712 id=1712 data-nosnippet>1712</a>    <span class="doccomment">/// For a deposit_id checks that the payer for that deposit is the operator, and the payout blockhash and kickoff txid are set.
 <a href=#1713 id=1713 data-nosnippet>1713</a>    </span><span class="kw">async fn </span>validate_payer_is_operator(
 <a href=#1714 id=1714 data-nosnippet>1714</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#1715 id=1715 data-nosnippet>1715</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#1715 id=1715 data-nosnippet>1715</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#1716 id=1716 data-nosnippet>1716</a>        deposit_id: u32,
 <a href=#1717 id=1717 data-nosnippet>1717</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(BlockHash, Txid), BridgeError&gt; {
 <a href=#1718 id=1718 data-nosnippet>1718</a>        <span class="kw">let </span>(payer_xonly_pk, payout_blockhash, kickoff_txid) = <span class="self">self
@@ -1767,7 +1767,7 @@
 <a href=#1767 id=1767 data-nosnippet>1767</a>
 <a href=#1768 id=1768 data-nosnippet>1768</a>    <span class="kw">async fn </span>get_next_txs_to_send(
 <a href=#1769 id=1769 data-nosnippet>1769</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#1770 id=1770 data-nosnippet>1770</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#1770 id=1770 data-nosnippet>1770</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#1771 id=1771 data-nosnippet>1771</a>        deposit_data: <span class="kw-2">&amp;mut </span>DepositData,
 <a href=#1772 id=1772 data-nosnippet>1772</a>        payout_blockhash: BlockHash,
 <a href=#1773 id=1773 data-nosnippet>1773</a>        kickoff_txid: Txid,
@@ -2178,7 +2178,7 @@
 <a href=#2178 id=2178 data-nosnippet>2178</a>    /// able to advance to the next round.
 <a href=#2179 id=2179 data-nosnippet>2179</a>    </span><span class="kw">async fn </span>advance_round_manually(
 <a href=#2180 id=2180 data-nosnippet>2180</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2181 id=2181 data-nosnippet>2181</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#2181 id=2181 data-nosnippet>2181</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#2182 id=2182 data-nosnippet>2182</a>        round_idx: RoundIndex,
 <a href=#2183 id=2183 data-nosnippet>2183</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
 <a href=#2184 id=2184 data-nosnippet>2184</a>        <span class="kw">if </span>round_idx == RoundIndex::Collateral {
@@ -2287,7 +2287,7 @@
 <a href=#2287 id=2287 data-nosnippet>2287</a>    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
 <a href=#2288 id=2288 data-nosnippet>2288</a>    </span><span class="kw">async fn </span>find_and_mark_unspent_kickoff_utxos(
 <a href=#2289 id=2289 data-nosnippet>2289</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2290 id=2290 data-nosnippet>2290</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#2290 id=2290 data-nosnippet>2290</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#2291 id=2291 data-nosnippet>2291</a>        round_idx: RoundIndex,
 <a href=#2292 id=2292 data-nosnippet>2292</a>        round_txid: Txid,
 <a href=#2293 id=2293 data-nosnippet>2293</a>        current_chain_height: u32,
@@ -2381,7 +2381,7 @@
 <a href=#2381 id=2381 data-nosnippet>2381</a>    <span class="doccomment">/// Validates that all kickoff finalizers are spent for the given round.
 <a href=#2382 id=2382 data-nosnippet>2382</a>    </span><span class="kw">async fn </span>validate_all_kickoff_finalizers_spent(
 <a href=#2383 id=2383 data-nosnippet>2383</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2384 id=2384 data-nosnippet>2384</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#2384 id=2384 data-nosnippet>2384</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#2385 id=2385 data-nosnippet>2385</a>        round_idx: RoundIndex,
 <a href=#2386 id=2386 data-nosnippet>2386</a>        current_chain_height: u32,
 <a href=#2387 id=2387 data-nosnippet>2387</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -2438,7 +2438,7 @@
 <a href=#2438 id=2438 data-nosnippet>2438</a>    <span class="doccomment">/// Checks if the next round tx is on chain, if it is, updates the database, otherwise returns the round tx that needs to be sent.
 <a href=#2439 id=2439 data-nosnippet>2439</a>    </span><span class="kw">async fn </span>send_next_round_tx(
 <a href=#2440 id=2440 data-nosnippet>2440</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2441 id=2441 data-nosnippet>2441</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#2441 id=2441 data-nosnippet>2441</a>        <span class="kw-2">mut </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#2442 id=2442 data-nosnippet>2442</a>        round_idx: RoundIndex,
 <a href=#2443 id=2443 data-nosnippet>2443</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(TransactionType, Transaction)&gt;, BridgeError&gt; {
 <a href=#2444 id=2444 data-nosnippet>2444</a>        <span class="kw">let </span>next_round_context = ContractContext::new_context_for_round(
@@ -2507,7 +2507,7 @@
 <a href=#2507 id=2507 data-nosnippet>2507</a>    {
 <a href=#2508 id=2508 data-nosnippet>2508</a>        <span class="kw">async fn </span>handle_duty(
 <a href=#2509 id=2509 data-nosnippet>2509</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2510 id=2510 data-nosnippet>2510</a>            dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#2510 id=2510 data-nosnippet>2510</a>            dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#2511 id=2511 data-nosnippet>2511</a>            duty: Duty,
 <a href=#2512 id=2512 data-nosnippet>2512</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;DutyResult, BridgeError&gt; {
 <a href=#2513 id=2513 data-nosnippet>2513</a>            <span class="kw">match </span>duty {
@@ -2611,12 +2611,12 @@
 <a href=#2611 id=2611 data-nosnippet>2611</a>                                | TransactionType::Reimburse =&gt; {
 <a href=#2612 id=2612 data-nosnippet>2612</a>                                    <span class="self">self</span>.tx_sender
 <a href=#2613 id=2613 data-nosnippet>2613</a>                                        .add_tx_to_queue(
-<a href=#2614 id=2614 data-nosnippet>2614</a>                                            dbtx,
+<a href=#2614 id=2614 data-nosnippet>2614</a>                                            <span class="prelude-val">Some</span>(dbtx),
 <a href=#2615 id=2615 data-nosnippet>2615</a>                                            <span class="kw-2">*</span>tx_type,
 <a href=#2616 id=2616 data-nosnippet>2616</a>                                            signed_tx,
 <a href=#2617 id=2617 data-nosnippet>2617</a>                                            <span class="kw-2">&amp;</span>signed_txs,
 <a href=#2618 id=2618 data-nosnippet>2618</a>                                            tx_metadata,
-<a href=#2619 id=2619 data-nosnippet>2619</a>                                            <span class="kw-2">&amp;</span><span class="self">self</span>.config,
+<a href=#2619 id=2619 data-nosnippet>2619</a>                                            <span class="self">self</span>.config.protocol_paramset(),
 <a href=#2620 id=2620 data-nosnippet>2620</a>                                            <span class="prelude-val">None</span>,
 <a href=#2621 id=2621 data-nosnippet>2621</a>                                        )
 <a href=#2622 id=2622 data-nosnippet>2622</a>                                        .<span class="kw">await</span><span class="question-mark">?</span>;
@@ -2633,7 +2633,7 @@
 <a href=#2633 id=2633 data-nosnippet>2633</a>
 <a href=#2634 id=2634 data-nosnippet>2634</a>        <span class="kw">async fn </span>create_txhandlers(
 <a href=#2635 id=2635 data-nosnippet>2635</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2636 id=2636 data-nosnippet>2636</a>            dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#2636 id=2636 data-nosnippet>2636</a>            dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#2637 id=2637 data-nosnippet>2637</a>            tx_type: TransactionType,
 <a href=#2638 id=2638 data-nosnippet>2638</a>            contract_context: ContractContext,
 <a href=#2639 id=2639 data-nosnippet>2639</a>        ) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
@@ -2651,7 +2651,7 @@
 <a href=#2651 id=2651 data-nosnippet>2651</a>
 <a href=#2652 id=2652 data-nosnippet>2652</a>        <span class="kw">async fn </span>handle_finalized_block(
 <a href=#2653 id=2653 data-nosnippet>2653</a>            <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#2654 id=2654 data-nosnippet>2654</a>            _dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#2654 id=2654 data-nosnippet>2654</a>            _dbtx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#2655 id=2655 data-nosnippet>2655</a>            _block_id: u32,
 <a href=#2656 id=2656 data-nosnippet>2656</a>            _block_height: u32,
 <a href=#2657 id=2657 data-nosnippet>2657</a>            _block_cache: Arc&lt;block_cache::BlockCache&gt;,

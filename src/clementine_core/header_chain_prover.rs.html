@@ -569,7 +569,7 @@
 <a href=#569 id=569 data-nosnippet>569</a>    <span class="doccomment">/// Saves a new block to database, later to be proven.
 <a href=#570 id=570 data-nosnippet>570</a>    </span><span class="kw">pub async fn </span>save_unproven_block_cache(
 <a href=#571 id=571 data-nosnippet>571</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#572 id=572 data-nosnippet>572</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#572 id=572 data-nosnippet>572</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#573 id=573 data-nosnippet>573</a>        block_cache: <span class="kw-2">&amp;</span>BlockCache,
 <a href=#574 id=574 data-nosnippet>574</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
 <a href=#575 id=575 data-nosnippet>575</a>        <span class="kw">let </span>block_hash = block_cache.block.block_hash();

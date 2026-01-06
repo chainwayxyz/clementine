@@ -32,7 +32,7 @@
 <a href=#32 id=32 data-nosnippet>32</a>    create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
 <a href=#33 id=33 data-nosnippet>33</a>    TxHandler,
 <a href=#34 id=34 data-nosnippet>34</a>};
-<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span><span class="kw">crate</span>::config::protocol::ProtocolParamset;
+<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span><span class="kw">crate</span>::config::protocol::{ProtocolParamset, ProtocolParamsetExt <span class="kw">as _</span>};
 <a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span><span class="kw">crate</span>::database::{Database, DatabaseTransaction};
 <a href=#37 id=37 data-nosnippet>37</a><span class="kw">use </span><span class="kw">crate</span>::deposit::{DepositData, KickoffData, OperatorData};
 <a href=#38 id=38 data-nosnippet>38</a><span class="kw">use </span>bitcoin::hashes::Hash;
@@ -127,13 +127,13 @@
 <a href=#127 id=127 data-nosnippet>127</a>/// Deposit context can create all transactions.
 <a href=#128 id=128 data-nosnippet>128</a>/// Note: This cache is specific to a single operator, for each operator a new cache is needed.
 <a href=#129 id=129 data-nosnippet>129</a></span><span class="attr">#[derive(Debug)]
-<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">pub struct </span>ReimburseDbCache&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; {
+<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">pub struct </span>ReimburseDbCache&lt;<span class="lifetime">'a</span>&gt; {
 <a href=#131 id=131 data-nosnippet>131</a>    <span class="kw">pub </span>db: Database,
 <a href=#132 id=132 data-nosnippet>132</a>    <span class="kw">pub </span>operator_xonly_pk: XOnlyPublicKey,
 <a href=#133 id=133 data-nosnippet>133</a>    <span class="kw">pub </span>deposit_outpoint: <span class="prelude-ty">Option</span>&lt;bitcoin::OutPoint&gt;,
 <a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">pub </span>paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 <a href=#135 id=135 data-nosnippet>135</a>    <span class="doccomment">/// Optional database transaction to use for the cache.
-<a href=#136 id=136 data-nosnippet>136</a>    </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
+<a href=#136 id=136 data-nosnippet>136</a>    </span>dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;&gt;,
 <a href=#137 id=137 data-nosnippet>137</a>    <span class="doccomment">/// winternitz keys to sign the kickoff tx with the blockhash
 <a href=#138 id=138 data-nosnippet>138</a>    </span>kickoff_winternitz_keys: <span class="prelude-ty">Option</span>&lt;KickoffWinternitzKeys&gt;,
 <a href=#139 id=139 data-nosnippet>139</a>    <span class="doccomment">/// bitvm assert scripts for each assert utxo
@@ -152,14 +152,14 @@
 <a href=#152 id=152 data-nosnippet>152</a>    </span>operator_bitvm_keys: <span class="prelude-ty">Option</span>&lt;ClementineBitVMPublicKeys&gt;,
 <a href=#153 id=153 data-nosnippet>153</a>}
 <a href=#154 id=154 data-nosnippet>154</a>
-<a href=#155 id=155 data-nosnippet>155</a><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; ReimburseDbCache&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt; {
+<a href=#155 id=155 data-nosnippet>155</a><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>&gt; ReimburseDbCache&lt;<span class="lifetime">'a</span>&gt; {
 <a href=#156 id=156 data-nosnippet>156</a>    <span class="doccomment">/// Creates a db cache that can be used to create txhandlers for a specific operator and deposit/kickoff
 <a href=#157 id=157 data-nosnippet>157</a>    </span><span class="kw">pub fn </span>new_for_deposit(
 <a href=#158 id=158 data-nosnippet>158</a>        db: Database,
 <a href=#159 id=159 data-nosnippet>159</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#160 id=160 data-nosnippet>160</a>        deposit_outpoint: bitcoin::OutPoint,
 <a href=#161 id=161 data-nosnippet>161</a>        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
-<a href=#162 id=162 data-nosnippet>162</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
+<a href=#162 id=162 data-nosnippet>162</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;&gt;,
 <a href=#163 id=163 data-nosnippet>163</a>    ) -&gt; <span class="self">Self </span>{
 <a href=#164 id=164 data-nosnippet>164</a>        <span class="self">Self </span>{
 <a href=#165 id=165 data-nosnippet>165</a>            db,
@@ -183,7 +183,7 @@
 <a href=#183 id=183 data-nosnippet>183</a>        db: Database,
 <a href=#184 id=184 data-nosnippet>184</a>        operator_xonly_pk: XOnlyPublicKey,
 <a href=#185 id=185 data-nosnippet>185</a>        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
-<a href=#186 id=186 data-nosnippet>186</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
+<a href=#186 id=186 data-nosnippet>186</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;&gt;,
 <a href=#187 id=187 data-nosnippet>187</a>    ) -&gt; <span class="self">Self </span>{
 <a href=#188 id=188 data-nosnippet>188</a>        <span class="self">Self </span>{
 <a href=#189 id=189 data-nosnippet>189</a>            db,
@@ -206,7 +206,7 @@
 <a href=#206 id=206 data-nosnippet>206</a>    </span><span class="kw">pub fn </span>from_context(
 <a href=#207 id=207 data-nosnippet>207</a>        db: Database,
 <a href=#208 id=208 data-nosnippet>208</a>        context: <span class="kw-2">&amp;</span>ContractContext,
-<a href=#209 id=209 data-nosnippet>209</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>, <span class="lifetime">'b</span>&gt;&gt;,
+<a href=#209 id=209 data-nosnippet>209</a>        dbtx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'a</span>&gt;&gt;,
 <a href=#210 id=210 data-nosnippet>210</a>    ) -&gt; <span class="self">Self </span>{
 <a href=#211 id=211 data-nosnippet>211</a>        <span class="kw">if </span>context.deposit_data.is_some() {
 <a href=#212 id=212 data-nosnippet>212</a>            <span class="kw">let </span>deposit_data = context
@@ -604,7 +604,7 @@
 <a href=#604 id=604 data-nosnippet>604</a>    transaction_type: TransactionType,
 <a href=#605 id=605 data-nosnippet>605</a>    context: ContractContext,
 <a href=#606 id=606 data-nosnippet>606</a>    txhandler_cache: <span class="kw-2">&amp;mut </span>TxHandlerCache,
-<a href=#607 id=607 data-nosnippet>607</a>    db_cache: <span class="kw-2">&amp;mut </span>ReimburseDbCache&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#607 id=607 data-nosnippet>607</a>    db_cache: <span class="kw-2">&amp;mut </span>ReimburseDbCache&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#608 id=608 data-nosnippet>608</a>) -&gt; <span class="prelude-ty">Result</span>&lt;BTreeMap&lt;TransactionType, TxHandler&gt;, BridgeError&gt; {
 <a href=#609 id=609 data-nosnippet>609</a>    <span class="kw">let </span>paramset = db_cache.paramset;
 <a href=#610 id=610 data-nosnippet>610</a>

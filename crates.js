@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["bridge_circuit_host","circuits_lib","clementine_cli","clementine_core","clementine_errors","clementine_primitives"];
-//{"start":21,"fragment_lengths":[21,15,17,18,20,24]}
+window.ALL_CRATES = ["bridge_circuit_host","circuits_lib","clementine_cli","clementine_config","clementine_core","clementine_errors","clementine_extended_rpc","clementine_primitives","clementine_tx_sender","clementine_utils"];
+//{"start":21,"fragment_lengths":[21,15,17,20,18,20,26,24,23,19]}

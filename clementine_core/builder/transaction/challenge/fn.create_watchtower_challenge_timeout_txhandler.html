@@ -2,7 +2,7 @@
     kickoff_txhandler: &amp;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>,
     watchtower_idx: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.usize.html">usize</a>,
     paramset: &amp;'static <a class="struct" href="../../../config/protocol/struct.ProtocolParamset.html" title="struct clementine_core::config::protocol::ProtocolParamset">ProtocolParamset</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, <a class="enum" href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError">BridgeError</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>watchtower_challenge_timeout_tx</code>.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler">TxHandler</a>, BridgeError&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the <code>watchtower_challenge_timeout_tx</code>.</p>
 <p>This transaction is sent by an operator if a watchtower does not submit a challenge in time, allowing the operator to claim a timeout.
 This way, operators do not need to reveal their preimage, and do not need to use the watchtowers longest chain proof in their
 bridge proof.</p>
@@ -22,5 +22,5 @@ bridge proof.</p>
 <li><code>paramset</code> - Protocol parameter set.</li>
 </ul>
 <h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
-<p>A <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the watchtower challenge timeout transaction, or a <a href="../../../../clementine_errors/enum.BridgeError.html" title="enum clementine_errors::BridgeError"><code>BridgeError</code></a> if construction fails.</p>
+<p>A <a href="../struct.TxHandler.html" title="struct clementine_core::builder::transaction::TxHandler"><code>TxHandler</code></a> for the watchtower challenge timeout transaction, or a [<code>BridgeError</code>] if construction fails.</p>
 </div></details></section></div></main></body></html>

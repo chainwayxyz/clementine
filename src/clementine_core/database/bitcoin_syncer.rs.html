@@ -16,7 +16,7 @@
 <a href=#16 id=16 data-nosnippet>16</a>    /// - [`u32`]: Database entry id, later to be used while referring block
 <a href=#17 id=17 data-nosnippet>17</a>    </span><span class="kw">pub async fn </span>insert_block_info(
 <a href=#18 id=18 data-nosnippet>18</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#19 id=19 data-nosnippet>19</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#19 id=19 data-nosnippet>19</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#20 id=20 data-nosnippet>20</a>        block_hash: <span class="kw-2">&amp;</span>BlockHash,
 <a href=#21 id=21 data-nosnippet>21</a>        prev_block_hash: <span class="kw-2">&amp;</span>BlockHash,
 <a href=#22 id=22 data-nosnippet>22</a>        block_height: u32,
@@ -39,7 +39,7 @@
 <a href=#39 id=39 data-nosnippet>39</a>    /// Returns the block id if the block was found and set as canonical, None otherwise
 <a href=#40 id=40 data-nosnippet>40</a>    </span><span class="kw">pub async fn </span>update_block_as_canonical(
 <a href=#41 id=41 data-nosnippet>41</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#42 id=42 data-nosnippet>42</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#42 id=42 data-nosnippet>42</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#43 id=43 data-nosnippet>43</a>        block_hash: BlockHash,
 <a href=#44 id=44 data-nosnippet>44</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#45 id=45 data-nosnippet>45</a>        <span class="kw">let </span>query = sqlx::query_scalar(
@@ -62,7 +62,7 @@
 <a href=#62 id=62 data-nosnippet>62</a>    /// - [`u32`]: Height of the block
 <a href=#63 id=63 data-nosnippet>63</a>    </span><span class="kw">pub async fn </span>get_block_info_from_hash(
 <a href=#64 id=64 data-nosnippet>64</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#65 id=65 data-nosnippet>65</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#65 id=65 data-nosnippet>65</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#66 id=66 data-nosnippet>66</a>        block_hash: BlockHash,
 <a href=#67 id=67 data-nosnippet>67</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, u32)&gt;, BridgeError&gt; {
 <a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -85,7 +85,7 @@
 <a href=#85 id=85 data-nosnippet>85</a>    <span class="doccomment">/// Gets block hash and height from block id (internal id used in bitcoin_syncer)
 <a href=#86 id=86 data-nosnippet>86</a>    </span><span class="kw">pub async fn </span>get_block_info_from_id(
 <a href=#87 id=87 data-nosnippet>87</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#88 id=88 data-nosnippet>88</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#88 id=88 data-nosnippet>88</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#89 id=89 data-nosnippet>89</a>        block_id: u32,
 <a href=#90 id=90 data-nosnippet>90</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(BlockHash, u32)&gt;, BridgeError&gt; {
 <a href=#91 id=91 data-nosnippet>91</a>        <span class="kw">let </span>query = sqlx::query_as(<span class="string">"SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1"</span>)
@@ -106,7 +106,7 @@
 <a href=#106 id=106 data-nosnippet>106</a>    <span class="doccomment">/// Stores the full block in bytes in the database, with its height and hash
 <a href=#107 id=107 data-nosnippet>107</a>    </span><span class="kw">pub async fn </span>upsert_full_block(
 <a href=#108 id=108 data-nosnippet>108</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#109 id=109 data-nosnippet>109</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#109 id=109 data-nosnippet>109</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#110 id=110 data-nosnippet>110</a>        block: <span class="kw-2">&amp;</span>bitcoin::Block,
 <a href=#111 id=111 data-nosnippet>111</a>        block_height: u32,
 <a href=#112 id=112 data-nosnippet>112</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -126,7 +126,7 @@
 <a href=#126 id=126 data-nosnippet>126</a>    <span class="doccomment">/// Gets the full block from the database, given the block height
 <a href=#127 id=127 data-nosnippet>127</a>    </span><span class="kw">pub async fn </span>get_full_block(
 <a href=#128 id=128 data-nosnippet>128</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#129 id=129 data-nosnippet>129</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#129 id=129 data-nosnippet>129</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#130 id=130 data-nosnippet>130</a>        block_height: u32,
 <a href=#131 id=131 data-nosnippet>131</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;bitcoin::Block&gt;, BridgeError&gt; {
 <a href=#132 id=132 data-nosnippet>132</a>        <span class="kw">let </span>query = sqlx::query_as(<span class="string">"SELECT block_data FROM bitcoin_blocks WHERE height = $1"</span>)
@@ -148,7 +148,7 @@
 <a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Gets the full block and its height from the database, given the block hash
 <a href=#149 id=149 data-nosnippet>149</a>    </span><span class="kw">pub async fn </span>get_full_block_from_hash(
 <a href=#150 id=150 data-nosnippet>150</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#151 id=151 data-nosnippet>151</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#151 id=151 data-nosnippet>151</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#152 id=152 data-nosnippet>152</a>        block_hash: BlockHash,
 <a href=#153 id=153 data-nosnippet>153</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;(u32, bitcoin::Block)&gt;, BridgeError&gt; {
 <a href=#154 id=154 data-nosnippet>154</a>        <span class="kw">let </span>query =
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>    <span class="doccomment">/// Gets the maximum height of the canonical blocks in the bitcoin_syncer database
 <a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">pub async fn </span>get_max_height(
 <a href=#174 id=174 data-nosnippet>174</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#175 id=175 data-nosnippet>175</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#175 id=175 data-nosnippet>175</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#176 id=176 data-nosnippet>176</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span>query =
 <a href=#178 id=178 data-nosnippet>178</a>            sqlx::query_as(<span class="string">"SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1"</span>);
@@ -199,7 +199,7 @@
 <a href=#199 id=199 data-nosnippet>199</a>    ///   descending order.
 <a href=#200 id=200 data-nosnippet>200</a>    </span><span class="kw">pub async fn </span>update_non_canonical_block_hashes(
 <a href=#201 id=201 data-nosnippet>201</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#202 id=202 data-nosnippet>202</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#202 id=202 data-nosnippet>202</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#203 id=203 data-nosnippet>203</a>        height: u32,
 <a href=#204 id=204 data-nosnippet>204</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u32&gt;, BridgeError&gt; {
 <a href=#205 id=205 data-nosnippet>205</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -223,7 +223,7 @@
 <a href=#223 id=223 data-nosnippet>223</a>    <span class="doccomment">/// Gets the block id of the canonical block at the given height
 <a href=#224 id=224 data-nosnippet>224</a>    </span><span class="kw">pub async fn </span>get_canonical_block_id_from_height(
 <a href=#225 id=225 data-nosnippet>225</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#226 id=226 data-nosnippet>226</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#226 id=226 data-nosnippet>226</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#227 id=227 data-nosnippet>227</a>        height: u32,
 <a href=#228 id=228 data-nosnippet>228</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#229 id=229 data-nosnippet>229</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -243,7 +243,7 @@
 <a href=#243 id=243 data-nosnippet>243</a>    <span class="doccomment">/// Saves the txid with the id of the block that contains it to the database
 <a href=#244 id=244 data-nosnippet>244</a>    </span><span class="kw">pub async fn </span>insert_txid_to_block(
 <a href=#245 id=245 data-nosnippet>245</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#246 id=246 data-nosnippet>246</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#246 id=246 data-nosnippet>246</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#247 id=247 data-nosnippet>247</a>        block_id: u32,
 <a href=#248 id=248 data-nosnippet>248</a>        txid: <span class="kw-2">&amp;</span>bitcoin::Txid,
 <a href=#249 id=249 data-nosnippet>249</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
@@ -260,7 +260,7 @@
 <a href=#260 id=260 data-nosnippet>260</a>    </span><span class="attr">#[cfg(test)]
 <a href=#261 id=261 data-nosnippet>261</a>    </span><span class="kw">pub async fn </span>get_block_txids(
 <a href=#262 id=262 data-nosnippet>262</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#263 id=263 data-nosnippet>263</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#263 id=263 data-nosnippet>263</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#264 id=264 data-nosnippet>264</a>        block_id: u32,
 <a href=#265 id=265 data-nosnippet>265</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;Txid&gt;, BridgeError&gt; {
 <a href=#266 id=266 data-nosnippet>266</a>        <span class="kw">let </span>query = sqlx::query_as(<span class="string">"SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1"</span>)
@@ -274,7 +274,7 @@
 <a href=#274 id=274 data-nosnippet>274</a>    <span class="doccomment">/// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
 <a href=#275 id=275 data-nosnippet>275</a>    </span><span class="kw">pub async fn </span>insert_spent_utxo(
 <a href=#276 id=276 data-nosnippet>276</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#277 id=277 data-nosnippet>277</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#277 id=277 data-nosnippet>277</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#278 id=278 data-nosnippet>278</a>        block_id: u32,
 <a href=#279 id=279 data-nosnippet>279</a>        spending_txid: <span class="kw-2">&amp;</span>bitcoin::Txid,
 <a href=#280 id=280 data-nosnippet>280</a>        txid: <span class="kw-2">&amp;</span>bitcoin::Txid,
@@ -296,7 +296,7 @@
 <a href=#296 id=296 data-nosnippet>296</a>    /// Returns None if the outpoint is not spent.
 <a href=#297 id=297 data-nosnippet>297</a>    </span><span class="kw">pub async fn </span>get_block_height_of_spending_txid(
 <a href=#298 id=298 data-nosnippet>298</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#299 id=299 data-nosnippet>299</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#299 id=299 data-nosnippet>299</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#300 id=300 data-nosnippet>300</a>        outpoint: OutPoint,
 <a href=#301 id=301 data-nosnippet>301</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#302 id=302 data-nosnippet>302</a>        <span class="kw">let </span>query = sqlx::query_scalar::&lt;<span class="kw">_</span>, i32&gt;(
@@ -320,7 +320,7 @@
 <a href=#320 id=320 data-nosnippet>320</a>    /// Returns true if the utxo is spent and the spending tx is finalized, false otherwise
 <a href=#321 id=321 data-nosnippet>321</a>    </span><span class="kw">pub async fn </span>check_if_utxo_spending_tx_is_finalized(
 <a href=#322 id=322 data-nosnippet>322</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#323 id=323 data-nosnippet>323</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#323 id=323 data-nosnippet>323</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#324 id=324 data-nosnippet>324</a>        outpoint: OutPoint,
 <a href=#325 id=325 data-nosnippet>325</a>        current_chain_height: u32,
 <a href=#326 id=326 data-nosnippet>326</a>        protocol_paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
@@ -337,7 +337,7 @@
 <a href=#337 id=337 data-nosnippet>337</a>    <span class="doccomment">/// Gets all the spent utxos for a given txid
 <a href=#338 id=338 data-nosnippet>338</a>    </span><span class="kw">pub async fn </span>get_spent_utxos_for_txid(
 <a href=#339 id=339 data-nosnippet>339</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#340 id=340 data-nosnippet>340</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#340 id=340 data-nosnippet>340</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#341 id=341 data-nosnippet>341</a>        txid: Txid,
 <a href=#342 id=342 data-nosnippet>342</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;(i64, OutPoint)&gt;, BridgeError&gt; {
 <a href=#343 id=343 data-nosnippet>343</a>        <span class="kw">let </span>query = sqlx::query_as(
@@ -362,7 +362,7 @@
 <a href=#362 id=362 data-nosnippet>362</a>    <span class="doccomment">/// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
 <a href=#363 id=363 data-nosnippet>363</a>    </span><span class="kw">pub async fn </span>insert_event(
 <a href=#364 id=364 data-nosnippet>364</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#365 id=365 data-nosnippet>365</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#365 id=365 data-nosnippet>365</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#366 id=366 data-nosnippet>366</a>        event_type: BitcoinSyncerEvent,
 <a href=#367 id=367 data-nosnippet>367</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
 <a href=#368 id=368 data-nosnippet>368</a>        <span class="kw">let </span>query = <span class="kw">match </span>event_type {
@@ -383,7 +383,7 @@
 <a href=#383 id=383 data-nosnippet>383</a>    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
 <a href=#384 id=384 data-nosnippet>384</a>    </span><span class="kw">pub async fn </span>get_last_processed_event_block_height(
 <a href=#385 id=385 data-nosnippet>385</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#386 id=386 data-nosnippet>386</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#386 id=386 data-nosnippet>386</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#387 id=387 data-nosnippet>387</a>        consumer_handle: <span class="kw-2">&amp;</span>str,
 <a href=#388 id=388 data-nosnippet>388</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#389 id=389 data-nosnippet>389</a>        <span class="kw">let </span>query = sqlx::query_scalar::&lt;<span class="kw">_</span>, i32&gt;(
@@ -410,7 +410,7 @@
 <a href=#410 id=410 data-nosnippet>410</a>    <span class="doccomment">/// Gets the last processed event id for a given consumer
 <a href=#411 id=411 data-nosnippet>411</a>    </span><span class="kw">pub async fn </span>get_last_processed_event_id(
 <a href=#412 id=412 data-nosnippet>412</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#413 id=413 data-nosnippet>413</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#413 id=413 data-nosnippet>413</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#414 id=414 data-nosnippet>414</a>        consumer_handle: <span class="kw-2">&amp;</span>str,
 <a href=#415 id=415 data-nosnippet>415</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;i32, BridgeError&gt; {
 <a href=#416 id=416 data-nosnippet>416</a>        <span class="comment">// Step 1: Insert the consumer_handle if it doesn't exist
@@ -444,7 +444,7 @@
 <a href=#444 id=444 data-nosnippet>444</a>    /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
 <a href=#445 id=445 data-nosnippet>445</a>    </span><span class="kw">pub async fn </span>get_max_processed_block_height(
 <a href=#446 id=446 data-nosnippet>446</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#447 id=447 data-nosnippet>447</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#447 id=447 data-nosnippet>447</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#448 id=448 data-nosnippet>448</a>        consumer_handle: <span class="kw-2">&amp;</span>str,
 <a href=#449 id=449 data-nosnippet>449</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;u32&gt;, BridgeError&gt; {
 <a href=#450 id=450 data-nosnippet>450</a>        <span class="kw">let </span>query = sqlx::query_scalar::&lt;<span class="kw">_</span>, <span class="prelude-ty">Option</span>&lt;i32&gt;&gt;(
@@ -475,7 +475,7 @@
 <a href=#475 id=475 data-nosnippet>475</a>    /// Next height is the max height of the processed block - finality depth + 1.
 <a href=#476 id=476 data-nosnippet>476</a>    </span><span class="kw">pub async fn </span>get_next_finalized_block_height_for_consumer(
 <a href=#477 id=477 data-nosnippet>477</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#478 id=478 data-nosnippet>478</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;&gt;,
+<a href=#478 id=478 data-nosnippet>478</a>        tx: <span class="prelude-ty">Option</span>&lt;DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;&gt;,
 <a href=#479 id=479 data-nosnippet>479</a>        consumer_handle: <span class="kw-2">&amp;</span>str,
 <a href=#480 id=480 data-nosnippet>480</a>        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
 <a href=#481 id=481 data-nosnippet>481</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
@@ -504,7 +504,7 @@
 <a href=#504 id=504 data-nosnippet>504</a>    /// If there are no more events to fetch, None is returned
 <a href=#505 id=505 data-nosnippet>505</a>    </span><span class="kw">pub async fn </span>fetch_next_bitcoin_syncer_evt(
 <a href=#506 id=506 data-nosnippet>506</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
-<a href=#507 id=507 data-nosnippet>507</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>, <span class="lifetime">'_</span>&gt;,
+<a href=#507 id=507 data-nosnippet>507</a>        tx: DatabaseTransaction&lt;<span class="lifetime">'_</span>&gt;,
 <a href=#508 id=508 data-nosnippet>508</a>        consumer_handle: <span class="kw-2">&amp;</span>str,
 <a href=#509 id=509 data-nosnippet>509</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;BitcoinSyncerEvent&gt;, BridgeError&gt; {
 <a href=#510 id=510 data-nosnippet>510</a>        <span class="comment">// Get the last processed event ID for this consumer

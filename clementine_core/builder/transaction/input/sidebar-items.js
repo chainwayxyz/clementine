@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["SpendableTxInError","UtxoVout"],"struct":["SpendableTxIn","SpentTxIn"]};
+window.SIDEBAR_ITEMS = {"constant":["NUMBER_OF_ASSERT_TXS"],"enum":["SpendableTxInError","UtxoVout"],"struct":["SpendableTxIn","SpentTxIn"]};

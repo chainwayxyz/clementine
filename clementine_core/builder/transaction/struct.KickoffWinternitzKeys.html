@@ -7,11 +7,11 @@
     keys: <a class="struct" href="https://doc.rust-lang.org/1.88.0/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;PublicKey&gt;,
     num_kickoffs_per_round: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.usize.html">usize</a>,
     num_rounds: <a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.usize.html">usize</a>,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, <a class="enum" href="../../../clementine_errors/enum.TxError.html" title="enum clementine_errors::TxError">TxError</a>&gt;</h4></section></summary><div class="docblock"><p>Creates a new <a href="struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys"><code>KickoffWinternitzKeys</code></a> with the given keys and number per round.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, TxError&gt;</h4></section></summary><div class="docblock"><p>Creates a new <a href="struct.KickoffWinternitzKeys.html" title="struct clementine_core::builder::transaction::KickoffWinternitzKeys"><code>KickoffWinternitzKeys</code></a> with the given keys and number per round.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.get_keys_for_round" class="method"><a class="src rightside" href="../../../src/clementine_core/builder/transaction/creator.rs.html#96-115">Source</a><h4 class="code-header">pub fn <a href="#method.get_keys_for_round" class="fn">get_keys_for_round</a>(
     &amp;self,
     round_idx: RoundIndex,
-) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;&amp;[PublicKey], <a class="enum" href="../../../clementine_errors/enum.TxError.html" title="enum clementine_errors::TxError">TxError</a>&gt;</h4></section></summary><div class="docblock"><p>Get the winternitz keys for a specific round tx.</p>
+) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.88.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;&amp;[PublicKey], TxError&gt;</h4></section></summary><div class="docblock"><p>Get the winternitz keys for a specific round tx.</p>
 <h5 id="arguments"><a class="doc-anchor" href="#arguments">§</a>Arguments</h5>
 <ul>
 <li><code>round_idx</code> - The index of the round.</li>
