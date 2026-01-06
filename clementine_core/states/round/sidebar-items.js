@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["RoundEvent","State","Superstate"],"struct":["RoundStateMachine"]};
+window.SIDEBAR_ITEMS = {"enum":["RoundEvent","State","Superstate"],"static":["CHECK_KICKOFF_LOCK"],"struct":["RoundStateMachine"]};

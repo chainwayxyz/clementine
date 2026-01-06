@@ -64,7 +64,7 @@
 <a href=#64 id=64 data-nosnippet>64</a>            .get_deposit_data_with_move_tx(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), move_to_vault_txid)
 <a href=#65 id=65 data-nosnippet>65</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#66 id=66 data-nosnippet>66</a>        <span class="kw">if </span>deposit_data.is_none() {
-<a href=#67 id=67 data-nosnippet>67</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Deposit data not found"</span>).into());
+<a href=#67 id=67 data-nosnippet>67</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Fronted withdrawal for move tx {move_to_vault_txid} found, but the signatures for the deposit are not found in the db."</span>).into());
 <a href=#68 id=68 data-nosnippet>68</a>        }
 <a href=#69 id=69 data-nosnippet>69</a>
 <a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">let </span>deposit_data = deposit_data.expect(<span class="string">"Must be Some"</span>);
