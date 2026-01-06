@@ -32,7 +32,7 @@ use crate::builder::transaction::{
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
     TxHandler,
 };
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, ProtocolParamsetExt as _};
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use bitcoin::hashes::Hash;
@@ -127,13 +127,13 @@ impl KickoffWinternitzKeys {
 /// Deposit context can create all transactions.
 /// Note: This cache is specific to a single operator, for each operator a new cache is needed.
 #[derive(Debug)]
-pub struct ReimburseDbCache<'a, 'b> {
+pub struct ReimburseDbCache<'a> {
     pub db: Database,
     pub operator_xonly_pk: XOnlyPublicKey,
     pub deposit_outpoint: Option<bitcoin::OutPoint>,
     pub paramset: &'static ProtocolParamset,
     /// Optional database transaction to use for the cache.
-    dbtx: Option<DatabaseTransaction<'a, 'b>>,
+    dbtx: Option<DatabaseTransaction<'a>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
     kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
     /// bitvm assert scripts for each assert utxo
@@ -152,14 +152,14 @@ pub struct ReimburseDbCache<'a, 'b> {
     operator_bitvm_keys: Option<ClementineBitVMPublicKeys>,
 }
 
-impl<'a, 'b> ReimburseDbCache<'a, 'b> {
+impl<'a> ReimburseDbCache<'a> {
     /// Creates a db cache that can be used to create txhandlers for a specific operator and deposit/kickoff
     pub fn new_for_deposit(
         db: Database,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
-        dbtx: Option<DatabaseTransaction<'a, 'b>>,
+        dbtx: Option<DatabaseTransaction<'a>>,
     ) -> Self {
         Self {
             db,
@@ -183,7 +183,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         db: Database,
         operator_xonly_pk: XOnlyPublicKey,
         paramset: &'static ProtocolParamset,
-        dbtx: Option<DatabaseTransaction<'a, 'b>>,
+        dbtx: Option<DatabaseTransaction<'a>>,
     ) -> Self {
         Self {
             db,
@@ -206,7 +206,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
     pub fn from_context(
         db: Database,
         context: &ContractContext,
-        dbtx: Option<DatabaseTransaction<'a, 'b>>,
+        dbtx: Option<DatabaseTransaction<'a>>,
     ) -> Self {
         if context.deposit_data.is_some() {
             let deposit_data = context
@@ -604,7 +604,7 @@ pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
     txhandler_cache: &mut TxHandlerCache,
-    db_cache: &mut ReimburseDbCache<'_, '_>,
+    db_cache: &mut ReimburseDbCache<'_>,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let paramset = db_cache.paramset;
 

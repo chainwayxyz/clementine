@@ -1,6 +1,7 @@
 //! # Citrea Related Utilities
 
 use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::ProtocolParamsetExt;
 use crate::database::DatabaseTransaction;
 use crate::{citrea::BRIDGE_CONTRACT::DepositReplaced, database::Database};
 use alloy::{
@@ -170,7 +171,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         payout_block_height: u64,
         deposit_index: u32,
         db: &Database,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError>;
 }
@@ -320,7 +321,7 @@ impl CitreaClientT for CitreaClient {
         payout_block_height: u64,
         deposit_index: u32,
         db: &Database,
-        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError> {
         let saved_data = db

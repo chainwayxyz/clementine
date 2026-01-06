@@ -7,6 +7,26 @@
 
 use bitcoin::{OutPoint, Txid};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+
+lazy_static::lazy_static! {
+    /// Global secp context.
+    pub static ref SECP: bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
+
+    /// This is an unspendable pubkey.
+    ///
+    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+    ///
+    /// It is used to create a taproot address where the internal key is not spendable.
+    /// Here are the other protocols that use this key:
+    /// - Babylon:https://github.com/babylonlabs-io/btc-staking-ts/blob/v0.4.0-rc.2/src/constants/internalPubkey.ts
+    /// - Ark: https://github.com/ark-network/ark/blob/cba48925bcc836cc55f9bb482f2cd1b76d78953e/common/tree/validation.go#L47
+    /// - BitVM: https://github.com/BitVM/BitVM/blob/2dd2e0e799d2b9236dd894da3fee8c4c4893dcf1/bridge/src/scripts.rs#L16
+    /// - Best in Slot: https://github.com/bestinslot-xyz/brc20-programmable-module/blob/2113bdd73430a8c3757e537cb63124a6cb33dfab/src/evm/precompiles/get_locked_pkscript_precompile.rs#L53
+    /// - https://github.com/BlockstreamResearch/options/blob/36a77175919101393b49f1211732db762cc7dfc1/src/options_lib/src/contract.rs#L132
+    pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
+        bitcoin::secp256k1::XOnlyPublicKey::from_str("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0").expect("this key is valid");
+}
 
 // ============================================================================
 // Macro for TryFrom<Vec<u8>> implementations
@@ -79,6 +99,73 @@ pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 
 /// Inscription transaction data: (outpoint, txid).
 pub type InscriptionTxs = (OutPoint, Txid);
+
+use bitcoin::transaction::Version;
+use bitcoin::Amount;
+
+/// The minimum possible amount that a UTXO can have when created into a Taproot address.
+pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
+
+/// Non-standard V3 transaction version.
+pub const NON_STANDARD_V3: Version = Version(3);
+
+/// Number of assert transactions in the protocol.
+pub const NUMBER_OF_ASSERT_TXS: usize = 36;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Enumerates protocol-specific UTXO output indices for transaction construction.
+/// Used to identify the vout of specific UTXOs in protocol transactions.
+pub enum UtxoVout {
+    /// The vout of the assert utxo in KickoffTx
+    Assert(usize),
+    /// The vout of the watchtower challenge utxo in KickoffTx
+    WatchtowerChallenge(usize),
+    /// The vout of the watchtower challenge ack utxo in KickoffTx
+    WatchtowerChallengeAck(usize),
+    /// The vout of the challenge utxo in KickoffTx
+    Challenge,
+    /// The vout of the kickoff finalizer utxo in KickoffTx
+    KickoffFinalizer,
+    /// The vout of the reimburse utxo in KickoffTx
+    ReimburseInKickoff,
+    /// The vout of the disprove utxo in KickoffTx
+    Disprove,
+    /// The vout of the latest blockhash utxo in KickoffTx
+    LatestBlockhash,
+    /// The vout of the deposited btc utxo in MoveTx
+    DepositInMove,
+    /// The vout of the reimburse connector utxo in RoundTx
+    ReimburseInRound(usize, usize),
+    /// The vout of the kickoff utxo in RoundTx
+    Kickoff(usize),
+    /// The vout of the collateral utxo in RoundTx
+    CollateralInRound,
+    /// The vout of the collateral utxo in ReadyToReimburseTx
+    CollateralInReadyToReimburse,
+}
+
+impl UtxoVout {
+    /// Returns the vout index for this UTXO in the corresponding transaction.
+    pub fn get_vout(self) -> u32 {
+        match self {
+            UtxoVout::Assert(idx) => idx as u32 + 5,
+            UtxoVout::WatchtowerChallenge(idx) => (2 * idx + 5 + NUMBER_OF_ASSERT_TXS) as u32,
+            UtxoVout::WatchtowerChallengeAck(idx) => (2 * idx + 6 + NUMBER_OF_ASSERT_TXS) as u32,
+            UtxoVout::Challenge => 0,
+            UtxoVout::KickoffFinalizer => 1,
+            UtxoVout::ReimburseInKickoff => 2,
+            UtxoVout::Disprove => 3,
+            UtxoVout::LatestBlockhash => 4,
+            UtxoVout::ReimburseInRound(idx, num_kickoffs_per_round) => {
+                (num_kickoffs_per_round + idx + 1) as u32
+            }
+            UtxoVout::Kickoff(idx) => idx as u32 + 1,
+            UtxoVout::DepositInMove => 0,
+            UtxoVout::CollateralInRound => 0,
+            UtxoVout::CollateralInReadyToReimburse => 0,
+        }
+    }
+}
 
 // ============================================================================
 // Round Types
@@ -187,6 +274,31 @@ pub enum TransactionType {
 
     /// For testing and for values to be replaced later.
     Dummy,
+}
+
+/// Events emitted by the Bitcoin syncer.
+/// It emits the block_id of the block in the db that was saved.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BitcoinSyncerEvent {
+    NewBlock(u32),
+    ReorgedBlock(u32),
+}
+
+use eyre::Context;
+
+impl TryFrom<(String, i32)> for BitcoinSyncerEvent {
+    type Error = eyre::Report;
+    fn try_from(value: (String, i32)) -> Result<Self, Self::Error> {
+        match value.0.as_str() {
+            "new_block" => Ok(BitcoinSyncerEvent::NewBlock(
+                u32::try_from(value.1).wrap_err("Int conversion error for new_block")?,
+            )),
+            "reorged_block" => Ok(BitcoinSyncerEvent::ReorgedBlock(
+                u32::try_from(value.1).wrap_err("Int conversion error for reorged_block")?,
+            )),
+            _ => Err(eyre::eyre!("Invalid event type: {}", value.0)),
+        }
+    }
 }
 
 #[cfg(test)]

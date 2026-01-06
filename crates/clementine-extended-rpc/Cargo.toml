@@ -1,0 +1,38 @@
+[package]
+name = "clementine-extended-rpc"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+
+[features]
+default = []
+test-utils = []
+
+[dependencies]
+# Internal crates
+clementine-errors = { path = "../clementine-errors" }
+
+# Bitcoin
+bitcoincore-rpc = { workspace = true }
+bitcoin = { workspace = true }
+
+# Async/retry
+tokio = { workspace = true, features = ["time"] }
+tokio-retry = { workspace = true }
+async-trait = { workspace = true }
+
+# Auth
+secrecy = { workspace = true }
+
+# Error handling
+eyre = { workspace = true }
+tracing = { workspace = true }
+
+# HTTP for mempool API
+reqwest = { workspace = true, features = ["json"] }
+http = "1.1"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }

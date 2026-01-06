@@ -22,7 +22,6 @@ use std::fs;
 use tokio::sync::Mutex;
 
 use once_cell::sync::OnceCell;
-use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
@@ -30,27 +29,7 @@ use std::time::Instant;
 /// So we ensure only 1 thread is doing this at a time to avoid OOM.
 pub static REPLACE_SCRIPTS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-lazy_static::lazy_static! {
-    /// Global secp context.
-    pub static ref SECP: bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
-}
-
-lazy_static::lazy_static! {
-    /// This is an unspendable pubkey.
-    ///
-    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
-    ///
-    /// It is used to create a taproot address where the internal key is not spendable.
-    /// Here are the other protocols that use this key:
-    /// - Babylon:https://github.com/babylonlabs-io/btc-staking-ts/blob/v0.4.0-rc.2/src/constants/internalPubkey.ts
-    /// - Ark: https://github.com/ark-network/ark/blob/cba48925bcc836cc55f9bb482f2cd1b76d78953e/common/tree/validation.go#L47
-    /// - BitVM: https://github.com/BitVM/BitVM/blob/2dd2e0e799d2b9236dd894da3fee8c4c4893dcf1/bridge/src/scripts.rs#L16
-    /// - Best in Slot: https://github.com/bestinslot-xyz/brc20-programmable-module/blob/2113bdd73430a8c3757e537cb63124a6cb33dfab/src/evm/precompiles/get_locked_pkscript_precompile.rs#L53
-    /// - https://github.com/BlockstreamResearch/options/blob/36a77175919101393b49f1211732db762cc7dfc1/src/options_lib/src/contract.rs#L132
-    ///
-    pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
-        XOnlyPublicKey::from_str("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0").expect("this key is valid");
-}
+pub use clementine_primitives::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 
 /// Global BitVM cache wrapped in a OnceLock.
 ///
@@ -423,7 +402,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        36
+        clementine_primitives::NUMBER_OF_ASSERT_TXS
     }
 
     pub const fn number_of_flattened_wpks() -> usize {

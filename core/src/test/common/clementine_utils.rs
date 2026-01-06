@@ -5,6 +5,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::extended_bitcoin_rpc::TestRpcExtensions as _;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{
     OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
@@ -273,7 +274,7 @@ pub async fn disprove_tests_common_setup(
     tx_sender
         .client()
         .insert_try_to_send(
-            &mut db_commit,
+            Some(&mut db_commit),
             None,
             &challenge_tx,
             FeePayingType::RBF,
