@@ -3,7 +3,8 @@
 use super::BridgeConfig;
 use crate::{
     config::{
-        default_grpc_limits, default_tx_sender_limits, GrpcLimits, TelemetryConfig, TxSenderLimits,
+        default_grpc_limits, default_tx_sender_limits, GrpcLimits, GrpcLimitsExt, TelemetryConfig,
+        TelemetryConfigExt, TxSenderLimits, TxSenderLimitsExt,
     },
     deposit::SecurityCouncil,
 };
@@ -27,8 +28,8 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
 }
 
-impl GrpcLimits {
-    pub fn from_env() -> Result<Self, BridgeError> {
+impl GrpcLimitsExt for GrpcLimits {
+    fn from_env() -> Result<GrpcLimits, BridgeError> {
         let defaults = default_grpc_limits();
         Ok(GrpcLimits {
             max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")
@@ -53,8 +54,8 @@ impl GrpcLimits {
     }
 }
 
-impl TxSenderLimits {
-    pub fn from_env() -> Result<Self, BridgeError> {
+impl TxSenderLimitsExt for TxSenderLimits {
+    fn from_env() -> Result<TxSenderLimits, BridgeError> {
         let defaults = default_tx_sender_limits();
         Ok(TxSenderLimits {
             fee_rate_hard_cap: read_string_from_env_then_parse::<u64>(
@@ -258,6 +259,7 @@ impl BridgeConfig {
 mod tests {
     use secrecy::ExposeSecret;
 
+    use crate::config::protocol::ProtocolParamsetExt;
     use crate::config::{
         protocol::{ProtocolParamset, REGTEST_PARAMSET},
         BridgeConfig,

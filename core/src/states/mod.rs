@@ -203,7 +203,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     async fn get_block(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
         height: u32,
     ) -> Result<bitcoin::Block, BridgeError> {
         match self.db.get_full_block(dbtx, height).await? {

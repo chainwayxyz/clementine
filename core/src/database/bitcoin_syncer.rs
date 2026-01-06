@@ -16,7 +16,7 @@ impl Database {
     /// - [`u32`]: Database entry id, later to be used while referring block
     pub async fn insert_block_info(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
         block_height: u32,
@@ -39,7 +39,7 @@ impl Database {
     /// Returns the block id if the block was found and set as canonical, None otherwise
     pub async fn update_block_as_canonical(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_hash: BlockHash,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar(
@@ -62,7 +62,7 @@ impl Database {
     /// - [`u32`]: Height of the block
     pub async fn get_block_info_from_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_hash: BlockHash,
     ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
         let query = sqlx::query_as(
@@ -85,7 +85,7 @@ impl Database {
     /// Gets block hash and height from block id (internal id used in bitcoin_syncer)
     pub async fn get_block_info_from_id(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_id: u32,
     ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
         let query = sqlx::query_as("SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1")
@@ -106,7 +106,7 @@ impl Database {
     /// Stores the full block in bytes in the database, with its height and hash
     pub async fn upsert_full_block(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block: &bitcoin::Block,
         block_height: u32,
     ) -> Result<(), BridgeError> {
@@ -126,7 +126,7 @@ impl Database {
     /// Gets the full block from the database, given the block height
     pub async fn get_full_block(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_height: u32,
     ) -> Result<Option<bitcoin::Block>, BridgeError> {
         let query = sqlx::query_as("SELECT block_data FROM bitcoin_blocks WHERE height = $1")
@@ -148,7 +148,7 @@ impl Database {
     /// Gets the full block and its height from the database, given the block hash
     pub async fn get_full_block_from_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_hash: BlockHash,
     ) -> Result<Option<(u32, bitcoin::Block)>, BridgeError> {
         let query =
@@ -172,7 +172,7 @@ impl Database {
     /// Gets the maximum height of the canonical blocks in the bitcoin_syncer database
     pub async fn get_max_height(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query =
             sqlx::query_as("SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1");
@@ -199,7 +199,7 @@ impl Database {
     ///   descending order.
     pub async fn update_non_canonical_block_hashes(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let query = sqlx::query_as(
@@ -223,7 +223,7 @@ impl Database {
     /// Gets the block id of the canonical block at the given height
     pub async fn get_canonical_block_id_from_height(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         height: u32,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as(
@@ -243,7 +243,7 @@ impl Database {
     /// Saves the txid with the id of the block that contains it to the database
     pub async fn insert_txid_to_block(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         block_id: u32,
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
@@ -260,7 +260,7 @@ impl Database {
     #[cfg(test)]
     pub async fn get_block_txids(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         block_id: u32,
     ) -> Result<Vec<Txid>, BridgeError> {
         let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
@@ -271,10 +271,70 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Gets the block height for txids that exist in canonical blocks.
+    /// Returns a mapping of txid -> block_height for those that exist.
+    pub async fn get_canonical_block_heights_for_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        txids: &[Txid],
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        if txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Convert txids to TxidDB for array binding
+        let txid_params: Vec<TxidDB> = txids.iter().map(|t| TxidDB(*t)).collect();
+
+        // Use TxidDB for result decoding to be consistent with the rest of the codebase
+        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+            "SELECT bst.txid, bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = ANY($1) AND bs.is_canonical = true",
+        )
+        .bind(&txid_params);
+
+        let results: Vec<(TxidDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .into_iter()
+            .map(|(txid, height)| {
+                let height =
+                    u32::try_from(height).wrap_err("Failed to convert block height to u32")?;
+                Ok((txid.0, height))
+            })
+            .collect()
+    }
+
+    /// Checks if a txid exists in a canonical block.
+    /// Returns Some(block_height) if found, None otherwise.
+    pub async fn get_canonical_block_height_for_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = $1 AND bs.is_canonical = true",
+        )
+        .bind(TxidDB(txid));
+
+        let result: Option<i32> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|height| u32::try_from(height).wrap_err("Failed to convert block height to u32"))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         block_id: u32,
         spending_txid: &bitcoin::Txid,
         txid: &bitcoin::Txid,
@@ -296,7 +356,7 @@ impl Database {
     /// Returns None if the outpoint is not spent.
     pub async fn get_block_height_of_spending_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         outpoint: OutPoint,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar::<_, i32>(
@@ -320,7 +380,7 @@ impl Database {
     /// Returns true if the utxo is spent and the spending tx is finalized, false otherwise
     pub async fn check_if_utxo_spending_tx_is_finalized(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         outpoint: OutPoint,
         current_chain_height: u32,
         protocol_paramset: &'static ProtocolParamset,
@@ -337,7 +397,7 @@ impl Database {
     /// Gets all the spent utxos for a given txid
     pub async fn get_spent_utxos_for_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         txid: Txid,
     ) -> Result<Vec<(i64, OutPoint)>, BridgeError> {
         let query = sqlx::query_as(
@@ -362,7 +422,7 @@ impl Database {
     /// Adds a bitcoin syncer event to the database. These events can currently be new block or reorged block.
     pub async fn insert_event(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         event_type: BitcoinSyncerEvent,
     ) -> Result<(), BridgeError> {
         let query = match event_type {
@@ -383,7 +443,7 @@ impl Database {
     /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
     pub async fn get_last_processed_event_block_height(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         consumer_handle: &str,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar::<_, i32>(
@@ -410,7 +470,7 @@ impl Database {
     /// Gets the last processed event id for a given consumer
     pub async fn get_last_processed_event_id(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         consumer_handle: &str,
     ) -> Result<i32, BridgeError> {
         // Step 1: Insert the consumer_handle if it doesn't exist
@@ -444,7 +504,7 @@ impl Database {
     /// If the last processed event is missing, i.e. there are no processed events for the consumer, returns `None`.
     pub async fn get_max_processed_block_height(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         consumer_handle: &str,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar::<_, Option<i32>>(
@@ -475,7 +535,7 @@ impl Database {
     /// Next height is the max height of the processed block - finality depth + 1.
     pub async fn get_next_finalized_block_height_for_consumer(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         consumer_handle: &str,
         paramset: &'static ProtocolParamset,
     ) -> Result<u32, BridgeError> {
@@ -504,7 +564,7 @@ impl Database {
     /// If there are no more events to fetch, None is returned
     pub async fn fetch_next_bitcoin_syncer_evt(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         consumer_handle: &str,
     ) -> Result<Option<BitcoinSyncerEvent>, BridgeError> {
         // Get the last processed event ID for this consumer

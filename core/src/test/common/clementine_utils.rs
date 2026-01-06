@@ -2,10 +2,10 @@
 
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
+use crate::extended_bitcoin_rpc::TestRpcExtensions as _;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{
     OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
@@ -18,6 +18,7 @@ use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
@@ -66,7 +67,14 @@ pub async fn payout_and_start_kickoff(
 
         match withdrawal_response {
             Ok(_) => break,
-            Err(e) => tracing::info!("Withdrawal error: {:?}", e),
+            Err(e) => {
+                tracing::info!("Withdrawal error: {:?}", e);
+                e2e.sequencer
+                    .client
+                    .send_publish_batch_request()
+                    .await
+                    .unwrap();
+            }
         };
         e2e.rpc
             .mine_blocks_while_synced(1, actors, Some(e2e))
@@ -203,7 +211,11 @@ pub async fn disprove_tests_common_setup(
 
     // generate a withdrawal
     let (withdrawal_utxo, payout_txout, sig) =
-        get_new_withdrawal_utxo_and_register_to_citrea(move_txid, e2e, &actors).await;
+        get_new_withdrawal_utxo_and_register_to_citrea(&[move_txid], e2e, &actors)
+            .await
+            .into_iter()
+            .next()
+            .expect("at least one withdrawal generated");
 
     // withdraw one with a kickoff with operator 0
     let (op0_db, op0_xonly_pk) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
@@ -233,7 +245,7 @@ pub async fn disprove_tests_common_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: crate::operator::RoundIndex::Round(0),
+                round_idx: clementine_primitives::RoundIndex::Round(0),
                 kickoff_idx: kickoff_idx as u32,
             }
             .into(),
@@ -262,7 +274,7 @@ pub async fn disprove_tests_common_setup(
     tx_sender
         .client()
         .insert_try_to_send(
-            &mut db_commit,
+            Some(&mut db_commit),
             None,
             &challenge_tx,
             FeePayingType::RBF,
@@ -275,11 +287,6 @@ pub async fn disprove_tests_common_setup(
         .await
         .unwrap();
     db_commit.commit().await.unwrap();
-
-    e2e.rpc
-        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, &actors, Some(e2e))
-        .await
-        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,

@@ -12,17 +12,16 @@ use crate::{
     builder::transaction::create_move_to_vault_txhandler,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
-    operator::RoundIndex,
 };
 use crate::{
     execute_query_with_tx,
-    operator::PublicHash,
     rpc::clementine::{DepositSignatures, TaggedSignature},
 };
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use clementine_errors::BridgeError;
+use clementine_primitives::{PublicHash, RoundIndex};
 use eyre::{eyre, Context};
 use risc0_zkvm::Receipt;
 use std::str::FromStr;
@@ -40,7 +39,7 @@ impl Database {
     /// previous deposits. This function should give an error if an operator changed its data.
     pub async fn insert_operator_if_not_exists(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         xonly_pubkey: XOnlyPublicKey,
         wallet_address: &bitcoin::Address,
         collateral_funding_outpoint: OutPoint,
@@ -73,7 +72,7 @@ impl Database {
 
     pub async fn get_operators(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators;"
@@ -97,7 +96,7 @@ impl Database {
 
     pub async fn get_operator(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<OperatorData>, BridgeError> {
         let query = sqlx::query_as(
@@ -131,7 +130,7 @@ impl Database {
     /// even if they are changed.
     pub async fn insert_unspent_kickoff_sigs_if_not_exist(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: RoundIndex,
         signatures: Vec<TaggedSignature>,
@@ -148,7 +147,7 @@ impl Database {
     /// Get unspent kickoff sigs for a specific operator and round.
     pub async fn get_unspent_kickoff_sigs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: RoundIndex,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
@@ -169,7 +168,7 @@ impl Database {
     /// Sets Winternitz public keys for bitvm related inputs of an operator.
     pub async fn insert_operator_bitvm_keys_if_not_exist(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         winternitz_public_key: Vec<WinternitzPublicKey>,
@@ -194,7 +193,7 @@ impl Database {
     /// Gets Winternitz public keys for bitvm related inputs of an operator.
     pub async fn get_operator_bitvm_keys(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
@@ -222,7 +221,7 @@ impl Database {
     /// operators round tx's will change.
     pub async fn insert_operator_kickoff_winternitz_public_keys_if_not_exist(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
@@ -257,7 +256,7 @@ impl Database {
     /// operator and a watchtower.
     pub async fn get_operator_kickoff_winternitz_public_keys(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         op_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
@@ -278,7 +277,7 @@ impl Database {
     /// will be overwritten by the new hashes.
     pub async fn insert_operator_challenge_ack_hashes_if_not_exist(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         public_hashes: &Vec<[u8; 20]>,
@@ -319,7 +318,7 @@ impl Database {
     /// tx and kickoff index combination.
     pub async fn get_operators_challenge_ack_hashes(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
@@ -359,7 +358,7 @@ impl Database {
     /// As we don't want to overwrite deposit data on the db, this function should give an error if deposit data is changed.
     pub async fn insert_deposit_data_if_not_exists(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         deposit_data: &mut DepositData,
         paramset: &'static ProtocolParamset,
     ) -> Result<u32, BridgeError> {
@@ -432,7 +431,7 @@ impl Database {
 
     pub async fn get_deposit_data_with_move_tx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_to_vault_txid: Txid,
     ) -> Result<Option<DepositData>, BridgeError> {
         let query = sqlx::query_as::<_, (DepositParamsDB,)>(
@@ -456,7 +455,7 @@ impl Database {
 
     pub async fn get_deposit_data(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<(u32, DepositData)>, BridgeError> {
         let query = sqlx::query_as(
@@ -486,7 +485,7 @@ impl Database {
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_deposit_signatures_if_not_exist(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: RoundIndex,
@@ -545,7 +544,7 @@ impl Database {
     /// Gets a unique int for a deposit outpoint
     pub async fn get_deposit_id(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
@@ -574,7 +573,7 @@ impl Database {
     /// For a given kickoff txid, get the deposit outpoint that corresponds to it
     pub async fn get_deposit_outpoint_for_kickoff_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         kickoff_txid: Txid,
     ) -> Result<OutPoint, BridgeError> {
         let query = sqlx::query_as::<_, (OutPointDB,)>(
@@ -593,7 +592,7 @@ impl Database {
     /// txin it belongs to easily.
     pub async fn get_deposit_signatures(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: RoundIndex,
@@ -622,10 +621,40 @@ impl Database {
         }
     }
 
+    /// Gets the kickoff_txid from deposit_signatures for a given deposit and kickoff.
+    pub async fn get_kickoff_txid_from_deposit_and_kickoff_data(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        deposit_outpoint: OutPoint,
+        kickoff_data: &KickoffData,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT ds.kickoff_txid FROM deposit_signatures ds
+             INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+             WHERE d.deposit_outpoint = $1
+             AND ds.operator_xonly_pk = $2
+             AND ds.round_idx = $3
+             AND ds.kickoff_idx = $4",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(XOnlyPublicKeyDB(kickoff_data.operator_xonly_pk))
+        .bind(kickoff_data.round_idx.to_index() as i32)
+        .bind(kickoff_data.kickoff_idx as i32);
+
+        let result: Result<(TxidDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+
+        match result {
+            Ok((txid,)) => Ok(Some(txid.0)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Retrieves the light client proof for a deposit to be used while sending an assert.
     pub async fn get_lcp_for_assert(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
     ) -> Result<Option<Receipt>, BridgeError> {
         let query = sqlx::query_as::<_, (ReceiptDB,)>(
@@ -642,7 +671,7 @@ impl Database {
     /// We save first before sending kickoff to be sure we have the LCP available if we need to assert.
     pub async fn insert_lcp_for_assert(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
         lcp: Receipt,
     ) -> Result<(), BridgeError> {
@@ -661,7 +690,7 @@ impl Database {
 
     pub async fn get_deposit_data_with_kickoff_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         kickoff_txid: Txid,
     ) -> Result<Option<(DepositData, KickoffData)>, BridgeError> {
         let query = sqlx::query_as::<_, (DepositParamsDB, XOnlyPublicKeyDB, i32, i32)>(
@@ -700,7 +729,7 @@ impl Database {
     /// can prevent us to regenerate previously signed kickoff tx's.
     pub async fn insert_bitvm_setup_if_not_exists(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
@@ -755,7 +784,7 @@ impl Database {
     /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_setup(
         &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<BitvmSetup>, BridgeError> {
@@ -803,7 +832,7 @@ impl Database {
 
     pub async fn mark_kickoff_connector_as_used(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
         kickoff_connector_idx: u32,
         kickoff_txid: Option<Txid>,
@@ -827,7 +856,7 @@ impl Database {
 
     pub async fn get_kickoff_connector_for_kickoff_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         kickoff_txid: Txid,
     ) -> Result<(RoundIndex, u32), BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32)>(
@@ -852,7 +881,7 @@ impl Database {
 
     pub async fn get_kickoff_txid_for_used_kickoff_connector(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
         kickoff_connector_idx: u32,
     ) -> Result<Option<Txid>, BridgeError> {
@@ -872,7 +901,7 @@ impl Database {
 
     pub async fn get_unused_and_signed_kickoff_connector(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(RoundIndex, u32)>, BridgeError> {
@@ -918,7 +947,7 @@ impl Database {
 
     pub async fn get_current_round_index(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<RoundIndex, BridgeError> {
         let query =
             sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1");
@@ -930,7 +959,7 @@ impl Database {
 
     pub async fn update_current_round_index(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         round_idx: RoundIndex,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1")
@@ -945,7 +974,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-    use crate::operator::{Operator, RoundIndex};
+    use crate::operator::Operator;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
@@ -955,6 +984,7 @@ mod tests {
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
     use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+    use clementine_primitives::RoundIndex;
     use std::str::FromStr;
 
     #[tokio::test]

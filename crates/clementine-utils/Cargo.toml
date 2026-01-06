@@ -1,0 +1,19 @@
+[package]
+name = "clementine-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Include test-only fields in structs for use in integration tests
+test-fields = []
+
+[dependencies]
+clementine-primitives = { path = "../clementine-primitives" }
+clementine-errors = { path = "../clementine-errors" }
+bitcoin = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+eyre = { workspace = true }
+secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }

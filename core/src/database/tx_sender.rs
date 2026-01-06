@@ -1,18 +1,16 @@
-//! # Transaction Sender Related Database Operations
-//!
 //! This module includes database functions which are mainly used by the transaction sender.
 
+use async_trait::async_trait;
+
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
-use crate::{
-    execute_query_with_tx,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid},
-    utils::{FeePayingType, RbfSigningInfo, TxMetadata},
-};
+use crate::execute_query_with_tx;
 use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
 use clementine_errors::BridgeError;
+use clementine_tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid};
+use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::{Context, OptionExt};
 use sqlx::Executor;
 use std::ops::DerefMut;
@@ -22,7 +20,7 @@ impl Database {
     /// be called once a block is confirmed on the Bitcoin side.
     pub async fn confirm_transactions(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
         let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
@@ -199,7 +197,7 @@ impl Database {
     /// reorg happens, block ids must be unassigned from all transactions.
     pub async fn unconfirm_transactions(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
         let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
@@ -305,7 +303,7 @@ impl Database {
     /// * `amount` - The amount in satoshis
     pub async fn save_fee_payer_tx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         bumped_id: u32,
         fee_payer_txid: Txid,
         vout: u32,
@@ -343,7 +341,7 @@ impl Database {
     /// - [`Amount`]: Amount in satoshis.
     pub async fn get_all_unconfirmed_fee_payer_txs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32, TxidDB, i32, i64, Option<i32>)>(
             "
@@ -402,7 +400,7 @@ impl Database {
     /// - [`Amount`]: Amount in satoshis.
     pub async fn get_unconfirmed_fee_payer_txs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         bumped_id: u32,
     ) -> Result<Vec<(u32, Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64)>(
@@ -443,7 +441,7 @@ impl Database {
     /// If it is marked as evicted, it will not be tried to be bumped again. (Because wallet can use same utxos for other txs)
     pub async fn mark_fee_payer_utxo_as_evicted(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
@@ -460,7 +458,7 @@ impl Database {
 
     pub async fn get_confirmed_fee_payer_utxos(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
@@ -491,7 +489,7 @@ impl Database {
     /// Used to avoid adding duplicate transactions to the txsender.
     pub async fn check_if_tx_exists_on_txsender(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         txid: Txid,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
@@ -509,7 +507,7 @@ impl Database {
 
     pub async fn save_tx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_metadata: Option<TxMetadata>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
@@ -533,7 +531,7 @@ impl Database {
 
     pub async fn save_rbf_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
         txid: Txid,
     ) -> Result<(), BridgeError> {
@@ -547,7 +545,7 @@ impl Database {
 
     pub async fn get_last_rbf_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB,)>("SELECT txid FROM tx_sender_rbf_txids WHERE id = $1 ORDER BY insertion_order DESC LIMIT 1")
@@ -560,7 +558,7 @@ impl Database {
 
     pub async fn save_cancelled_outpoint(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         cancelled_id: u32,
         outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
@@ -577,7 +575,7 @@ impl Database {
 
     pub async fn save_cancelled_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         cancelled_id: u32,
         txid: bitcoin::Txid,
     ) -> Result<(), BridgeError> {
@@ -593,7 +591,7 @@ impl Database {
 
     pub async fn save_activated_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         activated_id: u32,
         prerequisite_tx: &ActivatedWithTxid,
     ) -> Result<(), BridgeError> {
@@ -610,7 +608,7 @@ impl Database {
 
     pub async fn save_activated_outpoint(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         activated_id: u32,
         activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
@@ -647,7 +645,7 @@ impl Database {
     /// - [`Vec<u32>`]: A vector of transaction ids (db id) that are sendable.
     pub async fn get_sendable_txs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
@@ -740,7 +738,7 @@ impl Database {
     /// Returns (None, None) if no effective fee rate has been set yet.
     pub async fn get_effective_fee_rate(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
     ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError> {
         let query = sqlx::query_as::<_, (Option<i64>, Option<i32>)>(
@@ -763,7 +761,7 @@ impl Database {
 
     pub async fn update_effective_fee_rate(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
         effective_fee_rate: FeeRate,
         block_height: u32,
@@ -788,7 +786,7 @@ impl Database {
 
     pub async fn get_try_to_send_tx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         id: u32,
     ) -> Result<
         (
@@ -843,6 +841,7 @@ impl Database {
     /// Saves a TX submission error to the debug table
     pub async fn save_tx_debug_submission_error(
         &self,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_id: u32,
         error_message: &str,
     ) -> Result<(), BridgeError> {
@@ -852,7 +851,7 @@ impl Database {
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
         .bind(error_message);
 
-        self.connection.execute(query).await?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
     }
 
@@ -898,7 +897,7 @@ impl Database {
     /// Gets the current debug state of a TX
     pub async fn get_tx_debug_info(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_id: u32,
     ) -> Result<Option<String>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<String>,)>(
@@ -920,7 +919,7 @@ impl Database {
     /// Gets all TX submission errors
     pub async fn get_tx_debug_submission_errors(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_id: u32,
     ) -> Result<Vec<(String, String)>, BridgeError> {
         let query = sqlx::query_as::<_, (String, String)>(
@@ -939,7 +938,7 @@ impl Database {
     /// Gets all fee payer UTXOs for a TX with their confirmation status
     pub async fn get_tx_debug_fee_payer_utxos(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64, bool)>(
@@ -967,6 +966,281 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+}
+
+#[async_trait]
+impl clementine_tx_sender::TxSenderDatabase for Database {
+    type Transaction = sqlx::Transaction<'static, sqlx::Postgres>;
+    async fn begin_transaction(
+        &self,
+    ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BridgeError> {
+        self.begin_transaction().await
+    }
+
+    async fn commit_transaction(
+        &self,
+        tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    ) -> Result<(), BridgeError> {
+        tx.commit().await.map_err(Into::into)
+    }
+
+    async fn save_tx_debug_submission_error(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        tx_id: u32,
+        error_message: &str,
+    ) -> Result<(), BridgeError> {
+        self.save_tx_debug_submission_error(dbtx, tx_id, error_message)
+            .await
+    }
+
+    async fn get_sendable_txs(
+        &self,
+        fee_rate: FeeRate,
+        current_tip_height: u32,
+    ) -> Result<Vec<u32>, BridgeError> {
+        self.get_sendable_txs(None, fee_rate, current_tip_height)
+            .await
+    }
+
+    async fn get_try_to_send_tx(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<
+        (
+            Option<TxMetadata>,
+            Transaction,
+            FeePayingType,
+            Option<u32>,
+            Option<RbfSigningInfo>,
+        ),
+        BridgeError,
+    > {
+        self.get_try_to_send_tx(tx, id).await
+    }
+
+    async fn update_tx_debug_sending_state(
+        &self,
+        tx_id: u32,
+        state: &str,
+        activated: bool,
+    ) -> Result<(), BridgeError> {
+        self.update_tx_debug_sending_state(tx_id, state, activated)
+            .await
+    }
+
+    async fn get_all_unconfirmed_fee_payer_txs(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+    ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError> {
+        self.get_all_unconfirmed_fee_payer_txs(tx).await
+    }
+
+    async fn get_unconfirmed_fee_payer_txs(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        bumped_id: u32,
+    ) -> Result<Vec<(u32, Txid, u32, Amount)>, BridgeError> {
+        self.get_unconfirmed_fee_payer_txs(tx, bumped_id).await
+    }
+
+    async fn mark_fee_payer_utxo_as_evicted(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        self.mark_fee_payer_utxo_as_evicted(tx, id).await
+    }
+
+    async fn get_confirmed_fee_payer_utxos(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
+        self.get_confirmed_fee_payer_utxos(tx, id).await
+    }
+
+    async fn save_fee_payer_tx(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        _try_to_send_id: Option<u32>,
+        bumped_id: u32,
+        fee_payer_txid: Txid,
+        vout: u32,
+        amount: Amount,
+        replacement_of_id: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.save_fee_payer_tx(
+            tx,
+            bumped_id,
+            fee_payer_txid,
+            vout,
+            amount,
+            replacement_of_id,
+        )
+        .await
+    }
+
+    async fn get_last_rbf_txid(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        self.get_last_rbf_txid(tx, id).await
+    }
+
+    async fn save_rbf_txid(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+        txid: Txid,
+    ) -> Result<(), BridgeError> {
+        self.save_rbf_txid(tx, id, txid).await
+    }
+
+    async fn save_cancelled_outpoint(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        outpoint: bitcoin::OutPoint,
+    ) -> Result<(), BridgeError> {
+        self.save_cancelled_outpoint(tx, cancelled_id, outpoint)
+            .await
+    }
+
+    async fn save_cancelled_txid(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        txid: bitcoin::Txid,
+    ) -> Result<(), BridgeError> {
+        self.save_cancelled_txid(tx, cancelled_id, txid).await
+    }
+
+    async fn save_activated_txid(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        prerequisite_tx: &ActivatedWithTxid,
+    ) -> Result<(), BridgeError> {
+        self.save_activated_txid(tx, activated_id, prerequisite_tx)
+            .await
+    }
+
+    async fn save_activated_outpoint(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        activated_outpoint: &ActivatedWithOutpoint,
+    ) -> Result<(), BridgeError> {
+        self.save_activated_outpoint(tx, activated_id, activated_outpoint)
+            .await
+    }
+
+    async fn get_effective_fee_rate(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError> {
+        self.get_effective_fee_rate(tx, id).await
+    }
+
+    async fn update_effective_fee_rate(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+        effective_fee_rate: FeeRate,
+        current_tip_height: u32,
+    ) -> Result<(), BridgeError> {
+        self.update_effective_fee_rate(tx, id, effective_fee_rate, current_tip_height)
+            .await
+    }
+
+    async fn check_if_tx_exists_on_txsender(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        self.check_if_tx_exists_on_txsender(tx, txid).await
+    }
+
+    async fn save_tx(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tx_metadata: Option<TxMetadata>,
+        raw_tx: &Transaction,
+        fee_paying_type: FeePayingType,
+        txid: Txid,
+        rbf_signing_info: Option<RbfSigningInfo>,
+    ) -> Result<u32, BridgeError> {
+        self.save_tx(
+            tx,
+            tx_metadata,
+            raw_tx,
+            fee_paying_type,
+            txid,
+            rbf_signing_info,
+        )
+        .await
+    }
+
+    async fn get_tx_debug_info(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tx_id: u32,
+    ) -> Result<Option<String>, BridgeError> {
+        self.get_tx_debug_info(tx, tx_id).await
+    }
+
+    async fn get_tx_debug_submission_errors(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tx_id: u32,
+    ) -> Result<Vec<(String, String)>, BridgeError> {
+        self.get_tx_debug_submission_errors(tx, tx_id).await
+    }
+
+    async fn get_tx_debug_fee_payer_utxos(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tx_id: u32,
+    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
+        self.get_tx_debug_fee_payer_utxos(tx, tx_id).await
+    }
+
+    async fn fetch_next_bitcoin_syncer_evt(
+        &self,
+        tx: &mut Self::Transaction,
+        consumer_handle: &str,
+    ) -> Result<Option<clementine_primitives::BitcoinSyncerEvent>, BridgeError> {
+        self.fetch_next_bitcoin_syncer_evt(tx, consumer_handle)
+            .await
+    }
+
+    async fn get_block_info_from_id(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        block_id: u32,
+    ) -> Result<Option<(bitcoin::BlockHash, u32)>, BridgeError> {
+        self.get_block_info_from_id(tx, block_id).await
+    }
+
+    async fn confirm_transactions(
+        &self,
+        tx: &mut Self::Transaction,
+        block_id: u32,
+    ) -> Result<(), BridgeError> {
+        self.confirm_transactions(tx, block_id).await
+    }
+
+    async fn unconfirm_transactions(
+        &self,
+        tx: &mut Self::Transaction,
+        block_id: u32,
+    ) -> Result<(), BridgeError> {
+        self.unconfirm_transactions(tx, block_id).await
     }
 }
 
@@ -1291,7 +1565,7 @@ mod tests {
 
         // Test saving an error message
         let error_message = "Failed to send transaction: insufficient fee";
-        db.save_tx_debug_submission_error(tx_id, error_message)
+        db.save_tx_debug_submission_error(Some(&mut dbtx), tx_id, error_message)
             .await
             .unwrap();
 
@@ -1305,7 +1579,7 @@ mod tests {
 
         // Add another error
         let second_error = "Network connection timeout";
-        db.save_tx_debug_submission_error(tx_id, second_error)
+        db.save_tx_debug_submission_error(Some(&mut dbtx), tx_id, second_error)
             .await
             .unwrap();
 
