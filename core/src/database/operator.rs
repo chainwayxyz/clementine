@@ -621,6 +621,36 @@ impl Database {
         }
     }
 
+    /// Gets the kickoff_txid from deposit_signatures for a given deposit and kickoff.
+    pub async fn get_kickoff_txid_from_deposit_and_kickoff_data(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        deposit_outpoint: OutPoint,
+        kickoff_data: &KickoffData,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT ds.kickoff_txid FROM deposit_signatures ds
+             INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+             WHERE d.deposit_outpoint = $1
+             AND ds.operator_xonly_pk = $2
+             AND ds.round_idx = $3
+             AND ds.kickoff_idx = $4",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(XOnlyPublicKeyDB(kickoff_data.operator_xonly_pk))
+        .bind(kickoff_data.round_idx.to_index() as i32)
+        .bind(kickoff_data.kickoff_idx as i32);
+
+        let result: Result<(TxidDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+
+        match result {
+            Ok((txid,)) => Ok(Some(txid.0)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Retrieves the light client proof for a deposit to be used while sending an assert.
     pub async fn get_lcp_for_assert(
         &self,

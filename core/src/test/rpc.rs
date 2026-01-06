@@ -55,7 +55,7 @@ async fn operator_transfer_to_btc_wallet() {
         .unwrap();
 
     let mut operator_client =
-        test_actors.get_operator_client_by_index(test_actors.num_total_operators - 1);
+        test_actors.get_operator_client_by_index(test_actors.operator_next_index - 1);
 
     // send some funds to the operator's address
     let utxo = rpc

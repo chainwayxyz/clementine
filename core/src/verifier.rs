@@ -33,6 +33,7 @@ use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::musig2;
+use crate::operator::Operator;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
@@ -59,6 +60,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
+use bitcoincore_rpc::RpcApi;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
@@ -299,7 +301,7 @@ where
                     let mut dbtx = self.verifier.db.begin_transaction().await?;
                     for operator in operators {
                         StateManager::<Verifier<C>>::dispatch_new_round_machine(
-                            self.verifier.db.clone(),
+                            &self.verifier.db,
                             &mut dbtx,
                             OperatorData {
                                 xonly_pk: operator.0,
@@ -710,6 +712,31 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        // check if deposit outpoint is included in a block with height >= start_height
+        let tx_info = self
+            .rpc
+            .get_raw_transaction_info(&deposit_txid, None)
+            .await
+            .wrap_err("Failed to get deposit transaction info")?;
+        let blockhash = tx_info.blockhash.ok_or_else(|| {
+            BridgeError::InvalidDeposit("Deposit transaction is not confirmed".to_string())
+        })?;
+        let block_height = self
+            .rpc
+            .get_block_info(&blockhash)
+            .await
+            .wrap_err(format!(
+                "Failed to get block info for deposit tx block hash: {blockhash}",
+            ))?
+            .height;
+        let start_height = self.config.protocol_paramset().start_height;
+        if (block_height as u32) < start_height {
+            let reason = format!(
+                "Deposit transaction is included in a block with height {block_height} which is less than start_height {start_height}",
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
         Ok(())
     }
 
@@ -798,12 +825,8 @@ where
 
         #[cfg(feature = "automation")]
         {
-            StateManager::<Self>::dispatch_new_round_machine(
-                self.db.clone(),
-                &mut dbtx,
-                operator_data,
-            )
-            .await?;
+            StateManager::<Self>::dispatch_new_round_machine(&self.db, &mut dbtx, operator_data)
+                .await?;
         }
         dbtx.commit().await?;
         tracing::info!("Operator: {:?} set successfully", operator_xonly_pk);
@@ -1043,8 +1066,11 @@ where
             } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx.to_index()]
-                    .push((kickoff_txid, kickoff_utxo_idx));
+                kickoff_txids[operator_idx][round_idx.to_index()].push((
+                    kickoff_txid
+                        .expect("Kickoff txid must be Some with YieldKickoffTxid signature kind"),
+                    kickoff_utxo_idx,
+                ));
                 continue;
             }
 
@@ -1200,6 +1226,8 @@ where
         let move_txhandler =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?;
 
+        let move_txid = move_txhandler.get_cached_tx().compute_txid();
+
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
             0,
@@ -1295,16 +1323,6 @@ where
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
-                    if kickoff_txid.is_none() {
-                        return Err(eyre::eyre!(
-                            "Kickoff txid not found for {}, {}, {}",
-                            operator_xonly_pk,
-                            round_idx, // rounds start from 1
-                            kickoff_idx
-                        )
-                        .into());
-                    }
-
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
                         operator_xonly_pk,
@@ -1320,16 +1338,241 @@ where
                             operator_xonly_pk,
                             RoundIndex::from_index(round_idx),
                             *kickoff_idx,
-                            kickoff_txid.expect("Kickoff txid must be Some"),
+                            *kickoff_txid,
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
                         )
                         .await?;
                 }
             }
         }
+        // Check move_txid/kickoffs consistency and dispatch finalized kickoffs to state managers
+        // First acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize. It is a read lock so that multiple new_deposit calls can run this in parallel.
+        // The lock is to ensure this race condition doesn't happen: A kickoff is almost finalized (one block left), kickoffs are checkedd in function below and added to state manager if they are finalized, if they are not finalized during check but become finalized + processed by state manager before dbtx in deposit_finalize is committed, the kickoff won't be added to the state manager.
+        // Very unlikely to happen (because it needs both a db loss + resync conditions here + a kickoff to be just a small amount of time away from being finalized + state manager sync happening before dbtx is committed), but the performance cost of the lock is also negligible because the write lock will be acquired only when a kickoff utxo (in round tx) is spent.
+        #[cfg(feature = "automation")]
+        let _guard = crate::states::round::CHECK_KICKOFF_LOCK.read().await;
+        self.check_kickoffs_on_chain_and_track(deposit_data, &mut dbtx, kickoff_txids, move_txid)
+            .await?;
         dbtx.commit().await?;
 
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
+    }
+
+    /// Validates move_txid/kickoffs consistency and dispatches finalized kickoffs to state managers.
+    ///
+    /// If move_txid is NOT in canonical chain but kickoffs ARE, returns an error.
+    /// Otherwise, dispatches finalized kickoffs to state managers for resync.
+    ///
+    /// Returns the list of (txid, block_height) for kickoffs that exist in canonical + finalized blocks.
+    async fn check_kickoffs_on_chain_and_track(
+        &self,
+        deposit_data: &DepositData,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
+        move_txid: Txid,
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        // Build a mapping from txid -> (operator_xonly_pk, round_idx, kickoff_idx)
+        let mut kickoff_metadata: std::collections::HashMap<
+            Txid,
+            (XOnlyPublicKey, RoundIndex, usize),
+        > = std::collections::HashMap::new();
+        let mut all_kickoff_txids: Vec<Txid> = Vec::new();
+
+        for (operator_idx, operator_xonly_pk) in
+            deposit_data.get_operators().into_iter().enumerate()
+        {
+            for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
+            {
+                for (kickoff_txid, kickoff_idx) in
+                    &kickoff_txids[operator_idx][round_idx.to_index()]
+                {
+                    kickoff_metadata
+                        .insert(*kickoff_txid, (operator_xonly_pk, round_idx, *kickoff_idx));
+                    all_kickoff_txids.push(*kickoff_txid);
+                }
+            }
+        }
+
+        if all_kickoff_txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Query all txids (move + kickoffs) in one DB call
+        let mut txids_to_check = all_kickoff_txids.clone();
+        txids_to_check.push(move_txid);
+
+        let canonical_txids_with_heights = self
+            .db
+            .get_canonical_block_heights_for_txids(Some(dbtx), &txids_to_check)
+            .await?;
+
+        // Check move_txid/kickoffs consistency
+        let canonical_txid_set: std::collections::HashSet<Txid> = canonical_txids_with_heights
+            .iter()
+            .map(|(txid, _)| *txid)
+            .collect();
+
+        let move_txid_in_chain = canonical_txid_set.contains(&move_txid);
+
+        // if move txid is in chain, that means the deposit was already finished before, and current new_deposit call is just to resign,
+        // meaning if there are any kickoffs already in chain, it is ok.
+        if !move_txid_in_chain {
+            // Check if any kickoffs are in chain
+            let kickoffs_in_chain: Vec<_> = all_kickoff_txids
+                .iter()
+                .filter(|txid| canonical_txid_set.contains(*txid))
+                .filter_map(|txid| {
+                    kickoff_metadata
+                        .get(txid)
+                        .map(|(op_pk, round_idx, kickoff_idx)| {
+                            (*txid, *op_pk, *round_idx, *kickoff_idx)
+                        })
+                })
+                .collect();
+
+            if !kickoffs_in_chain.is_empty() {
+                let kickoff_details: Vec<String> = kickoffs_in_chain
+                    .iter()
+                    .map(|(txid, op_pk, round_idx, kickoff_idx)| {
+                        format!(
+                            "txid={txid}, operator={op_pk}, round={round_idx:?}, kickoff_idx={kickoff_idx}"
+                        )
+                    })
+                    .collect();
+
+                return Err(eyre::eyre!(
+                    "Deposit rejected: move_txid {} is NOT in chain, but {} kickoff(s) ARE in chain. \
+                     This means that an operator sent kickoffs before movetx was sent, indicating malicious behavior. Kickoffs in chain: - {}",
+                    move_txid,
+                    kickoffs_in_chain.len(),
+                    kickoff_details.join("\n  - ")
+                )
+                .into());
+            }
+        }
+
+        // Filter to only kickoff txids (exclude move_txid) that are canonical
+        let canonical_kickoffs: Vec<(Txid, u32)> = canonical_txids_with_heights
+            .into_iter()
+            .filter(|(txid, _)| *txid != move_txid)
+            .collect();
+
+        if canonical_kickoffs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Get the current chain tip height for finalization check
+        let current_chain_height = self
+            .db
+            .get_max_height(Some(dbtx))
+            .await?
+            .ok_or_else(|| eyre::eyre!("No blocks in bitcoin_syncer database"))?;
+
+        // Filter for finalized blocks
+        let finalized_txids: Vec<(Txid, u32)> = canonical_kickoffs
+            .into_iter()
+            .filter(|(_, height)| {
+                self.config
+                    .protocol_paramset()
+                    .is_block_finalized(*height, current_chain_height)
+            })
+            .collect();
+
+        if finalized_txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // next part is only relevant if automation is enabled
+        // but be warned that if verifier automation is not enabled but operator automation is enabled,
+        // that can cause issues here as operator kickoff state manager will never be dispatched.
+
+        #[cfg(feature = "automation")]
+        {
+            // Group by block height to minimize block reads
+            let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
+                std::collections::HashMap::new();
+            for (txid, height) in &finalized_txids {
+                txids_by_height.entry(*height).or_default().push(*txid);
+            }
+
+            // For each block height, get the full block and extract witnesses
+            for (block_height, txids_in_block) in txids_by_height {
+                let block = self
+                .db
+                .get_full_block(Some(dbtx), block_height)
+                .await?
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Block at height {} not found in database despite being in bitcoin_syncer_txs",
+                        block_height
+                    )
+                })?;
+
+                for txid in txids_in_block {
+                    // Find the transaction in the block
+                    let tx = block
+                        .txdata
+                        .iter()
+                        .find(|tx| tx.compute_txid() == txid)
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "Transaction {} not found in block at height {}",
+                                txid,
+                                block_height
+                            )
+                        })?;
+
+                    let witness = tx
+                        .input
+                        .first()
+                        .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
+                        .witness
+                        .clone();
+                    let (operator_xonly_pk, round_idx, kickoff_idx) =
+                        kickoff_metadata
+                            .get(&txid)
+                            .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
+
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                        &self.db,
+                        dbtx,
+                        KickoffData {
+                            operator_xonly_pk: *operator_xonly_pk,
+                            round_idx: *round_idx,
+                            kickoff_idx: *kickoff_idx as u32,
+                        },
+                        block_height,
+                        deposit_data.clone(),
+                        witness.clone(),
+                    )
+                    .await?;
+
+                    // send it to operator state manager too, if the state manager queue for the operator exists
+                    // if it doesn't exist, it means this verifier does not have an operator with automation enabled
+                    if self
+                        .db
+                        .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(dbtx))
+                        .await?
+                    {
+                        StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
+                            &self.db,
+                            dbtx,
+                            KickoffData {
+                                operator_xonly_pk: *operator_xonly_pk,
+                                round_idx: *round_idx,
+                                kickoff_idx: *kickoff_idx as u32,
+                            },
+                            block_height,
+                            deposit_data.clone(),
+                            witness.clone(),
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+
+        Ok(finalized_txids)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1706,9 +1949,30 @@ where
             deposit_data
         );
 
+        self.queue_relevant_txs_for_new_kickoff(
+            dbtx,
+            kickoff_data,
+            deposit_data,
+            challenged_before,
+            kickoff_txid,
+        )
+        .await?;
+
+        Ok(true)
+    }
+
+    async fn queue_relevant_txs_for_new_kickoff(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        challenged_before: bool,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let context = ContractContext::new_context_with_signer(
             kickoff_data,
-            deposit_data.clone(),
+            deposit_data,
             self.config.protocol_paramset(),
             self.signer.clone(),
         );
@@ -1728,7 +1992,7 @@ where
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+            deposit_outpoint: Some(deposit_outpoint),
         };
 
         // try to send them
@@ -1790,7 +2054,7 @@ where
             }
         }
 
-        Ok(true)
+        Ok(())
     }
 
     #[cfg(feature = "automation")]
@@ -2910,6 +3174,35 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
+                Duty::AddRelevantTxsToTxSender {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    tracing::info!("Verifier {:?} called add relevant txs to tx sender with kickoff_data: {:?}", verifier_xonly_pk, kickoff_data);
+                    let kickoff_txid = self
+                        .db
+                        .get_kickoff_txid_from_deposit_and_kickoff_data(
+                            Some(dbtx),
+                            deposit_data.get_deposit_outpoint(),
+                            &kickoff_data,
+                        )
+                        .await?
+                        .ok_or_else(|| {
+                            eyre::eyre!(
+                                "Kickoff txid not found in deposit_signatures for kickoff_data: {:?}",
+                                kickoff_data
+                            )
+                        })?;
+                    self.queue_relevant_txs_for_new_kickoff(
+                        dbtx,
+                        kickoff_data,
+                        deposit_data,
+                        true, // do not try to challenge as this duty is only useful during resyncing
+                        kickoff_txid,
+                    )
+                    .await?;
+                    Ok(DutyResult::Handled)
+                }
                 Duty::VerifierDisprove {
                     kickoff_data,
                     mut deposit_data,
@@ -3055,7 +3348,7 @@ mod states {
                         // do not add if kickoff finalizer is already spent => kickoff is finished
                         // this can happen if we are resyncing
                         StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
+                            &self.db,
                             &mut dbtx,
                             kickoff_data,
                             block_height,

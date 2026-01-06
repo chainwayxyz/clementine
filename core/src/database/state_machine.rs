@@ -193,6 +193,31 @@ impl Database {
             })
             .collect())
     }
+
+    /// Checks if a pgmq queue exists by querying the pgmq.meta table.
+    ///
+    /// # Arguments
+    ///
+    /// * `queue_name` - The name of the queue to check
+    /// * `tx` - Optional database transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`BridgeError`] if the database query fails.
+    pub async fn pgmq_queue_exists(
+        &self,
+        queue_name: &str,
+        tx: Option<DatabaseTransaction<'_>>,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (bool,)>(
+            "SELECT EXISTS(SELECT 1 FROM pgmq.meta WHERE queue_name = $1)",
+        )
+        .bind(queue_name);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok(result.0)
+    }
 }
 
 #[cfg(test)]
