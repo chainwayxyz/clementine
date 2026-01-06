@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
-use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
@@ -27,6 +26,7 @@ use clementine_errors::BridgeError;
 use clementine_errors::TxError;
 use clementine_primitives::EVMAddress;
 use clementine_primitives::{PublicHash, RoundIndex};
+use clementine_utils::sign::TapTweakData;
 use eyre::{Context, OptionExt};
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -209,6 +209,24 @@ pub struct Actor {
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
+}
+
+impl clementine_tx_sender::TxSenderSigner for Actor {
+    fn address(&self) -> &Address {
+        &self.address
+    }
+
+    fn xonly_public_key(&self) -> XOnlyPublicKey {
+        self.xonly_public_key
+    }
+
+    fn sign_with_tweak_data(
+        &self,
+        sighash: bitcoin::TapSighash,
+        tweak_data: TapTweakData,
+    ) -> Result<schnorr::Signature, clementine_errors::BridgeError> {
+        self.sign_with_tweak_data(sighash, tweak_data, None)
+    }
 }
 
 impl Actor {

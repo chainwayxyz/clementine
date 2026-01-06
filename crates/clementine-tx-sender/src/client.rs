@@ -3,30 +3,30 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use super::Result;
-use super::{ActivatedWithOutpoint, ActivatedWithTxid};
-use crate::builder::transaction::input::UtxoVout;
-use crate::rpc;
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
-use crate::{
-    config::BridgeConfig,
-    database::{Database, DatabaseTransaction},
-};
-use bitcoin::hashes::Hash;
+use crate::TxSenderDatabase;
+use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use bitcoin::{OutPoint, Transaction, Txid};
-use clementine_errors::ResultExt;
-use clementine_primitives::RoundIndex;
-use clementine_primitives::TransactionType;
+use clementine_config::protocol::ProtocolParamset;
+use clementine_errors::BridgeError;
+use clementine_primitives::{TransactionType, UtxoVout};
+use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use eyre::eyre;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
-pub struct TxSenderClient {
-    pub(super) db: Database,
-    pub(super) tx_sender_consumer_id: String,
+pub struct TxSenderClient<D>
+where
+    D: TxSenderDatabase,
+{
+    pub db: D,
+    pub tx_sender_consumer_id: String,
 }
 
-impl TxSenderClient {
-    pub fn new(db: Database, tx_sender_consumer_id: String) -> Self {
+impl<D> TxSenderClient<D>
+where
+    D: TxSenderDatabase,
+{
+    pub fn new(db: D, tx_sender_consumer_id: String) -> Self {
         Self {
             db,
             tx_sender_consumer_id,
@@ -66,7 +66,7 @@ impl TxSenderClient {
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: Option<&mut D::Transaction>,
         tx_metadata: Option<TxMetadata>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
@@ -75,13 +75,14 @@ impl TxSenderClient {
         cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
-    ) -> Result<u32> {
+    ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
         tracing::debug!(
             "{} added tx {} with txid {} to the queue",
             self.tx_sender_consumer_id,
             tx_metadata
+                .as_ref()
                 .map(|data| format!("{:?}", data.tx_type))
                 .unwrap_or("N/A".to_string()),
             txid
@@ -90,9 +91,8 @@ impl TxSenderClient {
         // do not add duplicate transactions to the txsender
         let tx_exists = self
             .db
-            .check_if_tx_exists_on_txsender(Some(dbtx), txid)
-            .await
-            .map_to_eyre()?;
+            .check_if_tx_exists_on_txsender(dbtx.as_deref_mut(), txid)
+            .await?;
         if let Some(try_to_send_id) = tx_exists {
             return Ok(try_to_send_id);
         }
@@ -100,15 +100,14 @@ impl TxSenderClient {
         let try_to_send_id = self
             .db
             .save_tx(
-                Some(dbtx),
+                dbtx.as_deref_mut(),
                 tx_metadata,
                 signed_tx,
                 fee_paying_type,
                 txid,
                 rbf_signing_info,
             )
-            .await
-            .map_to_eyre()?;
+            .await?;
 
         // only log the raw tx in tests so that logs do not contain sensitive information
         #[cfg(test)]
@@ -116,23 +115,20 @@ impl TxSenderClient {
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
             self.db
-                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, input_outpoint)
-                .await
-                .map_to_eyre()?;
+                .save_cancelled_outpoint(dbtx.as_deref_mut(), try_to_send_id, input_outpoint)
+                .await?;
         }
 
         for outpoint in cancel_outpoints {
             self.db
-                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, *outpoint)
-                .await
-                .map_to_eyre()?;
+                .save_cancelled_outpoint(dbtx.as_deref_mut(), try_to_send_id, *outpoint)
+                .await?;
         }
 
         for txid in cancel_txids {
             self.db
-                .save_cancelled_txid(Some(dbtx), try_to_send_id, *txid)
-                .await
-                .map_to_eyre()?;
+                .save_cancelled_txid(dbtx.as_deref_mut(), try_to_send_id, *txid)
+                .await?;
         }
 
         let mut max_timelock_of_activated_txids = BTreeMap::new();
@@ -155,7 +151,7 @@ impl TxSenderClient {
                 match relative_locktime {
                     bitcoin::relative::LockTime::Blocks(height) => height.value() as u32,
                     _ => {
-                        return Err(eyre::eyre!("Invalid relative locktime").into());
+                        return Err(BridgeError::Eyre(eyre!("Invalid relative locktime")));
                     }
                 }
             } else {
@@ -172,22 +168,20 @@ impl TxSenderClient {
         for (txid, timelock) in max_timelock_of_activated_txids {
             self.db
                 .save_activated_txid(
-                    Some(dbtx),
+                    dbtx.as_deref_mut(),
                     try_to_send_id,
                     &ActivatedWithTxid {
                         txid,
                         relative_block_height: timelock,
                     },
                 )
-                .await
-                .map_to_eyre()?;
+                .await?;
         }
 
         for activated_outpoint in activate_outpoints {
             self.db
-                .save_activated_outpoint(Some(dbtx), try_to_send_id, activated_outpoint)
-                .await
-                .map_to_eyre()?;
+                .save_activated_outpoint(dbtx.as_deref_mut(), try_to_send_id, activated_outpoint)
+                .await?;
         }
 
         Ok(try_to_send_id)
@@ -217,16 +211,16 @@ impl TxSenderClient {
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
     #[allow(clippy::too_many_arguments)]
-    pub async fn add_tx_to_queue<'a>(
-        &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
+    pub async fn add_tx_to_queue(
+        &self,
+        dbtx: Option<&mut D::Transaction>,
         tx_type: TransactionType,
         signed_tx: &Transaction,
         related_txs: &[(TransactionType, Transaction)],
         tx_metadata: Option<TxMetadata>,
-        config: &BridgeConfig,
+        protocol_paramset: &ProtocolParamset,
         rbf_info: Option<RbfSigningInfo>,
-    ) -> Result<u32> {
+    ) -> Result<u32, BridgeError> {
         let tx_metadata = tx_metadata.map(|mut data| {
             data.tx_type = tx_type;
             data
@@ -294,7 +288,9 @@ impl TxSenderClient {
                             None
                         }
                     })
-                    .ok_or(eyre::eyre!("Couldn't find kickoff tx in related_txs"))?;
+                    .ok_or(BridgeError::Eyre(eyre!(
+                        "Couldn't find kickoff tx in related_txs"
+                    )))?;
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -321,7 +317,9 @@ impl TxSenderClient {
                             None
                         }
                     })
-                    .ok_or(eyre::eyre!("Couldn't find kickoff tx in related_txs"))?;
+                    .ok_or(BridgeError::Eyre(eyre!(
+                        "Couldn't find kickoff tx in related_txs"
+                    )))?;
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -337,7 +335,7 @@ impl TxSenderClient {
                             txid: kickoff_txid,
                             vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
-                        relative_block_height: config.protocol_paramset().finality_depth - 1,
+                        relative_block_height: protocol_paramset.finality_depth - 1,
                     }],
                 )
                 .await
@@ -357,98 +355,8 @@ impl TxSenderClient {
                 .await
             }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!()
+                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue");
             }
         }
-    }
-
-    /// Returns debugging information for a transaction
-    ///
-    /// This function gathers all debugging information about a transaction from the database,
-    /// including its state history, fee payer UTXOs, submission errors, and current state.
-    ///
-    /// # Arguments
-    /// * `id` - The ID of the transaction to debug
-    ///
-    /// # Returns
-    /// A comprehensive debug info structure with all available information about the transaction
-    pub async fn debug_tx(&self, id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
-        use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
-
-        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) =
-            self.db.get_try_to_send_tx(None, id).await.map_to_eyre()?;
-
-        let submission_errors = self
-            .db
-            .get_tx_debug_submission_errors(None, id)
-            .await
-            .map_to_eyre()?;
-
-        let submission_errors = submission_errors
-            .into_iter()
-            .map(|(error_message, timestamp)| TxDebugSubmissionError {
-                error_message,
-                timestamp,
-            })
-            .collect();
-
-        let current_state = self.db.get_tx_debug_info(None, id).await.map_to_eyre()?;
-
-        let fee_payer_utxos = self
-            .db
-            .get_tx_debug_fee_payer_utxos(None, id)
-            .await
-            .map_to_eyre()?;
-
-        let fee_payer_utxos = fee_payer_utxos
-            .into_iter()
-            .map(|(txid, vout, amount, confirmed)| {
-                Ok(TxDebugFeePayerUtxo {
-                    txid: Some(txid.into()),
-                    vout,
-                    amount: amount.to_sat(),
-                    confirmed,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let txid = match fee_paying_type {
-            FeePayingType::CPFP | FeePayingType::NoFunding => tx.compute_txid(),
-            FeePayingType::RBF => self
-                .db
-                .get_last_rbf_txid(None, id)
-                .await
-                .map_to_eyre()?
-                .unwrap_or(Txid::all_zeros()),
-        };
-        let debug_info = TxDebugInfo {
-            id,
-            is_active: seen_block_id.is_none(),
-            current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
-            submission_errors,
-            created_at: "".to_string(),
-            txid: Some(txid.into()),
-            fee_paying_type: format!("{fee_paying_type:?}"),
-            fee_payer_utxos_count: fee_payer_utxos.len() as u32,
-            fee_payer_utxos_confirmed_count: fee_payer_utxos
-                .iter()
-                .filter(|TxDebugFeePayerUtxo { confirmed, .. }| *confirmed)
-                .count() as u32,
-            fee_payer_utxos,
-            raw_tx: bitcoin::consensus::serialize(&tx),
-            metadata: tx_metadata.map(|metadata| rpc::clementine::TxMetadata {
-                deposit_outpoint: metadata.deposit_outpoint.map(Into::into),
-                operator_xonly_pk: metadata.operator_xonly_pk.map(Into::into),
-
-                round_idx: metadata
-                    .round_idx
-                    .unwrap_or(RoundIndex::Round(0))
-                    .to_index() as u32,
-                kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
-                tx_type: Some(metadata.tx_type.into()),
-            }),
-        };
-
-        Ok(debug_info)
     }
 }

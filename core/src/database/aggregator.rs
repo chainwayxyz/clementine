@@ -13,7 +13,7 @@ impl Database {
     /// Sets a signed emergency stop transaction for a given move transaction ID
     pub async fn insert_signed_emergency_stop_tx_if_not_exists(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_txid: &Txid,
         encrypted_emergency_stop_tx: &[u8],
     ) -> Result<(), BridgeError> {
@@ -32,7 +32,7 @@ impl Database {
     /// Gets emergency stop transactions for a list of move transaction IDs
     pub async fn get_emergency_stop_txs(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         move_txids: Vec<Txid>,
     ) -> Result<Vec<(Txid, Vec<u8>)>, BridgeError> {
         if move_txids.is_empty() {

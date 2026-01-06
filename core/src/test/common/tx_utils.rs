@@ -1,7 +1,6 @@
 use super::test_actors::TestActors;
 use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::actor::Actor;
-#[cfg(feature = "automation")]
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::builder;
 use crate::builder::script::SpendPath;
@@ -9,17 +8,20 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::CitreaClientT;
+
 #[cfg(feature = "automation")]
 use crate::config::BridgeConfig;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::database::Database;
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, MINE_BLOCK_COUNT};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _, MINE_BLOCK_COUNT};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(feature = "automation")]
-use crate::tx_sender::{TxSender, TxSenderClient};
+use crate::tx_sender::{TxSender, TxSenderClient, TxSenderDatabase};
+#[cfg(feature = "automation")]
+use crate::tx_sender_ext::CoreTxBuilder;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::transaction::Version;
@@ -42,12 +44,12 @@ pub fn get_tx_from_signed_txs_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .to_owned()
-        .unwrap_or_else(|| panic!("expected tx of type: {tx_type:?} not found"))
+        .expect("expected tx of type not found")
         .to_owned()
         .raw_tx;
     bitcoin::consensus::deserialize(&tx).context("expected valid tx")
 }
-// Cannot use ensure_async due to `Send` requirement being broken upstream
+
 pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
     outpoint: OutPoint,
@@ -193,19 +195,18 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
 #[cfg(feature = "automation")]
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
-    tx_sender: &crate::tx_sender::TxSenderClient,
+    tx_sender: &TxSenderClient<Database>,
     rpc: &ExtendedBitcoinRpc,
     raw_tx: &[u8],
     tx_type: TxType,
     rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
-    let mut dbtx = tx_sender.test_dbtx().await.unwrap();
+    let mut dbtx = tx_sender.db.begin_transaction().await?;
 
-    // Try to send the transaction with CPFP first
     tx_sender
         .insert_try_to_send(
-            &mut dbtx,
+            Some(&mut dbtx),
             Some(TxMetadata {
                 tx_type,
                 deposit_outpoint: None,
@@ -228,7 +229,7 @@ pub async fn send_tx(
         .await
         .expect("failed to send tx");
 
-    dbtx.commit().await?;
+    tx_sender.db.commit_transaction(dbtx).await?;
 
     if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
@@ -278,9 +279,7 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedBitcoinRpc, tx: Txid) -> Result<(),
                 return Ok(true);
             }
 
-            // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
             rpc.mine_blocks(MINE_BLOCK_COUNT).await?;
-            // mine after tx is sent to mempool - with a timeout
             let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
             Ok(false)
         },
@@ -322,7 +321,7 @@ pub async fn ensure_outpoint_spent(
 #[cfg(feature = "automation")]
 pub async fn send_tx_with_type(
     rpc: &ExtendedBitcoinRpc,
-    tx_sender: &crate::tx_sender::TxSenderClient,
+    tx_sender: &TxSenderClient<Database>,
     all_txs: &SignedTxsWithType,
     tx_type: TxType,
 ) -> Result<(), eyre::Error> {
@@ -342,7 +341,7 @@ pub async fn create_tx_sender(
     config: BridgeConfig,
     verifier_index: u32,
 ) -> (
-    TxSender,
+    TxSender<Actor, Database, CoreTxBuilder>,
     BitcoinSyncer,
     ExtendedBitcoinRpc,
     Database,
@@ -373,12 +372,14 @@ pub async fn create_tx_sender(
 
     let db = Database::new(&config).await.unwrap();
 
-    let tx_sender = TxSender::new(
+    let tx_sender = TxSender::<_, _, CoreTxBuilder>::new(
         actor.clone(),
         rpc.clone(),
         db.clone(),
         format!("tx_sender_test_{verifier_index}"),
-        config.clone(),
+        config.protocol_paramset(),
+        config.tx_sender_limits.clone(),
+        config.mempool_config(),
     );
 
     (
@@ -397,8 +398,8 @@ pub async fn create_tx_sender(
 pub async fn create_bg_tx_sender(
     config: BridgeConfig,
 ) -> (
-    TxSenderClient,
-    TxSender,
+    TxSenderClient<Database>,
+    TxSender<Actor, Database, CoreTxBuilder>,
     Vec<oneshot::Sender<()>>,
     ExtendedBitcoinRpc,
     Database,
@@ -407,7 +408,6 @@ pub async fn create_bg_tx_sender(
 ) {
     use crate::test::common::initialize_database;
 
-    // create the db for the tx sender
     let mut new_config = config.clone();
     new_config.db_name += "0";
     initialize_database(&new_config).await;

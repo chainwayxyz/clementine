@@ -121,14 +121,14 @@ pub trait Owner: Clone + NamedEntity {
     /// Handle a protocol-related duty
     async fn handle_duty(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         duty: Duty,
     ) -> Result<DutyResult, BridgeError>;
 
     /// Create the transactions for an instance of the L1 contract
     async fn create_txhandlers(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
@@ -136,7 +136,7 @@ pub trait Owner: Clone + NamedEntity {
     /// Handle a new finalized block
     async fn handle_finalized_block(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,

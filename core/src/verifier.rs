@@ -29,7 +29,7 @@ use crate::constants::{
 };
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
-use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::musig2;
@@ -262,12 +262,14 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            let tx_sender = TxSender::new(
+            let tx_sender = TxSender::<_, _, crate::tx_sender_ext::CoreTxBuilder>::new(
                 self.verifier.signer.clone(),
                 rpc.clone(),
                 self.verifier.db.clone(),
                 Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
-                self.verifier.config.clone(),
+                self.verifier.config.protocol_paramset(),
+                Default::default(),
+                self.verifier.config.mempool_config(),
             );
 
             self.background_tasks
@@ -410,7 +412,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient,
+    pub tx_sender: TxSenderClient<Database>,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -1868,7 +1870,7 @@ where
         kickoff_witness: Witness,
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
     ) -> Result<bool, BridgeError> {
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
@@ -1925,7 +1927,7 @@ where
     /// Returns true if the kickoff is malicious.
     pub async fn handle_kickoff<'a>(
         &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
+        dbtx: DatabaseTransaction<'a>,
         kickoff_witness: Witness,
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
@@ -2012,13 +2014,13 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            dbtx,
+                            Some(dbtx),
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            Some(tx_metadata),
-                            &self.config,
                             None,
+                            self.config.protocol_paramset(),
+                            None, // limit
                         )
                         .await?;
                 }
@@ -2030,7 +2032,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .insert_try_to_send(
-                            dbtx,
+                            Some(dbtx),
                             Some(TxMetadata {
                                 tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
                                 ..tx_metadata
@@ -2060,7 +2062,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
         let current_tip_hcp = self
             .header_chain_prover
@@ -2122,7 +2124,7 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         commit_data: Vec<u8>,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
@@ -2148,7 +2150,7 @@ where
         {
             self.tx_sender
                 .add_tx_to_queue(
-                    dbtx,
+                    Some(dbtx),
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -2159,7 +2161,7 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    &self.config,
+                    self.config.protocol_paramset(),
                     Some(rbf_info),
                 )
                 .await?;
@@ -2176,7 +2178,7 @@ where
     #[tracing::instrument(skip(self, dbtx))]
     async fn update_citrea_deposit_and_withdrawals(
         &self,
-        dbtx: &mut DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         l2_height_start: u64,
         l2_height_end: u64,
         block_height: u32,
@@ -2254,7 +2256,7 @@ where
 
     async fn update_finalized_payouts(
         &self,
-        dbtx: &mut DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
@@ -2326,7 +2328,7 @@ where
 
     async fn send_unspent_kickoff_connectors(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         round_idx: RoundIndex,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
@@ -2347,7 +2349,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        dbtx,
+                        Some(dbtx),
                         tx_type,
                         &tx,
                         &[],
@@ -2358,7 +2360,7 @@ where
                             kickoff_idx: Some(kickoff_idx as u32),
                             deposit_outpoint: None,
                         }),
-                        &self.config,
+                        self.config.protocol_paramset(),
                         None,
                     )
                     .await?;
@@ -2398,7 +2400,7 @@ where
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        db_cache: &mut ReimburseDbCache<'_, '_>,
+        db_cache: &mut ReimburseDbCache<'_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
 
@@ -2644,7 +2646,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx_additional(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -2710,7 +2712,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                dbtx,
+                Some(dbtx),
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -2721,7 +2723,7 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &self.config,
+                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -2749,7 +2751,7 @@ where
         &self,
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
-        db_cache: &mut ReimburseDbCache<'_, '_>,
+        db_cache: &mut ReimburseDbCache<'_>,
     ) -> Result<Option<(usize, Vec<Vec<u8>>)>, BridgeError> {
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
@@ -2941,7 +2943,7 @@ where
     #[cfg(feature = "automation")]
     async fn send_disprove_tx(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
@@ -3004,7 +3006,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                dbtx,
+                Some(dbtx),
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -3015,7 +3017,7 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                &self.config,
+                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -3024,7 +3026,7 @@ where
 
     async fn handle_finalized_block(
         &self,
-        mut dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
@@ -3052,14 +3054,14 @@ where
             l2_height_end
         );
         self.update_citrea_deposit_and_withdrawals(
-            &mut dbtx,
+            dbtx,
             l2_height_start,
             l2_height_end,
             block_height,
         )
         .await?;
 
-        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+        self.update_finalized_payouts(dbtx, block_id, &block_cache)
             .await?;
 
         #[cfg(feature = "automation")]
@@ -3087,7 +3089,7 @@ where
 {
     async fn handle_new_block(
         &mut self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block: bitcoin::Block,
         height: u32,
@@ -3133,7 +3135,7 @@ mod states {
     {
         async fn handle_duty(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_>,
             duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
             let verifier_xonly_pk = &self.signer.xonly_public_key;
@@ -3373,7 +3375,7 @@ mod states {
 
         async fn create_txhandlers(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_>,
             tx_type: TransactionType,
             contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
@@ -3391,7 +3393,7 @@ mod states {
 
         async fn handle_finalized_block(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
+            dbtx: DatabaseTransaction<'_>,
             block_id: u32,
             block_height: u32,
             block_cache: Arc<block_cache::BlockCache>,

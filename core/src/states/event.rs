@@ -45,7 +45,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Appends a  message to the state manager's message queue to create a new round state machine
     pub async fn dispatch_new_round_machine(
         db: &Database,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         operator_data: OperatorData,
     ) -> Result<(), eyre::Report> {
         let queue_name = Self::queue_name();
@@ -62,7 +62,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// Appends a  message to the state manager's message queue to create a new kickoff state machine
     pub async fn dispatch_new_kickoff_machine(
         db: &Database,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
