@@ -19,12 +19,12 @@ runs:
         path: |
           core/bitvm_cache.bin
           core/bitvm_cache_dev.bin
-        key: bitvm-cache-23-10-2025
+        key: bitvm-cache-06-01-2026
 
     - name: Download bitvm cache bin
       if: steps.cache-bitvm.outputs.cache-hit != 'true'
       shell: bash
-      run: wget https://static.citrea.xyz/test-net/clementine/conf/bitvm_cache.bin -O core/bitvm_cache.bin
+      run: wget https://static.citrea.xyz/main-net/clementine/conf/bitvm_cache.bin -O core/bitvm_cache.bin
 
     - name: Download bitvm cache dev bin
       if: steps.cache-bitvm.outputs.cache-hit != 'true'
