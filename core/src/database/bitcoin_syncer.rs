@@ -275,7 +275,7 @@ impl Database {
     /// Returns a mapping of txid -> block_height for those that exist.
     pub async fn get_canonical_block_heights_for_txids(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         txids: &[Txid],
     ) -> Result<Vec<(Txid, u32)>, BridgeError> {
         if txids.is_empty() {
@@ -311,7 +311,7 @@ impl Database {
     /// Returns Some(block_height) if found, None otherwise.
     pub async fn get_canonical_block_height_for_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         txid: Txid,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar::<_, i32>(

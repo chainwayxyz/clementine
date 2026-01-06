@@ -2514,7 +2514,7 @@ where
                             signed_tx,
                             &signed_txs,
                             tx_metadata,
-                            &self.config,
+                            self.config.protocol_paramset(),
                             None,
                         )
                         .await?;

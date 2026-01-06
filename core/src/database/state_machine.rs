@@ -207,7 +207,7 @@ impl Database {
     pub async fn pgmq_queue_exists(
         &self,
         queue_name: &str,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<bool, BridgeError> {
         let query = sqlx::query_as::<_, (bool,)>(
             "SELECT EXISTS(SELECT 1 FROM pgmq.meta WHERE queue_name = $1)",

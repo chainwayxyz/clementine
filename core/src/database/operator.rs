@@ -624,7 +624,7 @@ impl Database {
     /// Gets the kickoff_txid from deposit_signatures for a given deposit and kickoff.
     pub async fn get_kickoff_txid_from_deposit_and_kickoff_data(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
         kickoff_data: &KickoffData,
     ) -> Result<Option<Txid>, BridgeError> {

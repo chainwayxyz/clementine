@@ -1367,7 +1367,7 @@ where
     async fn check_kickoffs_on_chain_and_track(
         &self,
         deposit_data: &DepositData,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
         move_txid: Txid,
     ) -> Result<Vec<(Txid, u32)>, BridgeError> {
@@ -1963,7 +1963,7 @@ where
 
     async fn queue_relevant_txs_for_new_kickoff(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         challenged_before: bool,
