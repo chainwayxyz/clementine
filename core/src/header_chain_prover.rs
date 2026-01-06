@@ -574,7 +574,7 @@ impl HeaderChainProver {
     /// Saves a new block to database, later to be proven.
     pub async fn save_unproven_block_cache(
         &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        dbtx: Option<DatabaseTransaction<'_>>,
         block_cache: &BlockCache,
     ) -> Result<(), BridgeError> {
         let block_hash = block_cache.block.block_hash();

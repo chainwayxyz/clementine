@@ -11,7 +11,7 @@ use eyre::Context;
 impl Database {
     pub async fn get_fee_payer_utxos_for_tx(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         tx_id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
@@ -42,7 +42,7 @@ impl Database {
 
     pub async fn get_id_from_txid(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         txid: Txid,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_scalar::<_, i32>(

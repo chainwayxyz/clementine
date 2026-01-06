@@ -23,7 +23,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn save_state_machines(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: DatabaseTransaction<'_>,
         kickoff_machines: Vec<(String, String)>,
         round_machines: Vec<(String, XOnlyPublicKey)>,
         block_height: i32,
@@ -114,7 +114,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn get_next_height_to_process(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Option<i32>, BridgeError> {
         let query = sqlx::query_as(
@@ -140,7 +140,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_kickoff_machines(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Vec<(String, String, i32)>, BridgeError> {
         let query = sqlx::query_as(
@@ -170,7 +170,7 @@ impl Database {
     /// Returns a `BridgeError` if the database operation fails
     pub async fn load_round_machines(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx: Option<DatabaseTransaction<'_>>,
         owner_type: &str,
     ) -> Result<Vec<(String, XOnlyPublicKey, i32)>, BridgeError> {
         let query = sqlx::query_as(
@@ -192,6 +192,31 @@ impl Database {
                 (state_json, operator_xonly_pk.0, block_height)
             })
             .collect())
+    }
+
+    /// Checks if a pgmq queue exists by querying the pgmq.meta table.
+    ///
+    /// # Arguments
+    ///
+    /// * `queue_name` - The name of the queue to check
+    /// * `tx` - Optional database transaction
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`BridgeError`] if the database query fails.
+    pub async fn pgmq_queue_exists(
+        &self,
+        queue_name: &str,
+        tx: Option<DatabaseTransaction<'_>>,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (bool,)>(
+            "SELECT EXISTS(SELECT 1 FROM pgmq.meta WHERE queue_name = $1)",
+        )
+        .bind(queue_name);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok(result.0)
     }
 }
 

@@ -6,6 +6,7 @@ license = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+clementine-primitives = { path = "../clementine-primitives" }
 thiserror = { workspace = true }
 eyre = { workspace = true }
 tonic = { workspace = true }

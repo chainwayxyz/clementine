@@ -9,17 +9,20 @@ use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::rpc;
 use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::MockCitreaClient;
-use crate::test::common::tx_utils::create_bumpable_tx;
+use crate::test::common::tx_utils::{
+    create_bumpable_tx, wait_for_fee_payer_utxos_to_be_in_mempool,
+};
 use crate::test::common::{
     citrea, create_actors, create_test_config_with_thread_name, get_deposit_address,
     mine_once_after_in_mempool,
 };
-use crate::tx_sender::TxSender;
+use crate::tx_sender::{TxSender, TxSenderClient};
+use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
 use crate::utils::FeePayingType;
-use crate::{rpc, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;
@@ -30,6 +33,8 @@ use citrea_e2e::node::NodeKind;
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+use clementine_errors::BridgeError;
+use clementine_primitives::EVMAddress;
 use std::collections::HashMap;
 use std::time::Duration;
 use tonic::{async_trait, Request};
@@ -100,14 +105,16 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender = TxSender::new(
+        let tx_sender = TxSender::<Actor, Database, CoreTxBuilder>::new(
             actor.clone(),
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.clone(),
+            config.protocol_paramset(),
+            config.tx_sender_limits.clone(),
+            config.mempool_config(),
         );
-        let tx_sender_client = tx_sender.client();
+        let tx_sender_client: TxSenderClient<Database> = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();
 
@@ -128,7 +135,7 @@ impl TestCase for TxSenderReorgBehavior {
         let mut dbtx = db.begin_transaction().await.unwrap();
         let id = tx_sender_client
             .insert_try_to_send(
-                &mut dbtx,
+                Some(&mut dbtx),
                 None,
                 &tx,
                 FeePayingType::CPFP,
@@ -444,7 +451,7 @@ impl TestCase for ReorgOnDeposit {
         let block_diff = da0.get_block_count().await? - da1.get_block_count().await?;
 
         assert!(
-            block_diff <= DEFAULT_FINALITY_DEPTH,
+            block_diff < DEFAULT_FINALITY_DEPTH,
             "difference between da0 and da1 is too large: {block_diff}",
         );
 
@@ -481,10 +488,15 @@ impl TestCase for ReorgOnDeposit {
             .is_none());
 
         // First mine once for fee payer tx of move tx + deposit tx to be included in chain
+        let aggregator_db = Database::new(&actors.aggregator.config).await?;
+        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db.clone(), move_txid)
+            .await
+            .map_err(BridgeError::from)?;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         rpc.mine_blocks(1).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         // now mine again for move tx to be included in chain
-        rpc.mine_blocks(1).await.unwrap();
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
         // Move tx should be on-chain.
         assert!(rpc

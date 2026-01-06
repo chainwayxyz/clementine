@@ -46,7 +46,6 @@ use crate::constants::{NON_EPHEMERAL_ANCHOR_AMOUNT, NON_STANDARD_V3};
 use crate::deposit::DepositData;
 #[cfg(test)]
 use crate::deposit::SecurityCouncil;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
@@ -56,15 +55,13 @@ use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
+use bitcoin::{Address, Amount, ScriptBuf, TxOut};
 #[cfg(test)]
-use bitcoin::OutPoint;
-use bitcoin::{Address, Amount, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use clementine_errors::BridgeError;
-use hex;
+use clementine_primitives::{RoundIndex, TransactionType};
 use input::UtxoVout;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use thiserror::Error;
 
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;
@@ -90,91 +87,6 @@ pub mod sign;
 mod txhandler;
 
 type HiddenNode<'a> = &'a [u8; 32];
-
-#[derive(Debug, Error)]
-pub enum TxError {
-    /// TxInputNotFound is returned when the input is not found in the transaction
-    #[error("Could not find input of transaction")]
-    TxInputNotFound,
-    #[error("Could not find output of transaction")]
-    TxOutputNotFound,
-    #[error("Attempted to set witness when it's already set")]
-    WitnessAlreadySet,
-    #[error("Script with index {0} not found for transaction")]
-    ScriptNotFound(usize),
-    #[error("Insufficient Context data for the requested TxHandler")]
-    InsufficientContext,
-    #[error("No scripts in TxHandler for the TxIn with index {0}")]
-    NoScriptsForTxIn(usize),
-    #[error("No script in TxHandler for the index {0}")]
-    NoScriptAtIndex(usize),
-    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
-    SpendPathNotSpecified,
-    #[error("Actor does not own the key needed in P2TR keypath")]
-    NotOwnKeyPath,
-    #[error("public key of Checksig in script is not owned by Actor")]
-    NotOwnedScriptPath,
-    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
-    SignatureNotFound(TransactionType),
-    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
-    TxHandlerNotFound(TransactionType),
-    #[error("BitvmSetupNotFound for operator {0:?}, deposit_txid {1}")]
-    BitvmSetupNotFound(XOnlyPublicKey, Txid),
-    #[error("Transaction input is missing spend info")]
-    MissingSpendInfo,
-    #[error("Incorrect watchtower challenge data length")]
-    IncorrectWatchtowerChallengeDataLength,
-    #[error("Latest blockhash script must be a single script")]
-    LatestBlockhashScriptNumber,
-    #[error("Round index cannot be used to create a Round transaction: {0:?}")]
-    InvalidRoundIndex(RoundIndex),
-    #[error("Index overflow")]
-    IndexOverflow,
-    #[error("Kickoff winternitz keys in DB has wrong size compared to paramset")]
-    KickoffWinternitzKeysDBInconsistency,
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
-
-/// Types of all transactions that can be created. Some transactions have a
-/// (usize) index as there are multiple instances of the same transaction type
-/// per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
-pub enum TransactionType {
-    // --- Transaction Types ---
-    AssertTimeout(usize),
-    BurnUnusedKickoffConnectors,
-    Challenge,
-    ChallengeTimeout,
-    Disprove,
-    DisproveTimeout,
-    EmergencyStop,
-    Kickoff,
-    KickoffNotFinalized,
-    LatestBlockhash,
-    LatestBlockhashTimeout,
-    MiniAssert(usize),
-    MoveToVault,
-    OperatorChallengeAck(usize),
-    OperatorChallengeNack(usize),
-    OptimisticPayout,
-    Payout,
-    ReadyToReimburse,
-    Reimburse,
-    ReplacementDeposit,
-    Round,
-    UnspentKickoff(usize),
-    WatchtowerChallenge(usize),
-    WatchtowerChallengeTimeout(usize),
-
-    // --- Transaction Subsets ---
-    AllNeededForDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
-    YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
-
-    /// For testing and for values to be replaced later.
-    Dummy,
-}
 
 // converter from proto type to rust enum
 impl TryFrom<GrpcTransactionId> for TransactionType {

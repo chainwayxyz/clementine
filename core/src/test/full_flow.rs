@@ -6,13 +6,11 @@ use super::common::test_actors::TestActors;
 use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::TransactionType as TxType;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::operator::RoundIndex;
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
@@ -20,6 +18,8 @@ use crate::tx_sender::TxSenderClient;
 use crate::utils::RbfSigningInfo;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use clementine_primitives::RoundIndex;
+use clementine_primitives::TransactionType as TxType;
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -32,7 +32,7 @@ async fn base_setup(
 ) -> Result<
     (
         TestActors<MockCitreaClient>,
-        Vec<TxSenderClient>,
+        Vec<TxSenderClient<Database>>,
         DepositInfo,
         u32,
         TransactionRequest,
@@ -57,7 +57,8 @@ async fn base_setup(
             .await
             .expect("failed to create database");
 
-        let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{i}"));
+        let tx_sender =
+            TxSenderClient::<Database>::new(tx_sender_db.clone(), format!("full_flow_{i}"));
         tx_senders.push(tx_sender);
     }
 

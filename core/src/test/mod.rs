@@ -13,6 +13,8 @@ mod reorg;
 #[cfg(feature = "integration-tests")]
 mod musig2;
 
+mod rpc;
+
 #[cfg(not(feature = "automation"))]
 mod manual_reimbursement;
 
@@ -40,6 +42,9 @@ mod bridge_circuit_test_data;
 
 #[cfg(feature = "integration-tests")]
 mod bitvm_script;
+
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
+mod txsender;
 
 pub const CITREA_E2E_DOCKER_IMAGE: &str =
     "chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6";
