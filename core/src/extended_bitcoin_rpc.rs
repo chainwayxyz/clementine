@@ -46,7 +46,7 @@ use crate::{
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 #[cfg(test)]
-pub const MINE_BLOCK_COUNT: u64 = 3;
+pub const MINE_BLOCK_COUNT: u64 = 2;
 
 /// Extension trait for bridge-specific RPC queries.
 ///
