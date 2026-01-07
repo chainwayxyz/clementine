@@ -349,6 +349,9 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
         id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>;
 
+    /// Debug method to log information about inactive transactions.
+    async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32);
+
     /// Fetch the next event from the Bitcoin syncer.
     async fn fetch_next_bitcoin_syncer_evt(
         &self,
@@ -610,6 +613,12 @@ where
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
         }
 
+        if std::env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
+            self.db
+                .debug_inactive_txs(get_sendable_txs_fee_rate, current_tip_height)
+                .await;
+        }
+
         for id in txs {
             // Update debug state
             tracing::debug!(
@@ -658,7 +667,7 @@ where
                 };
 
             // Calculate adjusted fee rate considering:
-            // 1. If new_fee_rate > previous_effective_fee_rate, use new_fee_rate
+            // 1. If new_fee_rate > previous_effective_fee_rate, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
             // 2. If tx has been stuck for 10+ blocks, bump with incremental fee
             let adjusted_fee_rate = match self
                 .calculate_target_fee_rate(
