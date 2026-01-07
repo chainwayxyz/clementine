@@ -32,6 +32,16 @@ pub struct KickoffData {
     pub kickoff_idx: u32,
 }
 
+impl std::fmt::Display for KickoffData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Kickoff(operator_xonly_pk: {}, round_idx: {}, kickoff_idx: {})",
+            self.operator_xonly_pk, self.round_idx, self.kickoff_idx
+        )
+    }
+}
+
 /// Data structure to represent a deposit.
 /// - nofn_xonly_pk is cached to avoid recomputing it each time.
 /// - deposit includes the actual information about the deposit.
