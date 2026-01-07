@@ -40,6 +40,8 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use test_actors::TestActors;
+use tokio_retry::strategy::ExponentialBackoff;
+use tokio_retry::Retry;
 use tonic::Request;
 
 pub mod citrea;
@@ -388,13 +390,21 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
+    let strategy = ExponentialBackoff::from_millis(2).factor(500).take(3);
+    let verifiers_public_keys: Vec<PublicKey> = Retry::spawn(strategy, || {
+        let mut aggregator = actors.get_aggregator();
+        async move {
+            aggregator
+                .setup(Request::new(Empty {}))
+                .await
+                .map_err(BridgeError::from)?
+                .into_inner()
+                .try_into()
+                .map_err(|e| BridgeError::from(eyre::eyre!("Failed to convert response: {:?}", e)))
+        }
+    })
+    .await?;
     let mut aggregator = actors.get_aggregator();
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .wrap_err("Failed to setup aggregator")?
-        .into_inner()
-        .try_into()?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
