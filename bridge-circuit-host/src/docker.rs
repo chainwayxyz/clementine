@@ -243,12 +243,31 @@ const ID_BN254_FR_BITS: [&str; 254] = [
     "0", "0", "0", "0", "1", "0", "0",
 ];
 
-/// Repackages a Docker/OCI image tarball, removing symlinks and copies the files directly where symlinks would be.
-/// This is because udocker load has some issues if there are 2 identical layers in Docker image (symlinks are used if there are identical layers)
-/// Related issue: https://github.com/indigo-dc/udocker/issues/361
-/// Creates a modified tar file in the images folder (cached) and returns its path.
-/// The original tar file is never modified. The cached file persists in the images folder.
-/// If a cached file exists, its digest is verified. If verification fails, the cache is deleted and recomputed.
+/// Repackages a Docker/OCI image tarball by removing symlinks and copying the files directly to the locations where symlinks would be.  
+///  
+/// # Problem Solved  
+/// This function addresses a known issue with udocker (`udocker load`), where Docker images containing identical layers represented as symlinks can cause failures or incorrect behavior.  
+/// See: https://github.com/indigo-dc/udocker/issues/361  
+///  
+/// # Caching Strategy  
+/// - The function creates a modified tar file (with symlinks removed) in the same directory as the original, appending `_no_symlinks.tar` to the filename.  
+/// - If a cached version exists, its modification time is checked to ensure it is newer than the original.  
+/// - If the modification time is valid, the cached tar's digest is verified against the expected config digest.  
+/// - If digest verification fails, the cached file is deleted and recomputed.  
+/// - The original tar file is never modified; only the cached file is updated or recreated as needed.  
+///  
+/// # Security Considerations  
+/// - Symlink resolution is performed to ensure that files are copied directly, preventing potential symlink attacks or unintended file access.  
+/// - Digest verification is used to detect tampering or corruption of the cached tar file.  
+/// - If digest verification fails, the cache is deleted to prevent use of a potentially compromised file.  
+///  
+/// # Error Conditions  
+/// - Returns an error if the tar file name or parent directory is invalid.  
+/// - Returns an error if file metadata cannot be read or if file operations (copy, delete) fail.  
+/// - Returns an error if digest verification fails or if the cache cannot be recreated.  
+///  
+/// # Returns  
+/// Returns the path to the modified (no-symlinks) tar file.  
 fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> Result<PathBuf> {
     // Determine cache file path in the same directory as the original tar
     let cache_file_name = path
@@ -616,6 +635,7 @@ pub fn pull_or_load_all_images() -> Result<()> {
 /// Runs the prover container.
 /// skopeo is used to pull images instead of udocker pull because udocker pull doesn't support pulling from a sha digest.
 /// udocker is used instead of docker itself because it requires docker-in-docker to be set up if entities are run with docker.
+/// udocker commands are ran with --allow-root to avoid issues if the container is run as root. If it isn't run as root, --allow-root does nothing.
 fn run_prover_container(
     image_digest: &str,
     container_name: &str,
@@ -1068,15 +1088,13 @@ pub fn to_decimal(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tar::{EntryType, Header};
 
     /// Test that pull_or_load_image succeeds for the STARK_TO_BITVM2 image.
     /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_mainnet_bitvm2() {
-        let _guard = get_docker_mutex()
-            .lock()
-            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
-            .unwrap();
+        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1099,10 +1117,7 @@ mod tests {
     /// This validates that DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_bitvm2() {
-        let _guard = get_docker_mutex()
-            .lock()
-            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
-            .unwrap();
+        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1125,10 +1140,7 @@ mod tests {
     /// This validates that DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_risc0_g16() {
-        let _guard = get_docker_mutex()
-            .lock()
-            .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))
-            .unwrap();
+        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1145,5 +1157,402 @@ mod tests {
         );
         let path = result.unwrap();
         assert!(path.exists(), "Modified tar file should exist at {path:?}");
+    }
+
+    /// Helper function to create a minimal Docker image tar structure for testing
+    ///
+    /// # How the tar is created:
+    /// 1. Creates a tar archive using the `tar::Builder`
+    /// 2. Adds a directory entry: `layer1/` (simulating a Docker layer directory)
+    /// 3. Adds a target file: `layer1/target_file` with content "target file content"
+    /// 4. Adds `layer1/layer.tar` either as:
+    ///    - A symlink pointing to "target_file" (if `has_symlink` is true)
+    ///    - A regular file with content "layer tar content" (if `has_symlink` is false)
+    ///
+    /// This simulates a Docker image tar where layer.tar files can be symlinks pointing
+    /// to other layer.tar files (for deduplication). The `remove_symlinks_from_image_tar`
+    /// function should replace these symlinks with actual file copies.
+    fn create_test_tar_with_symlink(
+        tar_path: &Path,
+        has_symlink: bool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let file = fs::File::create(tar_path)?;
+        let mut builder = Builder::new(file);
+
+        // Create a layer directory structure
+        let layer_dir_name = "layer1";
+        let mut layer_header = Header::new_gnu();
+        layer_header.set_entry_type(EntryType::Directory);
+        layer_header.set_path(layer_dir_name)?;
+        layer_header.set_size(0);
+        layer_header.set_cksum();
+        builder.append(&layer_header, &mut std::io::empty())?;
+
+        // Create a target file that the symlink will point to
+        let target_file_name = format!("{layer_dir_name}/target_file");
+        let target_content = b"target file content";
+        let mut target_header = Header::new_gnu();
+        target_header.set_path(&target_file_name)?;
+        target_header.set_size(target_content.len() as u64);
+        target_header.set_cksum();
+        builder.append(&target_header, target_content.as_slice())?;
+
+        // Create layer.tar file - either as a symlink or regular file
+        let layer_tar_name = format!("{layer_dir_name}/layer.tar");
+        if has_symlink {
+            // Create layer.tar as a symlink pointing to target_file
+            let mut symlink_header = Header::new_gnu();
+            symlink_header.set_entry_type(EntryType::Symlink);
+            symlink_header.set_path(&layer_tar_name)?;
+            symlink_header.set_link_name("target_file")?;
+            symlink_header.set_size(0);
+            symlink_header.set_cksum();
+            builder.append(&symlink_header, &mut std::io::empty())?;
+        } else {
+            // Create layer.tar as a regular file
+            let layer_tar_content = b"layer tar content";
+            let mut layer_tar_header = Header::new_gnu();
+            layer_tar_header.set_path(&layer_tar_name)?;
+            layer_tar_header.set_size(layer_tar_content.len() as u64);
+            layer_tar_header.set_cksum();
+            builder.append(&layer_tar_header, layer_tar_content.as_slice())?;
+        }
+
+        builder.finish()?;
+        Ok(())
+    }
+
+    /// Test remove_symlinks_from_image_tar with a tar file containing symlinks
+    #[test]
+    fn test_remove_symlinks_from_image_tar_with_symlink() {
+        let tmp_dir = tempdir().unwrap();
+        let tar_path = tmp_dir.path().join("test_image.tar");
+        // Use a fake digest since our test tar isn't a real Docker image
+        // In real usage, this would be a hardcoded constant like DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST
+        let expected_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        // Create a tar file with a symlink
+        create_test_tar_with_symlink(&tar_path, true).unwrap();
+
+        // Note about digest verification for dummy tar:
+        // - remove_symlinks_from_image_tar only verifies digests for EXISTING cached files (line 306)
+        // - For newly created files, it processes without verification
+        // - So our test tar (which is NOT a valid Docker image) never gets verified
+        // - If verification WERE attempted, verify_tar_image_digest would:
+        //   1. Try to use skopeo to inspect the tar
+        //   2. Skopeo would fail because our test tar lacks Docker manifest/config files
+        //   3. Or if skopeo processed it, the computed digest wouldn't match our fake "sha256:0000..."
+        // - This is fine for testing - we're only testing the symlink removal logic, not digest verification
+        let result = remove_symlinks_from_image_tar(&tar_path, expected_digest);
+
+        // The function should succeed in processing the tar file and removing symlinks
+        assert!(
+            result.is_ok(),
+            "Should succeed in processing tar file with symlinks. Result: {result:?}"
+        );
+
+        // Verify the cache file was created
+        let cached_path = result.unwrap();
+        assert!(
+            cached_path.exists(),
+            "Cache file should exist after processing"
+        );
+
+        // Verify the cache file name is correct
+        let cache_file_name = tar_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap()
+            .to_string()
+            + "_no_symlinks.tar";
+        let expected_cached_path = tar_path.parent().unwrap().join(&cache_file_name);
+        assert_eq!(
+            cached_path, expected_cached_path,
+            "Cache path should match expected path"
+        );
+
+        // Verify that symlinks are actually removed by extracting and checking the processed tar
+        let extract_dir = tmp_dir.path().join("verify_extracted");
+        fs::create_dir_all(&extract_dir).unwrap();
+
+        let cached_file = fs::File::open(&cached_path).unwrap();
+        let mut cached_archive = Archive::new(cached_file);
+        cached_archive.unpack(&extract_dir).unwrap();
+
+        // Check that layer.tar is now a regular file, not a symlink
+        let layer_tar_path = extract_dir.join("layer1/layer.tar");
+        assert!(
+            layer_tar_path.exists(),
+            "layer.tar should exist in processed tar"
+        );
+
+        let layer_tar_metadata = fs::symlink_metadata(&layer_tar_path).unwrap();
+        assert!(
+            !layer_tar_metadata.file_type().is_symlink(),
+            "layer.tar should be a regular file, not a symlink, after processing"
+        );
+        assert!(
+            layer_tar_metadata.is_file(),
+            "layer.tar should be a regular file"
+        );
+
+        // Verify the content is correct (should be a copy of target_file content)
+        let layer_tar_content = fs::read_to_string(&layer_tar_path).unwrap();
+        let target_file_content =
+            fs::read_to_string(extract_dir.join("layer1/target_file")).unwrap();
+        assert_eq!(
+            layer_tar_content, target_file_content,
+            "layer.tar should contain the same content as target_file (symlink was replaced with copy)"
+        );
+
+        // Clean up temporary tar files created during test
+        let _ = fs::remove_file(&tar_path);
+        let _ = fs::remove_file(&cached_path);
+    }
+
+    /// Test remove_symlinks_from_image_tar with invalid path
+    #[test]
+    fn test_remove_symlinks_from_image_tar_invalid_path() {
+        let invalid_path = Path::new("/nonexistent/path/image.tar");
+        let expected_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        let result = remove_symlinks_from_image_tar(invalid_path, expected_digest);
+        assert!(result.is_err(), "Should fail with invalid path");
+    }
+
+    /// Test remove_symlinks_from_image_tar with tar file that has no parent directory
+    #[test]
+    fn test_remove_symlinks_from_image_tar_no_parent() {
+        // This is a bit contrived, but we can test the error path
+        // by using a path that doesn't have a proper parent in the expected way
+        let tmp_dir = tempdir().unwrap();
+        let tar_path = tmp_dir.path().join("test.tar");
+        fs::File::create(&tar_path).unwrap();
+
+        // Create a path that will fail when trying to get parent
+        // Actually, any valid path will have a parent, so we'll test with a root path
+        // which should fail in a different way
+        let root_path = Path::new("/test.tar");
+        let expected_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        // This will fail when trying to open the file, not when getting parent
+        let result = remove_symlinks_from_image_tar(root_path, expected_digest);
+        assert!(result.is_err(), "Should fail with root path");
+    }
+
+    /// Test remove_symlinks_from_image_tar cache behavior - no cache exists
+    #[test]
+    fn test_remove_symlinks_from_image_tar_no_cache() {
+        let tmp_dir = tempdir().unwrap();
+        let tar_path = tmp_dir.path().join("test_image.tar");
+        let expected_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        // Create a tar file without symlinks
+        create_test_tar_with_symlink(&tar_path, false).unwrap();
+
+        // Verify cache file doesn't exist initially
+        let cache_file_name = "test_image_no_symlinks.tar";
+        let cached_tar_path = tmp_dir.path().join(cache_file_name);
+        assert!(
+            !cached_tar_path.exists(),
+            "Cache should not exist initially"
+        );
+
+        // The function processes the tar file and creates a cache.
+        // Note: remove_symlinks_from_image_tar doesn't verify digests for newly created files,
+        // only for existing cache files. So it will succeed in processing our test tar file.
+        // The digest verification happens in pull_or_load_image, not here.
+        let result = remove_symlinks_from_image_tar(&tar_path, expected_digest);
+
+        // The function should succeed in processing the tar file (it's a valid tar, just not a Docker image)
+        assert!(
+            result.is_ok(),
+            "Should succeed in processing tar file. Result: {result:?}"
+        );
+
+        // Verify the cache file was created
+        let cached_path = result.unwrap();
+        assert!(
+            cached_path.exists(),
+            "Cache file should exist after processing"
+        );
+        assert_eq!(
+            cached_path, cached_tar_path,
+            "Cache path should match expected path"
+        );
+
+        // Clean up temporary tar files created during test
+        let _ = fs::remove_file(&tar_path);
+        let _ = fs::remove_file(&cached_path);
+    }
+
+    /// Test remove_symlinks_from_image_tar with tar containing directory structure
+    #[test]
+    fn test_remove_symlinks_from_image_tar_directory_structure() {
+        let tmp_dir = tempdir().unwrap();
+        let tar_path = tmp_dir.path().join("test_image.tar");
+        let expected_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        // Create a tar with proper Docker image structure (directory with layer.tar)
+        let file = fs::File::create(&tar_path).unwrap();
+        let mut builder = Builder::new(file);
+
+        // Create a layer directory
+        let layer_dir = "abc123";
+        let mut dir_header = Header::new_gnu();
+        dir_header.set_entry_type(EntryType::Directory);
+        dir_header.set_path(layer_dir).unwrap();
+        dir_header.set_size(0);
+        dir_header.set_cksum();
+        builder.append(&dir_header, &mut std::io::empty()).unwrap();
+
+        // Create a regular layer.tar file (not a symlink)
+        let layer_tar_path = format!("{layer_dir}/layer.tar");
+        let layer_content = b"some layer content";
+        let mut layer_header = Header::new_gnu();
+        layer_header.set_path(&layer_tar_path).unwrap();
+        layer_header.set_size(layer_content.len() as u64);
+        layer_header.set_cksum();
+        builder
+            .append(&layer_header, layer_content.as_slice())
+            .unwrap();
+
+        builder.finish().unwrap();
+
+        // The function should process this tar file successfully.
+        // Note: remove_symlinks_from_image_tar doesn't verify digests for newly created files,
+        // only for existing cache files. So it will succeed in processing our test tar file.
+        let result = remove_symlinks_from_image_tar(&tar_path, expected_digest);
+
+        // Should succeed in processing the tar file
+        assert!(
+            result.is_ok(),
+            "Should succeed in processing tar file with directory structure. Result: {result:?}"
+        );
+
+        // Verify the cache file was created
+        let cached_path = result.unwrap();
+        assert!(
+            cached_path.exists(),
+            "Cache file should exist after processing"
+        );
+
+        // Clean up temporary tar files created during test
+        let _ = fs::remove_file(&tar_path);
+        let _ = fs::remove_file(&cached_path);
+    }
+
+    /// Test parsing of udocker load output (the logic that extracts image ID)
+    /// Uses actual udocker load output from a real tar file
+    /// Uses existing hardcoded image digests (DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST)
+    #[test]
+    fn test_parse_udocker_load_output() {
+        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+        // Skip this test in debug mode, to not pull these images from remote on debug tests.
+        if cfg!(debug_assertions) {
+            return;
+        }
+
+        // Check if udocker is available - fail the test if it's not installed
+        let udocker_check = Command::new("udocker").arg("--version").output();
+        let udocker_available = udocker_check
+            .as_ref()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        assert!(
+            udocker_available,
+            "udocker must be installed for this test to run"
+        );
+
+        // Pull or load the image tar file
+        let modified_tar_path = pull_or_load_image(
+            DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST,
+            DEV_STARK_TO_RISC0_G16_CONTAINER_NAME,
+            DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST,
+        )
+        .expect("Failed to pull or load image");
+
+        // Run udocker load on the actual tar file
+        let load_output = Command::new("udocker")
+            .arg("--allow-root")
+            .arg("load")
+            .arg("-i")
+            .arg(&modified_tar_path)
+            .output()
+            .expect("udocker load could not be executed");
+
+        assert!(
+            load_output.status.success(),
+            "udocker load should succeed. stderr: {}",
+            String::from_utf8_lossy(&load_output.stderr)
+        );
+
+        // Parse the output using the same logic as in run_prover_container
+        let output_str = String::from_utf8(load_output.stdout)
+            .expect("Failed to parse udocker load stdout as UTF-8");
+
+        let udocker_image_id = output_str
+            .lines()
+            .last()
+            .ok_or_else(|| eyre!("No output lines from udocker load"))
+            .expect("Should have at least one line of output")
+            .trim_matches(&['[', ']', '\'', ' '][..])
+            .to_string();
+
+        // Verify that we got a non-empty image ID
+        assert!(!udocker_image_id.is_empty(), "Image ID should not be empty");
+
+        // Verify that the parsed image ID is correct by checking if it exists in udocker
+        let images_output = Command::new("udocker")
+            .arg("--allow-root")
+            .arg("images")
+            .output()
+            .expect("udocker images could not be executed");
+
+        assert!(
+            images_output.status.success(),
+            "udocker images should succeed. stderr: {}",
+            String::from_utf8_lossy(&images_output.stderr)
+        );
+
+        let images_str = String::from_utf8(images_output.stdout)
+            .expect("Failed to parse udocker images stdout as UTF-8");
+
+        // Validate that the parsed image ID exists in the images list
+        assert!(
+            images_str.contains(&udocker_image_id),
+            "Parsed image ID {udocker_image_id} should exist in udocker images. Images output: {images_str}"
+        );
+
+        // Clean up the loaded image (only if it exists, which we just verified)
+        let rmi_output = Command::new("udocker")
+            .arg("--allow-root")
+            .arg("rmi")
+            .arg(&udocker_image_id)
+            .output()
+            .expect("udocker rmi could not be executed");
+
+        assert!(
+            rmi_output.status.success(),
+            "udocker rmi should succeed for existing image {udocker_image_id}. stderr: {}",
+            String::from_utf8_lossy(&rmi_output.stderr)
+        );
+    }
+
+    /// Test error handling for empty udocker load output
+    #[test]
+    fn test_parse_udocker_load_output_empty() {
+        let output_str = "".to_string();
+        let result = output_str
+            .lines()
+            .last()
+            .ok_or_else(|| eyre!("No output lines from udocker load"));
+        assert!(result.is_err(), "Should fail with empty output");
     }
 }
