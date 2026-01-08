@@ -130,6 +130,61 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
+        // Catch-up: Fix any activation rows that were missed due to READ COMMITTED
+        // race conditions. When activation rows are inserted, the INSERT trigger
+        // may not see a just-committed block (if another transaction committed
+        // between trigger invocations). These queries ensure all rows with txids
+        // already confirmed in canonical blocks get their seen_block_id set.
+        sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_txids AS tap
+            SET seen_block_id = bs.id
+            FROM bitcoin_syncer_txs bst
+            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+            WHERE tap.txid = bst.txid
+            AND tap.seen_block_id IS NULL
+            AND bs.is_canonical = TRUE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+            SET seen_block_id = bs.id
+            FROM bitcoin_syncer_spent_utxos bsu
+            JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+            WHERE tap.txid = bsu.txid
+            AND tap.vout = bsu.vout
+            AND tap.seen_block_id IS NULL
+            AND bs.is_canonical = TRUE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+            SET seen_block_id = bs.id
+            FROM bitcoin_syncer_txs bst
+            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+            WHERE ctt.txid = bst.txid
+            AND ctt.seen_block_id IS NULL
+            AND bs.is_canonical = TRUE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+            SET seen_block_id = bs.id
+            FROM bitcoin_syncer_spent_utxos bsu
+            JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+            WHERE cto.txid = bsu.txid
+            AND cto.vout = bsu.vout
+            AND cto.seen_block_id IS NULL
+            AND bs.is_canonical = TRUE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
         let bg_db = self.clone();
         // Update debug information in the background to not block core behavior
         tokio::spawn(async move {
