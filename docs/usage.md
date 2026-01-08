@@ -117,7 +117,7 @@ Before running Clementine:
    # Download and install udocker (instructions by udocker: https://indigo-dc.github.io/udocker/installation_manual.html)
    wget https://github.com/indigo-dc/udocker/releases/download/1.3.17/udocker-1.3.17.tar.gz
    tar zxvf udocker-1.3.17.tar.gz
-   export PATH=`pwd`/udocker-1.3.17/udocker:$PATH
+   export PATH=$(pwd)/udocker-1.3.17/udocker:$PATH
 
    # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
    udocker install
@@ -127,7 +127,7 @@ Before running Clementine:
    To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
    ```sh
-   echo 'export PATH="'`pwd`'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
+   echo 'export PATH="'$(pwd)'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
    source ~/.bashrc
    ```
 
