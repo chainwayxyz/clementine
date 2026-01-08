@@ -53,6 +53,12 @@ fn get_docker_mutex() -> &'static Mutex<()> {
     DOCKER_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
+/// Acquires the docker mutex, ignoring poison errors since the mutex doesn't hold data.
+/// If a previous thread panicked while holding the mutex, we just continue.
+fn acquire_docker_mutex() -> std::sync::MutexGuard<'static, ()> {
+    get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
 pub fn stark_to_bitvm2_g16(
     succinct_receipt: SuccinctReceipt<ReceiptClaim>,
@@ -60,9 +66,7 @@ pub fn stark_to_bitvm2_g16(
 ) -> Result<(Seal, [u8; 31])> {
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
-    let _guard = get_docker_mutex()
-        .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
+    let _guard = acquire_docker_mutex();
 
     let ident_receipt = risc0_zkvm::recursion::identity_p254(&succinct_receipt)
         .map_err(|e| eyre!("Failed to create identity receipt: {:?}", e))?;
@@ -783,9 +787,7 @@ fn run_prover_container(
 pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receipt> {
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
-    let _guard = get_docker_mutex()
-        .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
+    let _guard = acquire_docker_mutex();
 
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt
@@ -925,9 +927,7 @@ const ID_BN254_FR_BITS_DEV_BRIDGE: [&str; 254] = [
 pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<(Seal, [u8; 31])> {
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
-    let _guard = get_docker_mutex()
-        .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
+    let _guard = acquire_docker_mutex();
 
     let identity_p254_seal_bytes = vec![0u8; 222668];
     let receipt_claim = receipt
@@ -1094,7 +1094,7 @@ mod tests {
     /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_mainnet_bitvm2() {
-        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = acquire_docker_mutex();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1117,7 +1117,7 @@ mod tests {
     /// This validates that DEV_STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_bitvm2() {
-        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = acquire_docker_mutex();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1140,7 +1140,7 @@ mod tests {
     /// This validates that DEV_STARK_TO_RISC0_G16_IMAGE_CONFIG_DIGEST is correct.
     #[test]
     fn test_pull_or_load_image_dev_risc0_g16() {
-        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = acquire_docker_mutex();
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
             return;
@@ -1452,7 +1452,7 @@ mod tests {
     /// Uses existing hardcoded image digests (DEV_STARK_TO_RISC0_G16_IMAGE_DIGEST)
     #[test]
     fn test_parse_udocker_load_output() {
-        let _guard = get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = acquire_docker_mutex();
 
         // Skip this test in debug mode, to not pull these images from remote on debug tests.
         if cfg!(debug_assertions) {
