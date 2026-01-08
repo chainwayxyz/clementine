@@ -1197,7 +1197,7 @@ impl ClementineAggregator for AggregatorServer {
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {e:?}")))?;
+                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {e:#}")))?;
 
             let musig_sigs_and_nonces = musig_partial_sigs
                 .into_iter()
@@ -1532,7 +1532,7 @@ impl ClementineAggregator for AggregatorServer {
                             .into_inner();
 
                         tx.send(deposit_sign_param).await.map_err(|e| {
-                            BridgeError::from(eyre::eyre!("Failed to send deposit sign session: {e:?}"))})?;
+                            BridgeError::from(eyre::eyre!("Failed to send deposit sign session: {e}"))})?;
 
                         Ok::<_, BridgeError>((stream, tx))
                     }
@@ -1583,7 +1583,7 @@ impl ClementineAggregator for AggregatorServer {
                         tx.send(param).await
                         .map_err(|e| {
                             BridgeError::from(eyre::eyre!(
-                                "Failed to send deposit finalize first param: {e:?}"))
+                                "Failed to send deposit finalize first param: {e}"))
                         })
                     }
                 })

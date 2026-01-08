@@ -236,7 +236,7 @@ where
             }
             Err(e) => {
                 tracing::error!(
-                    "Task {:?} error, attempting to recover: {e:?}",
+                    "Task {:?} error, attempting to recover: {e:#}",
                     Self::VARIANT
                 );
                 // handle the error
@@ -307,7 +307,7 @@ where
             .run_once()
             .await
             .inspect_err(|e| {
-                tracing::error!(task=?self.inner, "Task error, suppressing due to errors ignored: {e:?}");
+                tracing::error!(task=?self.inner, "Task error, suppressing due to errors ignored: {e:#}");
             })
             .ok()
             .unwrap_or_default())
