@@ -56,7 +56,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
     actors: &TestActors<C>,
     e2e: Option<&CitreaE2EData<'_>>,
 ) -> Result<(), eyre::Error> {
-    let mut max_blocks_to_mine = 1000;
+    let mut max_blocks_to_mine: u64 = 1000;
     while match rpc
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
@@ -66,7 +66,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_state_mngr_sync<C: CitreaCl
     } {
         rpc.mine_blocks_while_synced(MINE_BLOCK_COUNT, actors, e2e)
             .await?;
-        max_blocks_to_mine -= MINE_BLOCK_COUNT;
+        max_blocks_to_mine = max_blocks_to_mine.saturating_sub(MINE_BLOCK_COUNT);
 
         if max_blocks_to_mine == 0 {
             bail!(

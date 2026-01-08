@@ -1089,9 +1089,17 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     dbtx.commit().await?;
 
     let current_fee_rate = tx_sender.get_fee_rate().await?;
+    let current_tip_height = rpc.get_current_chain_height().await?;
 
     tx_sender
-        .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+        .send_rbf_tx(
+            try_to_send_id,
+            tx.clone(),
+            None,
+            current_fee_rate,
+            None,
+            current_tip_height,
+        )
         .await
         .expect("RBF should succeed");
 
@@ -1147,6 +1155,7 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
     dbtx.commit().await?;
 
     let current_fee_rate = tx_sender.get_fee_rate().await?;
+    let current_tip_height = rpc.get_current_chain_height().await?;
 
     tx_sender
         .send_rbf_tx(
@@ -1162,6 +1171,7 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
+            current_tip_height,
         )
         .await
         .expect("RBF should succeed");
@@ -1336,7 +1346,7 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     dbtx.commit().await?;
 
     let current_fee_rate = tx_sender.get_fee_rate().await?;
-
+    let current_tip_height = rpc.get_current_chain_height().await?;
     // Test send_rbf_tx
     tx_sender
         .send_rbf_tx(
@@ -1352,6 +1362,7 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
+            current_tip_height,
         )
         .await
         .expect("RBF should succeed");
@@ -1411,10 +1422,18 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     dbtx.commit().await?;
 
     let current_fee_rate = tx_sender.get_fee_rate().await?;
+    let current_tip_height = rpc.get_current_chain_height().await?;
 
     // Test send_rbf_tx with no signing info
     tx_sender
-        .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+        .send_rbf_tx(
+            try_to_send_id,
+            tx.clone(),
+            None,
+            current_fee_rate,
+            None,
+            current_tip_height,
+        )
         .await
         .expect("RBF should succeed");
 
@@ -1467,6 +1486,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     dbtx.commit().await?;
 
     let current_fee_rate = tx_sender.get_fee_rate().await?;
+    let current_tip_height = rpc.get_current_chain_height().await?;
 
     // Create initial TX
     tx_sender
@@ -1483,6 +1503,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
+            current_tip_height,
         )
         .await
         .expect("RBF should succeed");
@@ -1522,6 +1543,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
+            current_tip_height,
         )
         .await
         .expect("RBF should succeed");
@@ -1548,4 +1570,122 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     );
 
     Ok(())
+}
+
+/// Test that calculate_target_fee_rate correctly handles fee bumping scenarios
+#[tokio::test]
+async fn test_calculate_target_fee_rate_incremental_bump() {
+    let mut config = create_test_config_with_thread_name().await;
+    let rpc = create_regtest_rpc(&mut config).await;
+
+    let (tx_sender, _btc_sender, rpc, _db, _signer, _network) =
+        create_local_tx_sender(rpc.rpc().clone()).await;
+
+    // Get incremental fee rate from node (typically 1000 sat/kvB = 250 sat/kwu on regtest)
+    let incremental_fee_btc_per_kvb = rpc.get_network_info().await.unwrap().incremental_fee;
+    let incremental_fee_sat_per_kwu = incremental_fee_btc_per_kvb.to_sat() / 4;
+
+    // Test 1: No previous fee rate - should return new_fee_rate
+    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let result = tx_sender
+        .calculate_target_fee_rate(None, new_fee_rate, None, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        result, new_fee_rate,
+        "Should return new_fee_rate when no previous rate"
+    );
+
+    // Test 2: New fee rate higher than previous but LOWER than previous + incremental
+    // This tests BIP125 compliance: the result should be previous + incremental, NOT new_fee_rate
+    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap(); // 2500 sat/kwu
+                                                               // Add only 0.5 sat/kwu (less than incremental fee which is typically 250 sat/kwu)
+    let new_fee_rate_slightly_higher =
+        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + 1);
+    let expected_min_bump =
+        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+
+    let result = tx_sender
+        .calculate_target_fee_rate(
+            Some(previous_rate),
+            new_fee_rate_slightly_higher,
+            Some(100),
+            100,
+        )
+        .await
+        .unwrap();
+
+    // Result should be previous + incremental, NOT the new_fee_rate
+    assert_eq!(
+        result, expected_min_bump,
+        "When new_fee_rate ({} sat/kwu) is higher than previous ({} sat/kwu) but lower than \
+            previous + incremental ({} sat/kwu), result should be previous + incremental, not new_fee_rate",
+        new_fee_rate_slightly_higher.to_sat_per_kwu(),
+        previous_rate.to_sat_per_kwu(),
+        expected_min_bump.to_sat_per_kwu()
+    );
+    assert!(
+        result.to_sat_per_kwu() > new_fee_rate_slightly_higher.to_sat_per_kwu(),
+        "Result ({} sat/kwu) should be greater than new_fee_rate ({} sat/kwu) due to BIP125 min increment",
+        result.to_sat_per_kwu(),
+        new_fee_rate_slightly_higher.to_sat_per_kwu()
+    );
+
+    // Test 3: New fee rate higher than previous + incremental - should use new_fee_rate
+    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let new_fee_rate_much_higher = FeeRate::from_sat_per_vb(20).unwrap(); // Much higher than previous + incremental
+    let result = tx_sender
+        .calculate_target_fee_rate(
+            Some(previous_rate),
+            new_fee_rate_much_higher,
+            Some(100),
+            100,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        result, new_fee_rate_much_higher,
+        "When new_fee_rate is much higher than previous + incremental, should use new_fee_rate"
+    );
+
+    // Test 4: Same fee rate, not stuck - should return previous rate
+    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let result = tx_sender
+        .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(95), 100) // Only 5 blocks
+        .await
+        .unwrap();
+    assert_eq!(
+        result, previous_rate,
+        "Should return previous rate when not stuck and same fee rate"
+    );
+
+    // Test 5: Same fee rate but stuck for 10+ blocks - should bump
+    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let result = tx_sender
+        .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100) // 10 blocks stuck
+        .await
+        .unwrap();
+    let expected_stuck_bump =
+        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+    assert_eq!(
+        result, expected_stuck_bump,
+        "When stuck for 10+ blocks, should bump to previous + incremental"
+    );
+
+    // Test 6: Hard cap is respected
+    let previous_rate = FeeRate::from_sat_per_vb(90).unwrap();
+    let new_fee_rate = FeeRate::from_sat_per_vb(200).unwrap(); // Way above hard cap (default 100)
+    let result = tx_sender
+        .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100)
+        .await
+        .unwrap();
+    let hard_cap = FeeRate::from_sat_per_vb(config.tx_sender_limits.fee_rate_hard_cap).unwrap();
+    assert!(
+        result <= hard_cap,
+        "Result {} should be <= hard cap {}",
+        result.to_sat_per_vb_ceil(),
+        hard_cap.to_sat_per_vb_ceil()
+    );
 }

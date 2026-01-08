@@ -307,6 +307,7 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
         dbtx: Option<&mut Self::Transaction>,
         id: u32,
         effective_fee_rate: FeeRate,
+        current_tip_height: u32,
     ) -> Result<(), BridgeError>;
 
     /// Check if a transaction already exists in the transaction sender queue.
@@ -348,6 +349,9 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
         id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>;
 
+    /// Debug method to log information about inactive transactions.
+    async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32);
+
     /// Fetch the next event from the Bitcoin syncer.
     async fn fetch_next_bitcoin_syncer_evt(
         &self,
@@ -375,6 +379,14 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
         dbtx: &mut Self::Transaction,
         block_id: u32,
     ) -> Result<(), BridgeError>;
+
+    /// Get the effective fee rate of a transaction and the block height when it was set.
+    /// Returns (None, None) if no effective fee rate has been set yet.
+    async fn get_effective_fee_rate(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        id: u32,
+    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError>;
 }
 
 #[derive(Clone, Debug)]
@@ -601,6 +613,12 @@ where
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
         }
 
+        if std::env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
+            self.db
+                .debug_inactive_txs(get_sendable_txs_fee_rate, current_tip_height)
+                .await;
+        }
+
         for id in txs {
             // Update debug state
             tracing::debug!(
@@ -634,6 +652,43 @@ where
                 continue;
             }
 
+            // Get effective fee rate and block height to calculate adjusted fee rate
+            let (previous_effective_fee_rate, last_bump_block_height) =
+                match self.db.get_effective_fee_rate(None, id).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log_error_for_tx!(
+                            self.db,
+                            id,
+                            format!("Failed to get effective fee rate: {}", e)
+                        );
+                        continue;
+                    }
+                };
+
+            // Calculate adjusted fee rate considering:
+            // 1. If new_fee_rate > previous_effective_fee_rate, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
+            // 2. If tx has been stuck for 10+ blocks, bump with incremental fee
+            let adjusted_fee_rate = match self
+                .calculate_target_fee_rate(
+                    previous_effective_fee_rate,
+                    new_fee_rate,
+                    last_bump_block_height,
+                    current_tip_height,
+                )
+                .await
+            {
+                Ok(rate) => rate,
+                Err(e) => {
+                    log_error_for_tx!(
+                        self.db,
+                        id,
+                        format!("Failed to calculate adjusted fee rate: {}", e)
+                    );
+                    continue;
+                }
+            };
+
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
@@ -642,10 +697,20 @@ where
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
-                FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
-                FeePayingType::RBF => {
-                    self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
+                FeePayingType::CPFP => {
+                    self.send_cpfp_tx(id, tx, tx_metadata, adjusted_fee_rate, current_tip_height)
                         .await
+                }
+                FeePayingType::RBF => {
+                    self.send_rbf_tx(
+                        id,
+                        tx,
+                        tx_metadata,
+                        adjusted_fee_rate,
+                        rbf_signing_info,
+                        current_tip_height,
+                    )
+                    .await
                 }
                 FeePayingType::NoFunding => self.send_no_funding_tx(id, tx, tx_metadata).await,
             };
@@ -659,6 +724,89 @@ where
     }
     pub fn client(&self) -> TxSenderClient<D> {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+    }
+
+    /// Calculates the effective fee rate for a transaction, considering previous effective fee rate
+    /// and minimum incremental fee requirements.
+    ///
+    /// This function implements the logic for fee bumping that ensures:
+    /// 1. If no previous effective fee rate exists, use the new fee rate
+    /// 2. If previous effective fee rate exists, use the maximum of:
+    ///    - The new fee rate
+    ///    - Previous effective fee rate + minimum incremental fee rate
+    ///
+    /// # Arguments
+    /// * `previous_effective_fee_rate` - The previous effective fee rate (if any)
+    /// * `new_fee_rate` - The target fee rate for the new attempt
+    /// * `last_bump_block_height` - The block height when the last fee bump was done (if any)
+    /// * `current_tip_height` - The current blockchain tip height
+    ///
+    /// # Returns
+    /// The effective fee rate to use (in sat/kwu), capped by the hard cap from config
+    pub async fn calculate_target_fee_rate(
+        &self,
+        previous_effective_fee_rate: Option<FeeRate>,
+        new_fee_rate: FeeRate,
+        last_bump_block_height: Option<u32>,
+        current_tip_height: u32,
+    ) -> Result<FeeRate> {
+        // Hard cap from config (in sat/vB), convert to sat/kwu
+        let hard_cap = FeeRate::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
+            .expect("fee_rate_hard_cap should be valid");
+
+        let Some(previous_rate) = previous_effective_fee_rate else {
+            // No previous effective fee rate, use the new fee rate (capped)
+            return Ok(std::cmp::min(new_fee_rate, hard_cap));
+        };
+
+        // Check if the tx has been stuck for 10+ blocks
+        let is_stuck = match last_bump_block_height {
+            Some(block_height) => {
+                current_tip_height.saturating_sub(block_height)
+                    >= self.tx_sender_limits.fee_bump_after_blocks
+            }
+            None => false,
+        };
+
+        // Get minimum fee increment rate from node for BIP125 compliance. Returned value is in BTC/kvB
+        let incremental_fee_rate = self
+            .rpc
+            .get_network_info()
+            .await
+            .map_err(|e| eyre::eyre!(e))?
+            .incremental_fee;
+        let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
+        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+
+        // Minimum bump fee rate required by BIP125
+        let min_bump_feerate =
+            previous_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+
+        // If new fee rate is higher than previous, use max of new_fee_rate and min_bump_feerate
+        if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() {
+            let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
+            let result = FeeRate::from_sat_per_kwu(effective_feerate);
+            return Ok(std::cmp::min(result, hard_cap));
+        }
+
+        // If the tx is stuck for 10+ blocks, force a fee bump (previous + incremental)
+        if is_stuck {
+            let result = FeeRate::from_sat_per_kwu(min_bump_feerate);
+            let capped_result = std::cmp::min(result, hard_cap);
+
+            tracing::debug!(
+                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kwu (hard cap: {} sat/kwu)",
+                self.tx_sender_limits.fee_bump_after_blocks,
+                previous_rate.to_sat_per_kwu(),
+                capped_result.to_sat_per_kwu(),
+                hard_cap.to_sat_per_kwu()
+            );
+
+            return Ok(capped_result);
+        }
+
+        // Neither higher fee rate nor stuck, use previous rate (no change needed)
+        Ok(previous_rate)
     }
 
     /// Sends a transaction that is already fully funded and signed.

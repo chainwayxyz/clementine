@@ -64,24 +64,35 @@ impl CompatibilityParams {
                 hex::encode(other.sha256_bitvm_cache)
             ));
         }
-        let own_version = semver::Version::parse(&self.clementine_version).wrap_err(format!(
-            "Failed to parse own Clementine version {}",
-            self.clementine_version
-        ))?;
-        let other_version = semver::Version::parse(&other.clementine_version).wrap_err(format!(
-            "Failed to parse other Clementine version {}",
-            other.clementine_version
-        ))?;
-        let min_version = std::cmp::min(&own_version, &other_version);
-        let max_version = std::cmp::max(&own_version, &other_version);
-        let version_req =
+        if std::env::var("DISABLE_VERSION_CHECK")
+            .ok()
+            .map(|x| x.to_lowercase())
+            .filter(|x| x == "1" || x == "true" || x == "yes")
+            .is_none()
+        {
+            let own_version =
+                semver::Version::parse(&self.clementine_version).wrap_err(format!(
+                    "Failed to parse own Clementine version {}",
+                    self.clementine_version
+                ))?;
+            let other_version =
+                semver::Version::parse(&other.clementine_version).wrap_err(format!(
+                    "Failed to parse other Clementine version {}",
+                    other.clementine_version
+                ))?;
+            let min_version = std::cmp::min(&own_version, &other_version);
+            let max_version = std::cmp::max(&own_version, &other_version);
+            let version_req =
             VersionReq::parse(&format!("^{min_version}")).wrap_err(format!(
                 "Failed to parse version requirement for Clementine version mismatch: self={own_version:?}, other={other_version:?}",
             ))?;
-        if !version_req.matches(max_version) {
-            reasons.push(format!(
-                "Clementine version mismatch: self={own_version:?}, other={other_version:?}",
-            ));
+            if !version_req.matches(max_version) {
+                reasons.push(format!(
+                    "Clementine version mismatch: self={own_version:?}, other={other_version:?}",
+                ));
+            }
+        } else {
+            tracing::warn!("Version check is disabled");
         }
         if reasons.is_empty() {
             Ok(())

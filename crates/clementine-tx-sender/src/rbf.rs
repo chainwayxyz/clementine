@@ -53,8 +53,6 @@ where
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
-
         let original_tx_weight = original_tx.weight();
 
         // Original fee rate calculation according to Bitcoin Core
@@ -281,12 +279,28 @@ where
             let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
                 .inputs
                 .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
+                .zip(tx.input.iter())
+                .map(|(psbt_input, tx_input)| {
+                    // Try witness_utxo first (for segwit inputs)
+                    if let Some(witness_utxo) = psbt_input.witness_utxo.clone() {
+                        Ok(witness_utxo)
+                    } else if let Some(ref non_witness_tx) = psbt_input.non_witness_utxo {
+                        // For non-segwit inputs, extract the output from the previous transaction
+                        let vout = tx_input.previous_output.vout as usize;
+                        non_witness_tx
+                            .output
+                            .get(vout)
+                            .cloned()
+                            .ok_or_eyre(format!(
+                                "Output index {vout} out of bounds in previous transaction",
+                            ))
+                            .map_err(SendTxError::Other)
+                    } else {
+                        Err(eyre!(
+                            "Neither witness_utxo nor non_witness_utxo found for input"
+                        ))
                         .map_err(SendTxError::Other)
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
 
@@ -435,6 +449,7 @@ where
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
         rbf_signing_info: Option<RbfSigningInfo>,
+        current_tip_height: u32,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -490,7 +505,7 @@ where
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
-            let bumped_psbt = match bump_result {
+            let mut bumped_psbt = match bump_result {
                 Err(e) => {
                     // Check for common errors indicating the tx is already confirmed or spent
                     let rpc_error_str = e.to_string();
@@ -540,6 +555,19 @@ where
                     return Err(SendTxError::Other(eyre!("psbt_bump_fee returned no psbt")));
                 }
             };
+
+            self.fill_in_utxo_info(&mut bumped_psbt)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_fill_in_utxo_info_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
 
             let bumped_psbt = self
                 .copy_witnesses(bumped_psbt, &tx)
@@ -687,6 +715,17 @@ where
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
+
+            // Save the effective fee rate to the db
+            self.db
+                .update_effective_fee_rate(
+                    Some(&mut dbtx),
+                    try_to_send_id,
+                    effective_feerate,
+                    current_tip_height,
+                )
+                .await
+                .wrap_err("Failed to update effective fee rate")?;
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -860,6 +899,17 @@ where
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
+
+            // Save the effective fee rate to the db
+            self.db
+                .update_effective_fee_rate(
+                    Some(&mut dbtx),
+                    try_to_send_id,
+                    fee_rate,
+                    current_tip_height,
+                )
+                .await
+                .wrap_err("Failed to update effective fee rate")?;
         }
 
         self.db
