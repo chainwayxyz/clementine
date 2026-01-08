@@ -193,7 +193,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
                     match match_count {
                         3 => return Ok(()), // exact duplicate, skip
-                        0 => {}             // no match, continue checking other machines
                         n => {
                             let mut raw_payout_blockhash = Vec::new();
                             payout_blockhash
