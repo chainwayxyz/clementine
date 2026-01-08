@@ -2071,7 +2071,8 @@ where
 
         let (work_only_proof, work_output) = self
             .header_chain_prover
-            .prove_work_only(current_tip_hcp.0)?;
+            .prove_work_only(current_tip_hcp.0)
+            .await?;
 
         let g16: [u8; 256] = work_only_proof
             .inner

@@ -317,7 +317,7 @@ impl HeaderChainProver {
     }
 
     /// Proves the work only proof for the given HCP receipt.
-    pub fn prove_work_only(
+    pub async fn prove_work_only(
         &self,
         hcp_receipt: Receipt,
     ) -> Result<(Receipt, WorkOnlyCircuitOutput), HeaderChainProverError> {
@@ -327,20 +327,10 @@ impl HeaderChainProver {
         let input = WorkOnlyCircuitInput {
             header_chain_circuit_output: block_header_circuit_output,
         };
-        let mut env = ExecutorEnv::builder();
+        let input_bytes = borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?;
+        let network = self.network;
 
-        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
-
-        env.add_assumption(hcp_receipt);
-
-        let env = env
-            .build()
-            .map_err(|e| eyre::eyre!(e))
-            .wrap_err("Failed to build environment")?;
-
-        let prover = risc0_zkvm::default_prover();
-
-        let elf = match self.network {
+        let elf = match network {
             Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
             Network::Testnet4 => TESTNET4_WORK_ONLY_ELF,
             Network::Signet => SIGNET_WORK_ONLY_ELF,
@@ -349,20 +339,35 @@ impl HeaderChainProver {
         };
 
         tracing::warn!("Starting proving HCP work only proof for creating a watchtower challenge");
-        let receipt = if !is_dev_mode() {
-            prover
-                .prove_with_opts(env, elf, &ProverOpts::groth16())
-                .map_err(|e| eyre::eyre!(e))?
-                .receipt
-        } else {
-            let stark_receipt = prover
-                .prove_with_opts(env, elf, &ProverOpts::succinct())
-                .map_err(|e| eyre::eyre!(e))?
-                .receipt;
-            let journal = stark_receipt.journal.bytes.clone();
-            dev_stark_to_risc0_g16(stark_receipt, &journal)?
-        };
-        tracing::warn!("HCP work only proof proof generated for creating a watchtower challenge");
+        let receipt = tokio::task::spawn_blocking(move || -> Result<Receipt, eyre::Report> {
+            let mut env = ExecutorEnv::builder();
+            env.write_slice(&input_bytes);
+            env.add_assumption(hcp_receipt);
+            let env = env
+                .build()
+                .map_err(|e| eyre::eyre!(e))
+                .wrap_err("Failed to build environment")?;
+
+            let prover = risc0_zkvm::default_prover();
+
+            if !is_dev_mode() {
+                prover
+                    .prove_with_opts(env, elf, &ProverOpts::groth16())
+                    .map_err(|e| eyre::eyre!(e))
+                    .map(|result| result.receipt)
+            } else {
+                let stark_receipt = prover
+                    .prove_with_opts(env, elf, &ProverOpts::succinct())
+                    .map_err(|e| eyre::eyre!(e))?
+                    .receipt;
+                let journal = stark_receipt.journal.bytes.clone();
+                dev_stark_to_risc0_g16(stark_receipt, &journal)
+            }
+        })
+        .await
+        .map_err(|e| eyre::eyre!("Failed to join the prove_work_only task: {}", e))?
+        .wrap_err("Failed to prove work only")?;
+        tracing::warn!("HCP work only proof generated for creating a watchtower challenge");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
