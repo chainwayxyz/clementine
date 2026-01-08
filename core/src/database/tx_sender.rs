@@ -345,6 +345,70 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
+        // Catch-up: Fix any rows that reference non-canonical blocks due to READ
+        // COMMITTED race conditions. When rows are inserted, the INSERT trigger
+        // may set seen_block_id to a block that later becomes non-canonical.
+        // These queries ensure all rows pointing to non-canonical blocks get reset.
+        sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_txids AS tap
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE tap.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE tap.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE ctt.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE cto.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_fee_payer_utxos AS fpu
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE fpu.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
+        sqlx::query(
+            "UPDATE tx_sender_try_to_send_txs AS txs
+            SET seen_block_id = NULL
+            FROM bitcoin_syncer bs
+            WHERE txs.seen_block_id = bs.id
+            AND bs.is_canonical = FALSE",
+        )
+        .execute(tx.deref_mut())
+        .await?;
+
         Ok(())
     }
 
