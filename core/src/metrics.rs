@@ -338,12 +338,11 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
                 "get_citrea_l2_block_height",
-                async { Ok(citrea_client.get_current_l2_block_height().await) },
+                citrea_client.get_current_l2_block_height(),
             )
             .await,
             "getting citrea L2 block height",
-        )
-        .flatten();
+        );
 
         Ok(SyncStatus {
             wallet_balance,

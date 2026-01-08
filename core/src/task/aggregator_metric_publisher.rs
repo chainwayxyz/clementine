@@ -74,6 +74,9 @@ impl Task for AggregatorMetricPublisher {
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         // Metrics are not published in tests
+        if cfg!(test) {
+            return Ok(false);
+        }
         tracing::info!("Publishing metrics for aggregator");
 
         let entity_statuses = self
@@ -85,10 +88,6 @@ impl Task for AggregatorMetricPublisher {
             })?;
 
         tracing::info!("Entities status: {:?}", entity_statuses);
-
-        if cfg!(test) {
-            return Ok(false);
-        }
 
         // Process each entity status
         for entity_status_with_id in entity_statuses {

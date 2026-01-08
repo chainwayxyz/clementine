@@ -30,10 +30,8 @@ use circuits_lib::bridge_circuit::{
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use clementine_errors::BridgeError;
 use eyre::Context;
-use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use jsonrpsee::rpc_params;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
@@ -181,8 +179,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// # Returns
     ///
-    /// - [`Option<u32>`]: Current L2 block height if available, None on error.
-    async fn get_current_l2_block_height(&self) -> Option<u32>;
+    /// - [`Result<u32, BridgeError>`]: Current L2 block height, or an error if the request fails or the value doesn't fit in u32.
+    async fn get_current_l2_block_height(&self) -> Result<u32, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -647,29 +645,21 @@ impl CitreaClientT for CitreaClient {
         Ok(())
     }
 
-    async fn get_current_l2_block_height(&self) -> Option<u32> {
+    async fn get_current_l2_block_height(&self) -> Result<u32, BridgeError> {
         // Query Citrea RPC to get the current L2 block number
-        let response: String = match self.client.request("eth_blockNumber", rpc_params![]).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("Failed to get L2 block height from Citrea RPC: {:?}", e);
-                return None;
-            }
-        };
+        // U256 is automatically deserialized from hex string by jsonrpsee
+        let block_number_u256 = self
+            .client
+            .block_number()
+            .await
+            .wrap_err("Failed to get L2 block height from Citrea RPC")?;
 
-        // Parse hex string to u32
-        let block_number = match u64::from_str_radix(&response[2..], 16) {
-            Ok(num) => {
-                // Convert to u32, return None if it doesn't fit
-                u32::try_from(num).ok()
-            }
-            Err(e) => {
-                tracing::error!("Failed to parse L2 block height from hex: {:?}", e);
-                None
-            }
-        };
-
-        block_number
+        // Convert U256 to u32, return error if it doesn't fit
+        let block_number: u32 = block_number_u256
+            .try_into()
+            .map_err(|_| eyre::eyre!("L2 block height {} exceeds u32::MAX", block_number_u256))
+            .wrap_err("Failed to convert L2 block height to u32")?;
+        Ok(block_number)
     }
 }
 
@@ -692,6 +682,9 @@ pub trait CitreaRpc {
         storage_keys: Vec<String>,
         block: String,
     ) -> RpcResult<serde_json::Value>;
+
+    #[method(name = "blockNumber")]
+    async fn block_number(&self) -> RpcResult<U256>;
 }
 
 // Ugly typedefs.
