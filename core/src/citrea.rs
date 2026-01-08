@@ -30,8 +30,10 @@ use circuits_lib::bridge_circuit::{
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use clementine_errors::BridgeError;
 use eyre::Context;
+use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use jsonrpsee::rpc_params;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
@@ -174,6 +176,13 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         dbtx: Option<DatabaseTransaction<'_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError>;
+
+    /// Returns the current L2 block height from Citrea.
+    ///
+    /// # Returns
+    ///
+    /// - [`Option<u32>`]: Current L2 block height if available, None on error.
+    async fn get_current_l2_block_height(&self) -> Option<u32>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -636,6 +645,31 @@ impl CitreaClientT for CitreaClient {
             return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
         }
         Ok(())
+    }
+
+    async fn get_current_l2_block_height(&self) -> Option<u32> {
+        // Query Citrea RPC to get the current L2 block number
+        let response: String = match self.client.request("eth_blockNumber", rpc_params![]).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Failed to get L2 block height from Citrea RPC: {:?}", e);
+                return None;
+            }
+        };
+
+        // Parse hex string to u32
+        let block_number = match u64::from_str_radix(&response[2..], 16) {
+            Ok(num) => {
+                // Convert to u32, return None if it doesn't fit
+                u32::try_from(num).ok()
+            }
+            Err(e) => {
+                tracing::error!("Failed to parse L2 block height from hex: {:?}", e);
+                None
+            }
+        };
+
+        block_number
     }
 }
 

@@ -169,13 +169,13 @@ pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
     actors: &TestActors<C>,
 ) -> eyre::Result<u32> {
     let mut aggregator = actors.get_aggregator();
-    let l1_sync_status = aggregator
+    let sync_status = aggregator
         .get_entity_statuses(Request::new(GetEntityStatusesRequest {
             restart_tasks: false,
         }))
         .await?
         .into_inner();
-    let min_next_sync_height = get_next_sync_heights(l1_sync_status)
+    let min_next_sync_height = get_next_sync_heights(sync_status)
         .await?
         .into_iter()
         .min()

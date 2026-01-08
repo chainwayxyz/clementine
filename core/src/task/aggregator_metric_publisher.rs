@@ -5,7 +5,7 @@ use tonic::async_trait;
 
 use crate::{
     aggregator::{Aggregator, EntityId, OperatorId, VerifierId},
-    metrics::EntityL1SyncStatusMetrics,
+    metrics::EntitySyncStatusMetrics,
     rpc::clementine::EntityType,
     task::{Task, TaskVariant},
 };
@@ -17,7 +17,7 @@ pub const AGGREGATOR_METRIC_PUBLISHER_POLL_DELAY: Duration = Duration::from_secs
 #[derive(Debug)]
 pub struct AggregatorMetricPublisher {
     aggregator: Aggregator,
-    metrics: HashMap<EntityId, EntityL1SyncStatusMetrics>,
+    metrics: HashMap<EntityId, EntitySyncStatusMetrics>,
 }
 
 impl AggregatorMetricPublisher {
@@ -58,11 +58,11 @@ impl AggregatorMetricPublisher {
     }
 
     /// Create or get metrics for an entity
-    fn get_or_create_metrics(&mut self, entity_id: EntityId) -> &mut EntityL1SyncStatusMetrics {
+    fn get_or_create_metrics(&mut self, entity_id: EntityId) -> &mut EntitySyncStatusMetrics {
         self.metrics.entry(entity_id).or_insert_with(|| {
             let scope = format!("{entity_id}_l1_sync_status");
-            EntityL1SyncStatusMetrics::describe(&scope);
-            EntityL1SyncStatusMetrics::new(&scope)
+            EntitySyncStatusMetrics::describe(&scope);
+            EntitySyncStatusMetrics::new(&scope)
         })
     }
 }
@@ -74,9 +74,6 @@ impl Task for AggregatorMetricPublisher {
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         // Metrics are not published in tests
-        if cfg!(test) {
-            return Ok(false);
-        }
         tracing::info!("Publishing metrics for aggregator");
 
         let entity_statuses = self
@@ -88,6 +85,10 @@ impl Task for AggregatorMetricPublisher {
             })?;
 
         tracing::info!("Entities status: {:?}", entity_statuses);
+
+        if cfg!(test) {
+            return Ok(false);
+        }
 
         // Process each entity status
         for entity_status_with_id in entity_statuses {
@@ -142,6 +143,9 @@ impl Task for AggregatorMetricPublisher {
                     }
                     if let Some(fee_rate) = status.btc_fee_rate_sat_vb {
                         metrics.bitcoin_fee_rate_sat_vb.set(fee_rate as f64);
+                    }
+                    if let Some(height) = status.citrea_l2_block_height {
+                        metrics.citrea_l2_block_height.set(height as f64);
                     }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {

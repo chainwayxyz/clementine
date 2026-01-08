@@ -223,6 +223,10 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<(), BridgeError> {
         Ok(())
     }
+
+    async fn get_current_l2_block_height(&self) -> Option<u32> {
+        None
+    }
 }
 
 impl MockCitreaClient {

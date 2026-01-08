@@ -25,8 +25,8 @@ const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs
 
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
-/// The L1 sync status metrics for the currently running entity. (operator/verifier)
-pub struct L1SyncStatusMetrics {
+/// The sync status metrics for the currently running entity. (operator/verifier)
+pub struct SyncStatusMetrics {
     #[metric(describe = "The current balance of the wallet in Bitcoin (BTC)")]
     pub wallet_balance_btc: Gauge,
     #[metric(describe = "The block height of the chain as seen by Bitcoin Core RPC")]
@@ -43,6 +43,8 @@ pub struct L1SyncStatusMetrics {
     pub state_manager_next_height: Gauge,
     #[metric(describe = "The current Bitcoin fee rate in sat/vB")]
     pub bitcoin_fee_rate_sat_vb: Gauge,
+    #[metric(describe = "The current Citrea L2 block height")]
+    pub citrea_l2_block_height: Gauge,
 }
 
 #[derive(Metrics)]
@@ -54,7 +56,7 @@ pub struct L1SyncStatusMetrics {
 /// `Verifier(abcdef123...)_l1_sync_status` where the XOnlyPublicKey's first 10
 /// characters are displayed, cf. [`crate::aggregator::OperatorId`] and
 /// [`crate::aggregator::VerifierId`].
-pub struct EntityL1SyncStatusMetrics {
+pub struct EntitySyncStatusMetrics {
     #[metric(describe = "The current balance of the wallet of the entity in Bitcoin (BTC)")]
     pub wallet_balance_btc: Gauge,
     #[metric(
@@ -76,6 +78,8 @@ pub struct EntityL1SyncStatusMetrics {
 
     #[metric(describe = "The current Bitcoin fee rate in sat/vB for the entity")]
     pub bitcoin_fee_rate_sat_vb: Gauge,
+    #[metric(describe = "The current Citrea L2 block height for the entity")]
+    pub citrea_l2_block_height: Gauge,
 
     #[metric(describe = "The number of error responses from the entity status endpoint")]
     pub entity_status_error_count: metrics::Counter,
@@ -85,14 +89,14 @@ pub struct EntityL1SyncStatusMetrics {
 }
 
 /// The L1 sync status metrics static for the currently running entity. (operator/verifier)
-pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
-    L1SyncStatusMetrics::describe();
-    L1SyncStatusMetrics::default()
+pub static ENTITY_SYNC_STATUS: LazyLock<SyncStatusMetrics> = LazyLock::new(|| {
+    SyncStatusMetrics::describe();
+    SyncStatusMetrics::default()
 });
 
 /// A struct containing the current sync status of the entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct L1SyncStatus {
+pub struct SyncStatus {
     pub wallet_balance: Option<Amount>,
     pub rpc_tip_height: Option<u32>,
     pub btc_syncer_synced_height: Option<u32>,
@@ -101,6 +105,7 @@ pub struct L1SyncStatus {
     pub finalized_synced_height: Option<u32>,
     pub state_manager_next_height: Option<u32>,
     pub bitcoin_fee_rate_sat_vb: Option<u64>,
+    pub citrea_l2_block_height: Option<u32>,
 }
 
 /// Get the current balance of the wallet.
@@ -188,12 +193,13 @@ pub async fn get_bitcoin_fee_rate(
 
 #[async_trait]
 /// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
-pub trait L1SyncStatusProvider: NamedEntity {
-    async fn get_l1_status(
+pub trait SyncStatusProvider: NamedEntity {
+    async fn get_sync_status<C: crate::citrea::CitreaClientT>(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
         config: &crate::config::BridgeConfig,
-    ) -> Result<L1SyncStatus, BridgeError>;
+        citrea_client: &C,
+    ) -> Result<SyncStatus, BridgeError>;
 }
 
 #[inline(always)]
@@ -218,12 +224,13 @@ fn log_errs_and_ok<A, T: NamedEntity>(
 }
 
 #[async_trait]
-impl<T: NamedEntity> L1SyncStatusProvider for T {
-    async fn get_l1_status(
+impl<T: NamedEntity> SyncStatusProvider for T {
+    async fn get_sync_status<C: crate::citrea::CitreaClientT>(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
         config: &crate::config::BridgeConfig,
-    ) -> Result<L1SyncStatus, BridgeError> {
+        citrea_client: &C,
+    ) -> Result<SyncStatus, BridgeError> {
         let wallet_balance = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
@@ -327,7 +334,18 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             "getting bitcoin fee rate",
         );
 
-        Ok(L1SyncStatus {
+        let citrea_l2_block_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_citrea_l2_block_height",
+                async { Ok(citrea_client.get_current_l2_block_height().await) },
+            )
+            .await,
+            "getting citrea L2 block height",
+        )
+        .flatten();
+
+        Ok(SyncStatus {
             wallet_balance,
             rpc_tip_height,
             btc_syncer_synced_height,
@@ -336,6 +354,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             finalized_synced_height,
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height,
         })
     }
 }
