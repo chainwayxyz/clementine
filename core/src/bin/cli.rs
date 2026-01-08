@@ -7,13 +7,17 @@ use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnl
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
-    actor::Actor, compatibility::CompatibilityParams, config::BridgeConfig, deposit::SecurityCouncil, rpc::clementine::{
+    actor::Actor,
+    compatibility::CompatibilityParams,
+    config::BridgeConfig,
+    deposit::SecurityCouncil,
+    rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
         entity_data_with_id::DataResult, Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit,
         Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, Outpoints,
         ReplacementDeposit, SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc,
         XOnlyPublicKeys,
-    }
+    },
 };
 use clementine_errors::TransactionType;
 use clementine_primitives::EVMAddress;
@@ -446,7 +450,8 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             let params = operator
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .expect("Failed to make a request")
+                .into_inner();
             let params = CompatibilityParams::try_from(params)
                 .expect("Failed to convert compatibility params");
             println!("Compatibility params:\n{params}");
@@ -540,7 +545,8 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let params = verifier
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .expect("Failed to make a request")
+                .into_inner();
             let params = CompatibilityParams::try_from(params)
                 .expect("Failed to convert compatibility params");
             println!("Compatibility params:\n{params}");
