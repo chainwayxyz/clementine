@@ -8,6 +8,7 @@ use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
+    compatibility::CompatibilityParams,
     config::BridgeConfig,
     deposit::SecurityCouncil,
     rpc::clementine::{
@@ -449,8 +450,11 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             let params = operator
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request");
-            println!("Compatibility params:\n{params:#?}");
+                .expect("Failed to make a request")
+                .into_inner();
+            let params = CompatibilityParams::try_from(params)
+                .expect("Failed to convert compatibility params");
+            println!("Compatibility params:\n{params}");
         }
         OperatorCommands::GetEntityStatus => {
             let params = operator
@@ -541,8 +545,11 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let params = verifier
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request");
-            println!("Compatibility params:\n{params:#?}");
+                .expect("Failed to make a request")
+                .into_inner();
+            let params = CompatibilityParams::try_from(params)
+                .expect("Failed to convert compatibility params");
+            println!("Compatibility params:\n{params}");
         }
         VerifierCommands::GetEntityStatus => {
             let params = verifier
@@ -581,7 +588,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .await
                 .expect("Failed to make a request");
             let params = params.into_inner();
-            println!("Compatibility params from all entities:");
             for entity in params.entities_compatibility_data {
                 match entity.entity_id {
                     Some(entity_id) => {
@@ -596,7 +602,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 match entity.data_result {
                     Some(data_result) => match data_result {
                         DataResult::Data(data) => {
-                            println!("{data:#?}");
+                            let params = CompatibilityParams::try_from(data)
+                                .expect("Failed to convert compatibility params");
+                            println!("{params}");
                         }
                         DataResult::Error(error) => {
                             println!("Error: {error}");
