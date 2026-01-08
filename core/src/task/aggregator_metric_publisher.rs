@@ -102,7 +102,7 @@ impl Task for AggregatorMetricPublisher {
             let entity_id = match Self::convert_entity_id(&proto_entity_id) {
                 Ok(id) => id,
                 Err(e) => {
-                    tracing::error!("Failed to convert entity_id ({proto_entity_id:?}), can be normal if entity unreachable: {}", e);
+                    tracing::error!("Failed to convert entity_id ({proto_entity_id:?}) to internal EntityId. This can be normal if the entity is unreachable: {e}");
                     continue;
                 }
             };

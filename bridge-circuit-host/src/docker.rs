@@ -53,10 +53,25 @@ fn get_docker_mutex() -> &'static Mutex<()> {
     DOCKER_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
-/// Acquires the docker mutex, ignoring poison errors since the mutex doesn't hold data.
-/// If a previous thread panicked while holding the mutex, we just continue.
+/// Acquires the docker mutex.  
+///  
+/// This mutex guards a unit type (`Mutex<()>`), so it is used purely for mutual exclusion  
+/// and does not protect any shared in-memory data. For that reason, it is safe to ignore  
+/// poisoning and continue using `into_inner()` to recover the guard.  
+///  
+/// However, if a previous thread panicked while holding this mutex, that panic may have  
+/// occurred in the middle of docker / skopeo / udocker operations, potentially leaving  
+/// partially completed external operations (e.g. images, containers, or files on disk) in  
+/// an inconsistent state. We log such poison events for observability but still allow  
+/// subsequent callers to proceed.  
 fn acquire_docker_mutex() -> std::sync::MutexGuard<'static, ()> {
-    get_docker_mutex().lock().unwrap_or_else(|e| e.into_inner())
+    match get_docker_mutex().lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            tracing::warn!("Docker mutex was poisoned; proceeding by recovering the inner lock. Previous docker operation may have been interrupted by a panic.");
+            e.into_inner()
+        }
+    }
 }
 
 /// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
@@ -612,9 +627,7 @@ fn pull_or_load_image(
 
 /// Pulls or loads all the images needed for the prover.
 pub fn pull_or_load_all_images() -> Result<()> {
-    let _guard = get_docker_mutex()
-        .lock()
-        .map_err(|e| eyre!("Failed to acquire docker mutex: {e:?}"))?;
+    let _guard = acquire_docker_mutex();
     if is_dev_mode() {
         pull_or_load_image(
             DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
