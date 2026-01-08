@@ -30,7 +30,7 @@ impl std::fmt::Display for CompatibilityParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "CompatibilityParams {{\n  protocol_paramset: {:?},\n  security_council: {:?},\n  citrea_chain_id: {},\n  clementine_version: {},\n  bridge_circuit_constant: {},\n  sha256_bitvm_cache: {}\n}}",
+            "CompatibilityParams {{\n  protocol_paramset: {:?},\n  security_council: {},\n  citrea_chain_id: {},\n  clementine_version: {},\n  bridge_circuit_constant: {},\n  sha256_bitvm_cache: {}\n}}",
             self.protocol_paramset,
             self.security_council,
             self.citrea_chain_id,
