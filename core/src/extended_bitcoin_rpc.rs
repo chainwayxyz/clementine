@@ -472,7 +472,7 @@ mod tests {
             .inspect_err(|e| {
                 match e {
                     BitcoinRPCError::TransactionAlreadyInBlock(_) => {}
-                    _ => panic!("Unexpected error: {e:#}"),
+                    _ => panic!("Unexpected error: {e:?}"),
                 }
             })
             .is_err());

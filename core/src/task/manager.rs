@@ -57,8 +57,8 @@ impl BackgroundTaskManager {
                 }
                 Ok(Err(e)) => {
                     // Task returned an error
-                    tracing::error!("Task {task_variant:?} failed with error: {e:#}");
-                    format!("Failed due to error: {e:#}")
+                    tracing::error!("Task {task_variant:?} failed with error: {e:?}");
+                    format!("Failed due to error: {e:?}")
                 }
                 Err(e) => {
                     if e.is_cancelled() {
@@ -67,8 +67,8 @@ impl BackgroundTaskManager {
                         "Cancelled".to_owned()
                     } else {
                         // Task panicked or was aborted
-                        tracing::error!("Task {task_variant:?} panicked: {e:#}");
-                        format!("Panicked due to {e:#}")
+                        tracing::error!("Task {task_variant:?} panicked: {e:?}");
+                        format!("Panicked due to {e:?}")
                     }
                 }
             };

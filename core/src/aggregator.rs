@@ -782,7 +782,7 @@ impl Aggregator {
                 .chain(verifier_results.into_iter())
             {
                 if let Err(e) = result {
-                    tracing::error!("{e:#}");
+                    tracing::error!("{e:?}");
                 }
             }
         }

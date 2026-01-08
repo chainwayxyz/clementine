@@ -669,7 +669,7 @@ where
         let fee_rate_option = match fee_rate_result {
             Ok(fee_rate) => Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
             Err(e) => {
-                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:#}");
+                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:?}");
                 None
             }
         };

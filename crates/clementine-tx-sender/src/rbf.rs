@@ -516,7 +516,7 @@ where
                                 true,
                             )
                             .await;
-                        tracing::warn!(?try_to_send_id, "psbt_bump_fee failed: {e:#}");
+                        tracing::warn!(?try_to_send_id, "psbt_bump_fee failed: {e:?}");
                         return Err(SendTxError::Other(eyre!(e)));
                     }
                 }
@@ -731,7 +731,7 @@ where
             self.fill_in_utxo_info(&mut psbt).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to fill in utxo info");
                 self.handle_err(
-                    format!("{err:#}"),
+                    format!("{err:?}"),
                     "rbf_fill_in_utxo_info_failed",
                     try_to_send_id,
                 );
@@ -742,7 +742,7 @@ where
             psbt = self.copy_witnesses(psbt, &tx).await.map_err(|err| {
                 let err = eyre!(err).wrap_err("Failed to copy witnesses");
                 self.handle_err(
-                    format!("{err:#}"),
+                    format!("{err:?}"),
                     "rbf_copy_witnesses_failed",
                     try_to_send_id,
                 );
@@ -758,7 +758,7 @@ where
                 .map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to process initial RBF PSBT");
                     self.handle_err(
-                        format!("{err:#}"),
+                        format!("{err:?}"),
                         "rbf_psbt_process_failed",
                         try_to_send_id,
                     );
@@ -787,7 +787,7 @@ where
                 let psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e)).map_err(|err| {
                     let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
                     self.handle_err(
-                        format!("{err:#}"),
+                        format!("{err:?}"),
                         "rbf_psbt_deserialize_failed",
                         try_to_send_id,
                     );

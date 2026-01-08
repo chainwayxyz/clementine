@@ -203,7 +203,7 @@ fn get_config_source(
 pub fn get_config(args: Args) -> BridgeConfig {
     match get_config_from_args(args) {
         Ok(config) => config,
-        Err(e) => delayed_panic!("Failed to load configuration: {e:#}"),
+        Err(e) => delayed_panic!("Failed to load configuration: {e:?}"),
     }
 }
 
