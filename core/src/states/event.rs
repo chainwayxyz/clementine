@@ -178,8 +178,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 // check for duplicates
                 for kickoff_machine in self.kickoff_machines.iter() {
+                    // if they do not have the same kickoff data (same operator + kickoff utxo), it's definitely not a duplicate
+                    if kickoff_machine.kickoff_data != kickoff_data {
+                        continue;
+                    }
                     let matches = [
-                        kickoff_machine.kickoff_data == kickoff_data,
                         kickoff_machine.deposit_data == deposit_data,
                         kickoff_machine.payout_blockhash == payout_blockhash,
                         kickoff_machine.kickoff_height == kickoff_height,
@@ -189,7 +192,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
                     // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
                     match match_count {
-                        4 => return Ok(()), // exact duplicate, skip
+                        3 => return Ok(()), // exact duplicate, skip
                         0 => {}             // no match, continue checking other machines
                         n => {
                             let mut raw_payout_blockhash = Vec::new();
@@ -209,9 +212,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                             let existing_payout_blockhash_hex =
                                 hex::encode(raw_existing_payout_blockhash);
                             return Err(eyre::eyre!(
-                            "Partial kickoff match detected ({n} of 4 fields match). This indicates data corruption or inconsistency. New kickoff data: {:?}, Existing kickoff data: {:?}, New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
+                            "Partial kickoff({:?}) match detected ({n} of 3 fields match). This indicates data corruption or inconsistency. New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
                             kickoff_data,
-                            kickoff_machine.kickoff_data,
                             deposit_data,
                             kickoff_machine.deposit_data,
                             kickoff_height,
