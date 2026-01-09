@@ -174,6 +174,13 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         dbtx: Option<DatabaseTransaction<'_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError>;
+
+    /// Returns the current L2 block height from Citrea.
+    ///
+    /// # Returns
+    ///
+    /// - [`Result<u32, BridgeError>`]: Current L2 block height, or an error if the request fails or the value doesn't fit in u32.
+    async fn get_current_l2_block_height(&self) -> Result<u32, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -637,6 +644,23 @@ impl CitreaClientT for CitreaClient {
         }
         Ok(())
     }
+
+    async fn get_current_l2_block_height(&self) -> Result<u32, BridgeError> {
+        // Query Citrea RPC to get the current L2 block number
+        // U256 is automatically deserialized from hex string by jsonrpsee
+        let block_number_u256 = self
+            .client
+            .block_number()
+            .await
+            .wrap_err("Failed to get L2 block height from Citrea RPC")?;
+
+        // Convert U256 to u32, return error if it doesn't fit
+        let block_number: u32 = block_number_u256
+            .try_into()
+            .map_err(|_| eyre::eyre!("L2 block height {} exceeds u32::MAX", block_number_u256))
+            .wrap_err("Failed to convert L2 block height to u32")?;
+        Ok(block_number)
+    }
 }
 
 #[rpc(client, namespace = "lightClientProver")]
@@ -658,6 +682,9 @@ pub trait CitreaRpc {
         storage_keys: Vec<String>,
         block: String,
     ) -> RpcResult<serde_json::Value>;
+
+    #[method(name = "blockNumber")]
+    async fn block_number(&self) -> RpcResult<U256>;
 }
 
 // Ugly typedefs.

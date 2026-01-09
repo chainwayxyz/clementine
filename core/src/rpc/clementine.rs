@@ -295,6 +295,8 @@ pub struct EntityStatus {
     pub state_manager_next_height: ::core::option::Option<u32>,
     #[prost(uint64, optional, tag = "10")]
     pub btc_fee_rate_sat_vb: ::core::option::Option<u64>,
+    #[prost(uint32, optional, tag = "11")]
+    pub citrea_l2_block_height: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityId {

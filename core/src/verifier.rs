@@ -31,7 +31,7 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
 use crate::header_chain_prover::HeaderChainProver;
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::musig2;
 use crate::operator::Operator;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
@@ -362,10 +362,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Verifier<C>>::new(
+                EntityMetricPublisher::<Verifier<C>, C>::new(
                     self.verifier.db.clone(),
                     rpc.clone(),
                     self.verifier.config.clone(),
+                    self.verifier.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -379,26 +380,28 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let l1_sync_status = Verifier::<C>::get_l1_status(
+        let sync_status = Verifier::<C>::get_sync_status(
             &self.verifier.db,
             &self.verifier.rpc,
             &self.verifier.config,
+            &self.verifier.citrea_client,
         )
         .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: l1_sync_status
+            wallet_balance: sync_status
                 .wallet_balance
                 .map(|balance| format!("{} BTC", balance.to_btc())),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
-            finalized_synced_height: l1_sync_status.finalized_synced_height,
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
-            rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height,
-            btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
+            state_manager_next_height: sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
