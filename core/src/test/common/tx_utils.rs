@@ -193,7 +193,15 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
 }
 
 #[cfg(feature = "automation")]
-// Helper function to send a transaction and mine a block
+/// Transaction data for batch sending
+pub struct TxToSend {
+    pub raw_tx: Vec<u8>,
+    pub tx_type: TxType,
+    pub rbf_info: Option<RbfSigningInfo>,
+}
+
+#[cfg(feature = "automation")]
+// Helper function to send a single transaction and mine a block
 pub async fn send_tx(
     tx_sender: &TxSenderClient<Database>,
     rpc: &ExtendedBitcoinRpc,
@@ -201,40 +209,87 @@ pub async fn send_tx(
     tx_type: TxType,
     rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
-    let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
-    let mut dbtx = tx_sender.db.begin_transaction().await?;
-
-    tx_sender
-        .insert_try_to_send(
-            Some(&mut dbtx),
-            Some(TxMetadata {
-                tx_type,
-                deposit_outpoint: None,
-                kickoff_idx: None,
-                operator_xonly_pk: None,
-                round_idx: None,
-            }),
-            &tx,
-            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
-                FeePayingType::RBF
-            } else {
-                FeePayingType::CPFP
-            },
+    send_txs(
+        tx_sender,
+        rpc,
+        vec![TxToSend {
+            raw_tx: raw_tx.to_vec(),
+            tx_type,
             rbf_info,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
-        .await
-        .expect("failed to send tx");
+        }],
+    )
+    .await
+}
+
+#[cfg(feature = "automation")]
+// Helper function to send multiple transactions and mine blocks
+pub async fn send_txs(
+    tx_sender: &TxSenderClient<Database>,
+    rpc: &ExtendedBitcoinRpc,
+    txs: Vec<TxToSend>,
+) -> Result<()> {
+    if txs.is_empty() {
+        return Ok(());
+    }
+
+    let mut dbtx = tx_sender.db.begin_transaction().await?;
+    let mut outpoints_to_ensure = Vec::new();
+    let mut txids_to_ensure = Vec::new();
+
+    // Insert all transactions first
+    for tx_data in &txs {
+        let tx: Transaction =
+            consensus::deserialize(&tx_data.raw_tx).context("expected valid tx")?;
+
+        let fee_paying_type = if tx_data.tx_type == TxType::Challenge
+            || matches!(tx_data.tx_type, TxType::WatchtowerChallenge(_))
+        {
+            FeePayingType::RBF
+        } else {
+            FeePayingType::CPFP
+        };
+
+        tx_sender
+            .insert_try_to_send(
+                Some(&mut dbtx),
+                Some(TxMetadata {
+                    tx_type: tx_data.tx_type,
+                    deposit_outpoint: None,
+                    kickoff_idx: None,
+                    operator_xonly_pk: None,
+                    round_idx: None,
+                }),
+                &tx,
+                fee_paying_type,
+                tx_data.rbf_info.clone(),
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .expect("failed to send tx");
+
+        // Collect what needs to be ensured
+        if matches!(
+            tx_data.tx_type,
+            TxType::Challenge | TxType::WatchtowerChallenge(_)
+        ) {
+            outpoints_to_ensure.push(tx.input[0].previous_output);
+        } else {
+            txids_to_ensure.push(tx.compute_txid());
+        }
+    }
 
     tx_sender.db.commit_transaction(dbtx).await?;
 
-    if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
-        ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
-    } else {
-        ensure_tx_onchain(rpc, tx.compute_txid()).await?;
+    // Now ensure all outpoints are spent and all txids are onchain
+    for outpoint in outpoints_to_ensure {
+        ensure_outpoint_spent(rpc, outpoint).await?;
+    }
+
+    for txid in txids_to_ensure {
+        ensure_tx_onchain(rpc, txid).await?;
     }
 
     Ok(())
@@ -376,7 +431,6 @@ pub async fn create_tx_sender(
         actor.clone(),
         rpc.clone(),
         db.clone(),
-        format!("tx_sender_test_{verifier_index}"),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),

@@ -219,7 +219,7 @@ pub async fn mine_once_after_in_mempool(
     tx_name: Option<&str>,
     timeout: Option<u64>,
 ) -> Result<usize, BridgeError> {
-    let timeout = timeout.unwrap_or(60);
+    let timeout = timeout.unwrap_or(90);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
     tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
@@ -231,12 +231,11 @@ pub async fn mine_once_after_in_mempool(
             );
         }
 
-        // if in mempool or already mined, break
-        if rpc.get_mempool_entry(&txid).await.is_ok()
-            || rpc
-                .get_raw_transaction_info(&txid, None)
-                .await
-                .is_ok_and(|tx| tx.blockhash.is_some())
+        // if already mined, break
+        if rpc
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .is_ok_and(|tx| tx.blockhash.is_some())
         {
             break;
         };
@@ -260,8 +259,6 @@ pub async fn mine_once_after_in_mempool(
         );
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-
-    rpc.mine_blocks(1).await?;
 
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .get_raw_transaction_info(&txid, None)

@@ -266,7 +266,6 @@ where
                 self.verifier.signer.clone(),
                 rpc.clone(),
                 self.verifier.db.clone(),
-                Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
                 self.verifier.config.protocol_paramset(),
                 Default::default(),
                 self.verifier.config.mempool_config(),
@@ -447,7 +446,7 @@ where
         let all_sessions = AllSessions::new();
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender = TxSenderClient::new(db.clone());
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -3111,7 +3110,6 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "verifier_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =

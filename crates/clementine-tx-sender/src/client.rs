@@ -19,18 +19,14 @@ where
     D: TxSenderDatabase,
 {
     pub db: D,
-    pub tx_sender_consumer_id: String,
 }
 
 impl<D> TxSenderClient<D>
 where
     D: TxSenderDatabase,
 {
-    pub fn new(db: D, tx_sender_consumer_id: String) -> Self {
-        Self {
-            db,
-            tx_sender_consumer_id,
-        }
+    pub fn new(db: D) -> Self {
+        Self { db }
     }
 
     /// Saves a transaction to the database queue for sending/fee bumping.
@@ -62,7 +58,7 @@ where
     /// # Returns
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata))]
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
@@ -88,8 +84,7 @@ where
         }
 
         tracing::info!(
-            "{} added tx {} with txid {} to the queue",
-            self.tx_sender_consumer_id,
+            "Added tx {} with txid {} to the queue",
             tx_metadata
                 .as_ref()
                 .map(|data| format!("{:?}", data.tx_type))

@@ -15,9 +15,6 @@ pub trait NamedEntity: Sync + Send + 'static {
     /// "operator", "verifier", "user"
     const ENTITY_NAME: &'static str;
 
-    /// Consumer ID for the tx sender task.
-    const TX_SENDER_CONSUMER_ID: &'static str;
-
     /// Consumer ID for the finalized block task with no automation.
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str;
 

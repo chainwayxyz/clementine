@@ -57,8 +57,7 @@ async fn base_setup(
             .await
             .expect("failed to create database");
 
-        let tx_sender =
-            TxSenderClient::<Database>::new(tx_sender_db.clone(), format!("full_flow_{i}"));
+        let tx_sender = TxSenderClient::<Database>::new(tx_sender_db.clone());
         tx_senders.push(tx_sender);
     }
 
@@ -244,6 +243,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
+    // Each watchtower challenge must use its corresponding tx_sender for correct RBF re-signing
     for (verifier_idx, verifier) in actors.get_verifiers().iter_mut().enumerate() {
         let watchtower_challenge_tx = verifier
             .internal_create_watchtower_challenge(base_tx_req.clone())
@@ -273,24 +273,33 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
     }
 
     // Send Operator Challenge Acknowledgment Transactions
+    let mut operator0 = actors.get_operator_client_by_index(0);
+    let mut operator_ack_txs_to_send = Vec::new();
     for verifier_idx in 0..actors.get_num_verifiers() {
         tracing::info!(
-            "Sending operator challenge ack transaction for verifier {}",
+            "Preparing operator challenge ack transaction for verifier {}",
             verifier_idx
         );
-        let mut operator0 = actors.get_operator_client_by_index(0);
         let operator_challenge_ack_txs = operator0
             .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
-        send_tx_with_type(
-            &rpc,
-            &tx_sender,
-            &operator_challenge_ack_txs,
-            TxType::OperatorChallengeAck(verifier_idx),
-        )
-        .await?;
+        let tx = operator_challenge_ack_txs
+            .signed_txs
+            .iter()
+            .find(|tx| {
+                tx.transaction_type == Some(TxType::OperatorChallengeAck(verifier_idx).into())
+            })
+            .unwrap();
+        operator_ack_txs_to_send.push(TxToSend {
+            raw_tx: tx.raw_tx.clone(),
+            tx_type: TxType::OperatorChallengeAck(verifier_idx),
+            rbf_info: None,
+        });
     }
+    send_txs(&tx_sender, &rpc, operator_ack_txs_to_send)
+        .await
+        .context("failed to send operator challenge ack transactions")?;
 
     // Send Assert Transactions
     let mut operator0 = actors.get_operator_client_by_index(0);
@@ -298,20 +307,18 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         .internal_create_assert_commitment_txs(base_tx_req.clone())
         .await?
         .into_inner();
+    let mut assert_txs_to_send = Vec::new();
     for (assert_idx, tx) in assert_txs.signed_txs.iter().enumerate() {
-        tracing::info!("Sending mini assert transaction {}", assert_idx);
-        send_tx(
-            &tx_sender,
-            &rpc,
-            tx.raw_tx.as_slice(),
-            TxType::MiniAssert(assert_idx),
-            None,
-        )
-        .await
-        .context(format!(
-            "failed to send mini assert transaction {assert_idx}"
-        ))?;
+        tracing::info!("Preparing mini assert transaction {}", assert_idx);
+        assert_txs_to_send.push(TxToSend {
+            raw_tx: tx.raw_tx.clone(),
+            tx_type: TxType::MiniAssert(assert_idx),
+            rbf_info: None,
+        });
     }
+    send_txs(&tx_sender, &rpc, assert_txs_to_send)
+        .await
+        .context("failed to send mini assert transactions")?;
 
     rpc.mine_blocks(BLOCKS_PER_DAY * 5).await?;
     // Send Disprove Timeout Transaction
@@ -400,21 +407,22 @@ pub async fn run_simple_assert_flow(
         .await?
         .into_inner();
 
-    // Ensure all assert transactions are sent in order
+    // Ensure all assert transactions are sent
+    let mut assert_txs_to_send = Vec::new();
     for tx in assert_txs.signed_txs.iter() {
         tracing::info!(
-            "Sending assert transaction of type: {:?}",
+            "Preparing assert transaction of type: {:?}",
             tx.transaction_type
         );
-        send_tx(
-            &tx_sender,
-            &rpc,
-            tx.raw_tx.as_slice(),
-            tx.transaction_type.unwrap().try_into().unwrap(),
-            None,
-        )
-        .await?;
+        assert_txs_to_send.push(TxToSend {
+            raw_tx: tx.raw_tx.clone(),
+            tx_type: tx.transaction_type.unwrap().try_into().unwrap(),
+            rbf_info: None,
+        });
     }
+    send_txs(&tx_sender, &rpc, assert_txs_to_send)
+        .await
+        .context("failed to send assert transactions")?;
 
     // Mine blocks to confirm transactions
     rpc.mine_blocks(10).await?;
@@ -570,14 +578,15 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
-    for watchtower_idx in 0..actors.get_num_verifiers() {
+    // Each watchtower challenge must use its corresponding tx_sender for correct RBF re-signing
+    for (watchtower_idx, tx_sender) in tx_senders.iter().enumerate() {
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
             watchtower_idx
         );
         send_tx_with_type(
             &rpc,
-            &tx_sender,
+            tx_sender,
             &all_txs,
             TxType::WatchtowerChallenge(watchtower_idx),
         )
@@ -585,26 +594,48 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
     }
 
     // Send Operator Challenge Acknowledgment Transactions
+    let mut operator_ack_txs_to_send = Vec::new();
     for verifier_idx in 0..actors.get_num_verifiers() {
         tracing::info!(
-            "Sending operator challenge ack transaction for watchtower {}",
+            "Preparing operator challenge ack transaction for watchtower {}",
             verifier_idx
         );
-        send_tx_with_type(
-            &rpc,
-            &tx_sender,
-            &all_txs,
-            TxType::OperatorChallengeAck(verifier_idx),
-        )
-        .await?;
+        let tx = all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| {
+                tx.transaction_type == Some(TxType::OperatorChallengeAck(verifier_idx).into())
+            })
+            .unwrap();
+        operator_ack_txs_to_send.push(TxToSend {
+            raw_tx: tx.raw_tx.clone(),
+            tx_type: TxType::OperatorChallengeAck(verifier_idx),
+            rbf_info: None,
+        });
     }
+    send_txs(&tx_sender, &rpc, operator_ack_txs_to_send)
+        .await
+        .context("failed to send operator challenge ack transactions")?;
 
     // Send Assert Transactions
     let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
+    let mut assert_txs_to_send = Vec::new();
     for assert_idx in 0..num_asserts {
-        tracing::info!("Sending mini assert transaction {}", assert_idx);
-        send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::MiniAssert(assert_idx)).await?;
+        tracing::info!("Preparing mini assert transaction {}", assert_idx);
+        let tx = all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| tx.transaction_type == Some(TxType::MiniAssert(assert_idx).into()))
+            .unwrap();
+        assert_txs_to_send.push(TxToSend {
+            raw_tx: tx.raw_tx.clone(),
+            tx_type: TxType::MiniAssert(assert_idx),
+            rbf_info: None,
+        });
     }
+    send_txs(&tx_sender, &rpc, assert_txs_to_send)
+        .await
+        .context("failed to send mini assert transactions")?;
 
     // Send Disprove Transaction
     tracing::info!("Sending disprove transaction");
