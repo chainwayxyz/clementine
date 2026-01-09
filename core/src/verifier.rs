@@ -1999,11 +1999,15 @@ where
         for (tx_type, signed_tx) in &signed_txs {
             if *tx_type == TransactionType::Challenge && challenged_before {
                 // do not send challenge tx if malicious but operator was already challenged in the same round
-                tracing::warn!(
-                    "Operator {:?} was already challenged in the same round, skipping challenge tx",
-                    kickoff_data.operator_xonly_pk
-                );
+                tracing::debug!(
+                    "Malicious kickoff detected: {:?}, this kickoff is not the first malicious kickoff in the current round, challenge tx: {}", kickoff_data, bitcoin::consensus::encode::serialize_hex(signed_tx));
                 continue;
+            } else if *tx_type == TransactionType::Challenge {
+                tracing::warn!("Malicious kickoff detected: {:?}, this kickoff is the first malicious kickoff in the current round, challenge tx: {}", kickoff_data, bitcoin::consensus::encode::serialize_hex(signed_tx));
+                // do not send automated challenge txs on mainnet
+                if self.config.protocol_paramset().network == bitcoin::Network::Bitcoin {
+                    continue;
+                }
             }
             match *tx_type {
                 TransactionType::Challenge
