@@ -479,6 +479,7 @@ mod tests {
                                 .expect("btc_fee_rate_sat_vb is None")
                                 > 0
                         );
+                        assert!(status.citrea_l2_block_height.is_some());
                     }
                     #[cfg(not(feature = "automation"))]
                     {
@@ -514,6 +515,7 @@ mod tests {
                                 .expect("bitcoin_fee_rate_sat_vb is None")
                                 > 0
                         );
+                        assert!(status.citrea_l2_block_height.is_some());
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
