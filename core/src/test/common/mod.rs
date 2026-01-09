@@ -404,7 +404,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         }
     })
     .await?;
-    let mut aggregator = actors.get_aggregator();
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
@@ -451,6 +450,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     };
 
     let deposit: Deposit = deposit_info.clone().into();
+
+    let mut aggregator = actors.get_aggregator();
 
     let movetx = aggregator
         .new_deposit(deposit)

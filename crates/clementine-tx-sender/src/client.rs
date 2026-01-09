@@ -78,16 +78,6 @@ where
     ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
-        tracing::debug!(
-            "{} added tx {} with txid {} to the queue",
-            self.tx_sender_consumer_id,
-            tx_metadata
-                .as_ref()
-                .map(|data| format!("{:?}", data.tx_type))
-                .unwrap_or("N/A".to_string()),
-            txid
-        );
-
         // do not add duplicate transactions to the txsender
         let tx_exists = self
             .db
@@ -96,6 +86,16 @@ where
         if let Some(try_to_send_id) = tx_exists {
             return Ok(try_to_send_id);
         }
+
+        tracing::info!(
+            "{} added tx {} with txid {} to the queue",
+            self.tx_sender_consumer_id,
+            tx_metadata
+                .as_ref()
+                .map(|data| format!("{:?}", data.tx_type))
+                .unwrap_or("N/A".to_string()),
+            txid
+        );
 
         let try_to_send_id = self
             .db
@@ -276,7 +276,7 @@ where
                 .await
             }
             TransactionType::WatchtowerChallengeTimeout(_) => {
-                // do not send watchtowet timeout if kickoff is already finalized
+                // do not send watchtower timeout if kickoff is already finalized
                 // which is done by adding kickoff finalizer utxo to cancel_outpoints
                 // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
                 let kickoff_txid = related_txs
@@ -355,7 +355,7 @@ where
                 .await
             }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue");
+                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream or denoting all txs should not be added to the queue");
             }
         }
     }

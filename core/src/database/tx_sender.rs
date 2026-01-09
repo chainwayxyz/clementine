@@ -878,6 +878,21 @@ impl Database {
         }
     }
 
+    /// Updates the effective fee rate and last bump block height for a transaction.
+    ///
+    /// This function only updates the row if the fee rate is actually changing (or is NULL).
+    /// If the fee rate hasn't changed, the entire update is skipped to preserve the existing
+    /// `last_bump_block_height`. This ensures the "stuck for 10 blocks" counter continues from
+    /// the last actual fee bump, not from retries with the same fee rate.
+    ///
+    /// # Parameters
+    /// * `tx` - Optional database transaction. If None, uses the connection's transaction.
+    /// * `id` - The transaction ID to update.
+    /// * `effective_fee_rate` - The new effective fee rate to set, the fee rate we sent the tx with.
+    /// * `block_height` - The current block height (only updated if fee rate changes).
+    ///
+    /// # Returns
+    /// Returns `Ok(())` on success, or a `BridgeError` if the update fails.
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
@@ -885,7 +900,6 @@ impl Database {
         effective_fee_rate: FeeRate,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        // Only update last_bump_block_height if fee rate is actually changing
         let query = sqlx::query(
             "UPDATE tx_sender_try_to_send_txs 
              SET effective_fee_rate = $1, last_bump_block_height = $2 
@@ -1327,6 +1341,10 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
         tx_id: u32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         self.get_tx_debug_fee_payer_utxos(tx, tx_id).await
+    }
+
+    async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
+        self.debug_inactive_txs(fee_rate, current_tip_height).await
     }
 
     async fn fetch_next_bitcoin_syncer_evt(
