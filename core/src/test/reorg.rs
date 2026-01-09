@@ -109,7 +109,6 @@ impl TestCase for TxSenderReorgBehavior {
             actor.clone(),
             rpc.clone(),
             db.clone(),
-            "tx_sender".into(),
             config.protocol_paramset(),
             config.tx_sender_limits.clone(),
             config.mempool_config(),

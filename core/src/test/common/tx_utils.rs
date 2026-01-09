@@ -376,7 +376,6 @@ pub async fn create_tx_sender(
         actor.clone(),
         rpc.clone(),
         db.clone(),
-        format!("tx_sender_test_{verifier_index}"),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),

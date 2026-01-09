@@ -244,17 +244,6 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             "getting rpc tip height",
         );
 
-        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_tx_sender_synced_height",
-                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
-            )
-            .await,
-            "getting tx sender synced height",
-        )
-        .flatten();
-
         #[cfg(feature = "automation")]
         let finalized_synced_height = log_errs_and_ok::<_, T>(
             timed_request_base(
@@ -332,7 +321,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             rpc_tip_height,
             btc_syncer_synced_height,
             hcp_last_proven_height,
-            tx_sender_synced_height,
+            tx_sender_synced_height: None,
             finalized_synced_height,
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,
@@ -423,12 +412,8 @@ mod tests {
                     #[cfg(feature = "automation")]
                     {
                         assert!(status.automation);
-                        assert!(
-                            status
-                                .tx_sender_synced_height
-                                .expect("tx_sender_synced_height is None")
-                                > 0
-                        );
+                        // deleted tx sender synced height from metrics for now
+                        assert!(status.tx_sender_synced_height.is_none());
                         assert!(
                             status
                                 .finalized_synced_height
