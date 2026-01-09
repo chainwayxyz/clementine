@@ -3,7 +3,7 @@ use clementine_errors::BridgeError;
 use std::time::Duration;
 
 pub const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(500)
+    Duration::from_millis(250)
 } else {
     Duration::from_secs(60)
 };
