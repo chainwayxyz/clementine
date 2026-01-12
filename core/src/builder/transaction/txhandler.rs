@@ -241,7 +241,6 @@ impl<T: State> TxHandler<T> {
                         .get_deposit_sig_owner()?,
                     DepositSigKeyOwner::Own(_)
                 ) {
-                    tracing::warn!("Signing key spend with annex");
                     let annex =
                         Annex::new(annex_bytes).map_err(|e| eyre::eyre!("Invalid annex: {e:?}"))?;
                     return Ok(sighash_cache
@@ -335,7 +334,6 @@ impl<T: State> TxHandler<T> {
                         .get_deposit_sig_owner()?,
                     DepositSigKeyOwner::Own(_)
                 ) {
-                    tracing::warn!("Signing script spend with annex");
                     let annex =
                         Annex::new(annex_bytes).map_err(|e| eyre::eyre!("Invalid annex: {e:?}"))?;
                     return Ok(sighash_cache

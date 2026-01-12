@@ -434,6 +434,13 @@ where
             } else if config.test_params.use_large_annex {
                 signer.annex = Some(vec![80u8; 3990000]);
             }
+            if config.test_params.use_large_annex || config.test_params.use_small_annex {
+                tracing::warn!(
+                    "Using annex: small: {}, large: {}",
+                    config.test_params.use_small_annex,
+                    config.test_params.use_large_annex
+                );
+            }
             signer
         };
 
