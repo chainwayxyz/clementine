@@ -3,13 +3,13 @@ use std::collections::HashMap;
 
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
+#[cfg(test)]
+use crate::builder::transaction::deposit_signature_owner::DepositSigKeyOwner;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-#[cfg(test)]
-use crate::builder::transaction::deposit_signature_owner::DepositSigKeyOwner;
 use alloy::signers::k256;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::hashes::hash160;

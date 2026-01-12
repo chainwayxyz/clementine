@@ -182,8 +182,12 @@ async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let use_annex = rand::random::<bool>();
     if use_annex {
-        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<true>).run().await
+        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<true>)
+            .run()
+            .await
     } else {
-        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<false>).run().await
+        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<false>)
+            .run()
+            .await
     }
 }
