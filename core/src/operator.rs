@@ -219,7 +219,19 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        #[cfg(not(test))]
         let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+
+        #[cfg(test)]
+        let signer = {
+            let mut signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+            if config.test_params.use_small_annex {
+                signer.annex = Some(vec![80u8; 520]);
+            } else if config.test_params.use_large_annex {
+                signer.annex = Some(vec![80u8; 3990000]);
+            }
+            signer
+        };
 
         let db = Database::new(&config).await?;
         let rpc = ExtendedBitcoinRpc::connect(
@@ -1433,9 +1445,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);

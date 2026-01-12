@@ -33,20 +33,28 @@ pub enum TestVariant {
     CorruptedPublicInput,
 }
 
-struct AdditionalDisproveTest {
+struct AdditionalDisproveTest<const USE_ANNEX: bool> {
     variant: TestVariant,
 }
 
 #[async_trait]
-impl TestCase for AdditionalDisproveTest {
+impl<const USE_ANNEX: bool> TestCase for AdditionalDisproveTest<USE_ANNEX> {
     fn bitcoin_config() -> BitcoinConfig {
+        let mut extra_args = vec![
+            "-txindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+            "-dustrelayfee=0",
+        ];
+
+        // Citrea E2E uses its own bitcoind instances. Annex is non-standard, so we need to
+        // enable non-standard tx relay only when annex is in use.
+        if USE_ANNEX {
+            extra_args.push("-acceptnonstdtxn=1");
+        }
+
         BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
+            extra_args,
             ..Default::default()
         }
     }
@@ -99,6 +107,8 @@ impl TestCase for AdditionalDisproveTest {
         let batch_prover = batch_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        // Keep Clementine config consistent with the Bitcoin node policy used by this testcase.
+        config.test_params.use_small_annex = USE_ANNEX;
 
         match self.variant {
             TestVariant::CorruptedLatestBlockHash => {
@@ -230,10 +240,18 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedLatestBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let additional_disprove_test = AdditionalDisproveTest::<true> {
+            variant: TestVariant::CorruptedLatestBlockHash,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    } else {
+        let additional_disprove_test = AdditionalDisproveTest::<false> {
+            variant: TestVariant::CorruptedLatestBlockHash,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    }
 }
 
 /// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
@@ -256,10 +274,18 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPayoutTxBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let additional_disprove_test = AdditionalDisproveTest::<true> {
+            variant: TestVariant::CorruptedPayoutTxBlockHash,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    } else {
+        let additional_disprove_test = AdditionalDisproveTest::<false> {
+            variant: TestVariant::CorruptedPayoutTxBlockHash,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    }
 }
 
 /// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
@@ -282,10 +308,18 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedChallengeSendingWatchtowers,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let additional_disprove_test = AdditionalDisproveTest::<true> {
+            variant: TestVariant::CorruptedChallengeSendingWatchtowers,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    } else {
+        let additional_disprove_test = AdditionalDisproveTest::<false> {
+            variant: TestVariant::CorruptedChallengeSendingWatchtowers,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    }
 }
 
 /// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
@@ -308,10 +342,18 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::OperatorForgotWatchtowerChallenge,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let additional_disprove_test = AdditionalDisproveTest::<true> {
+            variant: TestVariant::OperatorForgotWatchtowerChallenge,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    } else {
+        let additional_disprove_test = AdditionalDisproveTest::<false> {
+            variant: TestVariant::OperatorForgotWatchtowerChallenge,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    }
 }
 
 /// Tests the disprove mechanism when the public input is intentionally corrupted.
@@ -334,8 +376,16 @@ async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> 
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPublicInput,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let additional_disprove_test = AdditionalDisproveTest::<true> {
+            variant: TestVariant::CorruptedPublicInput,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    } else {
+        let additional_disprove_test = AdditionalDisproveTest::<false> {
+            variant: TestVariant::CorruptedPublicInput,
+        };
+        TestCaseRunner::new(additional_disprove_test).run().await
+    }
 }

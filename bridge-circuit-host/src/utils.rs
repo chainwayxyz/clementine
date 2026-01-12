@@ -295,7 +295,7 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     result
 }
 
-pub fn total_work_from_wt_tx(wt_tx: &bitcoin::Transaction) -> [u8; 16] {
+pub fn total_work_from_wt_tx_test_util(wt_tx: &bitcoin::Transaction) -> [u8; 16] {
     use circuits_lib::bridge_circuit::parse_op_return_data;
     match wt_tx.output.as_slice() {
         // Single OP_RETURN output with 144 bytes

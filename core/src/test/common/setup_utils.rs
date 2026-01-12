@@ -138,6 +138,9 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-minrelaytxfee=0".to_string());
         args.push("-acceptnonstdtxn=1".to_string());
         args.push("-blockmintxfee=0".to_string());
+    } else if config.test_params.use_small_annex || config.test_params.use_large_annex {
+        // annex is nonstandard
+        args.push("-acceptnonstdtxn=1".to_string());
     }
 
     // Create log file in temp directory
@@ -245,6 +248,10 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
         citrea_rpc_url: handle.to_string(),
         ..Default::default()
     };
+
+    // 50% chance to enable annex tests. (Large annex is opt-in elsewhere.)
+    config.test_params.use_small_annex = rand::random::<bool>();
+
     let mut new_paramset = config.protocol_paramset().clone();
     new_paramset.finality_depth = DEFAULT_FINALITY_DEPTH as u32;
     config.protocol_paramset = Box::leak(Box::new(new_paramset));

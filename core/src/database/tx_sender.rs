@@ -1235,8 +1235,6 @@ mod tests {
         let rbfinfo = Some(RbfSigningInfo {
             vout: 123,
             tweak_merkle_root: Some(TapNodeHash::all_zeros()),
-            annex: None,
-            additional_taproot_output_count: None,
         });
         let id = db
             .save_tx(None, None, &tx, FeePayingType::CPFP, txid, rbfinfo.clone())

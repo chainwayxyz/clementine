@@ -19,10 +19,6 @@ pub struct RbfSigningInfo {
     pub vout: u32,
     /// The tweak merkle root for the taproot keyspend.
     pub tweak_merkle_root: Option<TapNodeHash>,
-    /// Annex data (used for testing large transaction scenarios).
-    pub annex: Option<Vec<u8>>,
-    /// Additional taproot output count (used for testing large transaction scenarios).
-    pub additional_taproot_output_count: Option<u32>,
 }
 
 /// Contains information about the spend path that is needed to sign the utxo.

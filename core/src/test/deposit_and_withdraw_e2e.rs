@@ -73,20 +73,28 @@ pub enum CitreaDepositAndWithdrawE2EVariant {
     GenesisHeightNonZero,
 }
 
-struct CitreaDepositAndWithdrawE2E {
+struct CitreaDepositAndWithdrawE2E<const USE_ANNEX: bool> {
     variant: CitreaDepositAndWithdrawE2EVariant,
 }
 
 #[async_trait]
-impl TestCase for CitreaDepositAndWithdrawE2E {
+impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> {
     fn bitcoin_config() -> BitcoinConfig {
+        let mut extra_args = vec![
+            "-txindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+            "-dustrelayfee=0",
+        ];
+
+        // Citrea E2E uses its own bitcoind instances. Annex is non-standard, so we need to
+        // enable non-standard tx relay only when annex is in use.
+        if USE_ANNEX {
+            extra_args.push("-acceptnonstdtxn=1");
+        }
+
         BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
+            extra_args,
             ..Default::default()
         }
     }
@@ -135,6 +143,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        // Keep Clementine config consistent with the Bitcoin node policy used by this testcase.
+        config.test_params.use_small_annex = USE_ANNEX;
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
@@ -525,10 +535,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let citrea_e2e = CitreaDepositAndWithdrawE2E::<true> {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+        };
+        TestCaseRunner::new(citrea_e2e).run().await
+    } else {
+        let citrea_e2e = CitreaDepositAndWithdrawE2E::<false> {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+        };
+        TestCaseRunner::new(citrea_e2e).run().await
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -536,10 +554,18 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    let use_annex = rand::random::<bool>();
+    if use_annex {
+        let citrea_e2e = CitreaDepositAndWithdrawE2E::<true> {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
+        };
+        TestCaseRunner::new(citrea_e2e).run().await
+    } else {
+        let citrea_e2e = CitreaDepositAndWithdrawE2E::<false> {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
+        };
+        TestCaseRunner::new(citrea_e2e).run().await
+    }
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.

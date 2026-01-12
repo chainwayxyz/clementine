@@ -423,7 +423,19 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        #[cfg(not(test))]
         let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+
+        #[cfg(test)]
+        let signer = {
+            let mut signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+            if config.test_params.use_small_annex {
+                signer.annex = Some(vec![80u8; 520]);
+            } else if config.test_params.use_large_annex {
+                signer.annex = Some(vec![80u8; 3990000]);
+            }
+            signer
+        };
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -2136,36 +2148,6 @@ where
                 Some(dbtx),
             )
             .await?;
-
-        #[cfg(test)]
-        let mut annex: Option<Vec<u8>> = None;
-
-        // #[cfg(test)]
-        // this variable is not used anywhere, but keeping it here in case we can incorpoate into tests
-        // let mut additional_taproot_output_count = None;
-
-        #[cfg(test)]
-        {
-            if self.config.test_params.use_small_annex {
-                annex = Some(vec![80u8; 10000]);
-            } else if self.config.test_params.use_large_annex {
-                annex = Some(vec![80u8; 3990000]);
-            } else if self.config.test_params.use_large_annex_and_output {
-                annex = Some(vec![80u8; 3000000]);
-                //additional_taproot_output_count = Some(2300);
-            } else if self.config.test_params.use_large_output {
-                //additional_taproot_output_count = Some(2300);
-            }
-        }
-
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = annex {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
 
         #[cfg(feature = "automation")]
         {
