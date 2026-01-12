@@ -21,164 +21,160 @@ impl Database {
     /// and any previously missed updates due to race conditions.
     pub async fn sync_transaction_confirmations(
         &self,
-        mut tx: Option<DatabaseTransaction<'_>>,
+        tx: Option<DatabaseTransaction<'_>>,
     ) -> Result<(), BridgeError> {
-        // Confirm all transactions that are in canonical blocks
-        let query1 = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_txids AS tap
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_txs bst
-            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-            WHERE tap.txid = bst.txid
-            AND tap.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query1, execute)?;
-
-        let query2 = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_spent_utxos bsu
-            JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-            WHERE tap.txid = bsu.txid
-            AND tap.vout = bsu.vout
-            AND tap.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query2, execute)?;
-
-        let query3 = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_txs bst
-            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-            WHERE ctt.txid = bst.txid
-            AND ctt.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query3, execute)?;
-
-        let query4 = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_spent_utxos bsu
-            JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-            WHERE cto.txid = bsu.txid
-            AND cto.vout = bsu.vout
-            AND cto.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query4, execute)?;
-
-        let query5 = sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_txs bst
-            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-            WHERE fpu.fee_payer_txid = bst.txid
-            AND fpu.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query5, execute)?;
-
-        let query6 = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = bs.id
-            FROM bitcoin_syncer_txs bst
-            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-            WHERE txs.txid = bst.txid
-            AND txs.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query6, execute)?;
-
-        // Handle RBF confirmations: if any RBF txid is confirmed, mark the parent transaction
-        let query7 = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = bs.id
-            FROM tx_sender_rbf_txids AS rbf
-            JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
-            JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-            WHERE txs.id = rbf.id
-            AND txs.seen_block_id IS NULL
-            AND bs.is_canonical = TRUE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query7, execute)?;
-
-        // Unconfirm all transactions that reference non-canonical blocks
-        let query8 = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_txids AS tap
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE tap.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query8, execute)?;
-
-        let query9 = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE tap.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query9, execute)?;
-
-        let query10 = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE ctt.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query10, execute)?;
-
-        let query11 = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE cto.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query11, execute)?;
-
-        let query12 = sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE fpu.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query12, execute)?;
-
-        let query13 = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = NULL
-            FROM bitcoin_syncer bs
-            WHERE txs.seen_block_id = bs.id
-            AND bs.is_canonical = FALSE",
-        );
-        execute_query_with_tx!(self.connection, tx.as_deref_mut(), query13, execute)?;
-
-        // Handle RBF unconfirmations: unconfirm the parent transaction if
-        // it has RBF txids and ALL of them are unconfirmed
-        let query14 = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = NULL
-            WHERE txs.seen_block_id IS NOT NULL
-            AND EXISTS (
-                SELECT 1 FROM tx_sender_rbf_txids AS rbf
-                WHERE rbf.id = txs.id
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM tx_sender_rbf_txids AS rbf
+        // Do all confirmation/unconfirmation updates in one round-trip.
+        // Postgres writable CTEs are executed in-order, so this preserves the
+        // original semantics while avoiding 14 separate UPDATEs.
+        let query = sqlx::query(
+            r#"
+            WITH
+            u1 AS (
+                UPDATE tx_sender_activate_try_to_send_txids AS tap
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE tap.txid = bst.txid
+                  AND tap.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u2 AS (
+                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_spent_utxos bsu
+                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+                WHERE tap.txid = bsu.txid
+                  AND tap.vout = bsu.vout
+                  AND tap.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u3 AS (
+                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE ctt.txid = bst.txid
+                  AND ctt.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u4 AS (
+                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_spent_utxos bsu
+                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+                WHERE cto.txid = bsu.txid
+                  AND cto.vout = bsu.vout
+                  AND cto.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u5 AS (
+                UPDATE tx_sender_fee_payer_utxos AS fpu
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE fpu.fee_payer_txid = bst.txid
+                  AND fpu.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u6 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE txs.txid = bst.txid
+                  AND txs.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u7 AS (
+                -- Handle RBF confirmations: if any RBF txid is confirmed, mark the parent transaction
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = bs.id
+                FROM tx_sender_rbf_txids AS rbf
                 JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
                 JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE rbf.id = txs.id
-                AND bs.is_canonical = TRUE
-            )",
+                WHERE txs.id = rbf.id
+                  AND txs.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+                RETURNING 1
+            ),
+            u8 AS (
+                -- Unconfirm all transactions that reference non-canonical blocks
+                UPDATE tx_sender_activate_try_to_send_txids AS tap
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE tap.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u9 AS (
+                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE tap.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u10 AS (
+                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE ctt.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u11 AS (
+                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE cto.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u12 AS (
+                UPDATE tx_sender_fee_payer_utxos AS fpu
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE fpu.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u13 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE txs.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+                RETURNING 1
+            ),
+            u14 AS (
+                -- Handle RBF unconfirmations: unconfirm the parent transaction if
+                -- it has RBF txids and ALL of them are unconfirmed
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = NULL
+                WHERE txs.seen_block_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
+                      WHERE rbf.id = txs.id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
+                      JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
+                      JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                      WHERE rbf.id = txs.id
+                        AND bs.is_canonical = TRUE
+                  )
+                RETURNING 1
+            )
+            SELECT 1;
+            "#,
         );
-        execute_query_with_tx!(self.connection, tx, query14, execute)?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
