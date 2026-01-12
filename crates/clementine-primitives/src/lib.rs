@@ -190,6 +190,15 @@ pub enum RoundIndex {
     Round(usize), // 0-indexed
 }
 
+impl std::fmt::Display for RoundIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoundIndex::Collateral => write!(f, "Collateral"),
+            RoundIndex::Round(index) => write!(f, "Round({index})"),
+        }
+    }
+}
+
 impl RoundIndex {
     /// Converts the round to a 0-indexed index.
     pub fn to_index(&self) -> usize {

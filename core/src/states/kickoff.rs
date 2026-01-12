@@ -386,9 +386,16 @@ impl<T: Owner> KickoffStateMachine<T> {
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
+                    // Add relevant txs to tx sender if the kickoff is challenged
+                    context
+                        .dispatch_duty(Duty::AddRelevantTxsToTxSenderIfChallenged {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                        })
+                        .await?;
                     Ok::<(), BridgeError>(())
                 }
-                .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
+                .wrap_err(self.kickoff_meta("on_challenged_entry"))
             })
             .await;
         // check if any action is ready to be started as it could already be ready before a challenge arrives

@@ -9,7 +9,6 @@ use tokio::sync::Mutex;
 use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
-    states::Duty,
 };
 use clementine_errors::BridgeError;
 
@@ -271,15 +270,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
-                // if everything is fine, add the relevant txs to the tx sender
-                // this will already be added normally, but if there was a db loss and we are resyncing, the txs will not be added.
-                // so we add them with this duty.
-                context
-                    .dispatch_duty(Duty::AddRelevantTxsToTxSender {
-                        kickoff_data,
-                        deposit_data,
-                    })
-                    .await?;
             }
         };
 
