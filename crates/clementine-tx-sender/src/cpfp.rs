@@ -121,8 +121,8 @@ where
             signed_witnesses.push((input_index, Witness::p2tr_key_spend(&tr_sig)));
         }
 
-        for (idx, wit) in signed_witnesses {
-            child_tx.input[idx].witness = wit;
+        for (idx, witness) in signed_witnesses {
+            child_tx.input[idx].witness = witness;
         }
 
         Ok(child_tx)
