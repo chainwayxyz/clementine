@@ -38,19 +38,16 @@ where
     pub async fn run_once(&mut self) -> Result<bool, BridgeError> {
         let mut dbtx = self.inner.db.begin_transaction().await?;
 
-        // Sync transaction confirmations based on canonical block status
-        self.inner
-            .db
-            .sync_transaction_confirmations(Some(&mut dbtx))
-            .await?;
-
-        // Get current tip height
+        // Get current tip height from Bitcoin RPC, then sync confirmations/spent tracking.
         self.current_tip_height = self
             .inner
-            .db
-            .get_max_height(Some(&mut dbtx))
-            .await?
-            .unwrap_or(0);
+            .rpc
+            .get_current_chain_height()
+            .await
+            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+        self.inner
+            .sync_transaction_confirmations_via_rpc(Some(&mut dbtx), self.current_tip_height)
+            .await?;
 
         self.inner.db.commit_transaction(dbtx).await?;
 

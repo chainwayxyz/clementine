@@ -6,7 +6,7 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::execute_query_with_tx;
 use bitcoin::{
     consensus::{deserialize, serialize},
-    Amount, FeeRate, Transaction, Txid,
+    Amount, FeeRate, OutPoint, Transaction, Txid,
 };
 use clementine_errors::BridgeError;
 use clementine_tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid};
@@ -15,169 +15,9 @@ use eyre::{Context, OptionExt};
 use sqlx::Executor;
 
 impl Database {
-    /// Synchronizes transaction confirmations based on canonical block status.
-    /// Confirms transactions in canonical blocks and unconfirms transactions in
-    /// non-canonical blocks. This handles both new confirmations/unconfirmations
-    /// and any previously missed updates due to race conditions.
-    pub async fn sync_transaction_confirmations(
-        &self,
-        tx: Option<DatabaseTransaction<'_>>,
-    ) -> Result<(), BridgeError> {
-        // Do all confirmation/unconfirmation updates in one round-trip.
-        // Postgres writable CTEs are executed in-order, so this preserves the
-        // original semantics while avoiding 14 separate UPDATEs.
-        let query = sqlx::query(
-            r#"
-            WITH
-            u1 AS (
-                UPDATE tx_sender_activate_try_to_send_txids AS tap
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_txs bst
-                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE tap.txid = bst.txid
-                  AND tap.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u2 AS (
-                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_spent_utxos bsu
-                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-                WHERE tap.txid = bsu.txid
-                  AND tap.vout = bsu.vout
-                  AND tap.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u3 AS (
-                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_txs bst
-                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE ctt.txid = bst.txid
-                  AND ctt.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u4 AS (
-                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_spent_utxos bsu
-                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-                WHERE cto.txid = bsu.txid
-                  AND cto.vout = bsu.vout
-                  AND cto.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u5 AS (
-                UPDATE tx_sender_fee_payer_utxos AS fpu
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_txs bst
-                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE fpu.fee_payer_txid = bst.txid
-                  AND fpu.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u6 AS (
-                UPDATE tx_sender_try_to_send_txs AS txs
-                SET seen_block_id = bs.id
-                FROM bitcoin_syncer_txs bst
-                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE txs.txid = bst.txid
-                  AND txs.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u7 AS (
-                -- Handle RBF confirmations: if any RBF txid is confirmed, mark the parent transaction
-                UPDATE tx_sender_try_to_send_txs AS txs
-                SET seen_block_id = bs.id
-                FROM tx_sender_rbf_txids AS rbf
-                JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
-                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                WHERE txs.id = rbf.id
-                  AND txs.seen_block_id IS NULL
-                  AND bs.is_canonical = TRUE
-                RETURNING 1
-            ),
-            u8 AS (
-                -- Unconfirm all transactions that reference non-canonical blocks
-                UPDATE tx_sender_activate_try_to_send_txids AS tap
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE tap.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u9 AS (
-                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE tap.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u10 AS (
-                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE ctt.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u11 AS (
-                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE cto.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u12 AS (
-                UPDATE tx_sender_fee_payer_utxos AS fpu
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE fpu.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u13 AS (
-                UPDATE tx_sender_try_to_send_txs AS txs
-                SET seen_block_id = NULL
-                FROM bitcoin_syncer bs
-                WHERE txs.seen_block_id = bs.id
-                  AND bs.is_canonical = FALSE
-                RETURNING 1
-            ),
-            u14 AS (
-                -- Handle RBF unconfirmations: unconfirm the parent transaction if
-                -- it has RBF txids and ALL of them are unconfirmed
-                UPDATE tx_sender_try_to_send_txs AS txs
-                SET seen_block_id = NULL
-                WHERE txs.seen_block_id IS NOT NULL
-                  AND EXISTS (
-                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
-                      WHERE rbf.id = txs.id
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
-                      JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
-                      JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-                      WHERE rbf.id = txs.id
-                        AND bs.is_canonical = TRUE
-                  )
-                RETURNING 1
-            )
-            SELECT 1;
-            "#,
-        );
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
+    // NOTE: legacy `sync_transaction_confirmations` was removed.
+    // Confirmation/spent tracking is now done in the tx-sender crate via Bitcoin RPC,
+    // and persisted into tx-sender tables using `seen_at_height`.
 
     /// Saves a fee payer transaction to the database.
     ///
@@ -233,13 +73,13 @@ impl Database {
             "
             SELECT fpu.id, fpu.bumped_id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.replacement_of_id
             FROM tx_sender_fee_payer_utxos fpu
-            WHERE fpu.seen_block_id IS NULL
+            WHERE fpu.seen_at_height IS NULL
               AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
                   WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
-                    AND x.seen_block_id IS NOT NULL
+                    AND x.seen_at_height IS NOT NULL
               )
             ",
         );
@@ -294,13 +134,13 @@ impl Database {
             SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_id = $1
-              AND fpu.seen_block_id IS NULL
+              AND fpu.seen_at_height IS NULL
               AND fpu.is_evicted = false
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
                   WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
-                    AND x.seen_block_id IS NOT NULL
+                    AND x.seen_at_height IS NOT NULL
               )
             ",
         )
@@ -350,7 +190,7 @@ impl Database {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount
              FROM tx_sender_fee_payer_utxos fpu
-             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
+             WHERE fpu.bumped_id = $1 AND fpu.seen_at_height IS NOT NULL",
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
@@ -544,11 +384,9 @@ impl Database {
                         activate_txid.activated_id AS tx_id
                     FROM
                         tx_sender_activate_try_to_send_txids AS activate_txid
-                    LEFT JOIN
-                        bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
                     WHERE
-                        activate_txid.seen_block_id IS NULL
-                        OR (syncer.height + activate_txid.timelock > $2)
+                        activate_txid.seen_at_height IS NULL
+                        OR (activate_txid.seen_at_height::bigint + activate_txid.timelock > $2::bigint)
 
                     UNION
 
@@ -557,11 +395,9 @@ impl Database {
                         activate_outpoint.activated_id AS tx_id
                     FROM
                         tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                    LEFT JOIN
-                        bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
                     WHERE
-                        activate_outpoint.seen_block_id IS NULL
-                        OR (syncer.height + activate_outpoint.timelock > $2)
+                        activate_outpoint.seen_at_height IS NULL
+                        OR (activate_outpoint.seen_at_height::bigint + activate_outpoint.timelock > $2::bigint)
                 ),
 
                 -- Transactions with cancelled conditions
@@ -572,7 +408,7 @@ impl Database {
                     FROM
                         tx_sender_cancel_try_to_send_outpoints
                     WHERE
-                        seen_block_id IS NOT NULL
+                        seen_at_height IS NOT NULL
 
                     UNION
 
@@ -582,7 +418,7 @@ impl Database {
                     FROM
                         tx_sender_cancel_try_to_send_txids
                     WHERE
-                        seen_block_id IS NOT NULL
+                        seen_at_height IS NOT NULL
                 )
 
                 -- Final query to get sendable transactions
@@ -596,7 +432,7 @@ impl Database {
                     -- Transaction must not be in the cancelled list
                     AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
                     -- Transaction must not be already confirmed
-                    AND txs.seen_block_id IS NULL
+                    AND txs.seen_at_height IS NULL
                     -- Check if fee_rate is lower than the provided fee rate or null
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
@@ -708,7 +544,7 @@ impl Database {
                 Option<String>,
             ),
         >(
-            "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id, rbf_signing_info
+            "SELECT tx_metadata, raw_tx, fee_paying_type, seen_at_height, rbf_signing_info
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
         )
@@ -729,7 +565,7 @@ impl Database {
                 .3
                 .map(u32::try_from)
                 .transpose()
-                .wrap_err("Failed to convert seen_block_id to u32")?,
+                .wrap_err("Failed to convert seen_at_height to u32")?,
             serde_json::from_str(result.4.as_deref().unwrap_or("null")).wrap_err_with(|| {
                 format!("Failed to decode rbf_signing_info from {:?}", result.4)
             })?,
@@ -843,7 +679,7 @@ impl Database {
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64, bool)>(
             r#"
-            SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
+            SELECT fee_payer_txid, vout, amount, seen_at_height IS NOT NULL as confirmed
             FROM tx_sender_fee_payer_utxos
             WHERE bumped_id = $1
             "#,
@@ -866,6 +702,404 @@ impl Database {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    // -------------------------------------------------------------------------
+    // RPC-driven confirmation/spent tracking (tx-sender crate owns the logic)
+    // -------------------------------------------------------------------------
+
+    pub async fn list_unfinalized_try_to_send_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, FeePayingType, TxidDB, Option<i32>)>(
+            r#"
+            SELECT id, fee_paying_type, txid, seen_at_height
+            FROM tx_sender_try_to_send_txs
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(id, fee_paying_type, txid, seen_at_height)| {
+                Ok((
+                    u32::try_from(id).wrap_err("Failed to convert id to u32")?,
+                    fee_paying_type,
+                    txid.0,
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn list_rbf_txids_for_ids(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        ids: &[u32],
+    ) -> Result<Vec<(u32, Txid)>, BridgeError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let ids_i32: Vec<i32> = ids
+            .iter()
+            .copied()
+            .map(i32::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .wrap_err("Failed to convert ids to i32")?;
+
+        let query = sqlx::query_as::<_, (i32, TxidDB)>(
+            "SELECT id, txid FROM tx_sender_rbf_txids WHERE id = ANY($1)",
+        )
+        .bind(ids_i32);
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(id, txid)| {
+                Ok((
+                    u32::try_from(id).wrap_err("Failed to convert id to u32")?,
+                    txid.0,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_try_to_send_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        id: u32,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query =
+            sqlx::query("UPDATE tx_sender_try_to_send_txs SET seen_at_height = $2 WHERE id = $1")
+                .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
+                .bind(
+                    seen_at_height
+                        .map(i32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to i32")?,
+                );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn list_unfinalized_fee_payer_utxos(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
+            r#"
+            SELECT id, fee_payer_txid, seen_at_height
+            FROM tx_sender_fee_payer_utxos
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(id, txid, seen_at_height)| {
+                Ok((
+                    u32::try_from(id).wrap_err("Failed to convert id to u32")?,
+                    txid.0,
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_fee_payer_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        fee_payer_utxo_id: u32,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query =
+            sqlx::query("UPDATE tx_sender_fee_payer_utxos SET seen_at_height = $2 WHERE id = $1")
+                .bind(i32::try_from(fee_payer_utxo_id).wrap_err("Failed to convert id to i32")?)
+                .bind(
+                    seen_at_height
+                        .map(i32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to i32")?,
+                );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn list_unfinalized_cancel_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
+            r#"
+            SELECT cancelled_id, txid, seen_at_height
+            FROM tx_sender_cancel_try_to_send_txids
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(cancelled_id, txid, seen_at_height)| {
+                Ok((
+                    u32::try_from(cancelled_id)
+                        .wrap_err("Failed to convert cancelled_id to u32")?,
+                    txid.0,
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_cancel_txid_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        cancelled_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_txids SET seen_at_height = $3 WHERE cancelled_id = $1 AND txid = $2",
+        )
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
+        .bind(TxidDB(txid))
+        .bind(
+            seen_at_height
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_at_height to i32")?,
+        );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn list_unfinalized_activate_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
+            r#"
+            SELECT activated_id, txid, seen_at_height
+            FROM tx_sender_activate_try_to_send_txids
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(activated_id, txid, seen_at_height)| {
+                Ok((
+                    u32::try_from(activated_id)
+                        .wrap_err("Failed to convert activated_id to u32")?,
+                    txid.0,
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_activate_txid_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        activated_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_txids SET seen_at_height = $3 WHERE activated_id = $1 AND txid = $2",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
+        .bind(TxidDB(txid))
+        .bind(
+            seen_at_height
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_at_height to i32")?,
+        );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn list_unfinalized_cancel_outpoints(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
+            r#"
+            SELECT cancelled_id, txid, vout, seen_at_height
+            FROM tx_sender_cancel_try_to_send_outpoints
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(cancelled_id, txid, vout, seen_at_height)| {
+                Ok((
+                    u32::try_from(cancelled_id)
+                        .wrap_err("Failed to convert cancelled_id to u32")?,
+                    OutPoint {
+                        txid: txid.0,
+                        vout: u32::try_from(vout).wrap_err("Failed to convert vout to u32")?,
+                    },
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_cancel_outpoint_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        cancelled_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_outpoints SET seen_at_height = $4 WHERE cancelled_id = $1 AND txid = $2 AND vout = $3",
+        )
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
+        .bind(TxidDB(outpoint.txid))
+        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(
+            seen_at_height
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_at_height to i32")?,
+        );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn list_unfinalized_activate_outpoints(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
+            r#"
+            SELECT activated_id, txid, vout, seen_at_height
+            FROM tx_sender_activate_try_to_send_outpoints
+            WHERE seen_at_height IS NULL
+               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            "#,
+        )
+        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
+        .bind(
+            i32::try_from(finality_confirmations)
+                .wrap_err("Failed to convert finality confirmations to i32")?,
+        );
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(activated_id, txid, vout, seen_at_height)| {
+                Ok((
+                    u32::try_from(activated_id)
+                        .wrap_err("Failed to convert activated_id to u32")?,
+                    OutPoint {
+                        txid: txid.0,
+                        vout: u32::try_from(vout).wrap_err("Failed to convert vout to u32")?,
+                    },
+                    seen_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn set_activate_outpoint_seen_at_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        activated_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_outpoints SET seen_at_height = $4 WHERE activated_id = $1 AND txid = $2 AND vout = $3",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
+        .bind(TxidDB(outpoint.txid))
+        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(
+            seen_at_height
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_at_height to i32")?,
+        );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
     }
 }
 
@@ -1114,18 +1348,136 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
         self.debug_inactive_txs(fee_rate, current_tip_height).await
     }
 
-    async fn sync_transaction_confirmations(
+    async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<&mut Self::Transaction>,
-    ) -> Result<(), BridgeError> {
-        self.sync_transaction_confirmations(tx).await
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_try_to_send_txs(tx, tip_height, finality_confirmations)
+            .await
     }
 
-    async fn get_max_height(
+    async fn list_rbf_txids_for_ids(
         &self,
         tx: Option<&mut Self::Transaction>,
-    ) -> Result<Option<u32>, BridgeError> {
-        self.get_max_height(tx).await
+        ids: &[u32],
+    ) -> Result<Vec<(u32, Txid)>, BridgeError> {
+        self.list_rbf_txids_for_ids(tx, ids).await
+    }
+
+    async fn set_try_to_send_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        id: u32,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_try_to_send_seen_at_height(tx, id, seen_at_height)
+            .await
+    }
+
+    async fn list_unfinalized_fee_payer_utxos(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_fee_payer_utxos(tx, tip_height, finality_confirmations)
+            .await
+    }
+
+    async fn set_fee_payer_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        fee_payer_utxo_id: u32,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_fee_payer_seen_at_height(tx, fee_payer_utxo_id, seen_at_height)
+            .await
+    }
+
+    async fn list_unfinalized_cancel_txids(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_cancel_txids(tx, tip_height, finality_confirmations)
+            .await
+    }
+
+    async fn set_cancel_txid_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_cancel_txid_seen_at_height(tx, cancelled_id, txid, seen_at_height)
+            .await
+    }
+
+    async fn list_unfinalized_activate_txids(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_activate_txids(tx, tip_height, finality_confirmations)
+            .await
+    }
+
+    async fn set_activate_txid_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_activate_txid_seen_at_height(tx, activated_id, txid, seen_at_height)
+            .await
+    }
+
+    async fn list_unfinalized_cancel_outpoints(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_cancel_outpoints(tx, tip_height, finality_confirmations)
+            .await
+    }
+
+    async fn set_cancel_outpoint_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_cancel_outpoint_seen_at_height(tx, cancelled_id, outpoint, seen_at_height)
+            .await
+    }
+
+    async fn list_unfinalized_activate_outpoints(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
+        self.list_unfinalized_activate_outpoints(tx, tip_height, finality_confirmations)
+            .await
+    }
+
+    async fn set_activate_outpoint_seen_at_height(
+        &self,
+        tx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        self.set_activate_outpoint_seen_at_height(tx, activated_id, outpoint, seen_at_height)
+            .await
     }
 }
 
@@ -1137,7 +1489,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{OutPoint, TapNodeHash, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -1168,11 +1520,11 @@ mod tests {
             .unwrap();
 
         // Test retrieving tx
-        let (_, retrieved_tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+        let (_, retrieved_tx, fee_paying_type, seen_at_height, rbf_signing_info) =
             db.get_try_to_send_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
-        assert_eq!(seen_block_id, None);
+        assert_eq!(seen_at_height, None);
         assert_eq!(rbf_signing_info, rbfinfo);
     }
 
@@ -1214,64 +1566,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        dbtx.commit().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_sync_transaction_confirmations() {
-        const BLOCK_HEX: &str = "0200000035ab154183570282ce9afc0b494c9fc6a3cfea05aa8c1add2ecc56490000000038ba3d78e4500a5a7570dbe61960398add4410d278b21cd9708e6d9743f374d544fc055227f1001c29c1ea3b0101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff3703a08601000427f1001c046a510100522cfabe6d6d0000000000000000000068692066726f6d20706f6f6c7365727665726aac1eeeed88ffffffff0100f2052a010000001976a914912e2b234f941f30b18afbb4fa46171214bf66c888ac00000000";
-        let block: Block = deserialize(&hex::decode(BLOCK_HEX).unwrap()).unwrap();
-
-        let db = setup_test_db().await;
-        let mut dbtx = db.begin_transaction().await.unwrap();
-
-        // Create a block to use for confirmation
-        let block_id = crate::bitcoin_syncer::save_block(&db, &mut dbtx, &block, 100)
-            .await
-            .unwrap();
-
-        // Create a transaction
-        let tx = Transaction {
-            version: Version::TWO,
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
-            input: vec![],
-            output: vec![],
-        };
-        let tx_id = db
-            .save_tx(
-                Some(&mut dbtx),
-                None,
-                &tx,
-                FeePayingType::CPFP,
-                Txid::all_zeros(),
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Save fee payer UTXO
-        let fee_payer_txid = Txid::hash(&[1u8; 32]);
-        db.save_fee_payer_tx(
-            Some(&mut dbtx),
-            tx_id,
-            fee_payer_txid,
-            0,
-            Amount::from_sat(50000),
-            None,
-        )
-        .await
-        .unwrap();
-
-        // Save the transaction in the block
-        db.insert_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
-            .await
-            .unwrap();
-
-        // Sync transaction confirmations
-        db.sync_transaction_confirmations(Some(&mut dbtx))
-            .await
-            .unwrap();
 
         dbtx.commit().await.unwrap();
     }

@@ -8,6 +8,7 @@ pub mod cpfp;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
+mod confirmations;
 
 // Define a macro for logging errors and saving them to the database
 #[macro_export]
@@ -66,6 +67,13 @@ pub struct ActivatedWithOutpoint {
 
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
+
+/// Once a tx/outpoint has been observed confirmed/spent for at least this many
+/// blocks, we treat it as final and skip further RPC re-checks.
+///
+/// IMPORTANT: for observations with confirmations < FINALITY_CONFIRMATIONS we
+/// must assume they can be reorged and therefore keep re-checking.
+pub const FINALITY_CONFIRMATIONS: u32 = 5;
 
 /// Represents a spendable UTXO.
 #[derive(Debug, Clone)]
@@ -351,19 +359,115 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
     /// Debug method to log information about inactive transactions.
     async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32);
 
-    /// Synchronize transaction confirmations based on canonical block status.
-    /// Confirms transactions in canonical blocks and unconfirms transactions in
-    /// non-canonical blocks.
-    async fn sync_transaction_confirmations(
+    /// Lists tx-sender main transactions that still require confirmation tracking.
+    ///
+    /// A row is "unfinalized" if `seen_at_height` is NULL or if it was observed
+    /// less than `finality_confirmations` blocks ago (based on current `tip_height`).
+    async fn list_unfinalized_try_to_send_txs(
         &self,
         dbtx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError>;
+
+    /// Lists all RBF txids for the given parent ids.
+    async fn list_rbf_txids_for_ids(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        ids: &[u32],
+    ) -> Result<Vec<(u32, Txid)>, BridgeError>;
+
+    /// Updates `seen_at_height` for a main tx-sender row.
+    async fn set_try_to_send_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        id: u32,
+        seen_at_height: Option<u32>,
     ) -> Result<(), BridgeError>;
 
-    /// Get the maximum height of canonical blocks in the database.
-    async fn get_max_height(
+    /// Lists fee payer txs that still require confirmation tracking.
+    async fn list_unfinalized_fee_payer_utxos(
         &self,
         dbtx: Option<&mut Self::Transaction>,
-    ) -> Result<Option<u32>, BridgeError>;
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
+
+    /// Updates `seen_at_height` for a fee payer row.
+    async fn set_fee_payer_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        fee_payer_utxo_id: u32,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError>;
+
+    /// Lists cancel-by-txid prerequisites that still require confirmation tracking.
+    async fn list_unfinalized_cancel_txids(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
+
+    /// Updates `seen_at_height` for a cancel-by-txid prerequisite row.
+    async fn set_cancel_txid_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError>;
+
+    /// Lists activate-by-txid prerequisites that still require confirmation tracking.
+    async fn list_unfinalized_activate_txids(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
+
+    /// Updates `seen_at_height` for an activate-by-txid prerequisite row.
+    async fn set_activate_txid_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        txid: Txid,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError>;
+
+    /// Lists cancel-by-outpoint prerequisites that still require spent tracking.
+    async fn list_unfinalized_cancel_outpoints(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError>;
+
+    /// Updates `seen_at_height` for a cancel-by-outpoint prerequisite row.
+    async fn set_cancel_outpoint_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        cancelled_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError>;
+
+    /// Lists activate-by-outpoint prerequisites that still require spent tracking.
+    async fn list_unfinalized_activate_outpoints(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        tip_height: u32,
+        finality_confirmations: u32,
+    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError>;
+
+    /// Updates `seen_at_height` for an activate-by-outpoint prerequisite row.
+    async fn set_activate_outpoint_seen_at_height(
+        &self,
+        dbtx: Option<&mut Self::Transaction>,
+        activated_id: u32,
+        outpoint: OutPoint,
+        seen_at_height: Option<u32>,
+    ) -> Result<(), BridgeError>;
 
     /// Get the effective fee rate of a transaction and the block height when it was set.
     /// Returns (None, None) if no effective fee rate has been set yet.
@@ -607,7 +711,7 @@ where
                 "Processing TX in try_to_send_unconfirmed_txs with fee rate {new_fee_rate}",
             );
 
-            let (tx_metadata, tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+            let (tx_metadata, tx, fee_paying_type, seen_at_height, rbf_signing_info) =
                 match self.db.get_try_to_send_tx(None, id).await {
                     Ok(res) => res,
                     Err(e) => {
@@ -617,11 +721,11 @@ where
                 };
 
             // Check if the transaction is already confirmed (only happens if it was confirmed after this loop started)
-            if let Some(block_id) = seen_block_id {
+            if let Some(seen_at_height) = seen_at_height {
                 tracing::debug!(
                     try_to_send_id = id,
-                    "Transaction already confirmed in block with block id of {}",
-                    block_id
+                    "Transaction already confirmed (first seen at height {})",
+                    seen_at_height
                 );
 
                 // Update sending state

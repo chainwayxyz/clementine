@@ -139,7 +139,7 @@ impl TxSenderClientExt for TxSenderClient<Database> {
     async fn debug_tx(&self, id: u32) -> Result<TxDebugInfo, BridgeError> {
         use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
 
-        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) =
+        let (tx_metadata, tx, fee_paying_type, seen_at_height, _) =
             self.db.get_try_to_send_tx(None, id).await.map_to_eyre()?;
 
         let submission_errors = self
@@ -185,7 +185,7 @@ impl TxSenderClientExt for TxSenderClient<Database> {
         };
         let debug_info = TxDebugInfo {
             id,
-            is_active: seen_block_id.is_none(),
+            is_active: seen_at_height.is_none(),
             current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
             submission_errors,
             created_at: "".to_string(),
