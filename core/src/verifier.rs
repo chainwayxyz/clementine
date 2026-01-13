@@ -262,14 +262,12 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            let tx_sender = TxSender::<_, _, crate::tx_sender_ext::CoreTxBuilder>::new(
+            let tx_sender_cfg = self.verifier.config.tx_sender_config();
+            let tx_sender = TxSender::<_, crate::tx_sender_ext::CoreTxBuilder>::new(
                 self.verifier.signer.clone(),
-                rpc.clone(),
-                self.verifier.db.clone(),
-                self.verifier.config.protocol_paramset(),
-                Default::default(),
-                self.verifier.config.mempool_config(),
-            );
+                tx_sender_cfg,
+            )
+            .await?;
 
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
@@ -411,7 +409,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -446,7 +444,8 @@ where
         let all_sessions = AllSessions::new();
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;

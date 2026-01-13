@@ -32,7 +32,7 @@ async fn base_setup(
 ) -> Result<
     (
         TestActors<MockCitreaClient>,
-        Vec<TxSenderClient<Database>>,
+        Vec<TxSenderClient>,
         DepositInfo,
         u32,
         TransactionRequest,
@@ -57,7 +57,9 @@ async fn base_setup(
             .await
             .expect("failed to create database");
 
-        let tx_sender = TxSenderClient::<Database>::new(tx_sender_db.clone());
+        let tx_sender = TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(
+            tx_sender_db.get_pool(),
+        ));
         tx_senders.push(tx_sender);
     }
 

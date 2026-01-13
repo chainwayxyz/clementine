@@ -338,6 +338,34 @@ impl BridgeConfig {
             endpoint: self.mempool_api_endpoint.clone(),
         }
     }
+
+    /// Build a tx-sender standalone config from this bridge config.
+    ///
+    /// This keeps tx-sender wiring centralized in the config module, so core can
+    /// run tx-sender using a single derived config object.
+    pub fn tx_sender_config(&self) -> clementine_tx_sender::config::TxSenderConfig {
+        use clementine_tx_sender::config::{
+            TxSenderBitcoinRpcConfig, TxSenderConfig, TxSenderPostgresConfig,
+        };
+
+        TxSenderConfig {
+            network: self.protocol_paramset.network,
+            postgres: TxSenderPostgresConfig {
+                host: self.db_host.clone(),
+                port: u16::try_from(self.db_port).unwrap_or(5432),
+                user: self.db_user.clone(),
+                password: self.db_password.clone(),
+                dbname: self.db_name.clone(),
+            },
+            bitcoin_rpc: TxSenderBitcoinRpcConfig {
+                url: self.bitcoin_rpc_url.clone(),
+                user: self.bitcoin_rpc_user.clone(),
+                password: self.bitcoin_rpc_password.clone(),
+            },
+            mempool: self.mempool_config(),
+            limits: self.tx_sender_limits.clone(),
+        }
+    }
 }
 
 // only needed for one test

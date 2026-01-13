@@ -4,8 +4,10 @@
 //! supporting various fee-bumping strategies like CPFP and RBF.
 
 pub mod client;
+pub mod config;
 mod confirmations;
 pub mod cpfp;
+pub mod db;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
@@ -36,14 +38,13 @@ use bitcoin::{
     Address, Amount, FeeRate, OutPoint, Sequence, Transaction, Txid, Weight, XOnlyPublicKey,
 };
 use bitcoincore_rpc::RpcApi;
-use clementine_config::protocol::ProtocolParamset;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
 use clementine_utils::sign::TapTweakData;
-use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
 use serde::{Deserialize, Serialize};
 
@@ -170,313 +171,7 @@ pub trait TxSenderSigner: Send + Sync {
     ) -> Result<schnorr::Signature, BridgeError>;
 }
 
-/// Trait for database operations required by the transaction sender.
-#[async_trait]
-pub trait TxSenderDatabase: Send + Sync + Clone {
-    /// Type for database transactions.
-    type Transaction: Send;
-
-    /// Begin a new database transaction.
-    async fn begin_transaction(&self) -> Result<Self::Transaction, BridgeError>;
-
-    /// Commit a database transaction.
-    async fn commit_transaction(&self, dbtx: Self::Transaction) -> Result<(), BridgeError>;
-
-    /// Save a debug message for a transaction submission error.
-    async fn save_tx_debug_submission_error(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        error: &str,
-    ) -> Result<(), BridgeError>;
-
-    /// Get transactions that are ready to be sent.
-    async fn get_sendable_txs(
-        &self,
-        fee_rate: FeeRate,
-        current_tip_height: u32,
-    ) -> Result<Vec<u32>, BridgeError>;
-
-    /// Get details of a transaction to be sent.
-    async fn get_try_to_send_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<
-        (
-            Option<TxMetadata>,
-            Transaction,
-            FeePayingType,
-            Option<u32>,
-            Option<RbfSigningInfo>,
-        ),
-        BridgeError,
-    >;
-
-    /// Update the debug sending state of a transaction.
-    async fn update_tx_debug_sending_state(
-        &self,
-        id: u32,
-        state: &str,
-        is_error: bool,
-    ) -> Result<(), BridgeError>;
-
-    /// Get all unconfirmed fee payer transactions.
-    async fn get_all_unconfirmed_fee_payer_txs(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-    ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError>;
-
-    /// Get unconfirmed fee payer transactions for a specific parent transaction.
-    async fn get_unconfirmed_fee_payer_txs(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        bumped_id: u32,
-    ) -> Result<Vec<(u32, Txid, u32, Amount)>, BridgeError>;
-
-    /// Mark a fee payer UTXO as evicted.
-    async fn mark_fee_payer_utxo_as_evicted(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<(), BridgeError>;
-
-    /// Get confirmed fee payer UTXOs for a specific parent transaction.
-    async fn get_confirmed_fee_payer_utxos(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError>;
-
-    /// Save a fee payer transaction.
-    #[allow(clippy::too_many_arguments)]
-    async fn save_fee_payer_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        try_to_send_id: Option<u32>,
-        bumped_id: u32,
-        fee_payer_txid: Txid,
-        vout: u32,
-        amount: Amount,
-        replacement_of_id: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Get the last RBF transaction ID for a specific send attempt.
-    async fn get_last_rbf_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Option<Txid>, BridgeError>;
-
-    /// Save a new RBF transaction ID.
-    async fn save_rbf_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        txid: Txid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save a cancelled outpoint activation condition.
-    async fn save_cancelled_outpoint(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-    ) -> Result<(), BridgeError>;
-
-    /// Save a cancelled transaction ID activation condition.
-    async fn save_cancelled_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        txid: Txid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save an activated transaction ID condition.
-    async fn save_activated_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        prerequisite_tx: &ActivatedWithTxid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save an activated outpoint condition.
-    async fn save_activated_outpoint(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        activated_outpoint: &ActivatedWithOutpoint,
-    ) -> Result<(), BridgeError>;
-
-    /// Update the effective fee rate of a transaction.
-    async fn update_effective_fee_rate(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        effective_fee_rate: FeeRate,
-        current_tip_height: u32,
-    ) -> Result<(), BridgeError>;
-
-    /// Check if a transaction already exists in the transaction sender queue.
-    async fn check_if_tx_exists_on_txsender(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        txid: Txid,
-    ) -> Result<Option<u32>, BridgeError>;
-
-    /// Save a transaction to the sending queue.
-    async fn save_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tx_metadata: Option<TxMetadata>,
-        tx: &Transaction,
-        fee_paying_type: FeePayingType,
-        txid: Txid,
-        rbf_signing_info: Option<RbfSigningInfo>,
-    ) -> Result<u32, BridgeError>;
-
-    /// Returns debug information for a transaction.
-    async fn get_tx_debug_info(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Option<String>, BridgeError>;
-
-    /// Returns submission errors for a transaction.
-    async fn get_tx_debug_submission_errors(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(String, String)>, BridgeError>;
-
-    /// Returns fee payer UTXOs for an attempt.
-    async fn get_tx_debug_fee_payer_utxos(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>;
-
-    /// Debug method to log information about inactive transactions.
-    async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32);
-
-    /// Lists tx-sender main transactions that still require confirmation tracking.
-    ///
-    /// A row is "unfinalized" if `seen_at_height` is NULL or if it was observed
-    /// less than `finality_confirmations` blocks ago (based on current `tip_height`).
-    async fn list_unfinalized_try_to_send_txs(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError>;
-
-    /// Lists all RBF txids for the given parent ids.
-    async fn list_rbf_txids_for_ids(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        ids: &[u32],
-    ) -> Result<Vec<(u32, Txid)>, BridgeError>;
-
-    /// Updates `seen_at_height` for a main tx-sender row.
-    async fn set_try_to_send_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Lists fee payer txs that still require confirmation tracking.
-    async fn list_unfinalized_fee_payer_utxos(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
-
-    /// Updates `seen_at_height` for a fee payer row.
-    async fn set_fee_payer_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        fee_payer_utxo_id: u32,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Lists cancel-by-txid prerequisites that still require confirmation tracking.
-    async fn list_unfinalized_cancel_txids(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
-
-    /// Updates `seen_at_height` for a cancel-by-txid prerequisite row.
-    async fn set_cancel_txid_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        txid: Txid,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Lists activate-by-txid prerequisites that still require confirmation tracking.
-    async fn list_unfinalized_activate_txids(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError>;
-
-    /// Updates `seen_at_height` for an activate-by-txid prerequisite row.
-    async fn set_activate_txid_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        txid: Txid,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Lists cancel-by-outpoint prerequisites that still require spent tracking.
-    async fn list_unfinalized_cancel_outpoints(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError>;
-
-    /// Updates `seen_at_height` for a cancel-by-outpoint prerequisite row.
-    async fn set_cancel_outpoint_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Lists activate-by-outpoint prerequisites that still require spent tracking.
-    async fn list_unfinalized_activate_outpoints(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tip_height: u32,
-        finality_confirmations: u32,
-    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError>;
-
-    /// Updates `seen_at_height` for an activate-by-outpoint prerequisite row.
-    async fn set_activate_outpoint_seen_at_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        outpoint: OutPoint,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Get the effective fee rate of a transaction and the block height when it was set.
-    /// Returns (None, None) if no effective fee rate has been set yet.
-    async fn get_effective_fee_rate(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError>;
-}
+pub use db::{TxSenderDb, TxSenderDbTx, TxSenderTransaction};
 
 #[derive(Clone, Debug)]
 pub struct MempoolConfig {
@@ -495,16 +190,15 @@ pub struct MempoolConfig {
 /// The `TxSenderTxBuilder` type parameter provides static methods for transaction building
 /// capabilities for CPFP child transactions, using `SpendableTxIn` and `TxHandler`.
 #[derive(Clone)]
-pub struct TxSender<S, D, B>
+pub struct TxSender<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + 'static,
     B: TxSenderTxBuilder + 'static,
 {
     pub signer: S,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
-    pub db: D,
-    pub protocol_paramset: &'static ProtocolParamset,
+    pub db: TxSenderDb,
+    pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
@@ -513,56 +207,61 @@ where
     _tx_builder: std::marker::PhantomData<B>,
 }
 
-impl<S, D, B> std::fmt::Debug for TxSender<S, D, B>
+impl<S, B> std::fmt::Debug for TxSender<S, B>
 where
     S: TxSenderSigner + std::fmt::Debug + 'static,
-    D: TxSenderDatabase + std::fmt::Debug + 'static,
     B: TxSenderTxBuilder + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSender")
             .field("signer", &self.signer)
             .field("db", &self.db)
-            .field("protocol_paramset", &self.protocol_paramset)
+            .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
             .finish()
     }
 }
 
-impl<S, D, B> TxSender<S, D, B>
+impl<S, B> TxSender<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + 'static,
     B: TxSenderTxBuilder + 'static,
 {
     /// Creates a new TxSender.
     ///
     /// The type parameter `B` provides static methods for CPFP child transaction creation
     /// using SpendableTxIn and TxHandler from the core builder module.
-    pub fn new(
+    pub async fn new(
         signer: S,
-        rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
-        db: D,
-        protocol_paramset: &'static ProtocolParamset,
-        tx_sender_limits: TxSenderLimits,
-        mempool_config: MempoolConfig,
-    ) -> Self {
-        Self {
+        tx_sender_config: crate::config::TxSenderConfig,
+    ) -> std::result::Result<Self, BridgeError> {
+        let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
+            tx_sender_config.bitcoin_rpc.url.clone(),
+            tx_sender_config.bitcoin_rpc.user.clone(),
+            tx_sender_config.bitcoin_rpc.password.clone(),
+            None,
+        )
+        .await
+        .map_err(|e| BridgeError::Eyre(e.into()))?;
+
+        let db = TxSenderDb::connect(&tx_sender_config.postgres).await?;
+
+        Ok(Self {
             signer,
             rpc,
             db,
-            protocol_paramset,
-            tx_sender_limits,
+            network: tx_sender_config.network,
+            tx_sender_limits: tx_sender_config.limits,
             http_client: reqwest::Client::new(),
-            mempool_config,
+            mempool_config: tx_sender_config.mempool,
             _tx_builder: std::marker::PhantomData,
-        }
+        })
     }
 
     pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         self.rpc
             .get_fee_rate(
-                self.protocol_paramset.network,
+                self.network,
                 &self.mempool_config.host,
                 &self.mempool_config.endpoint,
                 self.tx_sender_limits.mempool_fee_rate_multiplier,
@@ -686,7 +385,7 @@ where
         };
         let txs = self
             .db
-            .get_sendable_txs(get_sendable_txs_fee_rate, current_tip_height)
+            .get_sendable_txs(None, get_sendable_txs_fee_rate, current_tip_height)
             .await
             .map_to_eyre()?;
 
@@ -777,7 +476,7 @@ where
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.protocol_paramset.network == bitcoin::Network::Testnet4
+                _ if self.network == bitcoin::Network::Testnet4
                     && self.is_bridge_tx_nonstandard(&tx) =>
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
@@ -807,7 +506,7 @@ where
 
         Ok(())
     }
-    pub fn client(&self) -> TxSenderClient<D> {
+    pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone())
     }
 

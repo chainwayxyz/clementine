@@ -3,7 +3,6 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use crate::TxSenderDatabase;
 use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use bitcoin::{OutPoint, Transaction, Txid};
 use clementine_config::protocol::ProtocolParamset;
@@ -14,18 +13,12 @@ use eyre::eyre;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
-pub struct TxSenderClient<D>
-where
-    D: TxSenderDatabase,
-{
-    pub db: D,
+pub struct TxSenderClient {
+    pub db: crate::TxSenderDb,
 }
 
-impl<D> TxSenderClient<D>
-where
-    D: TxSenderDatabase,
-{
-    pub fn new(db: D) -> Self {
+impl TxSenderClient {
+    pub fn new(db: crate::TxSenderDb) -> Self {
         Self { db }
     }
 
@@ -62,7 +55,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
-        mut dbtx: Option<&mut D::Transaction>,
+        mut dbtx: Option<&mut crate::TxSenderTransaction>,
         tx_metadata: Option<TxMetadata>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
@@ -208,7 +201,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub async fn add_tx_to_queue(
         &self,
-        dbtx: Option<&mut D::Transaction>,
+        dbtx: Option<&mut crate::TxSenderTransaction>,
         tx_type: TransactionType,
         signed_tx: &Transaction,
         related_txs: &[(TransactionType, Transaction)],

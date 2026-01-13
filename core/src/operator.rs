@@ -88,7 +88,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -231,7 +231,8 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());

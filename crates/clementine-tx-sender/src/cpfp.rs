@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{SpendableInputInfo, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{SpendableInputInfo, TxSender, TxSenderSigner, TxSenderTxBuilder, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::transaction::Version;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
@@ -31,10 +31,9 @@ use eyre::{eyre, Context};
 use std::collections::HashSet;
 use std::env;
 
-impl<S, D, B> TxSender<S, D, B>
+impl<S, B> TxSender<S, B>
 where
     S: TxSenderSigner,
-    D: TxSenderDatabase,
     B: TxSenderTxBuilder,
 {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
@@ -57,7 +56,7 @@ where
     async fn create_fee_payer_utxo(
         &self,
         bumped_id: u32,
-        dbtx: Option<&mut D::Transaction>,
+        dbtx: Option<&mut TxSenderTransaction>,
         tx: &Transaction,
         fee_rate: FeeRate,
         total_fee_payer_amount: Amount,

@@ -1,4 +1,4 @@
-use crate::{TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{TxSender, TxSenderSigner, TxSenderTxBuilder};
 use clementine_errors::BridgeError;
 use std::time::Duration;
 
@@ -9,24 +9,22 @@ pub const POLL_DELAY: Duration = if cfg!(test) {
 };
 
 #[derive(Debug)]
-pub struct TxSenderTaskInternal<S, D, B>
+pub struct TxSenderTaskInternal<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
     pub current_tip_height: u32,
     pub last_processed_tip_height: u32,
-    pub inner: TxSender<S, D, B>,
+    pub inner: TxSender<S, B>,
 }
 
-impl<S, D, B> TxSenderTaskInternal<S, D, B>
+impl<S, B> TxSenderTaskInternal<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
-    pub fn new(inner: TxSender<S, D, B>) -> Self {
+    pub fn new(inner: TxSender<S, B>) -> Self {
         Self {
             current_tip_height: 0,
             last_processed_tip_height: 0,
@@ -36,8 +34,6 @@ where
 
     #[tracing::instrument(skip(self), name = "tx_sender_task")]
     pub async fn run_once(&mut self) -> Result<bool, BridgeError> {
-        let mut dbtx = self.inner.db.begin_transaction().await?;
-
         // Get current tip height from Bitcoin RPC, then sync confirmations/spent tracking.
         self.current_tip_height = self
             .inner
@@ -45,11 +41,10 @@ where
             .get_current_chain_height()
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+        // No need for db transaction as it doesn't matter if it fails midway, we resync from rpc continuously
         self.inner
-            .sync_transaction_confirmations_via_rpc(Some(&mut dbtx), self.current_tip_height)
+            .sync_transaction_confirmations_via_rpc(None, self.current_tip_height)
             .await?;
-
-        self.inner.db.commit_transaction(dbtx).await?;
 
         tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate_result = self.inner.get_fee_rate().await;

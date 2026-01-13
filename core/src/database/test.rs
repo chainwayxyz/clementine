@@ -79,7 +79,8 @@ impl Database {
             }
         };
 
-        let sendable_txs = match self
+        let txsender_db = clementine_tx_sender::TxSenderDb::from_pool(self.get_pool());
+        let sendable_txs = match txsender_db
             .get_sendable_txs(None, fee_rate, current_tip_height)
             .await
         {

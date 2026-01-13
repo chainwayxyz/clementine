@@ -1,26 +1,24 @@
 use crate::task::{Task, TaskVariant};
 use clementine_errors::BridgeError;
 use clementine_tx_sender::task::TxSenderTaskInternal;
-use clementine_tx_sender::{TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use clementine_tx_sender::{TxSender, TxSenderSigner, TxSenderTxBuilder};
 use tonic::async_trait;
 
 #[derive(Debug)]
-pub struct TxSenderTask<S, D, B>
+pub struct TxSenderTask<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
-    inner: TxSenderTaskInternal<S, D, B>,
+    inner: TxSenderTaskInternal<S, B>,
 }
 
-impl<S, D, B> TxSenderTask<S, D, B>
+impl<S, B> TxSenderTask<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
-    pub fn new(inner: TxSender<S, D, B>) -> Self {
+    pub fn new(inner: TxSender<S, B>) -> Self {
         Self {
             inner: TxSenderTaskInternal::new(inner),
         }
@@ -28,10 +26,9 @@ where
 }
 
 #[async_trait]
-impl<S, D, B> Task for TxSenderTask<S, D, B>
+impl<S, B> Task for TxSenderTask<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
     type Output = bool;
@@ -43,13 +40,12 @@ where
 }
 
 // Implement IntoTask for TxSender
-impl<S, D, B> crate::task::IntoTask for TxSender<S, D, B>
+impl<S, B> crate::task::IntoTask for TxSender<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + Clone + 'static,
     B: TxSenderTxBuilder + 'static,
 {
-    type Task = TxSenderTask<S, D, B>;
+    type Task = TxSenderTask<S, B>;
     fn into_task(self) -> Self::Task {
         TxSenderTask::new(self)
     }

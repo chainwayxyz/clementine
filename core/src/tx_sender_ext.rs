@@ -4,7 +4,6 @@ use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::TxHandlerBuilder;
-use crate::database::Database;
 use crate::rpc;
 use crate::rpc::clementine::{NormalSignatureKind, TxDebugInfo};
 use bitcoin::hashes::Hash;
@@ -135,7 +134,7 @@ pub trait TxSenderClientExt {
 }
 
 #[async_trait]
-impl TxSenderClientExt for TxSenderClient<Database> {
+impl TxSenderClientExt for TxSenderClient {
     async fn debug_tx(&self, id: u32) -> Result<TxDebugInfo, BridgeError> {
         use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
 
@@ -221,7 +220,7 @@ pub trait TxSenderExt {
 }
 
 #[async_trait]
-impl<S> TxSenderExt for TxSender<S, Database, CoreTxBuilder>
+impl<S> TxSenderExt for TxSender<S, CoreTxBuilder>
 where
     S: TxSenderSigner + 'static,
 {

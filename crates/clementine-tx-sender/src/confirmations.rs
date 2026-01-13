@@ -1,5 +1,5 @@
 use crate::{
-    FeePayingType, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder,
+    FeePayingType, TxSender, TxSenderSigner, TxSenderTransaction, TxSenderTxBuilder,
     FINALITY_CONFIRMATIONS,
 };
 use bitcoin::{OutPoint, Txid};
@@ -47,10 +47,9 @@ fn target_seen_at_height_for_confirmations(
     }
 }
 
-impl<S, D, B> TxSender<S, D, B>
+impl<S, B> TxSender<S, B>
 where
     S: TxSenderSigner + 'static,
-    D: TxSenderDatabase,
     B: TxSenderTxBuilder + 'static,
 {
     /// Synchronize tx-sender confirmation/spent tracking using Bitcoin RPC.
@@ -62,7 +61,7 @@ where
     /// Finality is based on **first-observed** height (not actual inclusion height).
     pub async fn sync_transaction_confirmations_via_rpc(
         &self,
-        mut dbtx: Option<&mut D::Transaction>,
+        mut dbtx: Option<&mut TxSenderTransaction>,
         tip_height: u32,
     ) -> Result<(), BridgeError> {
         let finality = FINALITY_CONFIRMATIONS;

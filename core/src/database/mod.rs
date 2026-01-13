@@ -26,7 +26,7 @@ mod state_machine;
 #[cfg(all(test, feature = "automation"))]
 mod test;
 #[cfg(feature = "automation")]
-mod tx_sender;
+// tx-sender database layer moved to `crates/clementine-tx-sender`.
 mod verifier;
 mod wrapper;
 

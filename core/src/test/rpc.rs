@@ -17,6 +17,8 @@ use clementine_primitives::{RoundIndex, TransactionType};
 #[tokio::test]
 #[cfg(feature = "automation")]
 async fn operator_transfer_to_btc_wallet() {
+    use crate::test::common::tx_utils::ensure_tx_onchain;
+
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc();
@@ -240,18 +242,9 @@ async fn operator_transfer_to_btc_wallet() {
         get_txid_where_utxo_is_spent(rpc, OutPoint::new(round_txid, 1))
             .await
             .unwrap();
-        // kickoffs need to be finalized before ready to reimburse tx can be sent
-        rpc.mine_blocks(config.protocol_paramset().finality_depth as u64)
+        ensure_tx_onchain(rpc, ready_to_reimburse_txid)
             .await
-            .unwrap();
-        mine_once_after_in_mempool(
-            rpc,
-            ready_to_reimburse_txid,
-            Some(format!("{round:?} ready to reimburse tx").as_str()),
-            None,
-        )
-        .await
-        .unwrap();
+            .expect("Ready to reimburse tx failed to be onchain");
         let ready_to_reimburse_collateral_outpoint = OutPoint::new(
             ready_to_reimburse_txid,
             UtxoVout::CollateralInReadyToReimburse.get_vout(),

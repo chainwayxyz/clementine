@@ -1,4 +1,4 @@
-use crate::{log_error_for_tx, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{log_error_for_tx, TxSender, TxSenderSigner, TxSenderTxBuilder};
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self};
@@ -18,10 +18,9 @@ use std::str::FromStr;
 
 use super::Result;
 
-impl<S, D, B> TxSender<S, D, B>
+impl<S, B> TxSender<S, B>
 where
     S: TxSenderSigner,
-    D: TxSenderDatabase,
     B: TxSenderTxBuilder,
 {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
@@ -196,7 +195,7 @@ where
                 }
                 let address = Address::from_script(
                     &out.script_pubkey,
-                    self.protocol_paramset.network,
+                    self.network,
                 )
                 .map_err(|e| eyre!(e));
                 match address {

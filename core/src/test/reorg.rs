@@ -105,15 +105,11 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender = TxSender::<Actor, Database, CoreTxBuilder>::new(
-            actor.clone(),
-            rpc.clone(),
-            db.clone(),
-            config.protocol_paramset(),
-            config.tx_sender_limits.clone(),
-            config.mempool_config(),
-        );
-        let tx_sender_client: TxSenderClient<Database> = tx_sender.client();
+        let tx_sender =
+            TxSender::<Actor, CoreTxBuilder>::new(actor.clone(), config.tx_sender_config())
+                .await
+                .unwrap();
+        let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();
 

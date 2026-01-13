@@ -19,7 +19,7 @@ use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedT
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(feature = "automation")]
-use crate::tx_sender::{TxSender, TxSenderClient, TxSenderDatabase};
+use crate::tx_sender::{TxSender, TxSenderClient};
 #[cfg(feature = "automation")]
 use crate::tx_sender_ext::CoreTxBuilder;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
@@ -203,7 +203,7 @@ pub struct TxToSend {
 #[cfg(feature = "automation")]
 // Helper function to send a single transaction and mine a block
 pub async fn send_tx(
-    tx_sender: &TxSenderClient<Database>,
+    tx_sender: &TxSenderClient,
     rpc: &ExtendedBitcoinRpc,
     raw_tx: &[u8],
     tx_type: TxType,
@@ -224,7 +224,7 @@ pub async fn send_tx(
 #[cfg(feature = "automation")]
 // Helper function to send multiple transactions and mine blocks
 pub async fn send_txs(
-    tx_sender: &TxSenderClient<Database>,
+    tx_sender: &TxSenderClient,
     rpc: &ExtendedBitcoinRpc,
     txs: Vec<TxToSend>,
 ) -> Result<()> {
@@ -376,7 +376,7 @@ pub async fn ensure_outpoint_spent(
 #[cfg(feature = "automation")]
 pub async fn send_tx_with_type(
     rpc: &ExtendedBitcoinRpc,
-    tx_sender: &TxSenderClient<Database>,
+    tx_sender: &TxSenderClient,
     all_txs: &SignedTxsWithType,
     tx_type: TxType,
 ) -> Result<(), eyre::Error> {
@@ -396,7 +396,7 @@ pub async fn create_tx_sender(
     config: BridgeConfig,
     verifier_index: u32,
 ) -> (
-    TxSender<Actor, Database, CoreTxBuilder>,
+    TxSender<Actor, CoreTxBuilder>,
     BitcoinSyncer,
     ExtendedBitcoinRpc,
     Database,
@@ -427,14 +427,9 @@ pub async fn create_tx_sender(
 
     let db = Database::new(&config).await.unwrap();
 
-    let tx_sender = TxSender::<_, _, CoreTxBuilder>::new(
-        actor.clone(),
-        rpc.clone(),
-        db.clone(),
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSender::<_, CoreTxBuilder>::new(actor.clone(), config.tx_sender_config())
+        .await
+        .unwrap();
 
     (
         tx_sender,
@@ -452,8 +447,8 @@ pub async fn create_tx_sender(
 pub async fn create_bg_tx_sender(
     config: BridgeConfig,
 ) -> (
-    TxSenderClient<Database>,
-    TxSender<Actor, Database, CoreTxBuilder>,
+    TxSenderClient,
+    TxSender<Actor, CoreTxBuilder>,
     Vec<oneshot::Sender<()>>,
     ExtendedBitcoinRpc,
     Database,

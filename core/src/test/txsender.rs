@@ -6,6 +6,7 @@ use bitcoin::transaction::Version;
 use bitcoin::{Amount, FeeRate, TxOut};
 use bitcoincore_rpc::json::GetRawTransactionResult;
 use bitcoincore_rpc::RpcApi;
+use clementine_tx_sender::TxSenderDb;
 use std::ops::Mul;
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,7 +42,7 @@ use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
 
-type TxSenderWithCore = TxSender<Actor, Database, CoreTxBuilder>;
+type TxSenderWithCore = TxSender<Actor, CoreTxBuilder>;
 
 #[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
@@ -109,12 +110,14 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     .await
     .expect("Tx was not confirmed in time");
 
+    let tx_sender_db = TxSenderDb::from_pool(db.get_pool());
+
     poll_until_condition(
         async || {
             let (_, _, _, tx_id1_seen_block_id, _) =
-                db.get_try_to_send_tx(None, tx_id1).await.unwrap();
+                tx_sender_db.get_try_to_send_tx(None, tx_id1).await.unwrap();
             let (_, _, _, tx_id2_seen_block_id, _) =
-                db.get_try_to_send_tx(None, tx_id2).await.unwrap();
+                tx_sender_db.get_try_to_send_tx(None, tx_id2).await.unwrap();
 
             Ok(tx_id2_seen_block_id.is_some() && tx_id1_seen_block_id.is_some())
         },
@@ -132,20 +135,14 @@ async fn get_fee_rate() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let db = Database::new(&config).await.unwrap();
 
     let amount = Amount::from_sat(100_000);
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
-    let tx_sender = TxSenderWithCore::new(
-        signer.clone(),
-        rpc.clone(),
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer.clone(), config.tx_sender_config())
+        .await
+        .unwrap();
 
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
     let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
@@ -250,15 +247,6 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -268,21 +256,18 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(500));
@@ -331,15 +316,6 @@ async fn test_hard_cap() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -349,21 +325,18 @@ async fn test_hard_cap() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(
@@ -422,15 +395,6 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -440,21 +404,18 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1000));
@@ -504,15 +465,6 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -522,21 +474,18 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2500));
@@ -590,15 +539,6 @@ async fn test_get_fee_rate_mempool_space_timeout() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -608,21 +548,18 @@ async fn test_get_fee_rate_mempool_space_timeout() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
@@ -676,15 +613,6 @@ async fn test_get_fee_rate_rpc_timeout() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -694,21 +622,18 @@ async fn test_get_fee_rate_rpc_timeout() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
@@ -769,15 +694,6 @@ async fn test_rpc_retry_after_failures() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -786,21 +702,18 @@ async fn test_rpc_retry_after_failures() {
     };
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(750));
@@ -868,38 +781,26 @@ async fn test_mempool_retry_after_failures() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
         network,
         ..ProtocolParamset::default()
     };
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
     let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
 
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1500));
@@ -926,14 +827,9 @@ async fn create_local_tx_sender(
 
     let db = Database::new(&config).await.unwrap();
 
-    let tx_sender = TxSenderWithCore::new(
-        actor.clone(),
-        rpc.clone(),
-        db.clone(),
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(actor.clone(), config.tx_sender_config())
+        .await
+        .unwrap();
 
     (
         tx_sender,

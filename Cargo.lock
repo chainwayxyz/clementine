@@ -2340,6 +2340,7 @@ dependencies = [
  "clementine-utils",
  "eyre",
  "hex",
+ "log",
  "rand 0.8.5",
  "reqwest",
  "secrecy",
