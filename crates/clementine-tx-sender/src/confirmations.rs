@@ -1,7 +1,4 @@
-use crate::{
-    FeePayingType, TxSender, TxSenderSigner, TxSenderTransaction, TxSenderTxBuilder,
-    FINALITY_CONFIRMATIONS,
-};
+use crate::{FeePayingType, TxSender, TxSenderSigner, TxSenderTransaction};
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
@@ -35,22 +32,21 @@ fn chain_status_from_confirmations(confirmations: Option<u32>) -> TxChainStatus 
 fn target_seen_at_height_for_confirmations(
     observed_tip_height: u32,
     confirmations: u32,
-    finality_confirmations: u32,
+    finality_depth: u32,
 ) -> u32 {
-    if confirmations >= finality_confirmations {
+    if confirmations >= finality_depth {
         // Make it final immediately:
-        // observed_tip - seen_at + 1 >= finality_confirmations
-        observed_tip_height.saturating_sub(finality_confirmations.saturating_sub(1))
+        // observed_tip - seen_at + 1 >= finality_depth
+        observed_tip_height.saturating_sub(finality_depth.saturating_sub(1))
     } else {
         // Conservative: treat it as first observed "now".
         observed_tip_height
     }
 }
 
-impl<S, B> TxSender<S, B>
+impl<S> TxSender<S>
 where
     S: TxSenderSigner + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
     /// Synchronize tx-sender confirmation/spent tracking using Bitcoin RPC.
     ///
@@ -64,7 +60,7 @@ where
         mut dbtx: Option<&mut TxSenderTransaction>,
         tip_height: u32,
     ) -> Result<(), BridgeError> {
-        let finality = FINALITY_CONFIRMATIONS;
+        let finality = self.finality_depth;
         let start_tip_height = tip_height;
 
         // If a new block arrives while we're syncing, we must not write a "too old"

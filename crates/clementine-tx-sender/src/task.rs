@@ -1,4 +1,4 @@
-use crate::{TxSender, TxSenderSigner, TxSenderTxBuilder};
+use crate::{TxSender, TxSenderSigner};
 use clementine_errors::BridgeError;
 use std::time::Duration;
 
@@ -9,22 +9,20 @@ pub const POLL_DELAY: Duration = if cfg!(test) {
 };
 
 #[derive(Debug)]
-pub struct TxSenderTaskInternal<S, B>
+pub struct TxSenderTaskInternal<S>
 where
     S: TxSenderSigner + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
     pub current_tip_height: u32,
     pub last_processed_tip_height: u32,
-    pub inner: TxSender<S, B>,
+    pub inner: TxSender<S>,
 }
 
-impl<S, B> TxSenderTaskInternal<S, B>
+impl<S> TxSenderTaskInternal<S>
 where
     S: TxSenderSigner + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
-    pub fn new(inner: TxSender<S, B>) -> Self {
+    pub fn new(inner: TxSender<S>) -> Self {
         Self {
             current_tip_height: 0,
             last_processed_tip_height: 0,

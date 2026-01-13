@@ -804,7 +804,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, FeePayingType, TxidDB, Option<i32>)>(
             r#"
@@ -815,10 +815,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -894,7 +891,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
             r#"
@@ -905,10 +902,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -950,7 +944,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
             r#"
@@ -961,10 +955,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1010,7 +1001,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
             r#"
@@ -1021,10 +1012,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1070,7 +1058,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
             r#"
@@ -1081,10 +1069,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1134,7 +1119,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
-        finality_confirmations: u32,
+        finality_depth: u32,
     ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
             r#"
@@ -1145,10 +1130,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(
-            i32::try_from(finality_confirmations)
-                .wrap_err("Failed to convert finality confirmations to i32")?,
-        );
+        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results

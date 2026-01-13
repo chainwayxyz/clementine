@@ -20,8 +20,6 @@ use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-#[cfg(feature = "automation")]
-use crate::tx_sender_ext::CoreTxBuilder;
 use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use bitcoin::consensus::{self};
 use bitcoin::transaction::Version;
@@ -396,7 +394,7 @@ pub async fn create_tx_sender(
     config: BridgeConfig,
     verifier_index: u32,
 ) -> (
-    TxSender<Actor, CoreTxBuilder>,
+    TxSender<Actor>,
     BitcoinSyncer,
     ExtendedBitcoinRpc,
     Database,
@@ -427,7 +425,7 @@ pub async fn create_tx_sender(
 
     let db = Database::new(&config).await.unwrap();
 
-    let tx_sender = TxSender::<_, CoreTxBuilder>::new(actor.clone(), config.tx_sender_config())
+    let tx_sender = TxSender::new(actor.clone(), config.tx_sender_config())
         .await
         .unwrap();
 
@@ -448,7 +446,7 @@ pub async fn create_bg_tx_sender(
     config: BridgeConfig,
 ) -> (
     TxSenderClient,
-    TxSender<Actor, CoreTxBuilder>,
+    TxSender<Actor>,
     Vec<oneshot::Sender<()>>,
     ExtendedBitcoinRpc,
     Database,

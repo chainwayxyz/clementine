@@ -7,6 +7,8 @@ use clementine_errors::BridgeError;
 use secrecy::SecretString;
 use std::str::FromStr;
 
+const DEFAULT_FINALITY_DEPTH: u32 = 5;
+
 #[derive(Clone, Debug)]
 pub struct TxSenderPostgresConfig {
     pub host: String,
@@ -31,6 +33,10 @@ pub struct TxSenderConfig {
     pub bitcoin_rpc: TxSenderBitcoinRpcConfig,
     pub mempool: MempoolConfig,
     pub limits: TxSenderLimits,
+    /// How many confirmations are required before tx-sender treats an observation as final.
+    ///
+    /// The chain tip has 1 confirmation. Minimum value should be 1.
+    pub finality_depth: u32,
 }
 
 fn env_required(name: &'static str) -> Result<String, BridgeError> {
@@ -47,6 +53,18 @@ where
 {
     env_required(name)?
         .parse::<T>()
+        .map_err(|e| BridgeError::EnvVarMalformed(name, format!("{e:?}")))
+}
+
+fn env_parse_optional<T: std::str::FromStr>(name: &'static str) -> Result<Option<T>, BridgeError>
+where
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    let Some(v) = env_optional(name) else {
+        return Ok(None);
+    };
+    v.parse::<T>()
+        .map(Some)
         .map_err(|e| BridgeError::EnvVarMalformed(name, format!("{e:?}")))
 }
 
@@ -97,12 +115,23 @@ impl TxSenderConfig {
                 .unwrap_or(defaults.fee_bump_after_blocks),
         };
 
+        let finality_depth = env_parse_optional::<u32>("TX_SENDER_FINALITY_DEPTH")?
+            .unwrap_or(DEFAULT_FINALITY_DEPTH);
+
+        if finality_depth < 1 {
+            return Err(BridgeError::EnvVarMalformed(
+                "TX_SENDER_FINALITY_DEPTH",
+                "finality depth must be >= 1".to_string(),
+            ));
+        }
+
         Ok(Self {
             network,
             postgres,
             bitcoin_rpc,
             mempool,
             limits,
+            finality_depth,
         })
     }
 }

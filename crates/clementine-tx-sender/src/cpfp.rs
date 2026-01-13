@@ -18,24 +18,116 @@
 //! send.
 
 use super::Result;
-use crate::{SpendableInputInfo, TxSender, TxSenderSigner, TxSenderTxBuilder, TxSenderTransaction};
+use crate::{TxSender, TxSenderSigner, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
+use bitcoin::sighash::{Prevouts, SighashCache};
+use bitcoin::taproot;
 use bitcoin::transaction::Version;
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+use bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Weight};
+use bitcoin::{TapSighashType, Witness};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use clementine_errors::{BridgeError, ResultExt as _, SendTxError};
-use clementine_primitives::MIN_TAPROOT_AMOUNT;
+use clementine_primitives::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{eyre, Context};
 use std::collections::HashSet;
 use std::env;
 
-impl<S, B> TxSender<S, B>
+impl<S> TxSender<S>
 where
     S: TxSenderSigner,
-    B: TxSenderTxBuilder,
 {
+    fn anchor_prevout(anchor_sat: Amount) -> TxOut {
+        // P2A anchor script: OP_1 OP_PUSHBYTES_2 0x4e73
+        TxOut {
+            value: anchor_sat,
+            script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid anchor script"),
+        }
+    }
+
+    fn build_and_sign_child_tx(
+        &self,
+        p2a_anchor: OutPoint,
+        anchor_sat: Amount,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
+        change_address: bitcoin::Address,
+        required_fee: Amount,
+    ) -> Result<Transaction> {
+        let total_in: Amount = fee_payer_utxos
+            .iter()
+            .map(|u| u.txout.value)
+            .sum::<Amount>()
+            + anchor_sat;
+
+        let change_amount = total_in
+            .checked_sub(required_fee)
+            .ok_or_else(|| SendTxError::Other(eyre!("required_fee > total_in")))?;
+
+        let mut inputs: Vec<TxIn> = Vec::with_capacity(1 + fee_payer_utxos.len());
+        inputs.push(TxIn {
+            previous_output: p2a_anchor,
+            script_sig: ScriptBuf::new(),
+            sequence: crate::DEFAULT_SEQUENCE,
+            witness: Witness::new(),
+        });
+
+        for utxo in &fee_payer_utxos {
+            inputs.push(TxIn {
+                previous_output: utxo.outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: crate::DEFAULT_SEQUENCE,
+                witness: Witness::new(),
+            });
+        }
+
+        let mut child_tx = Transaction {
+            version: NON_STANDARD_V3,
+            lock_time: LockTime::ZERO,
+            input: inputs,
+            output: vec![TxOut {
+                value: change_amount,
+                script_pubkey: change_address.script_pubkey(),
+            }],
+        };
+
+        // Prevouts must match the tx input order (anchor first).
+        let mut prevouts: Vec<TxOut> = Vec::with_capacity(child_tx.input.len());
+        prevouts.push(Self::anchor_prevout(anchor_sat));
+        prevouts.extend(fee_payer_utxos.into_iter().map(|u| u.txout));
+
+        // Compute witnesses without mutating tx while the sighash cache borrows it.
+        let mut cache = SighashCache::new(&child_tx);
+        let mut signed_witnesses: Vec<(usize, Witness)> = Vec::new();
+
+        for input_index in 1..child_tx.input.len() {
+            let sighash = cache
+                .taproot_key_spend_signature_hash(
+                    input_index,
+                    &Prevouts::All(&prevouts),
+                    TapSighashType::Default,
+                )
+                .map_err(|e| SendTxError::Other(eyre!("failed to compute sighash: {e}")))?;
+
+            let signature = self
+                .signer
+                .sign_with_tweak_data(sighash, clementine_utils::sign::TapTweakData::KeyPath(None))
+                .map_err(|e| SendTxError::Other(e.into()))?;
+
+            let tr_sig = taproot::Signature {
+                signature,
+                sighash_type: TapSighashType::Default,
+            };
+            signed_witnesses.push((input_index, Witness::p2tr_key_spend(&tr_sig)));
+        }
+
+        for (idx, wit) in signed_witnesses {
+            child_tx.input[idx].witness = wit;
+        }
+
+        Ok(child_tx)
+    }
+
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
     /// transactions.
     ///
@@ -226,7 +318,7 @@ where
         &self,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
-        fee_payer_utxos: Vec<B::SpendableInput>,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
         parent_tx_size: Weight,
         fee_rate: FeeRate,
     ) -> Result<Transaction> {
@@ -246,7 +338,7 @@ where
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
-            .map(|utxo| utxo.get_prevout().value)
+            .map(|utxo| utxo.txout.value)
             .sum::<Amount>()
             + anchor_sat;
 
@@ -255,16 +347,13 @@ where
             return Err(SendTxError::InsufficientFeePayerAmount);
         }
 
-        // Delegate to the TxBuilder's static method
-        B::build_child_tx(
+        self.build_and_sign_child_tx(
             p2a_anchor,
             anchor_sat,
             fee_payer_utxos,
             change_address,
             required_fee,
-            &self.signer,
         )
-        .map_err(|e| SendTxError::Other(e.into()))
     }
 
     /// Creates a transaction package for CPFP submission.
@@ -280,7 +369,7 @@ where
         &self,
         tx: Transaction,
         fee_rate: FeeRate,
-        fee_payer_utxos: Vec<B::SpendableInput>,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
     ) -> Result<Vec<Transaction>> {
         let txid = tx.compute_txid();
         let p2a_vout = self
@@ -307,13 +396,46 @@ where
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
-    ) -> Result<Vec<B::SpendableInput>> {
+    ) -> Result<Vec<crate::SpendableUtxo>> {
         let utxos = self
             .db
             .get_confirmed_fee_payer_utxos(None, try_to_send_id)
             .await
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
-        Ok(B::utxos_to_spendable_inputs(utxos, self.signer.address()))
+
+        let mut spendables = Vec::with_capacity(utxos.len());
+
+        for (txid, vout, _db_amount) in utxos {
+            let utxo = self
+                .rpc
+                .get_tx_out(&txid, vout, Some(false))
+                .await
+                .wrap_err("Failed to gettxout for fee payer utxo")?;
+
+            let Some(utxo) = utxo else {
+                // We expected this to be a confirmed, spendable fee payer UTXO, but it is no
+                // longer unspent (spent/reorg/evicted). Do not mutate DB here; bubble up.
+                return Err(SendTxError::Other(eyre!(
+                    "Confirmed fee payer UTXO missing from gettxout: {txid}:{vout}"
+                )));
+            };
+
+            let script_pubkey = utxo
+                .script_pub_key
+                .script()
+                .wrap_err("Failed to parse script pubkey from gettxout")?;
+
+            spendables.push(crate::SpendableUtxo {
+                outpoint: OutPoint { txid, vout },
+                txout: TxOut {
+                    value: utxo.value,
+                    script_pubkey,
+                },
+                spend_info: None,
+            });
+        }
+
+        Ok(spendables)
     }
 
     pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRate) -> Result<()> {
@@ -418,7 +540,7 @@ where
         }
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
-        let total_amount: Amount = confirmed.iter().map(|u| u.get_prevout().value).sum();
+        let total_amount: Amount = confirmed.iter().map(|u| u.txout.value).sum();
 
         let package = match self
             .create_package(tx.clone(), fee_rate, confirmed.clone())

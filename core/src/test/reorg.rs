@@ -21,7 +21,7 @@ use crate::test::common::{
     mine_once_after_in_mempool,
 };
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
+use crate::tx_sender_ext::TxSenderClientExt;
 use crate::utils::FeePayingType;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
@@ -105,10 +105,9 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender =
-            TxSender::<Actor, CoreTxBuilder>::new(actor.clone(), config.tx_sender_config())
-                .await
-                .unwrap();
+        let tx_sender = TxSender::new(actor.clone(), config.tx_sender_config())
+            .await
+            .unwrap();
         let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();

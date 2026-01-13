@@ -1,5 +1,5 @@
 //! TxSender integration tests restored from main branch
-//! Adapted to work with TxSenderTxBuilder trait
+//! Adapted to work with tx-sender crate (no core builder coupling)
 
 use bitcoin::hashes::Hash;
 use bitcoin::transaction::Version;
@@ -36,13 +36,13 @@ use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, poll_until_condition,
 };
 use crate::tx_sender::TxSender;
-use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
+use crate::tx_sender_ext::TxSenderClientExt;
 use crate::utils::RbfSigningInfo;
 use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
 
-type TxSenderWithCore = TxSender<Actor, CoreTxBuilder>;
+type TxSenderWithCore = TxSender<Actor>;
 
 #[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {

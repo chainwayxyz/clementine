@@ -364,6 +364,7 @@ impl BridgeConfig {
             },
             mempool: self.mempool_config(),
             limits: self.tx_sender_limits.clone(),
+            finality_depth: self.protocol_paramset.finality_depth,
         }
     }
 }

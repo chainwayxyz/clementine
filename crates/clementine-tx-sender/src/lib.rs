@@ -72,9 +72,9 @@ pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
 /// Once a tx/outpoint has been observed confirmed/spent for at least this many
 /// blocks, we treat it as final and skip further RPC re-checks.
 ///
-/// IMPORTANT: for observations with confirmations < FINALITY_CONFIRMATIONS we
+/// IMPORTANT: for observations with confirmations < FINALITY_DEPTH we
 /// must assume they can be reorged and therefore keep re-checking.
-pub const FINALITY_CONFIRMATIONS: u32 = 5;
+pub const DEFAULT_FINALITY_DEPTH: u32 = 5;
 
 /// Represents a spendable UTXO.
 #[derive(Debug, Clone)]
@@ -82,76 +82,6 @@ pub struct SpendableUtxo {
     pub outpoint: OutPoint,
     pub txout: bitcoin::TxOut,
     pub spend_info: Option<TaprootSpendInfo>,
-}
-
-impl SpendableInputInfo for SpendableUtxo {
-    fn get_prevout(&self) -> &bitcoin::TxOut {
-        &self.txout
-    }
-
-    fn get_outpoint(&self) -> OutPoint {
-        self.outpoint
-    }
-}
-
-/// Trait for extracting information from a spendable input.
-/// This allows different input types (SpendableUtxo, SpendableTxIn) to be used interchangeably.
-pub trait SpendableInputInfo: Send + Sync + Clone {
-    /// Returns a reference to the previous output (TxOut) for this input.
-    fn get_prevout(&self) -> &bitcoin::TxOut;
-
-    /// Returns the outpoint for this input.
-    fn get_outpoint(&self) -> OutPoint;
-}
-
-/// Trait for building child transactions in the transaction sender.
-///
-/// This abstraction allows the core crate to provide `SpendableTxIn`-based transaction building
-/// using `TxHandler`, while keeping the tx-sender crate independent of the builder module.
-///
-/// All methods are static - no instance of this trait is stored.
-pub trait TxSenderTxBuilder: Send + Sync + 'static {
-    /// The type representing a spendable transaction input.
-    /// In core, this would be `SpendableTxIn`.
-    type SpendableInput: SpendableInputInfo;
-
-    /// Builds a child transaction for CPFP.
-    ///
-    /// This method constructs a child transaction that spends the P2A anchor output
-    /// and fee payer UTXOs, paying the required fees for the CPFP package.
-    ///
-    /// # Arguments
-    /// * `p2a_anchor` - The P2A anchor output to spend
-    /// * `anchor_sat` - Amount in the anchor output
-    /// * `fee_payer_utxos` - UTXOs to fund the child transaction
-    /// * `change_address` - Address for the change output
-    /// * `required_fee` - The calculated required fee for the package
-    /// * `signer_address` - The signer's address (for script pubkey)
-    /// * `signer` - The signer to sign the transaction inputs
-    ///
-    /// # Returns
-    /// A signed child transaction ready for package submission.
-    fn build_child_tx<S: TxSenderSigner>(
-        p2a_anchor: OutPoint,
-        anchor_sat: Amount,
-        fee_payer_utxos: Vec<Self::SpendableInput>,
-        change_address: Address,
-        required_fee: Amount,
-        signer: &S,
-    ) -> Result<Transaction, BridgeError>;
-
-    /// Converts database UTXOs into the builder's SpendableInput type.
-    ///
-    /// # Arguments
-    /// * `utxos` - Vector of (txid, vout, amount) tuples from the database
-    /// * `signer_address` - The signer's address (for script pubkey generation)
-    ///
-    /// # Returns
-    /// Vector of SpendableInput instances ready for use in transaction building.
-    fn utxos_to_spendable_inputs(
-        utxos: Vec<(Txid, u32, Amount)>,
-        signer_address: &Address,
-    ) -> Vec<Self::SpendableInput>;
 }
 
 /// Trait for signing transactions in the transaction sender.
@@ -187,30 +117,24 @@ pub struct MempoolConfig {
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 ///
-/// The `TxSenderTxBuilder` type parameter provides static methods for transaction building
-/// capabilities for CPFP child transactions, using `SpendableTxIn` and `TxHandler`.
 #[derive(Clone)]
-pub struct TxSender<S, B>
+pub struct TxSender<S>
 where
     S: TxSenderSigner + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
     pub signer: S,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
     pub db: TxSenderDb,
     pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
+    pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
-    /// Phantom data to track the TxBuilder type.
-    /// B provides static methods for transaction building.
-    _tx_builder: std::marker::PhantomData<B>,
 }
 
-impl<S, B> std::fmt::Debug for TxSender<S, B>
+impl<S> std::fmt::Debug for TxSender<S>
 where
     S: TxSenderSigner + std::fmt::Debug + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSender")
@@ -222,15 +146,11 @@ where
     }
 }
 
-impl<S, B> TxSender<S, B>
+impl<S> TxSender<S>
 where
     S: TxSenderSigner + 'static,
-    B: TxSenderTxBuilder + 'static,
 {
     /// Creates a new TxSender.
-    ///
-    /// The type parameter `B` provides static methods for CPFP child transaction creation
-    /// using SpendableTxIn and TxHandler from the core builder module.
     pub async fn new(
         signer: S,
         tx_sender_config: crate::config::TxSenderConfig,
@@ -252,9 +172,9 @@ where
             db,
             network: tx_sender_config.network,
             tx_sender_limits: tx_sender_config.limits,
+            finality_depth: tx_sender_config.finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: tx_sender_config.mempool,
-            _tx_builder: std::marker::PhantomData,
         })
     }
 
