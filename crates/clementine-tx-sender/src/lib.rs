@@ -4,11 +4,11 @@
 //! supporting various fee-bumping strategies like CPFP and RBF.
 
 pub mod client;
+mod confirmations;
 pub mod cpfp;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
-mod confirmations;
 
 // Define a macro for logging errors and saving them to the database
 #[macro_export]

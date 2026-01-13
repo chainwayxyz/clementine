@@ -7,10 +7,6 @@ use clementine_errors::BridgeError;
 use clementine_extended_rpc::BitcoinRPCError;
 use std::collections::HashMap;
 
-fn is_final(seen_at_height: u32, tip_height: u32, finality_confirmations: u32) -> bool {
-    tip_height.saturating_sub(seen_at_height).saturating_add(1) >= finality_confirmations
-}
-
 impl<S, D, B> TxSender<S, D, B>
 where
     S: TxSenderSigner + 'static,
@@ -56,13 +52,6 @@ where
         }
 
         for (id, fee_paying_type, txid, seen_at_height) in unfinalized {
-            // If already final, skip (DB should have filtered, but keep this safe).
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             let is_on_chain = match fee_paying_type {
                 FeePayingType::CPFP | FeePayingType::NoFunding => self
                     .rpc
@@ -112,12 +101,6 @@ where
             .list_unfinalized_fee_payer_utxos(dbtx.as_deref_mut(), tip_height, finality)
             .await?
         {
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             let is_on_chain = self
                 .rpc
                 .is_tx_on_chain(&fee_payer_txid)
@@ -149,12 +132,6 @@ where
             .list_unfinalized_cancel_txids(dbtx.as_deref_mut(), tip_height, finality)
             .await?
         {
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             let is_on_chain = self
                 .rpc
                 .is_tx_on_chain(&txid)
@@ -191,12 +168,6 @@ where
             .list_unfinalized_activate_txids(dbtx.as_deref_mut(), tip_height, finality)
             .await?
         {
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             let is_on_chain = self
                 .rpc
                 .is_tx_on_chain(&txid)
@@ -245,12 +216,6 @@ where
             .list_unfinalized_cancel_outpoints(dbtx.as_deref_mut(), tip_height, finality)
             .await?
         {
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
                     if seen_at_height.is_none() {
@@ -288,12 +253,6 @@ where
             .list_unfinalized_activate_outpoints(dbtx.as_deref_mut(), tip_height, finality)
             .await?
         {
-            if let Some(seen) = seen_at_height {
-                if is_final(seen, tip_height, finality) {
-                    continue;
-                }
-            }
-
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
                     if seen_at_height.is_none() {
@@ -326,20 +285,5 @@ where
         }
 
         Ok(())
-    }
-
-    /// Convenience helper for callers that want to sync + fetch tip height from RPC.
-    pub async fn sync_transaction_confirmations_via_rpc_at_tip(
-        &self,
-        dbtx: Option<&mut D::Transaction>,
-    ) -> Result<u32, BridgeError> {
-        let tip_height = self
-            .rpc
-            .get_current_chain_height()
-            .await
-            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
-        self.sync_transaction_confirmations_via_rpc(dbtx, tip_height)
-            .await?;
-        Ok(tip_height)
     }
 }
