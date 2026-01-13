@@ -269,7 +269,7 @@ pub async fn disprove_tests_common_setup(
     )
     .unwrap();
 
-    let (tx_sender, _, _, tx_sender_db, _, _) = create_tx_sender(config, 0).await;
+    let (tx_sender, _, tx_sender_db, _, _) = create_tx_sender(config, 0).await;
     let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
     tx_sender
         .client()

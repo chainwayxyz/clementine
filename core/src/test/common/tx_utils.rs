@@ -1,7 +1,6 @@
 use super::test_actors::TestActors;
 use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::actor::Actor;
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::builder;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -395,13 +394,11 @@ pub async fn create_tx_sender(
     verifier_index: u32,
 ) -> (
     TxSender<Actor>,
-    BitcoinSyncer,
     ExtendedBitcoinRpc,
     Database,
     Actor,
     bitcoin::Network,
 ) {
-    use crate::bitcoin_syncer::BitcoinSyncer;
     use bitcoin::secp256k1::SecretKey;
 
     let sk = SecretKey::new(&mut rand::thread_rng());
@@ -429,16 +426,7 @@ pub async fn create_tx_sender(
         .await
         .unwrap();
 
-    (
-        tx_sender,
-        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
-            .await
-            .unwrap(),
-        rpc,
-        db,
-        actor,
-        network,
-    )
+    (tx_sender, rpc, db, actor, network)
 }
 
 #[cfg(feature = "automation")]
@@ -458,18 +446,15 @@ pub async fn create_bg_tx_sender(
     let mut new_config = config.clone();
     new_config.db_name += "0";
     initialize_database(&new_config).await;
-    let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(config, 0).await;
+    let (tx_sender, rpc, db, actor, network) = create_tx_sender(config, 0).await;
 
     let sender_task = tx_sender.clone().into_task().cancelable_loop();
     sender_task.0.into_bg();
 
-    let syncer_task = syncer.into_task().cancelable_loop();
-    syncer_task.0.into_bg();
-
     (
         tx_sender.client(),
         tx_sender,
-        vec![sender_task.1, syncer_task.1],
+        vec![sender_task.1],
         rpc,
         db,
         actor,

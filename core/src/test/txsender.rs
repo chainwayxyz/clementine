@@ -16,7 +16,6 @@ use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::actor::{Actor, TweakCache};
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::SECP;
 use crate::builder;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -25,12 +24,12 @@ use crate::builder::transaction::op_return_txout;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use crate::task::{IntoTask, TaskExt};
 use crate::test::common::tx_utils::{create_bg_tx_sender, create_bumpable_tx};
 use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, poll_until_condition,
@@ -809,38 +808,20 @@ async fn test_mempool_retry_after_failures() {
 // ====== RBF Tests (restored from main:core/src/tx_sender/rbf.rs) ======
 
 async fn create_local_tx_sender(
-    rpc: ExtendedBitcoinRpc,
-) -> (
-    TxSenderWithCore,
-    BitcoinSyncer,
-    ExtendedBitcoinRpc,
-    Database,
-    Actor,
-    bitcoin::Network,
-) {
+    config: &BridgeConfig,
+) -> (TxSenderWithCore, Database, Actor, bitcoin::Network) {
     use bitcoin::secp256k1::SecretKey;
     let sk = SecretKey::new(&mut rand::thread_rng());
     let network = bitcoin::Network::Regtest;
     let actor = Actor::new(sk, network);
 
-    let config = create_test_config_with_thread_name().await;
-
-    let db = Database::new(&config).await.unwrap();
+    let db = Database::new(config).await.unwrap();
 
     let tx_sender = TxSenderWithCore::new(actor.clone(), config.tx_sender_config())
         .await
         .unwrap();
 
-    (
-        tx_sender,
-        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset)
-            .await
-            .unwrap(),
-        rpc,
-        db,
-        actor,
-        network,
-    )
+    (tx_sender, db, actor, network)
 }
 
 pub async fn create_rbf_tx(
@@ -948,12 +929,10 @@ async fn create_challenge_tx(
 #[tokio::test]
 async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     let tx = create_challenge_tx(&rpc, &signer, network).await?;
 
@@ -1007,12 +986,10 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1080,12 +1057,10 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1139,18 +1114,18 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_bg_send_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
     rpc.mine_blocks(1).await.unwrap();
 
-    let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
-        create_bg_tx_sender(config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await.unwrap();
 
     let mut dbtx = db.begin_transaction().await.unwrap();
-    client
+    tx_sender
+        .client()
         .insert_try_to_send(
             Some(&mut dbtx),
             None,
@@ -1196,12 +1171,10 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     // Create a bumpable transaction that requires initial funding
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1279,12 +1252,10 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     // This is the case with no initial funding required, corresponding to the Challenge transaction.
 
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
@@ -1343,12 +1314,10 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1462,10 +1431,10 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_calculate_target_fee_rate_incremental_bump() {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, _btc_sender, rpc, _db, _signer, _network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
+    let (tx_sender, _db, _signer, _network) = create_local_tx_sender(&config).await;
 
     // Get incremental fee rate from node (typically 1000 sat/kvB = 250 sat/kwu on regtest)
     let incremental_fee_btc_per_kvb = rpc.get_network_info().await.unwrap().incremental_fee;
