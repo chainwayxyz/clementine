@@ -41,7 +41,7 @@ use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
 
-type TxSenderWithCore = TxSender<Actor>;
+type TxSenderWithCore = TxSender;
 
 #[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
@@ -139,7 +139,7 @@ async fn get_fee_rate() {
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
-    let tx_sender = TxSenderWithCore::new(signer.clone(), config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -262,9 +262,7 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -331,9 +329,7 @@ async fn test_hard_cap() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -410,9 +406,7 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -480,9 +474,7 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -554,9 +546,7 @@ async fn test_get_fee_rate_mempool_space_timeout() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -628,9 +618,7 @@ async fn test_get_fee_rate_rpc_timeout() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -708,9 +696,7 @@ async fn test_rpc_retry_after_failures() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -795,9 +781,7 @@ async fn test_mempool_retry_after_failures() {
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(signer, config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 
@@ -817,7 +801,7 @@ async fn create_local_tx_sender(
 
     let db = Database::new(config).await.unwrap();
 
-    let tx_sender = TxSenderWithCore::new(actor.clone(), config.tx_sender_config())
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
         .await
         .unwrap();
 

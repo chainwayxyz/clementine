@@ -10,6 +10,7 @@ pub mod cpfp;
 pub mod db;
 pub mod nonstandard;
 pub mod rbf;
+mod signer;
 pub mod task;
 
 // Define a macro for logging errors and saving them to the database
@@ -31,22 +32,18 @@ macro_rules! log_error_for_tx {
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
 
-use async_trait::async_trait;
-use bitcoin::secp256k1::schnorr;
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{
-    Address, Amount, FeeRate, OutPoint, Sequence, Transaction, Txid, Weight, XOnlyPublicKey,
-};
+use bitcoin::{Amount, FeeRate, OutPoint, Sequence, Transaction, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
-use clementine_utils::sign::TapTweakData;
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
 use serde::{Deserialize, Serialize};
+use signer::TxSenderSigningKey;
 
 /// Activation condition based on a transaction ID.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -84,23 +81,6 @@ pub struct SpendableUtxo {
     pub spend_info: Option<TaprootSpendInfo>,
 }
 
-/// Trait for signing transactions in the transaction sender.
-#[async_trait]
-pub trait TxSenderSigner: Send + Sync {
-    /// Returns the signer's Bitcoin address.
-    fn address(&self) -> &Address;
-
-    /// Returns the signer's X-only public key.
-    fn xonly_public_key(&self) -> XOnlyPublicKey;
-
-    /// Signs a message with a tweak.
-    fn sign_with_tweak_data(
-        &self,
-        sighash: bitcoin::TapSighash,
-        tweak_data: TapTweakData,
-    ) -> Result<schnorr::Signature, BridgeError>;
-}
-
 pub use db::{TxSenderDb, TxSenderDbTx, TxSenderTransaction};
 
 #[derive(Clone, Debug)]
@@ -118,11 +98,8 @@ pub struct MempoolConfig {
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 ///
 #[derive(Clone)]
-pub struct TxSender<S>
-where
-    S: TxSenderSigner + 'static,
-{
-    pub signer: S,
+pub struct TxSender {
+    signer: TxSenderSigningKey,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
     pub db: TxSenderDb,
     pub network: bitcoin::Network,
@@ -132,10 +109,7 @@ where
     mempool_config: MempoolConfig,
 }
 
-impl<S> std::fmt::Debug for TxSender<S>
-where
-    S: TxSenderSigner + std::fmt::Debug + 'static,
-{
+impl std::fmt::Debug for TxSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSender")
             .field("signer", &self.signer)
@@ -146,15 +120,20 @@ where
     }
 }
 
-impl<S> TxSender<S>
-where
-    S: TxSenderSigner + 'static,
-{
+impl TxSender {
+    pub fn address(&self) -> &bitcoin::Address {
+        self.signer.address()
+    }
+
+    pub fn xonly_public_key(&self) -> bitcoin::XOnlyPublicKey {
+        self.signer.xonly_public_key()
+    }
+
     /// Creates a new TxSender.
     pub async fn new(
-        signer: S,
         tx_sender_config: crate::config::TxSenderConfig,
     ) -> std::result::Result<Self, BridgeError> {
+        let signer = TxSenderSigningKey::new(tx_sender_config.secret_key, tx_sender_config.network);
         let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
             tx_sender_config.bitcoin_rpc.url.clone(),
             tx_sender_config.bitcoin_rpc.user.clone(),

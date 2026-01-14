@@ -1,6 +1,7 @@
 //! TxSender standalone configuration.
 
 use crate::MempoolConfig;
+use bitcoin::secp256k1::SecretKey;
 use bitcoin::Network;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::BridgeError;
@@ -29,6 +30,11 @@ pub struct TxSenderBitcoinRpcConfig {
 #[derive(Clone, Debug)]
 pub struct TxSenderConfig {
     pub network: Network,
+    /// Taproot signing key used by tx-sender.
+    ///
+    /// In clementine_core usage this is derived from `BridgeConfig.secret_key`.
+    /// In standalone usage it is sourced from env `SECRET_KEY`.
+    pub secret_key: SecretKey,
     pub postgres: TxSenderPostgresConfig,
     pub bitcoin_rpc: TxSenderBitcoinRpcConfig,
     pub mempool: MempoolConfig,
@@ -73,6 +79,10 @@ impl TxSenderConfig {
         let network_str = env_required("NETWORK")?;
         let network = Network::from_str(&network_str)
             .map_err(|e| BridgeError::EnvVarMalformed("NETWORK", format!("{e:?}")))?;
+
+        let secret_key_str = env_required("SECRET_KEY")?;
+        let secret_key = SecretKey::from_str(&secret_key_str)
+            .map_err(|e| BridgeError::EnvVarMalformed("SECRET_KEY", format!("{e:?}")))?;
 
         let postgres = TxSenderPostgresConfig {
             host: env_required("DB_HOST")?,
@@ -127,6 +137,7 @@ impl TxSenderConfig {
 
         Ok(Self {
             network,
+            secret_key,
             postgres,
             bitcoin_rpc,
             mempool,

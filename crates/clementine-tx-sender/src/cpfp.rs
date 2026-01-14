@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{TxSender, TxSenderSigner, TxSenderTransaction};
+use crate::{TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -34,10 +34,7 @@ use eyre::{eyre, Context};
 use std::collections::HashSet;
 use std::env;
 
-impl<S> TxSender<S>
-where
-    S: TxSenderSigner,
-{
+impl TxSender {
     fn anchor_prevout(anchor_sat: Amount) -> TxOut {
         // P2A anchor script: OP_1 OP_PUSHBYTES_2 0x4e73
         TxOut {

@@ -105,9 +105,7 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender = TxSender::new(actor.clone(), config.tx_sender_config())
-            .await
-            .unwrap();
+        let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
         let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();

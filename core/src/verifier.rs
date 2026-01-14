@@ -263,7 +263,7 @@ where
         #[cfg(feature = "automation")]
         {
             let tx_sender_cfg = self.verifier.config.tx_sender_config();
-            let tx_sender = TxSender::new(self.verifier.signer.clone(), tx_sender_cfg).await?;
+            let tx_sender = TxSender::new(tx_sender_cfg).await?;
 
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())

@@ -350,6 +350,7 @@ impl BridgeConfig {
 
         TxSenderConfig {
             network: self.protocol_paramset.network,
+            secret_key: self.secret_key,
             postgres: TxSenderPostgresConfig {
                 host: self.db_host.clone(),
                 port: u16::try_from(self.db_port).unwrap_or(5432),

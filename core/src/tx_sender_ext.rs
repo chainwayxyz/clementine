@@ -3,7 +3,7 @@ use crate::rpc::clementine::TxDebugInfo;
 use bitcoin::hashes::Hash;
 use clementine_errors::{BridgeError, ResultExt as _, RoundIndex};
 use clementine_tx_sender::client::TxSenderClient;
-use clementine_tx_sender::{TxSender, TxSenderSigner};
+use clementine_tx_sender::TxSender;
 use clementine_utils::FeePayingType;
 use tonic::async_trait;
 
@@ -109,10 +109,7 @@ pub trait TxSenderExt {
 }
 
 #[async_trait]
-impl<S> TxSenderExt for TxSender<S>
-where
-    S: TxSenderSigner + 'static,
-{
+impl TxSenderExt for TxSender {
     async fn debug_tx(&self, id: u32) -> Result<TxDebugInfo, BridgeError> {
         let client = self.client();
         client.debug_tx(id).await

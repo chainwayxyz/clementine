@@ -1,4 +1,4 @@
-use crate::{log_error_for_tx, TxSender, TxSenderSigner};
+use crate::{log_error_for_tx, TxSender};
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self};
@@ -18,10 +18,7 @@ use std::str::FromStr;
 
 use super::Result;
 
-impl<S> TxSender<S>
-where
-    S: TxSenderSigner,
-{
+impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
     ///
     /// This method determines the effective fee rate needed to successfully replace

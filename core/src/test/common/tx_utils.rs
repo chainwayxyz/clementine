@@ -393,7 +393,7 @@ pub async fn create_tx_sender(
     config: BridgeConfig,
     verifier_index: u32,
 ) -> (
-    TxSender<Actor>,
+    TxSender,
     ExtendedBitcoinRpc,
     Database,
     Actor,
@@ -401,15 +401,15 @@ pub async fn create_tx_sender(
 ) {
     use bitcoin::secp256k1::SecretKey;
 
-    let sk = SecretKey::new(&mut rand::thread_rng());
     let network = config.protocol_paramset().network;
-    let actor: Actor = Actor::new(sk, network);
+    let sk = SecretKey::new(&mut rand::thread_rng());
 
-    let config = {
-        let mut config = config.clone();
-        config.db_name += &verifier_index.to_string();
-        config
-    };
+    // Ensure tx-sender and returned Actor use the same key.
+    let mut config = config.clone();
+    config.secret_key = sk;
+    config.db_name += &verifier_index.to_string();
+
+    let actor: Actor = Actor::new(config.secret_key, network);
 
     let rpc = ExtendedBitcoinRpc::connect(
         config.bitcoin_rpc_url.clone(),
@@ -422,9 +422,7 @@ pub async fn create_tx_sender(
 
     let db = Database::new(&config).await.unwrap();
 
-    let tx_sender = TxSender::new(actor.clone(), config.tx_sender_config())
-        .await
-        .unwrap();
+    let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
 
     (tx_sender, rpc, db, actor, network)
 }
@@ -434,7 +432,7 @@ pub async fn create_bg_tx_sender(
     config: BridgeConfig,
 ) -> (
     TxSenderClient,
-    TxSender<Actor>,
+    TxSender,
     Vec<oneshot::Sender<()>>,
     ExtendedBitcoinRpc,
     Database,

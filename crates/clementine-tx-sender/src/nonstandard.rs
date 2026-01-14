@@ -1,13 +1,10 @@
-use crate::{log_error_for_tx, TxSender, TxSenderSigner};
+use crate::{log_error_for_tx, TxSender};
 use bitcoin::consensus::serialize;
 use bitcoin::Transaction;
 use clementine_errors::SendTxError;
 use std::collections::HashMap;
 
-impl<S> TxSender<S>
-where
-    S: TxSenderSigner,
-{
+impl TxSender {
     /// Checks if a bridge transaction is nonstandard. Keep in mind that these are not all cases where a transaction is nonstandard.
     /// We only check non-standard types that clementine generates by default in non-standard mode.
     /// Currently checks these cases:

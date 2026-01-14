@@ -1,4 +1,4 @@
-use crate::{FeePayingType, TxSender, TxSenderSigner, TxSenderTransaction};
+use crate::{FeePayingType, TxSender, TxSenderTransaction};
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
@@ -44,10 +44,7 @@ fn target_seen_at_height_for_confirmations(
     }
 }
 
-impl<S> TxSender<S>
-where
-    S: TxSenderSigner + 'static,
-{
+impl TxSender {
     /// Synchronize tx-sender confirmation/spent tracking using Bitcoin RPC.
     ///
     /// This method updates tx-sender *tracking tables* (e.g. `seen_at_height`) based on
