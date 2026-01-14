@@ -30,6 +30,7 @@ use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+use crate::task::{IntoTask, TaskExt};
 use crate::test::common::tx_utils::{create_bg_tx_sender, create_bumpable_tx};
 use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, poll_until_condition,
@@ -792,12 +793,13 @@ async fn test_mempool_retry_after_failures() {
 // ====== RBF Tests (restored from main:core/src/tx_sender/rbf.rs) ======
 
 async fn create_local_tx_sender(
-    config: &BridgeConfig,
+    config: &mut BridgeConfig,
 ) -> (TxSenderWithCore, Database, Actor, bitcoin::Network) {
     use bitcoin::secp256k1::SecretKey;
     let sk = SecretKey::new(&mut rand::thread_rng());
     let network = bitcoin::Network::Regtest;
     let actor = Actor::new(sk, network);
+    config.secret_key = sk;
 
     let db = Database::new(config).await.unwrap();
 
@@ -916,7 +918,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_challenge_tx(&rpc, &signer, network).await?;
 
@@ -973,7 +975,7 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1044,7 +1046,7 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1103,15 +1105,14 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, _db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await.unwrap();
 
-    let mut dbtx = db.begin_transaction().await.unwrap();
     tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            None,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1130,7 +1131,9 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
         )
         .await
         .unwrap();
-    dbtx.commit().await.unwrap();
+
+    let sender_task = tx_sender.clone().into_task().cancelable_loop();
+    sender_task.0.into_bg();
 
     poll_until_condition(
         async || {
@@ -1158,7 +1161,7 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction that requires initial funding
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1239,7 +1242,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
@@ -1301,7 +1304,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, db, signer, network) = create_local_tx_sender(&config).await;
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1418,7 +1421,7 @@ async fn test_calculate_target_fee_rate_incremental_bump() {
     let rpc_cleanup = create_regtest_rpc(&mut config).await;
     let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, _db, _signer, _network) = create_local_tx_sender(&config).await;
+    let (tx_sender, _db, _signer, _network) = create_local_tx_sender(&mut config).await;
 
     // Get incremental fee rate from node (typically 1000 sat/kvB = 250 sat/kwu on regtest)
     let incremental_fee_btc_per_kvb = rpc.get_network_info().await.unwrap().incremental_fee;
