@@ -248,7 +248,7 @@ pub async fn send_txs(
 
         tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                &mut dbtx,
                 Some(TxMetadata {
                     tx_type: tx_data.tx_type,
                     deposit_outpoint: None,

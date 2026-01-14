@@ -59,6 +59,7 @@ impl TxSender {
     ) -> Result<(), BridgeError> {
         let finality = self.finality_depth;
         let start_tip_height = tip_height;
+        // Problem with current implementation: It can set seen_block_height to some value, then miss some blocks meanwhile, and afterwards see a much bigger tip, then assume a tx was finalized, even though it was reorged.
 
         // If a new block arrives while we're syncing, we must not write a "too old"
         // observation height, otherwise we could treat a <finality tx as final.

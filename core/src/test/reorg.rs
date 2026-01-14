@@ -127,7 +127,7 @@ impl TestCase for TxSenderReorgBehavior {
         let mut dbtx = db.begin_transaction().await.unwrap();
         let id = tx_sender_client
             .insert_try_to_send(
-                Some(&mut dbtx),
+                &mut dbtx,
                 None,
                 &tx,
                 FeePayingType::CPFP,

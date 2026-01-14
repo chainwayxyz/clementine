@@ -1,12 +1,7 @@
+use crate::config::TxSenderConfig;
 use crate::TxSender;
 use clementine_errors::BridgeError;
 use std::time::Duration;
-
-pub const POLL_DELAY: Duration = if cfg!(test) {
-    Duration::from_millis(500)
-} else {
-    Duration::from_secs(60)
-};
 
 #[derive(Debug)]
 pub struct TxSenderTaskInternal {
@@ -54,4 +49,91 @@ impl TxSenderTaskInternal {
 
         Ok(false)
     }
+}
+
+/// Spawns a tokio task that runs txsender indefinitely.
+///
+/// This is a standalone loop helper (no dependency on `clementine-core` task framework).
+pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let poll_delay = Duration::from_millis(config.poll_delay_ms);
+        #[cfg(feature = "json-rpc")]
+        let mut jsonrpc_handle: Option<crate::jsonrpc::server::TxSenderJsonRpcServer> = None;
+
+        loop {
+            let init_res: Result<TxSender, BridgeError> = async {
+                let tx_sender = TxSender::new(config.clone()).await?;
+
+                // Standalone deployments own their txsender schema.
+                // In clementine-core deployments, schema/migrations are owned by core.
+                tx_sender.db.run_migrations().await?;
+
+                #[cfg(feature = "json-rpc")]
+                if let Some(rpc_cfg) = config.jsonrpc.clone() {
+                    // If we previously had a server, stop it before re-binding.
+                    if let Some(old) = jsonrpc_handle.take() {
+                        let handle = old.stop();
+                        let _ = handle.stop();
+                    }
+
+                    let bind: std::net::IpAddr = rpc_cfg.bind.parse().map_err(|e| {
+                        BridgeError::ConfigError(format!("Invalid TX_SENDER_JSONRPC_BIND: {e}"))
+                    })?;
+                    let addr = std::net::SocketAddr::new(bind, rpc_cfg.port);
+
+                    let server =
+                        crate::jsonrpc::server::start_jsonrpc_server(tx_sender.client(), addr)
+                            .await?;
+                    jsonrpc_handle = Some(server);
+                }
+
+                Ok(tx_sender)
+            }
+            .await;
+
+            let tx_sender = match init_res {
+                Ok(x) => x,
+                Err(e) => {
+                    tracing::error!("txsender init failed (will retry): {e:?}");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+            };
+
+            let mut internal = TxSenderTaskInternal::new(tx_sender);
+            loop {
+                if let Err(e) = internal.run_once().await {
+                    tracing::error!("txsender loop iteration failed: {e:?}");
+                }
+                tokio::time::sleep(poll_delay).await;
+            }
+        }
+    })
+}
+
+/// Test utility: pick a free localhost port, enable JSON-RPC, and spawn txsender loop.
+///
+/// Returns `(jsonrpc_addr, join_handle)`.
+#[cfg(all(feature = "test-utils", feature = "json-rpc"))]
+pub fn spawn_txsender_loop_with_free_localhost_jsonrpc_port(
+    mut config: TxSenderConfig,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .expect("failed to bind ephemeral localhost port");
+    let port = listener
+        .local_addr()
+        .expect("failed to read local addr")
+        .port();
+    drop(listener);
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    config.jsonrpc = Some(crate::config::TxSenderJsonRpcConfig {
+        bind: "127.0.0.1".to_string(),
+        port,
+    });
+
+    let handle = spawn_txsender_loop(config);
+    (addr, handle)
 }

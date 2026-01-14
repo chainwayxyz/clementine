@@ -366,6 +366,9 @@ impl BridgeConfig {
             mempool: self.mempool_config(),
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
+            poll_delay_ms: 60_000,
+            #[cfg(feature = "integration-tests")]
+            jsonrpc: None,
         }
     }
 }

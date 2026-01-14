@@ -48,6 +48,8 @@ use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 #[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
+#[cfg(feature = "automation")]
 use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
@@ -2008,7 +2010,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -2026,7 +2028,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .insert_try_to_send(
-                            Some(dbtx),
+                            dbtx,
                             Some(TxMetadata {
                                 tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
                                 ..tx_metadata
@@ -2145,7 +2147,7 @@ where
         {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(dbtx),
+                    dbtx,
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -2344,7 +2346,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         tx_type,
                         &tx,
                         &[],
@@ -2707,7 +2709,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -3001,7 +3003,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],

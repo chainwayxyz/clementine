@@ -17,15 +17,22 @@ tokio = { workspace = true, features = ["full"] }
 async-trait = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 secrecy = { workspace = true }
 log = { workspace = true }
+jsonrpsee = { workspace = true, optional = true, features = ["macros", "server", "client", "http-client"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }
 clementine-config = { path = "../clementine-config" }
 clementine-utils = { path = "../clementine-utils" }
 clementine-extended-rpc = { path = "../clementine-extended-rpc" }
+
+[features]
+json-rpc = ["dep:jsonrpsee"]
+standalone = ["json-rpc"]
+test-utils = []
 
 [dev-dependencies]
 rand = { workspace = true }

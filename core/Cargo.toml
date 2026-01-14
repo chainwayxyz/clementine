@@ -9,7 +9,11 @@ rust-version = "1.88.0"
 
 [features]
 automation = []
-integration-tests = ["automation"]
+integration-tests = [
+  "automation",
+  "clementine-tx-sender/test-utils",
+  "clementine-tx-sender/json-rpc"
+]
 
 [build-dependencies]
 tonic-build = "0.12"

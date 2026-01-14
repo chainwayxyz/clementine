@@ -74,6 +74,9 @@ use {
     circuits_lib::bridge_circuit::structs::LightClientProof,
 };
 
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
+
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
     background_tasks: BackgroundTaskManager,
@@ -363,32 +366,6 @@ where
             header_chain_prover,
             reimburse_addr,
         })
-    }
-
-    #[cfg(feature = "automation")]
-    pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                Some(&mut dbtx),
-                Some(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: None,
-                    round_idx: Some(RoundIndex::Round(0)),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                round_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
-        dbtx.commit().await?;
-        Ok(())
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -952,7 +929,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -990,7 +967,7 @@ where
     #[cfg(feature = "automation")]
     async fn start_first_round(
         &self,
-        mut dbtx: DatabaseTransaction<'_>,
+        dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
         // try to send the first round tx
@@ -1009,7 +986,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -1167,7 +1144,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1188,7 +1165,7 @@ where
         // send ready to reimburse tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1209,7 +1186,7 @@ where
         // send next round tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1636,7 +1613,7 @@ where
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(&mut dbtx),
+                    dbtx,
                     tx_type,
                     &tx,
                     &[],
@@ -1688,7 +1665,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -2510,7 +2487,7 @@ where
                 | TransactionType::Reimburse => {
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,

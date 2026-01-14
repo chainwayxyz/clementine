@@ -195,7 +195,7 @@ impl TxSenderDb {
 
     pub async fn save_tx(
         &self,
-        tx: Option<TxSenderDbTx<'_>>,
+        tx: TxSenderDbTx<'_>,
         tx_metadata: Option<TxMetadata>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
@@ -211,7 +211,7 @@ impl TxSenderDb {
         .bind(TxidDB(txid))
         .bind(serde_json::to_string(&rbf_signing_info).wrap_err("Failed to encode rbf_signing_info to JSON")?);
 
-        let id: i32 = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_one)?;
+        let id: i32 = query.fetch_one(&mut **tx).await?;
         u32::try_from(id)
             .wrap_err("Failed to convert id to u32")
             .map_err(Into::into)
@@ -248,7 +248,7 @@ impl TxSenderDb {
 
     pub async fn save_cancelled_outpoint(
         &self,
-        tx: Option<TxSenderDbTx<'_>>,
+        tx: TxSenderDbTx<'_>,
         cancelled_id: u32,
         outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
@@ -259,13 +259,13 @@ impl TxSenderDb {
         .bind(TxidDB(outpoint.txid))
         .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?);
 
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        query.execute(&mut **tx).await?;
         Ok(())
     }
 
     pub async fn save_cancelled_txid(
         &self,
-        tx: Option<TxSenderDbTx<'_>>,
+        tx: TxSenderDbTx<'_>,
         cancelled_id: u32,
         txid: Txid,
     ) -> Result<(), BridgeError> {
@@ -275,13 +275,13 @@ impl TxSenderDb {
         .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
         .bind(TxidDB(txid));
 
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        query.execute(&mut **tx).await?;
         Ok(())
     }
 
     pub async fn save_activated_txid(
         &self,
-        tx: Option<TxSenderDbTx<'_>>,
+        tx: TxSenderDbTx<'_>,
         activated_id: u32,
         prerequisite_tx: &ActivatedWithTxid,
     ) -> Result<(), BridgeError> {
@@ -292,13 +292,13 @@ impl TxSenderDb {
         .bind(TxidDB(prerequisite_tx.txid))
         .bind(i32::try_from(prerequisite_tx.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
 
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        query.execute(&mut **tx).await?;
         Ok(())
     }
 
     pub async fn save_activated_outpoint(
         &self,
-        tx: Option<TxSenderDbTx<'_>>,
+        tx: TxSenderDbTx<'_>,
         activated_id: u32,
         activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
@@ -310,7 +310,7 @@ impl TxSenderDb {
         .bind(i32::try_from(activated_outpoint.outpoint.vout).wrap_err("Failed to convert vout to i32")?)
         .bind(i32::try_from(activated_outpoint.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
 
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        query.execute(&mut **tx).await?;
         Ok(())
     }
 

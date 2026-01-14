@@ -8,7 +8,7 @@ use clementine_errors::BridgeError;
 use secrecy::SecretString;
 use std::str::FromStr;
 
-const DEFAULT_FINALITY_DEPTH: u32 = 5;
+const DEFAULT_POLL_DELAY_MS: u64 = 60_000;
 
 #[derive(Clone, Debug)]
 pub struct TxSenderPostgresConfig {
@@ -24,6 +24,15 @@ pub struct TxSenderBitcoinRpcConfig {
     pub url: String,
     pub user: SecretString,
     pub password: SecretString,
+}
+
+#[cfg(feature = "json-rpc")]
+#[derive(Clone, Debug)]
+pub struct TxSenderJsonRpcConfig {
+    /// Bind address for the JSON-RPC server. Restricted to 127.0.0.1 or 0.0.0.0.
+    pub bind: String,
+    /// TCP port for the JSON-RPC server.
+    pub port: u16,
 }
 
 /// Configuration for running the tx-sender service standalone.
@@ -43,6 +52,15 @@ pub struct TxSenderConfig {
     ///
     /// The chain tip has 1 confirmation. Minimum value should be 1.
     pub finality_depth: u32,
+
+    /// Poll delay for the txsender loop, in milliseconds.
+    ///
+    /// If not provided, defaults to 1 minute.
+    pub poll_delay_ms: u64,
+
+    /// Optional JSON-RPC configuration (feature-gated).
+    #[cfg(feature = "json-rpc")]
+    pub jsonrpc: Option<TxSenderJsonRpcConfig>,
 }
 
 fn env_required(name: &'static str) -> Result<String, BridgeError> {
@@ -125,8 +143,16 @@ impl TxSenderConfig {
                 .unwrap_or(defaults.fee_bump_after_blocks),
         };
 
-        let finality_depth = env_parse_optional::<u32>("TX_SENDER_FINALITY_DEPTH")?
-            .unwrap_or(DEFAULT_FINALITY_DEPTH);
+        let finality_depth = env_parse_required::<u32>("TX_SENDER_FINALITY_DEPTH")?;
+
+        let poll_delay_ms =
+            env_parse_optional::<u64>("TX_SENDER_POLL_DELAY_MS")?.unwrap_or(DEFAULT_POLL_DELAY_MS);
+        if poll_delay_ms == 0 {
+            return Err(BridgeError::EnvVarMalformed(
+                "TX_SENDER_POLL_DELAY_MS",
+                "poll_delay_ms must be >= 1".to_string(),
+            ));
+        }
 
         if finality_depth < 1 {
             return Err(BridgeError::EnvVarMalformed(
@@ -134,6 +160,23 @@ impl TxSenderConfig {
                 "finality depth must be >= 1".to_string(),
             ));
         }
+
+        #[cfg(feature = "json-rpc")]
+        let jsonrpc = {
+            let port = env_parse_optional::<u16>("TX_SENDER_JSONRPC_PORT")?;
+            port.map(|port| {
+                let bind = env_optional("TX_SENDER_JSONRPC_BIND")
+                    .unwrap_or_else(|| "127.0.0.1".to_string());
+                if bind != "127.0.0.1" && bind != "0.0.0.0" {
+                    return Err(BridgeError::EnvVarMalformed(
+                        "TX_SENDER_JSONRPC_BIND",
+                        "bind must be either 127.0.0.1 or 0.0.0.0".to_string(),
+                    ));
+                }
+                Ok(TxSenderJsonRpcConfig { bind, port })
+            })
+            .transpose()?
+        };
 
         Ok(Self {
             network,
@@ -143,6 +186,9 @@ impl TxSenderConfig {
             mempool,
             limits,
             finality_depth,
+            poll_delay_ms,
+            #[cfg(feature = "json-rpc")]
+            jsonrpc,
         })
     }
 }

@@ -71,7 +71,17 @@ impl TxSenderDb {
 
     /// Runs tx-sender schema initialization/migrations.
     pub async fn run_migrations(&self) -> Result<(), BridgeError> {
-        // Intentionally left empty for now; schema/migrations are owned by clementine-core.
+        // Only run schema/migrations for standalone txsender deployments.
+        //
+        // In clementine-core, schema/migrations are owned and applied by the core database layer.
+        #[cfg(feature = "standalone")]
+        {
+            static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
+            MIGRATOR
+                .run(&self.pool)
+                .await
+                .map_err(|e| BridgeError::Eyre(e.into()))?;
+        }
         Ok(())
     }
 }

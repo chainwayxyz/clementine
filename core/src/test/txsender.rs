@@ -45,6 +45,83 @@ use clementine_utils::FeePayingType;
 type TxSenderWithCore = TxSender;
 
 #[tokio::test]
+async fn test_jsonrpc_txsender_insert_try_to_send() -> Result<(), BridgeError> {
+    use std::time::{Duration, Instant};
+
+    use bitcoin::absolute;
+    use bitcoin::hashes::Hash as _;
+    use bitcoin::transaction::Version;
+    use bitcoin::{OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+    use clementine_tx_sender::jsonrpc::client::JsonRpcTxSenderClient;
+    use clementine_tx_sender::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+
+    let mut config = create_test_config_with_thread_name().await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    rpc.mine_blocks(1).await.unwrap();
+
+    let db = Database::new(&config).await.unwrap();
+
+    // Start standalone txsender with JSON-RPC enabled on a free port.
+    let tx_sender_cfg = config.tx_sender_config();
+    let (addr, handle) = spawn_txsender_loop_with_free_localhost_jsonrpc_port(tx_sender_cfg);
+    let url = format!("http://{addr}");
+    let client = JsonRpcTxSenderClient::new(&url)?;
+
+    // A minimal syntactically-valid transaction (doesn't need to be mineable for enqueueing).
+    let tx = Transaction {
+        version: Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+            witness: Witness::default(),
+        }],
+        output: vec![TxOut {
+            value: bitcoin::Amount::from_sat(0),
+            script_pubkey: ScriptBuf::new(),
+        }],
+    };
+
+    // Wait for server to come up (spawn loop initializes asynchronously).
+    let start = Instant::now();
+    let try_to_send_id = loop {
+        match client
+            .insert_try_to_send(None, &tx, FeePayingType::CPFP, None, &[], &[], &[], &[])
+            .await
+        {
+            Ok(id) => break id,
+            Err(e) => {
+                if start.elapsed() > Duration::from_secs(10) {
+                    return Err(BridgeError::Eyre(eyre::eyre!(
+                        "Timed out waiting for txsender JSON-RPC to start: {e:?}"
+                    )));
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+
+    // Verify persisted in DB.
+    let tx_sender_db = TxSenderDb::from_pool(db.get_pool());
+    let (_meta, stored_tx, fee_paying_type, _seen_at_height, _rbf) = tx_sender_db
+        .get_try_to_send_tx(None, try_to_send_id)
+        .await?;
+    assert_eq!(fee_paying_type, FeePayingType::CPFP);
+    assert_eq!(stored_tx.compute_txid(), tx.compute_txid());
+
+    // Stop background loop.
+    handle.abort();
+    let _ = handle.await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
@@ -62,7 +139,7 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await.unwrap();
     let tx_id1 = client
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::CPFP,
@@ -76,7 +153,7 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
         .unwrap();
     let tx_id2 = client
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::CPFP,
@@ -926,7 +1003,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -983,7 +1060,7 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1054,7 +1131,7 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::NoFunding,
@@ -1109,10 +1186,11 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await.unwrap();
 
+    let mut dbtx = tx_sender.db.begin_transaction().await.unwrap();
     tx_sender
         .client()
         .insert_try_to_send(
-            None,
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1131,6 +1209,7 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
         )
         .await
         .unwrap();
+    dbtx.commit().await.unwrap();
 
     let sender_task = tx_sender.clone().into_task().cancelable_loop();
     sender_task.0.into_bg();
@@ -1171,7 +1250,7 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1252,7 +1331,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1314,7 +1393,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,

@@ -8,6 +8,8 @@ pub mod config;
 mod confirmations;
 pub mod cpfp;
 pub mod db;
+#[cfg(feature = "json-rpc")]
+pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
 mod signer;
