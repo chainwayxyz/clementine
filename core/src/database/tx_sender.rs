@@ -965,7 +965,6 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
     async fn save_fee_payer_tx(
         &self,
         tx: Option<&mut Self::Transaction>,
-        _try_to_send_id: Option<u32>,
         bumped_id: u32,
         fee_payer_txid: Txid,
         vout: u32,

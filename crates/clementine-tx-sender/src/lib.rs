@@ -245,7 +245,6 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
     async fn save_fee_payer_tx(
         &self,
         dbtx: Option<&mut Self::Transaction>,
-        try_to_send_id: Option<u32>,
         bumped_id: u32,
         fee_payer_txid: Txid,
         vout: u32,
