@@ -6,7 +6,11 @@ use bitcoin::{Address, Network, TapSighash, XOnlyPublicKey};
 use clementine_errors::BridgeError;
 use clementine_utils::sign::TapTweakData;
 use eyre::Context;
+use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
+
+// Use the secp256k1 crate (not bitcoin::secp256k1) for ECDSA signing
+use secp256k1::SECP256K1;
 
 static SECP: LazyLock<Secp256k1<All>> = LazyLock::new(Secp256k1::new);
 
@@ -68,5 +72,26 @@ impl TxSenderSigningKey {
 
         Ok(SECP
             .sign_schnorr_no_aux_rand(&Message::from_digest(sighash.to_byte_array()), keypair_ref))
+    }
+
+    /// Signs a blob using ECDSA and returns (signature, public_key).
+    /// This is used for Citrea DA payload authentication.
+    /// Returns (signature, public_key) as serialized bytes.
+    pub(crate) fn sign_blob(&self, blob: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let secret_key = self.keypair.secret_key();
+        let secpk_secret_key = secp256k1::SecretKey::from_byte_array(secret_key.secret_bytes())
+            .expect("Secret key conversion failed");
+        let message = {
+            let mut hasher = Sha256::default();
+            hasher.update(blob);
+            hasher.finalize().into()
+        };
+        let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &secpk_secret_key);
+        let msg = secp256k1::Message::from_digest(message);
+        let sig = SECP256K1.sign_ecdsa(msg, &secpk_secret_key);
+        (
+            sig.serialize_compact().to_vec(),
+            public_key.serialize().to_vec(),
+        )
     }
 }

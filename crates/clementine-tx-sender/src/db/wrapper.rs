@@ -1,10 +1,11 @@
 //! Minimal SQLx wrapper types for tx-sender.
 
 use bitcoin::hashes::Hash as _;
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Txid};
 use sqlx::error::BoxDynError;
 use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo, PgValueRef};
 use sqlx::{Decode, Encode, Postgres, Type};
+use std::str::FromStr;
 
 /// Store `bitcoin::Txid` as `BYTEA` in Postgres.
 #[derive(sqlx::FromRow, Debug, Clone)]
@@ -37,5 +38,32 @@ impl<'r> Decode<'r, Postgres> for TxidDB {
 impl sqlx::postgres::PgHasArrayType for TxidDB {
     fn array_type_info() -> PgTypeInfo {
         PgTypeInfo::with_name("_bytea")
+    }
+}
+
+/// Store `bitcoin::OutPoint` as `TEXT` in Postgres.
+#[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
+pub struct OutPointDB(pub OutPoint);
+
+impl Type<Postgres> for OutPointDB {
+    fn type_info() -> PgTypeInfo {
+        PgTypeInfo::with_name("TEXT")
+    }
+}
+
+impl Encode<'_, Postgres> for OutPointDB {
+    fn encode_by_ref(
+        &self,
+        buf: &mut PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, BoxDynError> {
+        let s = self.0.to_string();
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for OutPointDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        Ok(Self(OutPoint::from_str(s)?))
     }
 }

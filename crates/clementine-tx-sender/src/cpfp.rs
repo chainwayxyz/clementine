@@ -201,35 +201,7 @@ impl TxSender {
             }],
         };
 
-        // Manually serialize in legacy format for 0-input transactions
-        // Because fund_raw_transaction RPC gives deserialization error for 0-input transactions with segwit flag
-        // but in the end fund_raw_transaction returns a segwit transaction after adding inputs
-        let fee_payer_bytes = if fee_payer_tx.input.is_empty() {
-            use bitcoin::consensus::Encodable;
-            let mut buf = Vec::new();
-            // Serialize version
-            fee_payer_tx
-                .version
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize version");
-            fee_payer_tx
-                .input
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize inputs");
-            fee_payer_tx
-                .output
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize outputs");
-            // Serialize locktime
-            fee_payer_tx
-                .lock_time
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize locktime");
-
-            buf
-        } else {
-            bitcoin::consensus::encode::serialize(&fee_payer_tx)
-        };
+        let fee_payer_bytes = crate::serialize_tx_for_fund_raw(&fee_payer_tx);
 
         let funded_fee_payer_tx = self
             .rpc

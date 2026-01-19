@@ -3,6 +3,8 @@
 //! This crate handles the creation, signing, and broadcasting of Bitcoin transactions,
 //! supporting various fee-bumping strategies like CPFP and RBF.
 
+#[cfg(feature = "citrea")]
+pub mod citrea;
 pub mod client;
 pub mod config;
 mod confirmations;
@@ -14,6 +16,8 @@ pub mod nonstandard;
 pub mod rbf;
 mod signer;
 pub mod task;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 // Define a macro for logging errors and saving them to the database
 #[macro_export]
@@ -83,6 +87,41 @@ pub struct SpendableUtxo {
     pub spend_info: Option<TaprootSpendInfo>,
 }
 
+/// Serialize a transaction for `fund_raw_transaction`, working around Bitcoin Core's
+/// deserialization bug for 0-input segwit transactions. fund_raw_transaction RPC
+/// gives deserialization error for 0-input transactions with segwit flag.
+///
+/// For transactions with no inputs, this uses legacy-style serialization
+/// (version, inputs, outputs, locktime) without segwit markers. Core will
+/// then add inputs and return a proper segwit transaction.
+pub(crate) fn serialize_tx_for_fund_raw(tx: &Transaction) -> Vec<u8> {
+    if tx.input.is_empty() {
+        use bitcoin::consensus::Encodable;
+
+        let mut buf = Vec::new();
+        // Serialize version
+        tx.version
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize version");
+        // Serialize inputs
+        tx.input
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize inputs");
+        // Serialize outputs
+        tx.output
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize outputs");
+        // Serialize locktime
+        tx.lock_time
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize locktime");
+
+        buf
+    } else {
+        bitcoin::consensus::encode::serialize(tx)
+    }
+}
+
 pub use db::{TxSenderDb, TxSenderDbTx, TxSenderTransaction};
 
 #[derive(Clone, Debug)]
@@ -104,6 +143,7 @@ pub struct TxSender {
     signer: TxSenderSigningKey,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
     pub db: TxSenderDb,
+    client: TxSenderClient,
     pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
     pub finality_depth: u32,
@@ -146,11 +186,13 @@ impl TxSender {
         .map_err(|e| BridgeError::Eyre(e.into()))?;
 
         let db = TxSenderDb::connect(&tx_sender_config.postgres).await?;
+        let client = TxSenderClient::new(db.clone());
 
         Ok(Self {
             signer,
             rpc,
             db,
+            client,
             network: tx_sender_config.network,
             tx_sender_limits: tx_sender_config.limits,
             finality_depth: tx_sender_config.finality_depth,

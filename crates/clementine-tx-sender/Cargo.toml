@@ -7,7 +7,7 @@ homepage = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-bitcoin = { workspace = true, features = ["serde"] }
+bitcoin = { workspace = true, features = ["serde", "rand-std"] }
 bitcoincore-rpc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,6 +22,8 @@ secrecy = { workspace = true }
 log = { workspace = true }
 jsonrpsee = { workspace = true, optional = true, features = ["macros", "server", "client", "http-client"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+secp256k1 = {workspace = true, optional = true}
+sha2 = {workspace = true, optional = true}
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }
@@ -32,6 +34,7 @@ clementine-extended-rpc = { path = "../clementine-extended-rpc" }
 [features]
 json-rpc = ["dep:jsonrpsee"]
 standalone = ["json-rpc"]
+citrea = ["standalone", "dep:secp256k1", "dep:sha2"]
 test-utils = []
 
 [dev-dependencies]

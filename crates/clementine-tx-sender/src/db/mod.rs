@@ -19,6 +19,8 @@ pub struct TxSenderDb {
 pub type TxSenderTransaction = sqlx::Transaction<'static, Postgres>;
 pub type TxSenderDbTx<'a> = &'a mut TxSenderTransaction;
 
+#[cfg(feature = "citrea")]
+pub mod citrea;
 pub mod tx_sender;
 pub mod wrapper;
 

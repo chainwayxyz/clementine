@@ -28,15 +28,17 @@ impl TxSenderTaskInternal {
             .get_current_chain_height()
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+
+        tracing::debug!("TXSENDER: Getting fee rate");
+        let fee_rate = self.inner.get_fee_rate().await?;
+        tracing::debug!("TXSENDER: Fee rate result: {fee_rate:?}");
+
+        #[cfg(feature = "citrea")]
+        self.inner.sync_citrea_txs(fee_rate).await?;
         // No need for db transaction as it doesn't matter if it fails midway, we resync from rpc continuously
         self.inner
             .sync_transaction_confirmations_via_rpc(None, self.current_tip_height)
             .await?;
-
-        tracing::debug!("TXSENDER: Getting fee rate");
-        let fee_rate_result = self.inner.get_fee_rate().await;
-        tracing::debug!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
-        let fee_rate = fee_rate_result?;
 
         self.inner
             .try_to_send_unconfirmed_txs(

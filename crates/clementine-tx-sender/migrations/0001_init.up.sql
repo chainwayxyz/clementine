@@ -96,3 +96,30 @@ CREATE TABLE IF NOT EXISTS tx_sender_debug_sending_state (
     activated_timestamp TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sender_debug_submission_errors(tx_id);
+-- Citrea raw transaction queue for DA payloads.
+--
+-- Each logical request is grouped by `insertion_id`. For non-chunked payloads
+-- there is a single row. For chunked payloads, multiple chunk rows plus a
+-- single aggregate row share the same `insertion_id`.
+--
+-- `body` is globally unique (when non-NULL) to avoid queuing duplicate blobs.
+CREATE SEQUENCE IF NOT EXISTS tx_sender_citrea_raw_tx_insertion_id_seq;
+CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
+    id BIGSERIAL PRIMARY KEY,
+    -- Group identifier shared across all rows belonging to the same RawTxData
+    -- request (chunks and aggregate).
+    insertion_id BIGINT NOT NULL DEFAULT nextval('tx_sender_citrea_raw_tx_insertion_id_seq'),
+    -- Numeric transaction kind as defined in `citrea::TransactionKind` (u16).
+    transaction_kind SMALLINT NOT NULL,
+    -- Raw body bytes. Non-NULL for all non-aggregate rows; NULL for the
+    -- aggregate placeholder row.
+    body BYTEA,
+    -- Optional commit outpoint once known (format: "txid:vout").
+    commit_outpoint TEXT,
+    -- Optional link to a tx_sender_try_to_send_txs row once it exists.
+    try_to_send_id INT REFERENCES tx_sender_try_to_send_txs(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE (body)
+);
+CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_insertion_id_idx ON tx_sender_citrea_raw_tx_queue(insertion_id);
+CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_try_to_send_id_idx ON tx_sender_citrea_raw_tx_queue(try_to_send_id);

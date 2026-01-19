@@ -12,6 +12,9 @@ use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use clementine_errors::BridgeError;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 
+#[cfg(feature = "citrea")]
+use crate::citrea::RawTxData;
+
 const JSONRPC_INTERNAL_ERROR_CODE: i32 = -32_000;
 
 fn jsonrpc_err(message: impl ToString) -> ErrorObjectOwned {
@@ -45,6 +48,14 @@ pub struct InsertTryToSendParams {
     pub cancel_txids: Vec<Txid>,
     pub activate_txids: Vec<ActivatedWithTxid>,
     pub activate_outpoints: Vec<ActivatedWithOutpoint>,
+}
+
+/// Parameters for inserting a Citrea DA transaction request.
+#[cfg(feature = "citrea")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InsertCitreaRawTxParams {
+    /// Opaque DA payload to be inscribed on Bitcoin.
+    pub raw_tx_data: RawTxData,
 }
 
 /// Starts a JSON-RPC server exposing only `send_tx`.
@@ -98,6 +109,23 @@ pub async fn start_jsonrpc_server(
             Ok::<u32, ErrorObjectOwned>(try_to_send_id)
         })
         .map_err(|e| BridgeError::Eyre(e.into()))?;
+
+    // Citrea-specific RPCs.
+    #[cfg(feature = "citrea")]
+    {
+        module
+            .register_async_method("send_citrea_tx", |params, client, _| async move {
+                let req: InsertCitreaRawTxParams = params.one().map_err(jsonrpc_err)?;
+
+                client
+                    .send_citrea_tx(req.raw_tx_data)
+                    .await
+                    .map_err(jsonrpc_err)?;
+
+                Ok::<(), ErrorObjectOwned>(())
+            })
+            .map_err(|e| BridgeError::Eyre(e.into()))?;
+    }
 
     let handle = server.start(module);
 
