@@ -17,10 +17,11 @@ use crate::operator::Operator;
 use crate::utils::{Last20Bytes, RbfSigningInfo};
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
-use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use bitcoin::{BlockHash, OutPoint, TapSighashType, Transaction, XOnlyPublicKey};
 use clementine_errors::BridgeError;
 use clementine_errors::{TransactionType, TxError};
 use clementine_primitives::RoundIndex;
+use clementine_utils::RbfSigningSpendPath;
 use eyre::Context;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
@@ -314,7 +315,10 @@ where
             watchtower_challenge_txhandler.get_cached_tx().clone(),
             RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: merkle_root,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: merkle_root,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 annex,
                 additional_taproot_output_count,
             },

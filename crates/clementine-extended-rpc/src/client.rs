@@ -10,6 +10,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(any(test, feature = "test-utils"))]
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tokio_retry::RetryIf;

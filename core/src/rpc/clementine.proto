@@ -143,6 +143,7 @@ enum FeeType {
   CPFP = 1;
   RBF = 2;
   NO_FUNDING = 3;
+  RBF_WTXID_GRIND = 4;
 }
 
 enum NormalTransactionId {
@@ -693,8 +694,16 @@ message SignedTxsWithType {
 }
 
 message RbfSigningInfoRpc {
+  // Key path spend tweak merkle root (optional; empty for script path).
   bytes merkle_root = 1;
+  // Output index of the UTXO to be re-signed.
   uint32 vout = 2;
+  // Script path control block (optional; empty for key path).
+  bytes control_block = 3;
+  // Script path tapscript (optional; empty for key path).
+  bytes script = 4;
+  // Taproot sighash type as raw byte.
+  uint32 tap_sighash_type = 5;
 }
 
 message RawTxWithRbfInfo {

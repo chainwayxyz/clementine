@@ -152,7 +152,7 @@ DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'rbf_wtxid_grind', 'nofunding');
 END IF;
 END $$;
 -- Transactions that are needed to be fee bumped
@@ -227,6 +227,33 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
+-- Citrea raw transaction queue for DA payloads.
+--
+-- Each logical request is grouped by `insertion_id`. For non-chunked payloads
+-- there is a single row. For chunked payloads, multiple chunk rows plus a
+-- single aggregate row share the same `insertion_id`.
+--
+-- `body` is globally unique (when non-NULL) to avoid queuing duplicate blobs.
+create sequence if not exists tx_sender_citrea_raw_tx_insertion_id_seq;
+create table if not exists tx_sender_citrea_raw_tx_queue (
+    id bigserial primary key,
+    -- group identifier shared across all rows belonging to the same rawtxdata
+    -- request (chunks and aggregate).
+    insertion_id bigint not null default nextval('tx_sender_citrea_raw_tx_insertion_id_seq'),
+    -- numeric transaction kind as defined in `citrea::transactionkind` (u16).
+    transaction_kind smallint not null,
+    -- raw body bytes. non-null for all non-aggregate rows; null for the
+    -- aggregate placeholder row.
+    body bytea,
+    -- optional commit outpoint once known (format: "txid:vout").
+    commit_outpoint text,
+    -- optional link to a tx_sender_try_to_send_txs row once it exists.
+    try_to_send_id int references tx_sender_try_to_send_txs(id),
+    created_at timestamp not null default now(),
+    unique (body)
+);
+create index if not exists tx_sender_citrea_raw_tx_queue_insertion_id_idx on tx_sender_citrea_raw_tx_queue(insertion_id);
+create index if not exists tx_sender_citrea_raw_tx_queue_try_to_send_id_idx on tx_sender_citrea_raw_tx_queue(try_to_send_id);
 /*******************************************************************************
  *           FINALIZED BLOCK SYNCER, CITREA DEPOSITS AND WITHDRAWALS
  ******************************************************************************/

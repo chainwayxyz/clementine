@@ -13,11 +13,12 @@ use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use clementine_errors::BridgeError;
 use clementine_errors::TransactionType;
 use clementine_primitives::RoundIndex;
+use clementine_utils::RbfSigningSpendPath;
 use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -85,11 +86,24 @@ macro_rules! fetch_next_optional_message_from_stream {
 
 impl From<RbfSigningInfo> for RbfSigningInfoRpc {
     fn from(value: RbfSigningInfo) -> Self {
+        let (merkle_root, control_block, script) = match value.spend_path {
+            RbfSigningSpendPath::KeyPath { tweak_merkle_root } => (
+                tweak_merkle_root.map_or(vec![], |root| root.to_byte_array().to_vec()),
+                Vec::new(),
+                Vec::new(),
+            ),
+            RbfSigningSpendPath::ScriptPath {
+                control_block,
+                script,
+            } => (Vec::new(), control_block, script),
+        };
+
         RbfSigningInfoRpc {
-            merkle_root: value
-                .tweak_merkle_root
-                .map_or(vec![], |root| root.to_byte_array().to_vec()),
+            merkle_root,
             vout: value.vout,
+            control_block,
+            script,
+            tap_sighash_type: value.tap_sighash_type as u32,
         }
     }
 }
@@ -98,17 +112,35 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
     type Error = BridgeError;
 
     fn try_from(value: RbfSigningInfoRpc) -> Result<Self, Self::Error> {
+        let spend_path = if !value.merkle_root.is_empty() {
+            // Key path spend
+            RbfSigningSpendPath::KeyPath {
+                tweak_merkle_root: Some(TapNodeHash::from_slice(&value.merkle_root).wrap_err(
+                    eyre::eyre!("Failed to convert merkle root bytes from rpc to TapNodeHash"),
+                )?),
+            }
+        } else if !value.control_block.is_empty() || !value.script.is_empty() {
+            // Script path spend
+            RbfSigningSpendPath::ScriptPath {
+                control_block: value.control_block,
+                script: value.script,
+            }
+        } else {
+            // Default to key path without tweak
+            RbfSigningSpendPath::KeyPath {
+                tweak_merkle_root: None,
+            }
+        };
+
         Ok(RbfSigningInfo {
-            tweak_merkle_root: if value.merkle_root.is_empty() {
-                None
-            } else {
-                Some(
-                    TapNodeHash::from_slice(&value.merkle_root).wrap_err(eyre::eyre!(
-                        "Failed to convert merkle root bytes from rpc to TapNodeHash"
-                    ))?,
-                )
-            },
             vout: value.vout,
+            spend_path,
+            tap_sighash_type: TapSighashType::from_consensus_u8(value.tap_sighash_type as u8)
+                .map_err(|e| {
+                    BridgeError::Parser(crate::rpc::parser::ParserError::RPCParamMalformed(
+                        format!("invalid tap_sighash_type: {e}"),
+                    ))
+                })?,
             // Always None when deserializing from RPC - these fields are only used in tests
             annex: None,
             additional_taproot_output_count: None,
@@ -187,6 +219,7 @@ impl From<FeePayingType> for FeeType {
         match value {
             FeePayingType::CPFP => FeeType::Cpfp,
             FeePayingType::RBF => FeeType::Rbf,
+            FeePayingType::RbfWtxidGrind => FeeType::RbfWtxidGrind,
             FeePayingType::NoFunding => FeeType::NoFunding,
         }
     }
@@ -200,6 +233,7 @@ impl TryFrom<FeeType> for FeePayingType {
             FeeType::Cpfp => Ok(FeePayingType::CPFP),
             FeeType::Rbf => Ok(FeePayingType::RBF),
             FeeType::NoFunding => Ok(FeePayingType::NoFunding),
+            FeeType::RbfWtxidGrind => Ok(FeePayingType::RbfWtxidGrind),
             _ => Err(Status::invalid_argument("Invalid FeeType variant")),
         }
     }

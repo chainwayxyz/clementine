@@ -17,6 +17,11 @@ pub enum FeePayingType {
     /// version that includes a higher fee. The original transaction must signal
     /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     RBF,
+    /// Replace-By-Fee (wtxid grind): Like RBF, but the transaction is re-signed / mutated
+    /// as needed to achieve a desired wtxid prefix. This option will grind by changing the transaction locktime,
+    /// so ensure that any transaction that uses this do not require a specific locktime.
+    #[sqlx(rename = "rbf_wtxid_grind")]
+    RbfWtxidGrind,
     /// The transaction has already been funded and no fee is needed.
     /// Currently used for disprove tx as it has operator's collateral as input.
     NoFunding,

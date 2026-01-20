@@ -37,7 +37,8 @@ use crate::test::common::{
 };
 use crate::tx_sender::TxSender;
 use crate::tx_sender_ext::TxSenderClientExt;
-use crate::utils::RbfSigningInfo;
+use crate::utils::{RbfSigningInfo, RbfSigningSpendPath};
+use bitcoin::TapSighashType;
 use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
@@ -1027,6 +1028,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
             current_fee_rate,
             None,
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1066,7 +1068,10 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             FeePayingType::RBF,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
@@ -1091,13 +1096,17 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             current_fee_rate,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1196,7 +1205,10 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
             FeePayingType::RBF,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
@@ -1256,7 +1268,10 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             FeePayingType::RBF,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
@@ -1281,13 +1296,17 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             current_fee_rate,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1356,6 +1375,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
             current_fee_rate,
             None,
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1418,13 +1438,17 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             current_fee_rate,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1458,13 +1482,17 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             higher_fee_rate,
             Some(RbfSigningInfo {
                 vout: 0,
-                tweak_merkle_root: None,
+                spend_path: RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                tap_sighash_type: TapSighashType::Default,
                 #[cfg(test)]
                 annex: None,
                 #[cfg(test)]
                 additional_taproot_output_count: None,
             }),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");

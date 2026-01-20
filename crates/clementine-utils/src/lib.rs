@@ -12,5 +12,5 @@ pub mod traits;
 
 pub use fee::FeePayingType;
 pub use metadata::TxMetadata;
-pub use sign::{RbfSigningInfo, TapTweakData};
+pub use sign::{RbfSigningInfo, RbfSigningSpendPath, TapTweakData};
 pub use traits::{Last20Bytes, NamedEntity, ScriptBufExt, TryLast20Bytes};

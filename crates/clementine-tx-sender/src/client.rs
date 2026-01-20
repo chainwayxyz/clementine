@@ -243,9 +243,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_citrea_tx_batch_proof() {
         use crate::citrea::RawTxData;
-        use crate::test_utils::setup_txsender_test_db;
+        use crate::test_utils::create_test_environment;
 
-        let db = setup_txsender_test_db().await;
+        let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
         let body = vec![1, 2, 3, 4, 5];
@@ -271,9 +271,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_citrea_tx_chunks() {
         use crate::citrea::RawTxData;
-        use crate::test_utils::setup_txsender_test_db;
+        use crate::test_utils::create_test_environment;
 
-        let db = setup_txsender_test_db().await;
+        let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
         let chunks = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
@@ -314,9 +314,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_citrea_tx_duplicate_body_rejected() {
         use crate::citrea::RawTxData;
-        use crate::test_utils::setup_txsender_test_db;
+        use crate::test_utils::create_test_environment;
 
-        let db = setup_txsender_test_db().await;
+        let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
         let body = vec![10, 20, 30];
@@ -348,9 +348,9 @@ mod tests {
     #[tokio::test]
     async fn test_send_citrea_tx_transaction_rollback() {
         use crate::citrea::RawTxData;
-        use crate::test_utils::setup_txsender_test_db;
+        use crate::test_utils::create_test_environment;
 
-        let db = setup_txsender_test_db().await;
+        let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
         let body1 = vec![100, 200];

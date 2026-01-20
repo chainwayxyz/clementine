@@ -64,7 +64,7 @@ impl TxSenderClientExt for TxSenderClient {
 
         let txid = match fee_paying_type {
             FeePayingType::CPFP | FeePayingType::NoFunding => tx.compute_txid(),
-            FeePayingType::RBF => self
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind => self
                 .db
                 .get_last_rbf_txid(None, id)
                 .await

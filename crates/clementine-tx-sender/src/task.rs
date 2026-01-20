@@ -116,19 +116,14 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
 /// Test utility: pick a free localhost port, enable JSON-RPC, and spawn txsender loop.
 ///
 /// Returns `(jsonrpc_addr, join_handle)`.
-#[cfg(all(feature = "test-utils", feature = "json-rpc"))]
+#[cfg(all(feature = "testing", feature = "json-rpc"))]
 pub fn spawn_txsender_loop_with_free_localhost_jsonrpc_port(
     mut config: TxSenderConfig,
 ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    use crate::test_utils::get_available_port;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-        .expect("failed to bind ephemeral localhost port");
-    let port = listener
-        .local_addr()
-        .expect("failed to read local addr")
-        .port();
-    drop(listener);
+    let port = get_available_port();
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     config.jsonrpc = Some(crate::config::TxSenderJsonRpcConfig {

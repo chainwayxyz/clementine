@@ -477,7 +477,9 @@ pub async fn create_bumpable_tx(
 
     let version = match fee_paying_type {
         FeePayingType::CPFP => NON_STANDARD_V3,
-        FeePayingType::RBF | FeePayingType::NoFunding => Version::TWO,
+        FeePayingType::RBF | FeePayingType::RbfWtxidGrind | FeePayingType::NoFunding => {
+            Version::TWO
+        }
     };
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
@@ -491,8 +493,14 @@ pub async fn create_bumpable_tx(
                     NormalSignatureKind::Challenge.into()
                 }
                 FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+                FeePayingType::RbfWtxidGrind if requires_rbf_signing_info => {
+                    (NumberedSignatureKind::WatchtowerChallenge, 0i32).into()
+                }
                 FeePayingType::NoFunding => {
                     unreachable!("AlreadyFunded should not be used for bumpable txs")
+                }
+                FeePayingType::RbfWtxidGrind => {
+                    unreachable!("RbfWtxidGrind should not be used without signing info")
                 }
             },
             SpendableTxIn::new(
@@ -511,7 +519,9 @@ pub async fn create_bumpable_tx(
             value: amount
                 - match fee_paying_type {
                     FeePayingType::CPFP => Amount::from_sat(0), // for cpfp create a 0 fee tx
-                    FeePayingType::RBF | FeePayingType::NoFunding => MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                    FeePayingType::RBF
+                    | FeePayingType::RbfWtxidGrind
+                    | FeePayingType::NoFunding => MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
                 },
             script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
         }))

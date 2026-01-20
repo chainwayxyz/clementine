@@ -11,6 +11,14 @@ use bitcoin::{Address, ScriptBuf};
 use crate::citrea::TransactionKind;
 use crate::TxSender;
 
+/// Bundle of data required for committing and later revealing a Citrea payload.
+#[derive(Debug, Clone)]
+pub struct CitreaSigningData {
+    pub reveal_script: ScriptBuf,
+    pub control_block: ControlBlock,
+    pub commit_address: Address,
+}
+
 impl TxSender {
     /// Creates a reveal script for a Citrea transaction based on transaction kind and body.
     ///
@@ -36,11 +44,11 @@ impl TxSender {
         &self,
         transaction_kind: TransactionKind,
         body: &[u8],
-    ) -> (ScriptBuf, ControlBlock, Address) {
+    ) -> CitreaSigningData {
         let public_key = self.xonly_public_key();
         let kind_bytes = transaction_kind.to_bytes();
 
-        // Nonce is fixed to 16 for legacy reasons
+        // Nonce is fixed to 16
         let nonce: i64 = 16;
 
         // Determine if this transaction kind requires signature and signer_public_key
@@ -99,7 +107,11 @@ impl TxSender {
         let merkle_root = taproot_spend_info.merkle_root();
         let commit_address = Address::p2tr(&secp, public_key, merkle_root, self.network);
 
-        (reveal_script, control_block, commit_address)
+        CitreaSigningData {
+            reveal_script,
+            control_block,
+            commit_address,
+        }
     }
 }
 

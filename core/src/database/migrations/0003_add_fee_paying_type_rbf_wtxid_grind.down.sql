@@ -1,0 +1,2 @@
+-- NOTE: Postgres does not support dropping enum values easily.
+-- This migration is intentionally a no-op.

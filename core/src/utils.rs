@@ -24,8 +24,8 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 
 // Re-export types from clementine-utils
 pub use clementine_utils::{
-    FeePayingType, Last20Bytes, NamedEntity, RbfSigningInfo, ScriptBufExt, TryLast20Bytes,
-    TxMetadata,
+    FeePayingType, Last20Bytes, NamedEntity, RbfSigningInfo, RbfSigningSpendPath, ScriptBufExt,
+    TryLast20Bytes, TxMetadata,
 };
 
 /// Initializes a [`tracing`] subscriber depending on the environment.

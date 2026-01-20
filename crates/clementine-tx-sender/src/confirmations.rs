@@ -107,7 +107,11 @@ impl TxSender {
         let rbf_ids: Vec<u32> = unfinalized
             .iter()
             .filter_map(|(id, fee_paying_type, _txid, _seen_at_height)| {
-                matches!(fee_paying_type, FeePayingType::RBF).then_some(*id)
+                matches!(
+                    fee_paying_type,
+                    FeePayingType::RBF | FeePayingType::RbfWtxidGrind
+                )
+                .then_some(*id)
             })
             .collect();
 
@@ -127,7 +131,7 @@ impl TxSender {
                 FeePayingType::CPFP | FeePayingType::NoFunding => {
                     get_tx_status_cached(&self.rpc, &mut tx_status_cache, txid).await?
                 }
-                FeePayingType::RBF => {
+                FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
                     let Some(rbf_txids) = rbf_txids_by_id.get(&id) else {
                         // No sent RBF txids yet => nothing to confirm/unconfirm.
                         continue;

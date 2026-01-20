@@ -1,8 +1,9 @@
 use crate::db::citrea::CitreaRawTxRow;
 use crate::TxSender;
-use bitcoin::{Amount, FeeRate};
+use bitcoin::{Amount, FeeRate, TapSighashType};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::RpcApi;
+use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
 
@@ -42,11 +43,10 @@ impl TxSender {
             let mut rows_with_scripts = Vec::with_capacity(rows.len());
 
             for row in rows {
-                let (reveal_script, control_block, commit_address) =
-                    self.create_reveal_script(row.transaction_kind.clone(), &row.body);
+                let signing_data = self.create_reveal_script(row.transaction_kind, &row.body);
 
-                recipients.push(commit_address.clone());
-                rows_with_scripts.push((row, reveal_script, control_block, commit_address));
+                recipients.push(signing_data.commit_address.clone());
+                rows_with_scripts.push((row, signing_data));
             }
 
             // Build unsigned commit transaction paying to all reveal addresses.
@@ -63,7 +63,8 @@ impl TxSender {
                     Some(&FundRawTransactionOptions {
                         add_inputs: Some(true),
                         change_address: None,
-                        change_position: None,
+                        // add change output at the end, that means outputs 0..len-1 are the commit outputs and output len is the change output
+                        change_position: Some(unsigned_commit_tx.output.len() as u32),
                         change_type: None,
                         include_watching: None,
                         lock_unspents: None,
@@ -89,17 +90,13 @@ impl TxSender {
             };
 
             // Sign the funded transaction with the wallet.
-            let signed_hex = self
+            let signed_commit_tx = self
                 .rpc
                 .sign_raw_transaction_with_wallet(&funded_hex, None, None)
                 .await
                 .wrap_err("Failed to sign commit transaction")?
-                .hex;
-
-            let signed_commit_tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
-                &hex::decode(&signed_hex).wrap_err("Failed to decode signed hex transaction")?,
-            )
-            .wrap_err("Failed to deserialize signed commit transaction")?;
+                .transaction()
+                .wrap_err("Failed to convert result of sign_raw_transaction_with_wallet to btc transaction")?;
 
             let commit_txid = signed_commit_tx.compute_txid();
 
@@ -114,10 +111,8 @@ impl TxSender {
                 continue;
             }
 
-            // Persist commit outpoints for each Citrea row in a single DB transaction.
-            for (vout, (row, _reveal_script, _control_block, _commit_address)) in
-                rows_with_scripts.into_iter().enumerate()
-            {
+            // Persist commit outpoints for each Citrea row.
+            for (vout, (row, _signing_data)) in rows_with_scripts.into_iter().enumerate() {
                 let outpoint = bitcoin::OutPoint {
                     txid: commit_txid,
                     vout: vout as u32,
@@ -143,6 +138,7 @@ impl TxSender {
         );
 
         if !reveal_rows.is_empty() {
+            let change_address = self.rpc.get_new_wallet_address().await?;
             for row in reveal_rows {
                 let commit_outpoint = row
                     .commit_outpoint
@@ -152,7 +148,12 @@ impl TxSender {
                 let reveal_tx = crate::citrea::build_reveal_transaction(
                     commit_outpoint.txid,
                     commit_outpoint.vout,
+                    &change_address,
                 );
+
+                // if there are no errors (db, btc rpc error, etc.), this call creates the reveal script 2nd time
+                // in this fn (first on the loop above), this can be optimized later by caching the signing data.
+                let signing_data = self.create_reveal_script(row.transaction_kind, &row.body);
 
                 // Insert reveal transaction into tx_sender_try_to_send_txs with RBF fee paying type.
                 // Each insertion uses its own DB transaction.
@@ -164,8 +165,17 @@ impl TxSender {
                         &mut dbtx,
                         None, // No tx_metadata for citrea txs, it is still clementine specific
                         &reveal_tx,
-                        clementine_utils::FeePayingType::RBF,
-                        None,
+                        clementine_utils::FeePayingType::RbfWtxidGrind,
+                        Some(RbfSigningInfo {
+                            vout: 0,
+                            spend_path: clementine_utils::RbfSigningSpendPath::ScriptPath {
+                                control_block: signing_data.control_block.serialize(),
+                                script: signing_data.reveal_script.into_bytes(),
+                            },
+                            tap_sighash_type: TapSighashType::Default,
+                            annex: None,
+                            additional_taproot_output_count: None,
+                        }),
                         &[],
                         &[],
                         &[],

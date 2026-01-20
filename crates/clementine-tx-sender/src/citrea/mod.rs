@@ -3,32 +3,21 @@
 
 pub mod reveal_scripts;
 pub mod sync;
-#[cfg(feature = "test-utils")]
+#[cfg(feature = "testing")]
 pub mod test_utils;
 
 #[cfg(test)]
 mod tests;
 
-use core::fmt;
-use core::result::Result::Ok;
-
 use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::script;
-use bitcoin::hashes::Hash;
-use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-use bitcoin::secp256k1::{All, Keypair, Message, Secp256k1, SecretKey};
-use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder};
-use bitcoin::{
-    Address, OutPoint, ScriptBuf, Sequence, TapLeafHash, TapNodeHash, Transaction, TxIn, TxOut,
-    Txid, Witness, XOnlyPublicKey,
-};
+use bitcoin::secp256k1::{Message, PublicKey, SecretKey};
+use bitcoin::{Address, Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
 use clementine_primitives::MIN_TAPROOT_AMOUNT;
-use eyre::Result;
-use secp256k1::SECP256K1;
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use crate::signer::SECP;
 
 /// These are real blobs we put on DA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +35,7 @@ pub enum RawTxData {
 }
 
 /// Type represents a typed enum for transaction kind
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum TransactionKind {
     /// This type of transaction includes full body (< 400kb)
@@ -67,7 +56,7 @@ pub enum TransactionKind {
 
 impl TransactionKind {
     /// Serialize itself into bytes.
-    fn to_bytes(&self) -> [u8; 2] {
+    fn to_bytes(self) -> [u8; 2] {
         match self {
             TransactionKind::Complete => 0u16.to_le_bytes(),
             TransactionKind::Aggregate => 1u16.to_le_bytes(),
@@ -101,37 +90,28 @@ impl TransactionKind {
             TransactionKind::Unknown(n) => *n as i16,
         }
     }
-    /// Deserialize itself from bytes.
-    fn from_bytes(bytes: &[u8]) -> Option<TransactionKind> {
-        if bytes.len() != 2 {
-            return None;
-        }
-        let mut kind_bytes = [0; 2];
-        kind_bytes.copy_from_slice(bytes);
-        Some(TransactionKind::from_u16(u16::from_le_bytes(kind_bytes)))
-    }
 }
 
 // The minimal dust value output in reveal txs.
-// pub const REVEAL_OUTPUT_AMOUNT: u64 = 546;
+pub const REVEAL_OUTPUT_AMOUNT: Amount = Amount::from_sat(546);
 
-/// Both transaction and its hash
-#[derive(Clone, Serialize)]
-pub struct TxWithId {
-    /// ID (hash)
-    pub id: Txid,
-    /// Transaction
-    pub tx: Transaction,
-}
+// /// Both transaction and its hash
+// #[derive(Clone, Serialize)]
+// pub struct TxWithId {
+//     /// ID (hash)
+//     pub id: Txid,
+//     /// Transaction
+//     pub tx: Transaction,
+// }
 
-impl fmt::Debug for TxWithId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TxWithId")
-            .field("id", &self.id)
-            .field("tx", &"...")
-            .finish()
-    }
-}
+// impl fmt::Debug for TxWithId {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("TxWithId")
+//             .field("id", &self.id)
+//             .field("tx", &"...")
+//             .finish()
+//     }
+// }
 
 /// Build the commit part of commit-reveal pair
 /// Multiple commits can be in the same tx (if chunks are used, each commit needs a different nonce so that the addresses are different)
@@ -153,7 +133,11 @@ pub(crate) fn build_commit_transaction(recipients: &[Address]) -> Transaction {
 }
 
 /// Build the reveal part of commit-reveal pair
-pub(crate) fn build_reveal_transaction(input_txid: Txid, input_vout: u32) -> Transaction {
+pub(crate) fn build_reveal_transaction(
+    input_txid: Txid,
+    input_vout: u32,
+    change_address: &Address,
+) -> Transaction {
     let inputs = vec![TxIn {
         previous_output: OutPoint {
             txid: input_txid,
@@ -168,132 +152,130 @@ pub(crate) fn build_reveal_transaction(input_txid: Txid, input_vout: u32) -> Tra
         lock_time: LockTime::ZERO,
         version: bitcoin::transaction::Version(2),
         input: inputs,
-        output: vec![],
+        output: vec![TxOut {
+            value: REVEAL_OUTPUT_AMOUNT,
+            script_pubkey: change_address.script_pubkey(),
+        }],
     }
 }
 
-/// Build control block for the reveal script with taproot spend info.
-/// This is a heavy operation because we need to hash the reveal script.
-fn build_control_block(
-    reveal_script: &ScriptBuf,
-    public_key: XOnlyPublicKey,
-    secp256k1: &Secp256k1<All>,
-) -> (ControlBlock, Option<TapNodeHash>, TapLeafHash) {
-    // create spend info for tapscript
-    let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(0, reveal_script.clone())
-        .expect("Cannot add reveal script to taptree")
-        .finalize(secp256k1, public_key)
-        .expect("Cannot finalize taptree");
+// /// Build control block for the reveal script with taproot spend info.
+// /// This is a heavy operation because we need to hash the reveal script.
+// fn build_control_block(
+//     reveal_script: &ScriptBuf,
+//     public_key: XOnlyPublicKey,
+// ) -> (ControlBlock, Option<TapNodeHash>, TapLeafHash) {
+//     // create spend info for tapscript
+//     let taproot_spend_info = TaprootBuilder::new()
+//         .add_leaf(0, reveal_script.clone())
+//         .expect("Cannot add reveal script to taptree")
+//         .finalize(&SECP, public_key)
+//         .expect("Cannot finalize taptree");
 
-    // create tapleaf hash
-    let tapleaf_hash = TapLeafHash::from_script(reveal_script, LeafVersion::TapScript);
+//     // create tapleaf hash
+//     let tapleaf_hash = TapLeafHash::from_script(reveal_script, LeafVersion::TapScript);
 
-    // create control block for tapscript
-    let control_block = taproot_spend_info
-        .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
-        .expect("Cannot create control block");
+//     // create control block for tapscript
+//     let control_block = taproot_spend_info
+//         .control_block(&(reveal_script.clone(), LeafVersion::TapScript))
+//         .expect("Cannot create control block");
 
-    (
-        control_block,
-        taproot_spend_info.merkle_root(),
-        tapleaf_hash,
-    )
-}
+//     (
+//         control_block,
+//         taproot_spend_info.merkle_root(),
+//         tapleaf_hash,
+//     )
+// }
 
-/// Build witness in the form of [signature, reveal_script, control_block]
-fn build_witness(
-    commit_tx: &Transaction,
-    reveal_tx: &mut Transaction,
-    tapscript_hash: TapLeafHash,
-    reveal_script: ScriptBuf,
-    control_block: ControlBlock,
-    key_pair: &Keypair,
-    secp256k1: &Secp256k1<All>,
-) {
-    // start signing reveal tx
-    let mut sighash_cache = SighashCache::new(reveal_tx);
+// /// Build witness in the form of [signature, reveal_script, control_block]
+// fn build_witness(
+//     commit_tx: &Transaction,
+//     reveal_tx: &mut Transaction,
+//     tapscript_hash: TapLeafHash,
+//     reveal_script: ScriptBuf,
+//     control_block: ControlBlock,
+//     key_pair: &Keypair,
+// ) {
+//     // start signing reveal tx
+//     let mut sighash_cache = SighashCache::new(reveal_tx);
 
-    // create data to sign
-    let signature_hash = sighash_cache
-        .taproot_script_spend_signature_hash(
-            0,
-            &Prevouts::All(&[&commit_tx.output[0]]),
-            tapscript_hash,
-            bitcoin::sighash::TapSighashType::Default,
-        )
-        .expect("Cannot create hash for signature");
+//     // create data to sign
+//     let signature_hash = sighash_cache
+//         .taproot_script_spend_signature_hash(
+//             0,
+//             &Prevouts::All(&[&commit_tx.output[0]]),
+//             tapscript_hash,
+//             bitcoin::sighash::TapSighashType::Default,
+//         )
+//         .expect("Cannot create hash for signature");
 
-    // sign reveal tx data (without auxiliary randomness)
-    let signature = secp256k1.sign_schnorr(
-        &Message::from_digest(signature_hash.to_byte_array()),
-        key_pair,
-    );
+//     // sign reveal tx data
+//     let signature = SECP.sign_schnorr(
+//         &Message::from_digest(signature_hash.to_byte_array()),
+//         key_pair,
+//     );
 
-    // add signature to witness and finalize reveal tx
-    let witness = sighash_cache.witness_mut(0).unwrap();
-    witness.clear();
-    witness.push(signature.as_ref());
-    witness.push(reveal_script);
-    witness.push(control_block.serialize());
-}
+//     // add signature to witness and finalize reveal tx
+//     let witness = sighash_cache.witness_mut(0).unwrap();
+//     witness.clear();
+//     witness.push(signature.as_ref());
+//     witness.push(reveal_script);
+//     witness.push(control_block.serialize());
+// }
 
-/// Update witness' signature only from the form of [signature, reveal_script, control_block]
-///  without touching reveal_script, control_block.
-/// This is an optimization of mining to get the necessary wtxid prefix.
-/// The optimization is that we don't have to hash the reveal script again and again
-///  which can be costly when the reveal script is huge.
-/// It's possible only when reveal script is the same (hence nonce is the same)
-///  but only the outputs are changed.
-fn update_witness(
-    commit_tx: &Transaction,
-    reveal_tx: &mut Transaction,
-    tapscript_hash: TapLeafHash,
-    key_pair: &Keypair,
-    secp256k1: &Secp256k1<All>,
-) {
-    // start signing reveal tx
-    let mut sighash_cache = SighashCache::new(reveal_tx);
+// /// Update witness' signature only from the form of [signature, reveal_script, control_block]
+// ///  without touching reveal_script, control_block.
+// /// This is an optimization of mining to get the necessary wtxid prefix.
+// /// The optimization is that we don't have to hash the reveal script again and again
+// ///  which can be costly when the reveal script is huge.
+// /// It's possible only when reveal script is the same (hence nonce is the same)
+// ///  but only the outputs are changed.
+// fn update_witness(
+//     commit_tx: &Transaction,
+//     reveal_tx: &mut Transaction,
+//     tapscript_hash: TapLeafHash,
+//     key_pair: &Keypair,
+// ) {
+//     // start signing reveal tx
+//     let mut sighash_cache = SighashCache::new(reveal_tx);
 
-    // create data to sign
-    let signature_hash = sighash_cache
-        .taproot_script_spend_signature_hash(
-            0,
-            &Prevouts::All(&[&commit_tx.output[0]]),
-            tapscript_hash,
-            bitcoin::sighash::TapSighashType::Default,
-        )
-        .expect("Cannot create hash for signature");
+//     // create data to sign
+//     let signature_hash = sighash_cache
+//         .taproot_script_spend_signature_hash(
+//             0,
+//             &Prevouts::All(&[&commit_tx.output[0]]),
+//             tapscript_hash,
+//             bitcoin::sighash::TapSighashType::Default,
+//         )
+//         .expect("Cannot create hash for signature");
 
-    // sign reveal tx data (without auxiliary randomness)
-    let signature = secp256k1.sign_schnorr(
-        &Message::from_digest(signature_hash.to_byte_array()),
-        key_pair,
-    );
+//     // sign reveal tx data
+//     let signature = SECP.sign_schnorr(
+//         &Message::from_digest(signature_hash.to_byte_array()),
+//         key_pair,
+//     );
 
-    // add signature to witness and finalize reveal tx
-    let witness = sighash_cache.witness_mut(0).unwrap();
+//     // add signature to witness and finalize reveal tx
+//     let witness = sighash_cache.witness_mut(0).unwrap();
 
-    let reveal_script = witness.nth(1).unwrap();
-    let control_block = witness.nth(2).unwrap();
+//     let reveal_script = witness.nth(1).unwrap();
+//     let control_block = witness.nth(2).unwrap();
 
-    let mut new_witness = Witness::new();
-    new_witness.push(signature.as_ref());
-    new_witness.push(reveal_script);
-    new_witness.push(control_block);
+//     let mut new_witness = Witness::new();
+//     new_witness.push(signature.as_ref());
+//     new_witness.push(reveal_script);
+//     new_witness.push(control_block);
 
-    *witness = new_witness;
-}
+//     *witness = new_witness;
+// }
 
 /// Signs a message with a private key
 /// Returns (signature, public_key)
 pub fn sign_blob_with_private_key(blob: &[u8], private_key: &SecretKey) -> (Vec<u8>, Vec<u8>) {
-    let secpk_secret_key = secp256k1::SecretKey::from_byte_array(private_key.secret_bytes())
-        .expect("Secret key conversion from bitcoin::secp256k1 to secp256k1 failed");
     let message = calculate_sha256(blob);
-    let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &secpk_secret_key);
-    let msg = secp256k1::Message::from_digest(message);
-    let sig = SECP256K1.sign_ecdsa(msg, &secpk_secret_key);
+    let public_key = PublicKey::from_secret_key(&SECP, private_key);
+    let msg = Message::from_digest(message);
+    let sig = SECP.sign_ecdsa(&msg, private_key);
     (
         sig.serialize_compact().to_vec(),
         public_key.serialize().to_vec(),

@@ -7,7 +7,7 @@ DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'rbf_wtxid_grind', 'nofunding');
 END IF;
 END $$;
 -- Transactions that are needed to be fee bumped

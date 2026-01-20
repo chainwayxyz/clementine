@@ -598,10 +598,21 @@ pub struct SignedTxsWithType {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RbfSigningInfoRpc {
+    /// Key path spend tweak merkle root (optional; empty for script path).
     #[prost(bytes = "vec", tag = "1")]
     pub merkle_root: ::prost::alloc::vec::Vec<u8>,
+    /// Output index of the UTXO to be re-signed.
     #[prost(uint32, tag = "2")]
     pub vout: u32,
+    /// Script path control block (optional; empty for key path).
+    #[prost(bytes = "vec", tag = "3")]
+    pub control_block: ::prost::alloc::vec::Vec<u8>,
+    /// Script path tapscript (optional; empty for key path).
+    #[prost(bytes = "vec", tag = "4")]
+    pub script: ::prost::alloc::vec::Vec<u8>,
+    /// Taproot sighash type as raw byte.
+    #[prost(uint32, tag = "5")]
+    pub tap_sighash_type: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawTxWithRbfInfo {
@@ -808,6 +819,7 @@ pub enum FeeType {
     Cpfp = 1,
     Rbf = 2,
     NoFunding = 3,
+    RbfWtxidGrind = 4,
 }
 impl FeeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -820,6 +832,7 @@ impl FeeType {
             Self::Cpfp => "CPFP",
             Self::Rbf => "RBF",
             Self::NoFunding => "NO_FUNDING",
+            Self::RbfWtxidGrind => "RBF_WTXID_GRIND",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -829,6 +842,7 @@ impl FeeType {
             "CPFP" => Some(Self::Cpfp),
             "RBF" => Some(Self::Rbf),
             "NO_FUNDING" => Some(Self::NoFunding),
+            "RBF_WTXID_GRIND" => Some(Self::RbfWtxidGrind),
             _ => None,
         }
     }

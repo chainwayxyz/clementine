@@ -16,7 +16,7 @@ pub mod nonstandard;
 pub mod rbf;
 mod signer;
 pub mod task;
-#[cfg(feature = "test-utils")]
+#[cfg(feature = "testing")]
 pub mod test_utils;
 
 // Define a macro for logging errors and saving them to the database
@@ -257,7 +257,9 @@ impl TxSender {
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+                Weight::from_wu_usize(230 * num_fee_payer_utxos + 172)
+            }
             FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
@@ -268,7 +270,9 @@ impl TxSender {
             FeePayingType::CPFP => Weight::from_vb_unchecked(
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
-            FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+                child_tx_weight + parent_tx_weight // Should likely just be the RBF tx weight? Check RBF rules.
+            }
             FeePayingType::NoFunding => parent_tx_weight,
         };
 
@@ -428,7 +432,7 @@ impl TxSender {
                     self.send_cpfp_tx(id, tx, tx_metadata, adjusted_fee_rate, current_tip_height)
                         .await
                 }
-                FeePayingType::RBF => {
+                FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
                     self.send_rbf_tx(
                         id,
                         tx,
@@ -436,6 +440,7 @@ impl TxSender {
                         adjusted_fee_rate,
                         rbf_signing_info,
                         current_tip_height,
+                        fee_paying_type == FeePayingType::RbfWtxidGrind,
                     )
                     .await
                 }
@@ -450,7 +455,7 @@ impl TxSender {
         Ok(())
     }
     pub fn client(&self) -> TxSenderClient {
-        TxSenderClient::new(self.db.clone())
+        self.client.clone()
     }
 
     /// Calculates the effective fee rate for a transaction, considering previous effective fee rate
