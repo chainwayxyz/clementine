@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_txids (
     timelock BIGINT NOT NULL,
     -- first observed chain height when this txid was seen confirmed (used for finality tracking)
     seen_at_height INT,
+    -- whether the activation txid is currently present in the mempool
+    in_mempool BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (activated_id, txid)
 );
@@ -102,7 +104,7 @@ CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sen
 -- there is a single row. For chunked payloads, multiple chunk rows plus a
 -- single aggregate row share the same `insertion_id`.
 --
--- `body` is globally unique (when non-NULL) to avoid queuing duplicate blobs.
+-- `body_hash` is globally unique (when non-NULL) to avoid queuing duplicate blobs.
 CREATE SEQUENCE IF NOT EXISTS tx_sender_citrea_raw_tx_insertion_id_seq;
 CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
     id BIGSERIAL PRIMARY KEY,
@@ -114,12 +116,14 @@ CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
     -- Raw body bytes. Non-NULL for all non-aggregate rows; NULL for the
     -- aggregate placeholder row.
     body BYTEA,
+    -- Optional hash of body used for deduplication (e.g. SHA-256).
+    body_hash BYTEA,
     -- Optional commit outpoint once known (format: "txid:vout").
     commit_outpoint TEXT,
     -- Optional link to a tx_sender_try_to_send_txs row once it exists.
     try_to_send_id INT REFERENCES tx_sender_try_to_send_txs(id),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE (body)
+    UNIQUE (body_hash)
 );
 CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_insertion_id_idx ON tx_sender_citrea_raw_tx_queue(insertion_id);
 CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_try_to_send_id_idx ON tx_sender_citrea_raw_tx_queue(try_to_send_id);

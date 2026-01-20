@@ -9,8 +9,10 @@ use std::collections::HashMap;
 enum TxChainStatus {
     /// Confirmed in active chain with N confirmations.
     Confirmed(u32),
-    /// Not confirmed (mempool / unknown / missing).
-    NotConfirmed,
+    /// Present in the mempool (verified via `getmempoolentry`) but not yet confirmed.
+    InMempool,
+    /// Neither in mempool nor in the active chain.
+    NotPresent,
 }
 
 fn is_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
@@ -22,11 +24,11 @@ fn is_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
         || s.contains("No such transaction")
 }
 
-fn chain_status_from_confirmations(confirmations: Option<u32>) -> TxChainStatus {
-    match confirmations {
-        Some(c) if c > 0 => TxChainStatus::Confirmed(c),
-        _ => TxChainStatus::NotConfirmed,
-    }
+fn is_mempool_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
+    // Bitcoin Core returns this when the tx is not in the mempool.
+    // We treat it as "not present" for our purposes.
+    let s = err.to_string();
+    s.contains("Transaction not in mempool")
 }
 
 fn target_seen_at_height_for_confirmations(
@@ -87,13 +89,21 @@ impl TxSender {
             let info = match rpc.get_raw_transaction_info(&txid, None).await {
                 Ok(info) => info,
                 Err(e) if is_not_found_error(&e) => {
-                    cache.insert(txid, TxChainStatus::NotConfirmed);
-                    return Ok(TxChainStatus::NotConfirmed);
+                    cache.insert(txid, TxChainStatus::NotPresent);
+                    return Ok(TxChainStatus::NotPresent);
                 }
                 Err(e) => return Err(BridgeError::Eyre(eyre::eyre!(e))),
             };
 
-            let status = chain_status_from_confirmations(info.confirmations);
+            let status = match info.confirmations {
+                Some(c) if c > 0 => TxChainStatus::Confirmed(c),
+                // Unconfirmed: require a strict mempool check.
+                _ => match rpc.get_mempool_entry(&txid).await {
+                    Ok(_) => TxChainStatus::InMempool,
+                    Err(e) if is_mempool_not_found_error(&e) => TxChainStatus::NotPresent,
+                    Err(e) => return Err(BridgeError::Eyre(eyre::eyre!(e))),
+                },
+            };
             cache.insert(txid, status);
             Ok(status)
         }
@@ -145,12 +155,12 @@ impl TxSender {
                                 best_confirmations =
                                     Some(best_confirmations.map_or(c, |prev| prev.max(c)));
                             }
-                            TxChainStatus::NotConfirmed => {}
+                            TxChainStatus::NotPresent | TxChainStatus::InMempool => {}
                         }
                     }
                     match best_confirmations {
                         Some(c) => TxChainStatus::Confirmed(c),
-                        None => TxChainStatus::NotConfirmed,
+                        None => TxChainStatus::NotPresent,
                     }
                 }
             };
@@ -160,7 +170,7 @@ impl TxSender {
                 // If it's unfinalized but we now observe confirmations>=finality, we can
                 // mark it final immediately (handled in the final write).
                 (Some(_), TxChainStatus::Confirmed(c)) => pending_try_to_send.push((id, c)),
-                (Some(_), TxChainStatus::NotConfirmed) => {
+                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     // Reorg before finality
                     self.db
                         .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, None)
@@ -181,7 +191,7 @@ impl TxSender {
 
             match (seen_at_height, status) {
                 (_, TxChainStatus::Confirmed(c)) => pending_fee_payers.push((fee_payer_utxo_id, c)),
-                (Some(_), TxChainStatus::NotConfirmed) => {
+                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     self.db
                         .set_fee_payer_seen_at_height(dbtx.as_deref_mut(), fee_payer_utxo_id, None)
                         .await?;
@@ -202,7 +212,7 @@ impl TxSender {
                 (_, TxChainStatus::Confirmed(c)) => {
                     pending_cancel_txids.push((cancelled_id, txid, c))
                 }
-                (Some(_), TxChainStatus::NotConfirmed) => {
+                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     self.db
                         .set_cancel_txid_seen_at_height(
                             dbtx.as_deref_mut(),
@@ -216,7 +226,7 @@ impl TxSender {
             }
         }
 
-        for (activated_id, txid, seen_at_height) in self
+        for (activated_id, txid, seen_at_height, in_mempool) in self
             .db
             .list_unfinalized_activate_txids(dbtx.as_deref_mut(), start_tip_height, finality)
             .await?
@@ -230,7 +240,8 @@ impl TxSender {
                 (Some(_), TxChainStatus::Confirmed(c)) => {
                     pending_activate_txids.push((activated_id, txid, c))
                 }
-                (Some(_), TxChainStatus::NotConfirmed) => {
+                // Reorg before finality: clear seen_at_height when previously set but no longer confirmed.
+                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     self.db
                         .set_activate_txid_seen_at_height(
                             dbtx.as_deref_mut(),
@@ -240,7 +251,32 @@ impl TxSender {
                         )
                         .await?;
                 }
-                _ => {}
+                // Not yet seen on-chain, but present in mempool: record mempool presence.
+                (None, TxChainStatus::InMempool) => {
+                    if !in_mempool {
+                        self.db
+                            .set_activate_txid_mempool_status(
+                                dbtx.as_deref_mut(),
+                                activated_id,
+                                txid,
+                                true,
+                            )
+                            .await?;
+                    }
+                }
+                // Neither confirmed nor in mempool: ensure mempool flag is cleared.
+                (None, TxChainStatus::NotPresent) => {
+                    if in_mempool {
+                        self.db
+                            .set_activate_txid_mempool_status(
+                                dbtx.as_deref_mut(),
+                                activated_id,
+                                txid,
+                                false,
+                            )
+                            .await?;
+                    }
+                }
             }
         }
 

@@ -327,8 +327,18 @@ impl TxSenderDb {
                     FROM
                         tx_sender_activate_try_to_send_txids AS activate_txid
                     WHERE
-                        activate_txid.seen_at_height IS NULL
-                        OR (activate_txid.seen_at_height::bigint + activate_txid.timelock > $2::bigint)
+                        (
+                            activate_txid.timelock > 0
+                            AND (
+                                activate_txid.seen_at_height IS NULL
+                                OR (activate_txid.seen_at_height::bigint + activate_txid.timelock > $2::bigint)
+                            )
+                        )
+                        OR (
+                            activate_txid.timelock = 0
+                            AND activate_txid.seen_at_height IS NULL
+                            AND activate_txid.in_mempool IS NOT TRUE
+                        )
 
                     UNION
 
@@ -1001,10 +1011,10 @@ impl TxSenderDb {
         tx: Option<TxSenderDbTx<'_>>,
         tip_height: u32,
         finality_depth: u32,
-    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
+    ) -> Result<Vec<(u32, Txid, Option<u32>, bool)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>, bool)>(
             r#"
-            SELECT activated_id, txid, seen_at_height
+            SELECT activated_id, txid, seen_at_height, in_mempool
             FROM tx_sender_activate_try_to_send_txids
             WHERE seen_at_height IS NULL
                OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
@@ -1016,7 +1026,7 @@ impl TxSenderDb {
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
             .into_iter()
-            .map(|(activated_id, txid, seen_at_height)| {
+            .map(|(activated_id, txid, seen_at_height, in_mempool)| {
                 Ok((
                     u32::try_from(activated_id)
                         .wrap_err("Failed to convert activated_id to u32")?,
@@ -1025,6 +1035,7 @@ impl TxSenderDb {
                         .map(u32::try_from)
                         .transpose()
                         .wrap_err("Failed to convert seen_at_height to u32")?,
+                    in_mempool,
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
@@ -1048,6 +1059,24 @@ impl TxSenderDb {
                 .transpose()
                 .wrap_err("Failed to convert seen_at_height to i32")?,
         );
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn set_activate_txid_mempool_status(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        activated_id: u32,
+        txid: Txid,
+        in_mempool: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_txids SET in_mempool = $3 WHERE activated_id = $1 AND txid = $2",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
+        .bind(TxidDB(txid))
+        .bind(in_mempool);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())

@@ -7,7 +7,7 @@ use bitcoin::OutPoint;
 use clementine_errors::BridgeError;
 use eyre::OptionExt;
 
-use crate::citrea::TransactionKind;
+use crate::citrea::{calculate_sha256, TransactionKind};
 
 /// Represents a single Citrea raw transaction queue row.
 #[derive(Debug, Clone)]
@@ -45,13 +45,15 @@ impl TxSenderDb {
         transaction_kind: TransactionKind,
         body: &[u8],
     ) -> Result<i64, BridgeError> {
+        let body_hash = calculate_sha256(body).to_vec();
         let query = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body)
-             VALUES ($1, $2)
+            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
+             VALUES ($1, $2, $3)
              RETURNING insertion_id",
         )
         .bind(transaction_kind.as_i16())
-        .bind(body);
+        .bind(body)
+        .bind(body_hash);
 
         let insertion_id = query.fetch_one(&mut **tx).await?;
         Ok(insertion_id)
@@ -87,32 +89,34 @@ impl TxSenderDb {
         let first_chunk = chunks.first().ok_or_eyre("Chunks vector cannot be empty")?;
 
         let insertion_id_query = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body)
-             VALUES ($1, $2)
+            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
+             VALUES ($1, $2, $3)
              RETURNING insertion_id",
         )
         .bind(TransactionKind::Chunks.as_i16())
-        .bind(first_chunk.as_slice());
+        .bind(first_chunk.as_slice())
+        .bind(calculate_sha256(first_chunk).to_vec());
 
         let insertion_id = insertion_id_query.fetch_one(&mut **tx).await?;
 
         // Insert remaining chunks (1..N-1)
         for chunk in chunks.iter().skip(1) {
             let query = sqlx::query(
-                "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body)
-                 VALUES ($1, $2, $3)",
+                "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
+                 VALUES ($1, $2, $3, $4)",
             )
             .bind(insertion_id)
             .bind(TransactionKind::Chunks.as_i16())
-            .bind(chunk.as_slice());
+            .bind(chunk.as_slice())
+            .bind(calculate_sha256(chunk).to_vec());
 
             query.execute(&mut **tx).await?;
         }
 
         // Insert aggregate placeholder row
         let aggregate_query = sqlx::query(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body)
-             VALUES ($1, $2, NULL)",
+            "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
+             VALUES ($1, $2, NULL, NULL)",
         )
         .bind(insertion_id)
         .bind(TransactionKind::Aggregate.as_i16());

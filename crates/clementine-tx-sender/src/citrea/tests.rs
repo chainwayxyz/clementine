@@ -10,11 +10,15 @@ use crate::TxSender;
 
 /// Helper to insert a single Citrea raw tx row for the given transaction kind
 /// using `TxSenderClient::send_citrea_tx`, and return its `insertion_id`.
-async fn insert_single_citrea_row(tx_sender: &TxSender, kind: TransactionKind) -> i64 {
+async fn insert_single_citrea_row_with_body_size(
+    tx_sender: &TxSender,
+    kind: TransactionKind,
+    body_size: usize,
+) -> i64 {
     use crate::client::TxSenderClient;
     use sqlx::Row;
 
-    let mut body = vec![0u8; 32];
+    let mut body = vec![0u8; body_size];
     rand::thread_rng().fill_bytes(&mut body);
 
     let raw = match kind {
@@ -41,6 +45,10 @@ async fn insert_single_citrea_row(tx_sender: &TxSender, kind: TransactionKind) -
     .unwrap();
 
     row.get("insertion_id")
+}
+
+async fn insert_single_citrea_row(tx_sender: &TxSender, kind: TransactionKind) -> i64 {
+    insert_single_citrea_row_with_body_size(tx_sender, kind, 32).await
 }
 
 /// Helper to insert a chunked Citrea raw tx group.
@@ -77,46 +85,75 @@ async fn insert_chunked_citrea_rows(tx_sender: &TxSender) -> i64 {
     row.get("insertion_id")
 }
 
-/// Returns the commit txid and optional try_to_send_id for the given insertion_id.
-async fn get_citrea_commit_and_try_to_send_id(
+/// Returns the commit txid and all try_to_send_ids for the given insertion_id.
+///
+/// For single-body insertions there will be at most one `try_to_send_id`.
+/// For chunked insertions, there can be multiple `try_to_send_id`s (one per
+/// non-aggregate row sharing the same insertion group).
+async fn get_citrea_commit_and_try_to_send_ids(
     tx_sender: &TxSender,
     insertion_id: i64,
-) -> (Txid, Option<u32>) {
+) -> (Txid, Vec<u32>) {
     use crate::db::wrapper::OutPointDB;
     use sqlx::Row;
 
-    let row = sqlx::query(
+    let rows = sqlx::query(
         "SELECT commit_outpoint, try_to_send_id \
          FROM tx_sender_citrea_raw_tx_queue \
          WHERE insertion_id = $1 AND body IS NOT NULL \
-         ORDER BY id ASC \
-         LIMIT 1",
+         ORDER BY id ASC",
     )
     .bind(insertion_id)
-    .fetch_one(tx_sender.db.pool())
+    .fetch_all(tx_sender.db.pool())
     .await
     .unwrap();
 
-    let commit_outpoint: Option<OutPointDB> = row.get("commit_outpoint");
-    let commit_outpoint = commit_outpoint.expect("commit_outpoint should be set").0;
-    let try_to_send_id: Option<i32> = row.get("try_to_send_id");
+    assert!(
+        !rows.is_empty(),
+        "expected at least one citrea row for insertion_id={insertion_id}"
+    );
+
+    let mut commit_txid: Option<Txid> = None;
+    let mut try_to_send_ids = Vec::new();
+
+    for row in rows {
+        let commit_outpoint: Option<OutPointDB> = row.get("commit_outpoint");
+        let commit_outpoint = commit_outpoint
+            .expect("commit_outpoint should be set for all citrea rows")
+            .0;
+
+        match commit_txid {
+            None => commit_txid = Some(commit_outpoint.txid),
+            Some(txid) => {
+                assert_eq!(
+                    txid, commit_outpoint.txid,
+                    "all citrea rows for the same insertion_id must share the same commit txid"
+                );
+            }
+        }
+
+        let try_to_send_id: Option<i32> = row.get("try_to_send_id");
+        if let Some(id) = try_to_send_id {
+            try_to_send_ids.push(u32::try_from(id).unwrap());
+        }
+    }
 
     (
-        commit_outpoint.txid,
-        try_to_send_id.map(|v| u32::try_from(v).unwrap()),
+        commit_txid.expect("commit_txid must be set"),
+        try_to_send_ids,
     )
 }
 
-/// Calculates the fee rate of a transaction in sat/vB.
-async fn calculate_feerate_sat_per_vb(tx_sender: &TxSender, tx: &bitcoin::Transaction) -> u64 {
+/// Calculates the fee rate of a transaction in sat/kwu (satoshis per kilo-weight-unit).
+async fn calculate_feerate_sat_per_kwu(tx_sender: &TxSender, tx: &bitcoin::Transaction) -> u64 {
     use bitcoin::Weight;
 
     let fee = tx_sender.get_tx_fee(tx).await.unwrap();
     let weight: Weight = tx.weight();
-    let vbytes = weight.to_vbytes_ceil();
+    let weight_wu = weight.to_wu();
 
-    // fee_rate_sat_per_vb = fee_sat * 1000 / (weight_wu) where weight_wu = vbytes * 4
-    (fee.to_sat() * 1000) / (vbytes * 4)
+    // fee_rate_sat_per_kwu = fee_sat * 1000 / weight_wu
+    (fee.to_sat() * 1000) / weight_wu
 }
 
 #[tokio::test]
@@ -133,10 +170,12 @@ async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     task.run_once().await.unwrap();
 
-    // After run_once, commit tx and reveal try_to_send_id must exist.
-    let (commit_txid, maybe_try_to_send_id) =
-        get_citrea_commit_and_try_to_send_id(&tx_sender, insertion_id).await;
-    let try_to_send_id = maybe_try_to_send_id.expect("reveal try_to_send_id must be set");
+    // After run_once, commit tx and at least one reveal try_to_send_id must exist.
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one reveal try_to_send_id must be set");
 
     // Reveal RBF tx should be registered in txsender_rbf_txids.
     let reveal_txid = tx_sender
@@ -159,9 +198,18 @@ async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
         "reveal tx must spend the commit tx output"
     );
 
-    let feerate = calculate_feerate_sat_per_vb(&tx_sender, &commit_tx).await;
-    // On regtest we expect at least 1 sat/vB by default.
-    assert!(feerate >= 1, "expected feerate >= 1 sat/vB, got {feerate}");
+    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+    assert!(
+        commit_feerate >= target_feerate && commit_feerate <= max_feerate,
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+    );
+    assert!(
+        reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+    );
 
     // Mine a block and ensure the commit tx is confirmed.
     rpc_env.rpc().mine_blocks(1).await.unwrap();
@@ -200,31 +248,53 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     task.run_once().await.unwrap();
 
-    let (commit_txid, maybe_try_to_send_id) =
-        get_citrea_commit_and_try_to_send_id(&tx_sender, insertion_id).await;
-    let try_to_send_id = maybe_try_to_send_id.expect("reveal try_to_send_id must be set");
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    assert!(
+        !try_to_send_ids.is_empty(),
+        "at least one reveal try_to_send_id must be set"
+    );
 
-    let reveal_txid = tx_sender
-        .db
-        .get_last_rbf_txid(None, try_to_send_id)
-        .await
-        .unwrap()
-        .expect("reveal RBF txid must exist");
+    // For chunked insertions there can be multiple reveal txs; verify all of them
+    // and collect their txids for later confirmation checks.
+    let mut reveal_txids = Vec::new();
+    for try_to_send_id in &try_to_send_ids {
+        let reveal_txid = tx_sender
+            .db
+            .get_last_rbf_txid(None, *try_to_send_id)
+            .await
+            .unwrap()
+            .expect("reveal RBF txid must exist");
+        reveal_txids.push(reveal_txid);
+
+        let reveal_tx = tx_sender.rpc.get_tx_of_txid(&reveal_txid).await.unwrap();
+
+        assert!(
+            !reveal_tx.input.is_empty(),
+            "reveal tx must have at least one input"
+        );
+        assert_eq!(
+            reveal_tx.input[0].previous_output.txid, commit_txid,
+            "reveal tx must spend the commit tx output"
+        );
+
+        let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
+        let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+        let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+        assert!(
+            reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
+            "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+        );
+    }
 
     let commit_tx = tx_sender.rpc.get_tx_of_txid(&commit_txid).await.unwrap();
-    let reveal_tx = tx_sender.rpc.get_tx_of_txid(&reveal_txid).await.unwrap();
-
+    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
     assert!(
-        !reveal_tx.input.is_empty(),
-        "reveal tx must have at least one input"
+        commit_feerate >= target_feerate && commit_feerate <= max_feerate,
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
     );
-    assert_eq!(
-        reveal_tx.input[0].previous_output.txid, commit_txid,
-        "reveal tx must spend the commit tx output"
-    );
-
-    let feerate = calculate_feerate_sat_per_vb(&tx_sender, &commit_tx).await;
-    assert!(feerate >= 1, "expected feerate >= 1 sat/vB, got {feerate}");
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
     let confirmations = rpc_env
@@ -237,15 +307,17 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
         "expected commit tx to be confirmed, got {confirmations} confirmations"
     );
 
-    let reveal_confirmations = rpc_env
-        .rpc()
-        .confirmation_blocks(&reveal_txid)
-        .await
-        .unwrap();
-    assert!(
-        reveal_confirmations >= 1,
-        "expected reveal tx to be confirmed, got {reveal_confirmations} confirmations"
-    );
+    for reveal_txid in reveal_txids {
+        let reveal_confirmations = rpc_env
+            .rpc()
+            .confirmation_blocks(&reveal_txid)
+            .await
+            .unwrap();
+        assert!(
+            reveal_confirmations >= 1,
+            "expected reveal tx to be confirmed, got {reveal_confirmations} confirmations"
+        );
+    }
 }
 
 #[tokio::test]
@@ -261,9 +333,11 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     task.run_once().await.unwrap();
 
-    let (commit_txid, maybe_try_to_send_id) =
-        get_citrea_commit_and_try_to_send_id(&tx_sender, insertion_id).await;
-    let try_to_send_id = maybe_try_to_send_id.expect("reveal try_to_send_id must be set");
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one reveal try_to_send_id must be set");
 
     let reveal_txid = tx_sender
         .db
@@ -284,8 +358,18 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
         "reveal tx must spend the commit tx output"
     );
 
-    let feerate = calculate_feerate_sat_per_vb(&tx_sender, &commit_tx).await;
-    assert!(feerate >= 1, "expected feerate >= 1 sat/vB, got {feerate}");
+    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+    assert!(
+        commit_feerate >= target_feerate && commit_feerate <= max_feerate,
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+    );
+    assert!(
+        reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+    );
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
     let confirmations = rpc_env
@@ -322,9 +406,11 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     task.run_once().await.unwrap();
 
-    let (commit_txid, maybe_try_to_send_id) =
-        get_citrea_commit_and_try_to_send_id(&tx_sender, insertion_id).await;
-    let try_to_send_id = maybe_try_to_send_id.expect("reveal try_to_send_id must be set");
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one reveal try_to_send_id must be set");
 
     let reveal_txid = tx_sender
         .db
@@ -345,8 +431,18 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
         "reveal tx must spend the commit tx output"
     );
 
-    let feerate = calculate_feerate_sat_per_vb(&tx_sender, &commit_tx).await;
-    assert!(feerate >= 1, "expected feerate >= 1 sat/vB, got {feerate}");
+    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+    assert!(
+        commit_feerate >= target_feerate && commit_feerate <= max_feerate,
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+    );
+    assert!(
+        reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+    );
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
     let confirmations = rpc_env
@@ -372,8 +468,6 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
 
 #[tokio::test]
 async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
-    use clementine_utils::FeePayingType;
-
     let (config, _db, rpc_env) = create_test_environment(true, true).await;
     let rpc_env = rpc_env.expect("RPC environment must be created");
 
@@ -387,9 +481,11 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     task.run_once().await.unwrap();
 
     // Fetch commit and try_to_send_id for the reveal.
-    let (_commit_txid, maybe_try_to_send_id) =
-        get_citrea_commit_and_try_to_send_id(&tx_sender, insertion_id).await;
-    let try_to_send_id = maybe_try_to_send_id.expect("try_to_send_id should be set");
+    let (_commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one try_to_send_id should be set");
 
     // Original RBF txid and its feerate.
     let original_txid = tx_sender
@@ -399,35 +495,24 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
         .unwrap()
         .expect("initial RBF txid should exist");
     let original_tx = tx_sender.rpc.get_tx_of_txid(&original_txid).await.unwrap();
-    let original_feerate = calculate_feerate_sat_per_vb(&tx_sender, &original_tx).await;
-
-    // Load try_to_send row details to call send_rbf_tx manually with higher feerate.
-    let (tx_metadata, tx, fee_paying_type, _seen_at_height, rbf_signing_info) = tx_sender
-        .db
-        .get_try_to_send_tx(None, try_to_send_id)
-        .await
-        .unwrap();
-    assert!(matches!(
-        fee_paying_type,
-        FeePayingType::RbfWtxidGrind | FeePayingType::RBF
-    ));
+    let original_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &original_tx).await;
+    let target_feerate_before_bump = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate_before_bump = target_feerate_before_bump
+        .saturating_mul(11)
+        .saturating_div(10);
+    assert!(
+        original_feerate >= target_feerate_before_bump
+            && original_feerate <= max_feerate_before_bump,
+        "expected original feerate between {target_feerate_before_bump} and {max_feerate_before_bump} sat/kwu before bump, got {original_feerate}"
+    );
 
     let current_tip = tx_sender.rpc.get_current_chain_height().await.unwrap();
 
     // Bump fee: choose a clearly higher target feerate.
-    let higher_feerate =
-        FeeRate::from_sat_per_vb((original_feerate + 5).max(2)).expect("valid fee rate");
+    let higher_feerate = FeeRate::from_sat_per_vb(2).expect("valid fee rate");
 
     tx_sender
-        .send_rbf_tx(
-            try_to_send_id,
-            tx,
-            tx_metadata,
-            higher_feerate,
-            rbf_signing_info.as_ref().cloned(),
-            current_tip,
-            matches!(fee_paying_type, FeePayingType::RbfWtxidGrind),
-        )
+        .try_to_send_unconfirmed_txs(higher_feerate, current_tip, false)
         .await
         .unwrap();
 
@@ -440,11 +525,17 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     assert_ne!(bumped_txid, original_txid, "expected a new RBF txid");
 
     let bumped_tx = tx_sender.rpc.get_tx_of_txid(&bumped_txid).await.unwrap();
-    let bumped_feerate = calculate_feerate_sat_per_vb(&tx_sender, &bumped_tx).await;
+    let bumped_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &bumped_tx).await;
 
     assert!(
         bumped_feerate > original_feerate,
         "expected bumped feerate ({bumped_feerate}) to be greater than original ({original_feerate})"
+    );
+    let target_feerate = higher_feerate.to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+    assert!(
+        bumped_feerate <= max_feerate && bumped_feerate >= target_feerate,
+        "expected bumped feerate <= {max_feerate} sat/kwu (10% above target {target_feerate}), got {bumped_feerate}"
     );
 
     // Mine a block and ensure bumped tx is confirmed.
@@ -457,5 +548,90 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     assert!(
         confirmations >= 1,
         "expected bumped tx to be confirmed, got {confirmations} confirmations"
+    );
+}
+
+#[tokio::test]
+async fn citrea_large_body_tx_flow_commits_and_mines_with_min_feerate() {
+    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+
+    let tx_sender = TxSender::new(config).await.unwrap();
+
+    // Insert a Citrea row with a large body (~390k bytes).
+    let insertion_id =
+        insert_single_citrea_row_with_body_size(&tx_sender, TransactionKind::Complete, 390_000)
+            .await;
+
+    // Run a single txsender iteration to create commit + reveal.
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+    task.run_once().await.unwrap();
+
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one reveal try_to_send_id must be set");
+
+    // Reveal RBF tx should be registered and spend the commit output.
+    let reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, try_to_send_id)
+        .await
+        .unwrap()
+        .expect("reveal RBF txid must exist");
+
+    let commit_tx = tx_sender.rpc.get_tx_of_txid(&commit_txid).await.unwrap();
+    let reveal_tx = tx_sender.rpc.get_tx_of_txid(&reveal_txid).await.unwrap();
+
+    assert!(
+        !reveal_tx.input.is_empty(),
+        "reveal tx must have at least one input"
+    );
+    assert_eq!(
+        reveal_tx.input[0].previous_output.txid, commit_txid,
+        "reveal tx must spend the commit tx output"
+    );
+
+    // Fee calculation should still be sane for large bodies.
+    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let max_feerate = target_feerate.saturating_mul(11).saturating_div(10);
+    assert!(
+        commit_feerate >= target_feerate && commit_feerate <= max_feerate,
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu for large-body commit tx, got {commit_feerate}"
+    );
+    assert!(
+        reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu for large-body reveal tx, got {reveal_feerate}"
+    );
+
+    println!(
+        "reveal feerate: {reveal_feerate}, reveal tx weight: {}, commit feerate: {commit_feerate}, commit tx weight: {}",
+        reveal_tx.weight(),
+        commit_tx.weight()
+    );
+
+    // Mine a block and ensure both commit and reveal txs are confirmed.
+    rpc_env.rpc().mine_blocks(1).await.unwrap();
+    let confirmations = rpc_env
+        .rpc()
+        .confirmation_blocks(&commit_txid)
+        .await
+        .unwrap();
+    assert!(
+        confirmations >= 1,
+        "expected commit tx to be confirmed, got {confirmations} confirmations"
+    );
+
+    let reveal_confirmations = rpc_env
+        .rpc()
+        .confirmation_blocks(&reveal_txid)
+        .await
+        .unwrap();
+    assert!(
+        reveal_confirmations >= 1,
+        "expected reveal tx to be confirmed, got {reveal_confirmations} confirmations"
     );
 }
