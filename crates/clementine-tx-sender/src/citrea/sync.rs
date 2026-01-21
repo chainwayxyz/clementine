@@ -138,7 +138,6 @@ impl TxSender {
         );
 
         if !reveal_rows.is_empty() {
-            let change_address = self.rpc.get_new_wallet_address().await?;
             for row in reveal_rows {
                 let commit_outpoint = row
                     .commit_outpoint
@@ -148,7 +147,6 @@ impl TxSender {
                 let reveal_tx = crate::citrea::build_reveal_transaction(
                     commit_outpoint.txid,
                     commit_outpoint.vout,
-                    &change_address,
                 );
 
                 // if there are no errors (db, btc rpc error, etc.), this call creates the reveal script 2nd time

@@ -11,6 +11,7 @@ use bitcoincore_rpc::json::{
     WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
 use bitcoincore_rpc::RpcApi;
+use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use clementine_errors::SendTxError;
 use clementine_utils::sign::TapTweakData;
 use clementine_utils::{RbfSigningInfo, RbfSigningSpendPath, TxMetadata};
@@ -837,6 +838,17 @@ impl TxSender {
                 }
             }
 
+            let mut added_dummy_output = false;
+            // if the tx has no outputs, btc core wallet fund transaction will fail, so we add a dummy output
+            // which we will remove later to save on fees.
+            if tx.output.is_empty() {
+                tx.output.push(TxOut {
+                    value: NON_EPHEMERAL_ANCHOR_AMOUNT,
+                    script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid anchor script"),
+                });
+                added_dummy_output = true;
+            }
+
             let create_result = self
                 .create_funded_psbt(&tx, fee_rate)
                 .await
@@ -883,6 +895,21 @@ impl TxSender {
                 })?;
 
             let mut funded_psbt = Psbt::from_str(&funded_psbt_str).map_err(|e| eyre!(e))?;
+            if added_dummy_output {
+                // we delete the first output which is the dummy output we added earlier
+                // we also adjust the amount of the change output to compensate for removal of the dummy output.
+                let dummy_output_weight = funded_psbt.unsigned_tx.output[0].weight();
+                let dummy_output_value = funded_psbt.unsigned_tx.output[0].value;
+                let needed_fee_for_dummy_output = fee_rate.fee_wu(dummy_output_weight).ok_or_eyre(format!("Fee overflow occurred for dummy output: current fee rate: {fee_rate}, dummy_output_weight: {dummy_output_weight}"))?;
+                funded_psbt.unsigned_tx.output.remove(0);
+                funded_psbt.outputs.remove(0);
+                funded_psbt
+                    .unsigned_tx
+                    .output
+                    .last_mut()
+                    .expect("Change output should exist")
+                    .value += needed_fee_for_dummy_output + dummy_output_value;
+            }
             let mut current_locktime = tx.lock_time;
 
             let final_tx = loop {

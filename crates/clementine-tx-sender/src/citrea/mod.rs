@@ -133,11 +133,7 @@ pub(crate) fn build_commit_transaction(recipients: &[Address]) -> Transaction {
 }
 
 /// Build the reveal part of commit-reveal pair
-pub(crate) fn build_reveal_transaction(
-    input_txid: Txid,
-    input_vout: u32,
-    change_address: &Address,
-) -> Transaction {
+pub(crate) fn build_reveal_transaction(input_txid: Txid, input_vout: u32) -> Transaction {
     let inputs = vec![TxIn {
         previous_output: OutPoint {
             txid: input_txid,
@@ -152,10 +148,7 @@ pub(crate) fn build_reveal_transaction(
         lock_time: LockTime::ZERO,
         version: bitcoin::transaction::Version(2),
         input: inputs,
-        output: vec![TxOut {
-            value: REVEAL_OUTPUT_AMOUNT,
-            script_pubkey: change_address.script_pubkey(),
-        }],
+        output: vec![],
     }
 }
 

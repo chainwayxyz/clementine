@@ -131,3 +131,86 @@ pub async fn start_jsonrpc_server(
 
     Ok(TxSenderJsonRpcServer { handle, local_addr })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::create_test_environment;
+    use crate::TxSenderDb;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_jsonrpc_txsender_insert_try_to_send() -> Result<(), BridgeError> {
+        use std::time::{Duration, Instant};
+
+        use crate::jsonrpc::client::JsonRpcTxSenderClient;
+        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use bitcoin::absolute;
+        use bitcoin::hashes::Hash as _;
+        use bitcoin::transaction::Version;
+        use bitcoin::{OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+
+        let (config, db, rpc) = create_test_environment(true, true).await;
+        let rpc = rpc.unwrap();
+        let db = db.unwrap();
+        rpc.rpc().mine_blocks(1).await.unwrap();
+
+        // Start standalone txsender with JSON-RPC enabled on a free port.
+        let tx_sender_cfg = config.clone();
+        let (addr, handle) = spawn_txsender_loop_with_free_localhost_jsonrpc_port(tx_sender_cfg);
+        let url = format!("http://{addr}");
+        let client = JsonRpcTxSenderClient::new(&url)?;
+
+        // A minimal syntactically-valid transaction (doesn't need to be mineable for enqueueing).
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: bitcoin::Amount::from_sat(0),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+
+        // Wait for server to come up (spawn loop initializes asynchronously).
+        let start = Instant::now();
+        let try_to_send_id = loop {
+            match client
+                .insert_try_to_send(None, &tx, FeePayingType::CPFP, None, &[], &[], &[], &[])
+                .await
+            {
+                Ok(id) => break id,
+                Err(e) => {
+                    if start.elapsed() > Duration::from_secs(10) {
+                        return Err(BridgeError::Eyre(eyre::eyre!(
+                            "Timed out waiting for txsender JSON-RPC to start: {e:?}"
+                        )));
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        };
+
+        // Verify persisted in DB.
+        let tx_sender_db = TxSenderDb::from_pool(db.pool().clone());
+        let (_meta, stored_tx, fee_paying_type, _seen_at_height, _rbf) = tx_sender_db
+            .get_try_to_send_tx(None, try_to_send_id)
+            .await?;
+        assert_eq!(fee_paying_type, FeePayingType::CPFP);
+        assert_eq!(stored_tx.compute_txid(), tx.compute_txid());
+
+        // Stop background loop.
+        handle.abort();
+        let _ = handle.await;
+
+        Ok(())
+    }
+}
