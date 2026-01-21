@@ -151,7 +151,7 @@ vergen-git2 = { version = "1.0.0", features = [
 ] }
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "5da45109a2de352472a6056ef90a517b66bc106f" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "3930d8a023f7a99b955f5629cfcf01d93477ec51" }
 secp256k1 = { git = "https://github.com/rust-bitcoin/rust-secp256k1", rev = "4d36fefdddb118425bb9bcf611bb6e4dff306cfc" }
 
 [profile.dev.package.backtrace]

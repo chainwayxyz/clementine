@@ -1627,7 +1627,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=5da45109a2de352472a6056ef90a517b66bc106f#5da45109a2de352472a6056ef90a517b66bc106f"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=3930d8a023f7a99b955f5629cfcf01d93477ec51#3930d8a023f7a99b955f5629cfcf01d93477ec51"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -1642,7 +1642,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=5da45109a2de352472a6056ef90a517b66bc106f#5da45109a2de352472a6056ef90a517b66bc106f"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=3930d8a023f7a99b955f5629cfcf01d93477ec51#3930d8a023f7a99b955f5629cfcf01d93477ec51"
 dependencies = [
  "bitcoin",
  "serde",
@@ -2363,10 +2363,13 @@ dependencies = [
  "bitcoin",
  "clementine-errors",
  "clementine-primitives",
+ "color-eyre",
  "eyre",
  "secp256k1 0.31.0",
  "serde",
  "sqlx",
+ "tracing",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]

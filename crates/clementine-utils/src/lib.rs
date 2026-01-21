@@ -8,6 +8,7 @@ pub mod address;
 pub mod fee;
 pub mod metadata;
 pub mod sign;
+pub mod tracing;
 pub mod traits;
 
 pub use fee::FeePayingType;

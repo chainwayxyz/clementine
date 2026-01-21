@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use bitcoin::secp256k1::SecretKey;
 use clementine_config::TxSenderLimits;
 use clementine_extended_rpc::ExtendedBitcoinRpc;
+use clementine_utils::tracing::initialize_logger;
 use secrecy::ExposeSecret;
 
 use crate::config::{TxSenderBitcoinRpcConfig, TxSenderConfig, TxSenderPostgresConfig};
@@ -19,9 +20,8 @@ pub async fn create_test_environment(
     Option<TxSenderDb>,
     Option<WithProcessCleanup>,
 ) {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
+        .expect("Failed to initialize logger");
 
     let mut config = TxSenderConfig {
         network: bitcoin::Network::Regtest,

@@ -150,19 +150,6 @@ impl TxSender {
         tx: &Transaction,
         fee_rate: FeeRate,
     ) -> Result<WalletCreateFundedPsbtResult> {
-        // We need to carefully calculate the witness weight and factor that
-        // into the fee rate because wallet_create_funded_psbt does not factor
-        // in witnesses.
-
-        // The scaleup factor is the ratio of the total weight to the base weight
-        // The walletcreatefundedpsbt will use the base weight to calculate the fee
-        // and we'll scale up the fee rate by the scaleup factor to achieve our desired fee
-        let witness_scaleup = tx.weight().to_wu() as f64 / (tx.base_size() * 4) as f64;
-
-        let adjusted_fee_rate = FeeRate::from_sat_per_kwu(
-            (fee_rate.to_sat_per_kwu() as f64 * witness_scaleup).ceil() as u64,
-        );
-
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             add_inputs: Some(true), // Let the wallet add its inputs
@@ -173,7 +160,7 @@ impl TxSender {
             lock_unspent: None,
             // Bitcoincore expects BTC/kvbyte for fee_rate
             fee_rate: Some(
-                adjusted_fee_rate
+                fee_rate
                     .fee_vb(1000)
                     .ok_or_eyre("Failed to convert fee rate to BTC/kvbyte")?,
             ),
@@ -234,6 +221,12 @@ impl TxSender {
                         txid: inp.previous_output.txid,
                         vout: inp.previous_output.vout,
                         sequence: Some(inp.sequence.to_consensus_u32()),
+                        // give a specific weight if witness is not empty
+                        weight: if inp.witness.is_empty() {
+                            None
+                        } else {
+                            Some(inp.segwit_weight().to_wu())
+                        },
                     })
                     .collect::<Vec<_>>(),
                 outputs,
@@ -543,8 +536,8 @@ impl TxSender {
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
-                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
-                    effective_feerate.to_sat_per_vb_ceil(),
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kwu(Amount::from_sat(
+                    effective_feerate.to_sat_per_kwu(),
                 ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
