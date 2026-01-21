@@ -1,4 +1,11 @@
 -- NOTE: Postgres does not support dropping enum values easily.
 -- So enum value is not dropped here.
+-- Roll back explicit finality tracking columns from all tx-sender tables.
+ALTER TABLE IF EXISTS tx_sender_try_to_send_txs DROP COLUMN IF EXISTS is_finalized;
+ALTER TABLE IF EXISTS tx_sender_fee_payer_utxos DROP COLUMN IF EXISTS is_finalized;
+ALTER TABLE IF EXISTS tx_sender_cancel_try_to_send_txids DROP COLUMN IF EXISTS is_finalized;
+ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids DROP COLUMN IF EXISTS is_finalized;
+ALTER TABLE IF EXISTS tx_sender_cancel_try_to_send_outpoints DROP COLUMN IF EXISTS is_finalized;
+ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints DROP COLUMN IF EXISTS is_finalized;
 -- Roll back txid activation mempool tracking.
 ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids DROP COLUMN IF EXISTS in_mempool;

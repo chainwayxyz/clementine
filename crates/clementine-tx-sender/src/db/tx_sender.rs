@@ -809,22 +809,36 @@ impl TxSenderDb {
         }
     }
 
+    /// Lists all unfinalized try-to-send transactions that should be checked for confirmation.
+    ///
+    /// This function excludes transactions that have been permanently cancelled (i.e., any cancellation
+    /// from `tx_sender_cancel_try_to_send_txids` or `tx_sender_cancel_try_to_send_outpoints` is finalized).
+    /// Once a cancellation is finalized, the transaction can never be sent, so there's no point in
+    /// repeatedly checking it via RPC. This prevents unnecessary RPC calls for transactions that are
+    /// permanently cancelled.
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, FeePayingType, TxidDB, Option<i32>)>(
             r#"
             SELECT id, fee_paying_type, txid, seen_at_height
             FROM tx_sender_try_to_send_txs
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tx_sender_cancel_try_to_send_txids
+                  WHERE cancelled_id = tx_sender_try_to_send_txs.id
+                    AND is_finalized = TRUE
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tx_sender_cancel_try_to_send_outpoints
+                  WHERE cancelled_id = tx_sender_try_to_send_txs.id
+                    AND is_finalized = TRUE
+              )
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -896,22 +910,50 @@ impl TxSenderDb {
         Ok(())
     }
 
+    pub async fn set_try_to_send_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query =
+            sqlx::query("UPDATE tx_sender_try_to_send_txs SET is_finalized = $2 WHERE id = $1")
+                .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
+                .bind(is_finalized);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    /// Lists all unfinalized fee payer UTXOs that should be checked for confirmation.
+    ///
+    /// Fee payer UTXOs form replacement chains via `replacement_of_id`:
+    /// - The first created UTXO in a chain has `replacement_of_id IS NULL` and its `id` is
+    ///   the canonical parent id for the chain.
+    /// - All replacements in that chain have `replacement_of_id = <parent id>`.
+    ///
+    /// This function excludes fee payer UTXOs where **any** UTXO in the same replacement chain
+    /// (canonical parent or any of its replacements) is already finalized. Once a chain has a
+    /// finalized fee payer UTXO, there's no need to check the others, preventing unnecessary
+    /// RPC calls.
     pub async fn list_unfinalized_fee_payer_utxos(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
             r#"
             SELECT id, fee_payer_txid, seen_at_height
             FROM tx_sender_fee_payer_utxos
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tx_sender_fee_payer_utxos other
+                  WHERE COALESCE(other.replacement_of_id, other.id)
+                        = COALESCE(tx_sender_fee_payer_utxos.replacement_of_id, tx_sender_fee_payer_utxos.id)
+                    AND other.is_finalized = TRUE
+              )
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -949,22 +991,32 @@ impl TxSenderDb {
         Ok(())
     }
 
+    pub async fn set_fee_payer_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        fee_payer_utxo_id: u32,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query =
+            sqlx::query("UPDATE tx_sender_fee_payer_utxos SET is_finalized = $2 WHERE id = $1")
+                .bind(i32::try_from(fee_payer_utxo_id).wrap_err("Failed to convert id to i32")?)
+                .bind(is_finalized);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
     pub async fn list_unfinalized_cancel_txids(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
             r#"
             SELECT cancelled_id, txid, seen_at_height
             FROM tx_sender_cancel_try_to_send_txids
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1006,22 +1058,35 @@ impl TxSenderDb {
         Ok(())
     }
 
+    pub async fn set_cancel_txid_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        cancelled_id: u32,
+        txid: Txid,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_txids SET is_finalized = $3 WHERE cancelled_id = $1 AND txid = $2",
+        )
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
+        .bind(TxidDB(txid))
+        .bind(is_finalized);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
     pub async fn list_unfinalized_activate_txids(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, Txid, Option<u32>, bool)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>, bool)>(
             r#"
             SELECT activated_id, txid, seen_at_height, in_mempool
             FROM tx_sender_activate_try_to_send_txids
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1064,6 +1129,24 @@ impl TxSenderDb {
         Ok(())
     }
 
+    pub async fn set_activate_txid_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        activated_id: u32,
+        txid: Txid,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_txids SET is_finalized = $3 WHERE activated_id = $1 AND txid = $2",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
+        .bind(TxidDB(txid))
+        .bind(is_finalized);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
     pub async fn set_activate_txid_mempool_status(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -1085,19 +1168,14 @@ impl TxSenderDb {
     pub async fn list_unfinalized_cancel_outpoints(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
             r#"
             SELECT cancelled_id, txid, vout, seen_at_height
             FROM tx_sender_cancel_try_to_send_outpoints
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1143,22 +1221,36 @@ impl TxSenderDb {
         Ok(())
     }
 
+    pub async fn set_cancel_outpoint_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        cancelled_id: u32,
+        outpoint: OutPoint,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_outpoints SET is_finalized = $4 WHERE cancelled_id = $1 AND txid = $2 AND vout = $3",
+        )
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
+        .bind(TxidDB(outpoint.txid))
+        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(is_finalized);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
     pub async fn list_unfinalized_activate_outpoints(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        tip_height: u32,
-        finality_depth: u32,
     ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
             r#"
             SELECT activated_id, txid, vout, seen_at_height
             FROM tx_sender_activate_try_to_send_outpoints
-            WHERE seen_at_height IS NULL
-               OR (($1::bigint - seen_at_height::bigint + 1) < $2::bigint)
+            WHERE is_finalized = FALSE
             "#,
-        )
-        .bind(i32::try_from(tip_height).wrap_err("Failed to convert tip height to i32")?)
-        .bind(i32::try_from(finality_depth).wrap_err("Failed to convert finality depth to i32")?);
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
@@ -1199,6 +1291,25 @@ impl TxSenderDb {
                 .transpose()
                 .wrap_err("Failed to convert seen_at_height to i32")?,
         );
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn set_activate_outpoint_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        activated_id: u32,
+        outpoint: OutPoint,
+        is_finalized: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_outpoints SET is_finalized = $4 WHERE activated_id = $1 AND txid = $2 AND vout = $3",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
+        .bind(TxidDB(outpoint.txid))
+        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(is_finalized);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())

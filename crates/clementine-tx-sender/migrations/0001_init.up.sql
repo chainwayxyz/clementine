@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_try_to_send_txs (
     txid BYTEA,
     -- first observed chain height when tx was seen confirmed (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     last_bump_block_height INT DEFAULT NULL,
     latest_active_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -42,6 +44,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_fee_payer_utxos (
     amount BIGINT NOT NULL,
     -- first observed chain height when fee payer tx was seen confirmed (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted BOOLEAN NOT NULL DEFAULT FALSE
@@ -52,6 +56,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_outpoints (
     vout INT NOT NULL,
     -- first observed chain height when this outpoint was seen spent (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (cancelled_id, txid, vout)
 );
@@ -60,6 +66,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_txids (
     txid BYTEA NOT NULL,
     -- first observed chain height when this txid was seen confirmed (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (cancelled_id, txid)
 );
@@ -69,6 +77,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_txids (
     timelock BIGINT NOT NULL,
     -- first observed chain height when this txid was seen confirmed (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     -- whether the activation txid is currently present in the mempool
     in_mempool BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -81,6 +91,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_outpoints (
     timelock BIGINT NOT NULL,
     -- first observed chain height when this outpoint was seen spent (used for finality tracking)
     seen_at_height INT,
+    -- explicit finality flag: TRUE only when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
+    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (activated_id, txid, vout)
 );

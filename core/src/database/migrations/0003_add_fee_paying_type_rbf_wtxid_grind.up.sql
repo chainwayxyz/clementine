@@ -6,3 +6,18 @@ ADD VALUE IF NOT EXISTS 'rbf_wtxid_grind';
 -- Track mempool presence for txid-based activations used by tx-sender.
 ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids
 ADD COLUMN IF NOT EXISTS in_mempool boolean NOT NULL DEFAULT false;
+-- Add explicit finality tracking columns to all tx-sender tables.
+-- For txid-based tables: finalized when RPC reports confirmations >= finality_depth.
+-- For outpoint-based tables: finalized when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth.
+ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS tx_sender_fee_payer_utxos
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS tx_sender_cancel_try_to_send_txids
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS tx_sender_cancel_try_to_send_outpoints
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints
+ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;

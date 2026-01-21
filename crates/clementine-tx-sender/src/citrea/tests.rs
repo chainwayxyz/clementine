@@ -542,7 +542,7 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     assert_ne!(bumped_txid, original_txid, "expected a new RBF txid");
 
     let bumped_tx = tx_sender.rpc.get_tx_of_txid(&bumped_txid).await.unwrap();
-    // bump should also take into account the commit transaction, so wew calculate effective feerate of the package (commit+reveal)
+    // bump should also take into account the commit transaction, so we calculate effective feerate of the package (commit+reveal)
     let bumped_feerate =
         calculate_package_feerate_sat_per_kwu(&tx_sender, &commit_tx, &bumped_tx).await;
 

@@ -49,11 +49,14 @@ fn target_seen_at_height_for_confirmations(
 impl TxSender {
     /// Synchronize tx-sender confirmation/spent tracking using Bitcoin RPC.
     ///
-    /// This method updates tx-sender *tracking tables* (e.g. `seen_at_height`) based on
+    /// This method updates tx-sender *tracking tables* (e.g. `seen_at_height` and `is_finalized`) based on
     /// current chain state, and clears those markers on reorgs for observations that
     /// are still below finality.
     ///
-    /// Finality is based on **first-observed** height (not actual inclusion height).
+    /// Finality is explicitly tracked via `is_finalized`:
+    /// - For txid-based tables: finalized when RPC reports confirmations >= finality_depth
+    /// - For outpoint-based tables: finalized when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
+    ///   Once finalized, a row is never reprocessed, avoiding incorrect finality assumptions after downtime.
     pub async fn sync_transaction_confirmations_via_rpc(
         &self,
         mut dbtx: Option<&mut TxSenderTransaction>,
@@ -70,10 +73,10 @@ impl TxSender {
         // duplicate RPC calls across tables.
         let mut tx_status_cache: HashMap<Txid, TxChainStatus> = HashMap::new();
 
-        let mut pending_try_to_send: Vec<(u32, u32)> = vec![]; // (id, confirmations)
-        let mut pending_fee_payers: Vec<(u32, u32)> = vec![]; // (fee_payer_utxo_id, confirmations)
-        let mut pending_cancel_txids: Vec<(u32, Txid, u32)> = vec![]; // (cancelled_id, txid, confirmations)
-        let mut pending_activate_txids: Vec<(u32, Txid, u32)> = vec![]; // (activated_id, txid, confirmations)
+        let mut pending_try_to_send: Vec<(u32, u32, Option<u32>)> = vec![]; // (id, confirmations, current_seen_at_height)
+        let mut pending_fee_payers: Vec<(u32, u32, Option<u32>)> = vec![]; // (fee_payer_utxo_id, confirmations, current_seen_at_height)
+        let mut pending_cancel_txids: Vec<(u32, Txid, u32, Option<u32>)> = vec![]; // (cancelled_id, txid, confirmations, current_seen_at_height)
+        let mut pending_activate_txids: Vec<(u32, Txid, u32, Option<u32>)> = vec![]; // (activated_id, txid, confirmations, current_seen_at_height)
         let mut pending_cancel_outpoints: Vec<(u32, OutPoint)> = vec![];
         let mut pending_activate_outpoints: Vec<(u32, OutPoint)> = vec![];
 
@@ -111,7 +114,7 @@ impl TxSender {
         // ---- main try_to_send_txs ----
         let unfinalized = self
             .db
-            .list_unfinalized_try_to_send_txs(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_try_to_send_txs(dbtx.as_deref_mut())
             .await?;
 
         let rbf_ids: Vec<u32> = unfinalized
@@ -166,10 +169,12 @@ impl TxSender {
             };
 
             match (seen_at_height, status) {
-                (None, TxChainStatus::Confirmed(c)) => pending_try_to_send.push((id, c)),
+                (None, TxChainStatus::Confirmed(c)) => pending_try_to_send.push((id, c, None)),
                 // If it's unfinalized but we now observe confirmations>=finality, we can
                 // mark it final immediately (handled in the final write).
-                (Some(_), TxChainStatus::Confirmed(c)) => pending_try_to_send.push((id, c)),
+                (Some(h), TxChainStatus::Confirmed(c)) => {
+                    pending_try_to_send.push((id, c, Some(h)))
+                }
                 (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     // Reorg before finality
                     self.db
@@ -183,14 +188,16 @@ impl TxSender {
         // ---- fee payer tx confirmations ----
         for (fee_payer_utxo_id, fee_payer_txid, seen_at_height) in self
             .db
-            .list_unfinalized_fee_payer_utxos(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_fee_payer_utxos(dbtx.as_deref_mut())
             .await?
         {
             let status =
                 get_tx_status_cached(&self.rpc, &mut tx_status_cache, fee_payer_txid).await?;
 
             match (seen_at_height, status) {
-                (_, TxChainStatus::Confirmed(c)) => pending_fee_payers.push((fee_payer_utxo_id, c)),
+                (h, TxChainStatus::Confirmed(c)) => {
+                    pending_fee_payers.push((fee_payer_utxo_id, c, h))
+                }
                 (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     self.db
                         .set_fee_payer_seen_at_height(dbtx.as_deref_mut(), fee_payer_utxo_id, None)
@@ -203,14 +210,14 @@ impl TxSender {
         // ---- cancel/activate by txid ----
         for (cancelled_id, txid, seen_at_height) in self
             .db
-            .list_unfinalized_cancel_txids(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_cancel_txids(dbtx.as_deref_mut())
             .await?
         {
             let status = get_tx_status_cached(&self.rpc, &mut tx_status_cache, txid).await?;
 
             match (seen_at_height, status) {
-                (_, TxChainStatus::Confirmed(c)) => {
-                    pending_cancel_txids.push((cancelled_id, txid, c))
+                (h, TxChainStatus::Confirmed(c)) => {
+                    pending_cancel_txids.push((cancelled_id, txid, c, h))
                 }
                 (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
                     self.db
@@ -228,17 +235,17 @@ impl TxSender {
 
         for (activated_id, txid, seen_at_height, in_mempool) in self
             .db
-            .list_unfinalized_activate_txids(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_activate_txids(dbtx.as_deref_mut())
             .await?
         {
             let status = get_tx_status_cached(&self.rpc, &mut tx_status_cache, txid).await?;
 
             match (seen_at_height, status) {
                 (None, TxChainStatus::Confirmed(c)) => {
-                    pending_activate_txids.push((activated_id, txid, c))
+                    pending_activate_txids.push((activated_id, txid, c, None))
                 }
-                (Some(_), TxChainStatus::Confirmed(c)) => {
-                    pending_activate_txids.push((activated_id, txid, c))
+                (Some(h), TxChainStatus::Confirmed(c)) => {
+                    pending_activate_txids.push((activated_id, txid, c, Some(h)))
                 }
                 // Reorg before finality: clear seen_at_height when previously set but no longer confirmed.
                 (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
@@ -281,6 +288,14 @@ impl TxSender {
         }
 
         // ---- cancel/activate by outpoint spent ----
+        // Compute observed_tip_height early so we can use it for finality checks on outpoints
+        let end_tip_height = self
+            .rpc
+            .get_current_chain_height()
+            .await
+            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+        let observed_tip_height = std::cmp::max(start_tip_height, end_tip_height);
+
         async fn check_spent(
             rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
             outpoint: &OutPoint,
@@ -294,13 +309,27 @@ impl TxSender {
 
         for (cancelled_id, outpoint, seen_at_height) in self
             .db
-            .list_unfinalized_cancel_outpoints(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_cancel_outpoints(dbtx.as_deref_mut())
             .await?
         {
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
                     if seen_at_height.is_none() {
                         pending_cancel_outpoints.push((cancelled_id, outpoint));
+                    } else {
+                        // Check if we can finalize: seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
+                        let blocks_since_seen =
+                            observed_tip_height.saturating_sub(seen_at_height.unwrap()) + 1;
+                        if blocks_since_seen >= finality {
+                            self.db
+                                .set_cancel_outpoint_finalized(
+                                    dbtx.as_deref_mut(),
+                                    cancelled_id,
+                                    outpoint,
+                                    true,
+                                )
+                                .await?;
+                        }
                     }
                 }
                 Ok(Some(false)) | Ok(None) => {
@@ -324,13 +353,27 @@ impl TxSender {
 
         for (activated_id, outpoint, seen_at_height) in self
             .db
-            .list_unfinalized_activate_outpoints(dbtx.as_deref_mut(), start_tip_height, finality)
+            .list_unfinalized_activate_outpoints(dbtx.as_deref_mut())
             .await?
         {
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
                     if seen_at_height.is_none() {
                         pending_activate_outpoints.push((activated_id, outpoint));
+                    } else {
+                        // Check if we can finalize: seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
+                        let blocks_since_seen =
+                            observed_tip_height.saturating_sub(seen_at_height.unwrap()) + 1;
+                        if blocks_since_seen >= finality {
+                            self.db
+                                .set_activate_outpoint_finalized(
+                                    dbtx.as_deref_mut(),
+                                    activated_id,
+                                    outpoint,
+                                    true,
+                                )
+                                .await?;
+                        }
                     }
                 }
                 Ok(Some(false)) | Ok(None) => {
@@ -352,69 +395,99 @@ impl TxSender {
         }
 
         // Apply any "newly observed" confirmations/spends using a conservative observation height.
-        let end_tip_height = self
-            .rpc
-            .get_current_chain_height()
-            .await
-            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
-        let observed_tip_height = std::cmp::max(start_tip_height, end_tip_height);
 
-        for (id, confirmations) in pending_try_to_send {
-            self.db
-                .set_try_to_send_seen_at_height(
-                    dbtx.as_deref_mut(),
-                    id,
-                    Some(target_seen_at_height_for_confirmations(
-                        observed_tip_height,
-                        confirmations,
-                        finality,
-                    )),
-                )
-                .await?;
+        for (id, confirmations, current_seen_at_height) in pending_try_to_send {
+            let target_height = target_seen_at_height_for_confirmations(
+                observed_tip_height,
+                confirmations,
+                finality,
+            );
+            // Only update if the target height differs from current
+            if current_seen_at_height != Some(target_height) {
+                self.db
+                    .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, Some(target_height))
+                    .await?;
+            }
+            // Mark as finalized if confirmations >= finality_depth
+            if confirmations >= finality {
+                self.db
+                    .set_try_to_send_finalized(dbtx.as_deref_mut(), id, true)
+                    .await?;
+            }
         }
 
-        for (fee_payer_utxo_id, confirmations) in pending_fee_payers {
-            self.db
-                .set_fee_payer_seen_at_height(
-                    dbtx.as_deref_mut(),
-                    fee_payer_utxo_id,
-                    Some(target_seen_at_height_for_confirmations(
-                        observed_tip_height,
-                        confirmations,
-                        finality,
-                    )),
-                )
-                .await?;
+        for (fee_payer_utxo_id, confirmations, current_seen_at_height) in pending_fee_payers {
+            let target_height = target_seen_at_height_for_confirmations(
+                observed_tip_height,
+                confirmations,
+                finality,
+            );
+            // Only update if the target height differs from current
+            if current_seen_at_height != Some(target_height) {
+                self.db
+                    .set_fee_payer_seen_at_height(
+                        dbtx.as_deref_mut(),
+                        fee_payer_utxo_id,
+                        Some(target_height),
+                    )
+                    .await?;
+            }
+            // Mark as finalized if confirmations >= finality_depth
+            if confirmations >= finality {
+                self.db
+                    .set_fee_payer_finalized(dbtx.as_deref_mut(), fee_payer_utxo_id, true)
+                    .await?;
+            }
         }
 
-        for (cancelled_id, txid, confirmations) in pending_cancel_txids {
-            self.db
-                .set_cancel_txid_seen_at_height(
-                    dbtx.as_deref_mut(),
-                    cancelled_id,
-                    txid,
-                    Some(target_seen_at_height_for_confirmations(
-                        observed_tip_height,
-                        confirmations,
-                        finality,
-                    )),
-                )
-                .await?;
+        for (cancelled_id, txid, confirmations, current_seen_at_height) in pending_cancel_txids {
+            let target_height = target_seen_at_height_for_confirmations(
+                observed_tip_height,
+                confirmations,
+                finality,
+            );
+            // Only update if the target height differs from current
+            if current_seen_at_height != Some(target_height) {
+                self.db
+                    .set_cancel_txid_seen_at_height(
+                        dbtx.as_deref_mut(),
+                        cancelled_id,
+                        txid,
+                        Some(target_height),
+                    )
+                    .await?;
+            }
+            // Mark as finalized if confirmations >= finality_depth
+            if confirmations >= finality {
+                self.db
+                    .set_cancel_txid_finalized(dbtx.as_deref_mut(), cancelled_id, txid, true)
+                    .await?;
+            }
         }
 
-        for (activated_id, txid, confirmations) in pending_activate_txids {
-            self.db
-                .set_activate_txid_seen_at_height(
-                    dbtx.as_deref_mut(),
-                    activated_id,
-                    txid,
-                    Some(target_seen_at_height_for_confirmations(
-                        observed_tip_height,
-                        confirmations,
-                        finality,
-                    )),
-                )
-                .await?;
+        for (activated_id, txid, confirmations, current_seen_at_height) in pending_activate_txids {
+            let target_height = target_seen_at_height_for_confirmations(
+                observed_tip_height,
+                confirmations,
+                finality,
+            );
+            // Only update if the target height differs from current
+            if current_seen_at_height != Some(target_height) {
+                self.db
+                    .set_activate_txid_seen_at_height(
+                        dbtx.as_deref_mut(),
+                        activated_id,
+                        txid,
+                        Some(target_height),
+                    )
+                    .await?;
+            }
+            // Mark as finalized if confirmations >= finality_depth
+            if confirmations >= finality {
+                self.db
+                    .set_activate_txid_finalized(dbtx.as_deref_mut(), activated_id, txid, true)
+                    .await?;
+            }
         }
 
         for (cancelled_id, outpoint) in pending_cancel_outpoints {
@@ -426,6 +499,7 @@ impl TxSender {
                     Some(observed_tip_height),
                 )
                 .await?;
+            // Note: finality check for newly-set seen_at_height will happen in next sync iteration
         }
 
         for (activated_id, outpoint) in pending_activate_outpoints {
@@ -437,6 +511,7 @@ impl TxSender {
                     Some(observed_tip_height),
                 )
                 .await?;
+            // Note: finality check for newly-set seen_at_height will happen in next sync iteration
         }
 
         Ok(())

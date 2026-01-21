@@ -198,8 +198,6 @@ impl TxSender {
             }
         }
 
-        // TODO: aggregate txs
-
         Ok(())
     }
 }
