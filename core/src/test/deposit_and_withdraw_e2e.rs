@@ -15,9 +15,7 @@ use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
-    Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind,
-    OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
-    WithdrawParams, WithdrawParamsWithSig,
+    Deposit, Empty, FeeType, FinalizedPayoutParams, GetEntityStatusesRequest, KickoffId, NormalSignatureKind, OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams, WithdrawParamsWithSig
 };
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
@@ -995,6 +993,15 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     .await
     .unwrap();
     tracing::info!("Rerunning deposit done");
+
+    // restart tasks to ensure PayoutCheckerTask is restarted now that we should have the signatures, this will make it call end_round, ensuring that reimburse can be called
+    actors
+        .get_aggregator()
+        .get_entity_statuses(Request::new(GetEntityStatusesRequest {
+            restart_tasks: true,
+        }))
+        .await
+        .unwrap();
 
     // wait until new verifier/operator is synced before continuing with the test
     rpc.mine_blocks_while_synced(1, &actors, None)

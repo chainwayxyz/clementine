@@ -58,10 +58,9 @@ pub struct InsertCitreaRawTxParams {
     pub raw_tx_data: RawTxData,
 }
 
-/// Starts a JSON-RPC server exposing only `send_tx`.
-///
-/// The method is transactional: it begins a DB transaction, calls
-/// `TxSenderClient::insert_try_to_send`, and commits on success.
+/// Starts a JSON-RPC server exposing `send_tx` and `send_citrea_tx` methods.
+/// `send_tx` and `send_citrea_tx` are transactional: it begins a DB transaction, calls
+/// `TxSenderClient::insert_try_to_send` or `TxSenderClient::send_citrea_tx`, and commits on success.
 pub async fn start_jsonrpc_server(
     tx_sender_client: TxSenderClient,
     bind_addr: SocketAddr,

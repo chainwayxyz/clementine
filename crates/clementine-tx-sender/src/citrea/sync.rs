@@ -28,11 +28,13 @@ impl TxSender {
                 .push(row);
         }
 
-        tracing::info!(
-            "Found {} pending non-aggregate citrea rows across {} insertion_id groups",
-            by_insertion_id.values().map(|v| v.len()).sum::<usize>(),
-            by_insertion_id.len()
-        );
+        if !by_insertion_id.is_empty() {
+            tracing::info!(
+                "Found {} pending non-aggregate citrea rows across {} insertion_id groups",
+                by_insertion_id.values().map(|v| v.len()).sum::<usize>(),
+                by_insertion_id.len()
+            );
+        }
 
         // For each insertion_id group, create a single commit tx/outpoint shared by all rows.
         for (insertion_id, rows) in by_insertion_id {
@@ -132,12 +134,11 @@ impl TxSender {
             .get_citrea_txs_with_commit_outpoint_no_try_to_send(None)
             .await?;
 
-        tracing::info!(
-            "Found {} citrea rows with commit_outpoint but no try_to_send_id",
-            reveal_rows.len()
-        );
-
         if !reveal_rows.is_empty() {
+            tracing::info!(
+                "Found {} citrea rows with commit_outpoint but no try_to_send_id",
+                reveal_rows.len()
+            );
             for row in reveal_rows {
                 let commit_outpoint = row
                     .commit_outpoint
