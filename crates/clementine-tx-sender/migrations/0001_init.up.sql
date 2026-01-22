@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_try_to_send_txs (
     last_bump_block_height INT DEFAULT NULL,
     latest_active_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    rbf_signing_info TEXT UNIQUE (txid)
+    rbf_signing_info TEXT,
+    UNIQUE (txid)
 );
 CREATE TABLE IF NOT EXISTS tx_sender_rbf_txids (
     insertion_order SERIAL NOT NULL,
