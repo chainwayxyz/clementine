@@ -21,3 +21,6 @@ ALTER TABLE IF EXISTS tx_sender_cancel_try_to_send_outpoints
 ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
 ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints
 ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
+-- Add unique constraint to txid column in tx_sender_try_to_send_txs table
+ALTER TABLE tx_sender_try_to_send_txs
+ADD CONSTRAINT uq_tx_sender_txid UNIQUE (txid);
