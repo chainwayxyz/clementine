@@ -4,11 +4,11 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self, LeafVersion};
-use bitcoin::{consensus, Address, Amount, FeeRate, ScriptBuf, TapLeafHash, Transaction};
+use bitcoin::{Address, Amount, FeeRate, ScriptBuf, TapLeafHash, Transaction};
 use bitcoin::{Psbt, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
-    BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
-    WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
+    BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOutput,
+    WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
 use bitcoincore_rpc::RpcApi;
 use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
@@ -661,61 +661,32 @@ impl TxSender {
                     }
                 };
 
-                // Finalize the PSBT
-                let finalize_result = self
-                    .rpc
-                    .finalize_psbt(&processed_psbt, None) // extract=true by default
-                    .await;
-
-                let final_tx_hex = match finalize_result {
-                    Ok(FinalizePsbtResult {
-                        hex: Some(hex),
-                        complete: true,
-                        ..
-                    }) => hex,
-                    Ok(res) => {
-                        let err_msg = format!("Could not finalize PSBT: {res:?}");
-                        log_error_for_tx!(self.db, try_to_send_id, err_msg);
-
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
+                let final_tx = {
+                    // Extract tx
+                    let psbt = Psbt::from_str(&processed_psbt)
+                        .map_err(|e| eyre!(e))
+                        .map_err(|err| {
+                            let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
+                            self.handle_err(
+                                format!("{err:?}"),
+                                "rbf_psbt_deserialize_failed",
                                 try_to_send_id,
-                                "rbf_psbt_finalize_incomplete",
-                                true,
-                            )
-                            .await;
-                        return Err(SendTxError::PsbtError(err_msg));
-                    }
-                    Err(e) => {
-                        log_error_for_tx!(
-                            self.db,
-                            try_to_send_id,
-                            format!("finalize_psbt error: {}", e)
-                        );
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "rbf_psbt_finalize_failed",
-                                true,
-                            )
-                            .await;
-                        return Err(SendTxError::Other(eyre!(e)));
-                    }
-                };
+                            );
+                            err
+                        })?;
 
-                // Deserialize final tx to get txid
-                let final_tx: Transaction = match consensus::deserialize(&final_tx_hex) {
-                    Ok(tx) => tx,
-                    Err(e) => {
-                        log_error_for_tx!(
-                            self.db,
-                            try_to_send_id,
-                            format!("Failed to deserialize final RBF tx hex: {}", e)
-                        );
-                        return Err(SendTxError::Other(eyre!(e)));
+                    let mut tx = psbt.unsigned_tx.clone();
+
+                    for (idx, input) in tx.input.iter_mut().enumerate() {
+                        if let Some(witness) = psbt.inputs[idx].final_script_witness.clone() {
+                            input.witness = witness;
+                        }
+                        if let Some(sig) = psbt.inputs[idx].final_script_sig.clone() {
+                            input.script_sig = sig;
+                        }
                     }
+
+                    tx
                 };
                 if !needs_wtxid_grind
                     || final_tx
@@ -732,6 +703,7 @@ impl TxSender {
                     ));
                 }
             };
+
             let bumped_txid = final_tx.compute_txid();
 
             // Broadcast the finalized transaction
