@@ -1587,9 +1587,14 @@ async fn mock_citrea_run_malicious() {
         vout: UtxoVout::Challenge.get_vout(),
     };
 
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+        &rpc,
+        challenge_outpoint,
+        &actors,
+        None,
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
