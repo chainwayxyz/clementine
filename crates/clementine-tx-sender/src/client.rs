@@ -325,11 +325,11 @@ mod tests {
             .await
             .expect("First insert should succeed");
 
-        // Try to insert duplicate body - should not insert but should not return err
-        client
+        // Try to insert duplicate body - should not insert and return err
+        assert!(client
             .send_citrea_tx(RawTxData::BatchProofMethodId(body))
             .await
-            .unwrap();
+            .is_err());
 
         // Verify only one row exists
         let count: i64 = sqlx::query_scalar(
