@@ -202,13 +202,23 @@ impl TxSenderDb {
         rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) VALUES ($1, $2::fee_paying_type, $3, $4, $5) RETURNING id"
+            r#"
+            INSERT INTO tx_sender_try_to_send_txs 
+            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) 
+            VALUES ($1, $2::fee_paying_type, $3, $4, $5) 
+            ON CONFLICT (txid) 
+            DO UPDATE SET txid = EXCLUDED.txid 
+            RETURNING id
+            "#,
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
         .bind(serde_json::to_string(&tx_metadata).wrap_err("Failed to encode tx_metadata to JSON")?)
         .bind(TxidDB(txid))
-        .bind(serde_json::to_string(&rbf_signing_info).wrap_err("Failed to encode rbf_signing_info to JSON")?);
+        .bind(
+            serde_json::to_string(&rbf_signing_info)
+                .wrap_err("Failed to encode rbf_signing_info to JSON")?,
+        );
 
         let id: i32 = query.fetch_one(&mut **tx).await?;
         u32::try_from(id)
@@ -252,7 +262,7 @@ impl TxSenderDb {
         outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)",
+            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         )
         .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
         .bind(TxidDB(outpoint.txid))
@@ -269,7 +279,7 @@ impl TxSenderDb {
         txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
+            "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         )
         .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
         .bind(TxidDB(txid));
@@ -285,7 +295,7 @@ impl TxSenderDb {
         prerequisite_tx: &ActivatedWithTxid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)",
+            "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         )
         .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
         .bind(TxidDB(prerequisite_tx.txid))
@@ -302,7 +312,7 @@ impl TxSenderDb {
         activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         )
         .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))

@@ -863,6 +863,11 @@ where
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
+        tracing::info!(
+            "Operator: Current round index: {}, round idx for kickoff: {}",
+            current_round_index,
+            round_idx
+        );
         #[cfg(feature = "automation")]
         if current_round_index != round_idx {
             // we currently have no free kickoff connectors in the current round, so we need to end round first
@@ -874,6 +879,9 @@ where
                     current_round_index, round_idx, deposit_outpoint
                 ).into());
             }
+            tracing::info!(
+                "Operator: Starting next round to be able to get reimbursement for the payout"
+            );
             // start the next round to be able to get reimbursement for the payout
             self.end_round(dbtx).await?;
         }

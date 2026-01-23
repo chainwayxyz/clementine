@@ -47,9 +47,13 @@ impl TxSenderDb {
     ) -> Result<i64, BridgeError> {
         let body_hash = calculate_sha256(body).to_vec();
         let query = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
-             VALUES ($1, $2, $3)
-             RETURNING insertion_id",
+            r#"
+            INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (body_hash) 
+            DO UPDATE SET body_hash = EXCLUDED.body_hash
+            RETURNING insertion_id
+            "#,
         )
         .bind(transaction_kind.as_i16())
         .bind(body)
@@ -88,22 +92,19 @@ impl TxSenderDb {
         // This will fail if body is duplicate, which is what we want
         let first_chunk = chunks.first().ok_or_eyre("Chunks vector cannot be empty")?;
 
-        let insertion_id_query = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
-             VALUES ($1, $2, $3)
-             RETURNING insertion_id",
-        )
-        .bind(TransactionKind::Chunks.as_i16())
-        .bind(first_chunk.as_slice())
-        .bind(calculate_sha256(first_chunk).to_vec());
-
-        let insertion_id = insertion_id_query.fetch_one(&mut **tx).await?;
+        // insert first chunk and generate the insertion_id, all others will be added with same insertion id
+        let insertion_id = self
+            .insert_citrea_raw_tx_single(tx, TransactionKind::Chunks, first_chunk)
+            .await?;
 
         // Insert remaining chunks (1..N-1)
         for chunk in chunks.iter().skip(1) {
             let query = sqlx::query(
-                "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
-                 VALUES ($1, $2, $3, $4)",
+                r#"
+                INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (body_hash) DO NOTHING
+                "#,
             )
             .bind(insertion_id)
             .bind(TransactionKind::Chunks.as_i16())
@@ -113,10 +114,16 @@ impl TxSenderDb {
             query.execute(&mut **tx).await?;
         }
 
-        // Insert aggregate placeholder row
+        // Insert aggregate placeholder row, do not add a duplicate
         let aggregate_query = sqlx::query(
-            "INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
-             VALUES ($1, $2, NULL, NULL)",
+            r#"
+            INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
+            SELECT $1, $2, NULL, NULL
+            WHERE NOT EXISTS (
+                SELECT 1 FROM tx_sender_citrea_raw_tx_queue 
+                WHERE insertion_id = $1 AND transaction_kind = $2
+            )
+            "#,
         )
         .bind(insertion_id)
         .bind(TransactionKind::Aggregate.as_i16());

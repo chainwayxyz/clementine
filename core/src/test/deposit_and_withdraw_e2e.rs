@@ -15,7 +15,9 @@ use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
-    Deposit, Empty, FeeType, FinalizedPayoutParams, GetEntityStatusesRequest, KickoffId, NormalSignatureKind, OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest, WithdrawParams, WithdrawParamsWithSig
+    Deposit, Empty, FeeType, FinalizedPayoutParams, GetEntityStatusesRequest, KickoffId,
+    NormalSignatureKind, OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest,
+    TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
 };
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
@@ -27,9 +29,7 @@ use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
-    wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync, ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent, get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync, wait_for_fee_payer_utxos_to_be_in_mempool
 };
 use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
@@ -1003,11 +1003,6 @@ async fn mock_citrea_run_truthful_op_db_reset() {
         .await
         .unwrap();
 
-    // wait until new verifier/operator is synced before continuing with the test
-    rpc.mine_blocks_while_synced(1, &actors, None)
-        .await
-        .unwrap();
-
     tracing::info!("Restarted verifier/operator synced");
 
     let challenge_outpoint = OutPoint {
@@ -1016,9 +1011,14 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     };
 
     tracing::warn!("Waiting for challenge");
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+        &rpc,
+        challenge_outpoint,
+        &actors,
+        None,
+    )
+    .await
+    .unwrap();
     tracing::warn!("Challenge spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was spent on timeout -> meaning challenge was not sent

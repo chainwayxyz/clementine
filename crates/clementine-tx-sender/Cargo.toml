@@ -17,7 +17,7 @@ tokio = { workspace = true, features = ["full"] }
 async-trait = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 secrecy = { workspace = true }
 log = { workspace = true }
 jsonrpsee = { workspace = true, optional = true, features = ["macros", "server", "client", "http-client"] }

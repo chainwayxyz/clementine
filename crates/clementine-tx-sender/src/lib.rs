@@ -124,7 +124,7 @@ pub(crate) fn serialize_tx_for_fund_raw(tx: &Transaction) -> Vec<u8> {
 
 pub use db::{TxSenderDb, TxSenderDbTx, TxSenderTransaction};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MempoolConfig {
     pub host: Option<String>,
     pub endpoint: Option<String>,
