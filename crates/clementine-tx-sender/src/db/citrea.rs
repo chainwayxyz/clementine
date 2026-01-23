@@ -50,8 +50,6 @@ impl TxSenderDb {
             r#"
             INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
             VALUES ($1, $2, $3)
-            ON CONFLICT (body_hash) 
-            DO UPDATE SET body_hash = EXCLUDED.body_hash
             RETURNING insertion_id
             "#,
         )
@@ -103,7 +101,6 @@ impl TxSenderDb {
                 r#"
                 INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT (body_hash) DO NOTHING
                 "#,
             )
             .bind(insertion_id)
