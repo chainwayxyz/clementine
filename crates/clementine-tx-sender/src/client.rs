@@ -345,7 +345,7 @@ mod tests {
 
     #[cfg(feature = "citrea")]
     #[tokio::test]
-    #[ignore = "Think about duplicate body possiblity first"]
+    #[ignore = "Think about duplicate body possibility first"]
     async fn test_send_citrea_tx_transaction_rollback() {
         use crate::citrea::RawTxData;
         use crate::test_utils::create_test_environment;

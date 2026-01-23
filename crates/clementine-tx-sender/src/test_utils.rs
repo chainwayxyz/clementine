@@ -31,7 +31,7 @@ pub async fn create_test_environment(
             port: 5432,
             user: "clementine".to_string().into(),
             password: "clementine".to_string().into(),
-            dbname: format!("clementine_tx_sender_{}", get_current_thread_name()),
+            dbname: format!("clementine_tx_sender_{}", get_current_test_name()),
         },
         bitcoin_rpc: TxSenderBitcoinRpcConfig {
             url: "http://127.0.0.1:18443".to_string(),
@@ -47,6 +47,8 @@ pub async fn create_test_environment(
         },
         limits: TxSenderLimits::default(),
     };
+
+    tracing::info!("Test txsender db name: {}", config.postgres.dbname);
 
     let rpc = if setup_rpc {
         Some(create_regtest_rpc(&mut config).await)
@@ -94,19 +96,17 @@ pub async fn setup_txsender_test_db(config: &TxSenderConfig) -> TxSenderDb {
         .expect("Failed to connect to postgres database");
 
     // Drop and create the test database
-    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+    let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
         .execute(admin_db.pool())
-        .await
-        .expect("Failed to drop test database");
+        .await;
 
-    sqlx::query(&format!(
+    let _ = sqlx::query(&format!(
         "CREATE DATABASE {} WITH OWNER {}",
         db_name,
         admin_config.user.expose_secret()
     ))
     .execute(admin_db.pool())
-    .await
-    .expect("Failed to create test database");
+    .await;
 
     admin_db.pool().close().await;
 
@@ -288,12 +288,23 @@ pub fn get_available_port() -> u16 {
         .port()
 }
 
-pub fn get_current_thread_name() -> String {
-    std::thread::current()
+pub fn get_current_test_name() -> String {
+    // 1. Try the standard thread name (works for standard `cargo test`)
+    let test_name = std::thread::current()
         .name()
-        .expect("Failed to get thread name")
+        .unwrap_or("main")
         .split(':')
         .next_back()
-        .expect("Failed to get thread name")
-        .to_owned()
+        .unwrap_or("main")
+        .to_string();
+
+    // 2. If running via `cargo nextest`, the thread name is often "main".
+    //    In this case, we parse the test name from the CLI arguments.
+    if test_name == "main" {
+        // Use the Process ID. It is unique for every parallel test.
+        let pid = std::process::id();
+        format!("{pid}")
+    } else {
+        test_name
+    }
 }
