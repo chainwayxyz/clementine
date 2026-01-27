@@ -249,7 +249,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_data,
                     kickoff_height,
                     deposit_data.clone(),
-                    payout_blockhash,
+                    payout_blockhash.clone(),
                 )
                 .uninitialized_state_machine()
                 .init_with_context(&mut context)
@@ -270,6 +270,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
+
+                // check if malicious if lcp is already processed for the kickoff height
+                if let Some(last_lcp_height) = self.last_processed_lcp {
+                    if last_lcp_height >= kickoff_height {
+                        self.check_if_kickoff_malicious(
+                            &payout_blockhash,
+                            &kickoff_data,
+                            &deposit_data,
+                            &mut context,
+                        )
+                        .await?;
+                    }
+                }
             }
             // Received when a the LCP for an L1 block height is processed
             SystemEvent::LCPProcessed { height } => {
