@@ -1,14 +1,18 @@
 use std::sync::Arc;
 
 use bitcoin::{consensus::Encodable, Witness};
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 use pgmq::PGMQueueExt;
-use statig::awaitable::IntoStateMachineExt;
+use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt};
 use tokio::sync::Mutex;
 
 use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
+    states::{
+        context::{DutyResult, StateContext},
+        round::RoundEvent,
+    },
 };
 use clementine_errors::BridgeError;
 
@@ -22,11 +26,7 @@ use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, State
 pub enum SystemEvent {
     /// An event for a new finalized block
     /// So that state manager can update the states of all current state machines
-    NewFinalizedBlock {
-        block_id: u32,
-        block: bitcoin::Block,
-        height: u32,
-    },
+    NewFinalizedBlock { block: bitcoin::Block, height: u32 },
     /// An event for when a new operator is set in clementine
     /// So that the state machine can create a new round state machine to track the operator
     NewOperator { operator_data: OperatorData },
@@ -38,6 +38,8 @@ pub enum SystemEvent {
         deposit_data: DepositData,
         payout_blockhash: Witness,
     },
+    /// An event for when a the LCP for an L1 block height is processed
+    LCPProcessed { height: u32 },
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -55,6 +57,22 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
             .map_err(|e| eyre::eyre!("Error sending NewOperator event: {:?}", e))?;
+        Ok(())
+    }
+
+    /// Appends a  message to the state manager's message queue to notify that the LCP for an L1 block height is processed
+    pub async fn dispatch_lcp_processed(
+        db: &Database,
+        tx: DatabaseTransaction<'_>,
+        height: u32,
+    ) -> Result<(), eyre::Report> {
+        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        let queue_name = Self::queue_name();
+        let message = SystemEvent::LCPProcessed { height };
+        queue
+            .send_with_cxn(&queue_name, &message, &mut *(*tx))
+            .await
+            .map_err(|e| eyre::eyre!("Error sending LCPProcessed event: {:?}", e))?;
         Ok(())
     }
 
@@ -91,30 +109,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), BridgeError> {
         match event {
             // Received when a block is finalized in Bitcoin
-            SystemEvent::NewFinalizedBlock {
-                block_id,
-                block,
-                height,
-            } => {
+            SystemEvent::NewFinalizedBlock { block, height } => {
                 if self.next_height_to_process != height {
                     return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
                 }
 
                 let mut context = self.new_context(dbtx.clone(), &block, height)?;
-
-                // Handle the finalized block on the owner (verifier or operator)
-                {
-                    let mut guard = dbtx.lock().await;
-                    self.owner
-                        .handle_finalized_block(
-                            &mut guard,
-                            block_id,
-                            height,
-                            context.cache.clone(),
-                            None,
-                        )
-                        .await?;
-                }
 
                 self.process_block_parallel(&mut context).await?;
 
@@ -271,6 +271,45 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 )
                 .await?;
             }
+            // Received when a the LCP for an L1 block height is processed
+            SystemEvent::LCPProcessed { height } => {
+                let kickoffs_to_check: Vec<_> = self
+                    .kickoff_machines
+                    .iter()
+                    .filter(|machine| machine.kickoff_height == height)
+                    .map(|machine| {
+                        (
+                            machine.payout_blockhash.clone(),
+                            machine.kickoff_data,
+                            machine.deposit_data.clone(),
+                        )
+                    })
+                    .collect();
+
+                if !kickoffs_to_check.is_empty() {
+                    // create a dummy context for duty processing, a block is not needed for LCPProcessed
+                    let mut dummy_context = self.new_context_with_block_cache(
+                        dbtx.clone(),
+                        self.last_finalized_block.clone().ok_or_eyre(
+                            "Last finalized block not found, should always be Some after initialization",
+                        )?,
+                    )?;
+
+                    for (payout_blockhash, kickoff_data, deposit_data) in kickoffs_to_check {
+                        self.check_if_kickoff_malicious(
+                            &payout_blockhash,
+                            &kickoff_data,
+                            &deposit_data,
+                            &mut dummy_context,
+                        )
+                        .await?;
+                    }
+                }
+
+                tracing::info!("LCP processed for height: {}", height);
+
+                self.last_processed_lcp = Some(height);
+            }
         };
 
         let mut context = self.new_context_with_block_cache(
@@ -283,6 +322,86 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
         self.save_state_to_db(&mut context).await?;
+
+        Ok(())
+    }
+
+    async fn get_round_machine(
+        &mut self,
+        operator_xonly_pk: &bitcoin::XOnlyPublicKey,
+    ) -> Option<&mut InitializedStateMachine<RoundStateMachine<T>>> {
+        for machine in self.round_machines.iter_mut() {
+            if &machine.operator_data.xonly_pk == operator_xonly_pk {
+                return Some(machine);
+            }
+        }
+        None
+    }
+
+    async fn check_if_kickoff_malicious(
+        &mut self,
+        payout_blockhash: &Witness,
+        kickoff_data: &KickoffData,
+        deposit_data: &DepositData,
+        dummy_context: &mut StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        // Pull the current round state data first to avoid holding a mutable borrow of self
+        // while calling into owner duties (which require an immutable borrow of self.owner).
+        let (was_challenged_before, round_idx) = {
+            let round_machine = self
+                .get_round_machine(&kickoff_data.operator_xonly_pk)
+                .await
+                .ok_or_eyre(
+                    "Round machine not found for operator {} while checking if kickoff is malicious",
+                )?;
+
+            if let crate::states::round::State::RoundTx {
+                challenged_before,
+                round_idx,
+                ..
+            } = round_machine.state()
+            {
+                (*challenged_before, *round_idx)
+            } else {
+                return Ok(());
+            }
+        };
+
+        if round_idx != kickoff_data.round_idx {
+            // current round is already past the kickoff's round, no need to consider if it is malicious
+            return Ok(());
+        }
+
+        let duty = super::Duty::CheckIfKickoffMalicious {
+            kickoff_data: *kickoff_data,
+            deposit_data: deposit_data.clone(),
+            kickoff_witness: payout_blockhash.clone(),
+            challenged_before: was_challenged_before,
+        };
+
+        let res = dummy_context
+            .dispatch_duty(duty)
+            .await
+            .wrap_err("Error while checking if kickoff is malicious")?;
+
+        match res {
+            DutyResult::CheckIfKickoffMalicious { challenged } => {
+                if challenged && !was_challenged_before {
+                    // Reacquire the round machine mutably to update the challenged flag
+                    if let Some(round_machine) = self
+                        .get_round_machine(&kickoff_data.operator_xonly_pk)
+                        .await
+                    {
+                        round_machine
+                            .handle_with_context(&RoundEvent::SetChallenged, dummy_context)
+                            .await;
+                    }
+                }
+            }
+            _ => {
+                unreachable!("Expected CheckIfKickoffMalicious result");
+            }
+        }
 
         Ok(())
     }

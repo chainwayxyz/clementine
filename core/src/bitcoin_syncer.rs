@@ -483,6 +483,10 @@ impl<H: BlockHandler> FinalizedBlockFetcherTask<H> {
         next_finalized_height: u32,
         handler: H,
     ) -> Self {
+        tracing::warn!(
+            "Creating fin block fetcher with consumer id: {}",
+            btc_syncer_consumer_id
+        );
         Self {
             db,
             btc_syncer_consumer_id,

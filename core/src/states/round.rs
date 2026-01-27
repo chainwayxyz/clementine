@@ -14,7 +14,7 @@ use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, DutyResult, StateContext},
+    context::{Duty, StateContext},
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
@@ -42,6 +42,8 @@ pub enum RoundEvent {
     OperatorExit,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
+    /// Event to flag that the current round is challenged, it should only be sent and handled if current state is round_tx
+    SetChallenged,
 }
 
 /// State machine for the round state.
@@ -267,12 +269,8 @@ impl<T: Owner> RoundStateMachine<T> {
                                         .cache
                                         .get_witness_of_utxo(kickoff_outpoint)
                                         .expect("UTXO should be in block"),
-                                    challenged_before: *challenged_before,
                                 })
                                 .await?;
-                            if let DutyResult::CheckIfKickoff { challenged } = duty_result {
-                                *challenged_before |= challenged;
-                            }
                             Ok::<(), BridgeError>(())
                         }
                         .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))
@@ -286,6 +284,10 @@ impl<T: Owner> RoundStateMachine<T> {
             }
             RoundEvent::SavedToDb => Handled,
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
+            RoundEvent::SetChallenged => {
+                *challenged_before = true;
+                Handled
+            }
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

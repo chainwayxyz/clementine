@@ -430,22 +430,19 @@ impl PartialEq for MockOwner {
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
     const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-        "test_finalized_block_no_automation";
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "test_lcp_syncer";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str = "test_finalized_block_automation";
 }
 
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::block_cache;
     use crate::builder::transaction::{ContractContext, TxHandler};
     use crate::database::DatabaseTransaction;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
     use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
-    use std::sync::Arc;
     use tonic::async_trait;
 
     // Implement the Owner trait for MockOwner
@@ -467,17 +464,6 @@ mod states {
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
     }
 }
