@@ -866,7 +866,7 @@ pub async fn get_fee_rate_from_mempool_space(
         FeeErr::JsonDecode(_) | FeeErr::MissingField => false,
     };
 
-    let fee_sat_per_vb: u64 = RetryIf::spawn(
+    let fee_sat_per_vb: f64 = RetryIf::spawn(
         retry_strategy,
         || {
             let url = url.clone();
@@ -887,7 +887,7 @@ pub async fn get_fee_rate_from_mempool_space(
                     .map_err(FeeErr::JsonDecode)?;
 
                 json.get("fastestFee")
-                    .and_then(|fee| fee.as_u64())
+                    .and_then(|fee| fee.as_f64())
                     .ok_or(FeeErr::MissingField)
             }
         },
@@ -898,7 +898,7 @@ pub async fn get_fee_rate_from_mempool_space(
     .wrap_err_with(|| format!("Failed to fetch/parse fees from {url}"))?;
 
     // The API returns the fee rate in sat/vB. We multiply by 1000 to get sat/kvB.
-    Ok(Amount::from_sat(fee_sat_per_vb * 1000))
+    Ok(Amount::from_sat((fee_sat_per_vb * 1000.0).ceil() as u64))
 }
 
 #[async_trait]
