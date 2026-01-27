@@ -11,7 +11,7 @@ use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
@@ -1576,6 +1576,11 @@ async fn mock_citrea_run_malicious() {
             .await
             .unwrap();
 
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
+
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: UtxoVout::Challenge.get_vout(),
@@ -1617,6 +1622,11 @@ async fn mock_citrea_run_malicious() {
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
+
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",

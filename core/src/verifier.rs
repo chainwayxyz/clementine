@@ -388,6 +388,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: l1_sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
+            lcp_synced_height: l1_sync_status.lcp_synced_height,
         })
     }
 }
@@ -3378,6 +3379,11 @@ mod states {
                             challenged_before,
                         )
                         .await?;
+                    tracing::warn!(
+                        "checking kickoff {:?} malicious: {}",
+                        kickoff_data,
+                        is_malicious
+                    );
                     Ok(DutyResult::CheckIfKickoffMalicious {
                         challenged: is_malicious,
                     })

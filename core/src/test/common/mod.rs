@@ -137,7 +137,7 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Get the minimum next state manager height from all the state managers
+/// Get the minimum next state manager height and lcp synced height (+1 because its not "next" like state manager) from all the state managers
 /// If automation is off for any entity, their state manager is assumed to be synced
 /// (by setting their next height to u32::MAX).
 pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
@@ -148,7 +148,10 @@ pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Res
             if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
             {
                 if status.automation {
-                    Ok(status.state_manager_next_height.unwrap_or(0))
+                    Ok(status
+                        .state_manager_next_height
+                        .unwrap_or(0)
+                        .min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0)))
                 } else {
                     // assume synced if automation is off
                     Ok(u32::MAX)
@@ -184,6 +187,7 @@ pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
 }
 
 /// Checks if all the state managers are synced to the latest finalized block
+/// Additionally checks if lcp syncer is also synced to latest finalized block
 pub async fn are_all_state_managers_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,

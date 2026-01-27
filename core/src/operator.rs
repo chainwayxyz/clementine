@@ -209,6 +209,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            lcp_synced_height: sync_status.lcp_synced_height,
         })
     }
 }

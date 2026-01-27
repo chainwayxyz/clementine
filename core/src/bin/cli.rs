@@ -1017,6 +1017,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     state_manager_next_height,
                                     stopped_tasks,
                                     btc_fee_rate_sat_vb,
+                                    lcp_synced_height
                                 } = &status;
                                 println!("  Automation: {automation}");
                                 let wallet_balance = wallet_balance
@@ -1044,6 +1045,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                 let state_manager_height = state_manager_next_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  State manager next height: {state_manager_height}");
+                                let lcp_synced_height = lcp_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  LCP synced height: {lcp_synced_height}");
                                 if !stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
                                     let stopped_tasks = &stopped_tasks
                                         .as_ref()

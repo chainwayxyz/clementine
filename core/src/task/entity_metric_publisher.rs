@@ -66,30 +66,33 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
 
         let metric = LazyLock::force(&L1_SYNC_STATUS);
 
-        metric
-            .wallet_balance_btc
-            .set(l1_status.wallet_balance.map_or(0.0, |a| a.to_btc()));
-        metric
-            .rpc_tip_height
-            .set(l1_status.rpc_tip_height.unwrap_or(0) as f64);
-        metric
-            .hcp_last_proven_height
-            .set(l1_status.hcp_last_proven_height.unwrap_or(0) as f64);
-        metric
-            .btc_syncer_synced_height
-            .set(l1_status.btc_syncer_synced_height.unwrap_or(0) as f64);
-        metric
-            .finalized_synced_height
-            .set(l1_status.finalized_synced_height.unwrap_or(0) as f64);
-        metric
-            .tx_sender_synced_height
-            .set(l1_status.tx_sender_synced_height.unwrap_or(0) as f64);
-        metric
-            .state_manager_next_height
-            .set(l1_status.state_manager_next_height.unwrap_or(0) as f64);
-        metric
-            .bitcoin_fee_rate_sat_vb
-            .set(l1_status.bitcoin_fee_rate_sat_vb.unwrap_or(0) as f64);
+        if let Some(balance) = l1_status.wallet_balance {
+            metric.wallet_balance_btc.set(balance.to_btc());
+        }
+        if let Some(height) = l1_status.rpc_tip_height {
+            metric.rpc_tip_height.set(height as f64);
+        }
+        if let Some(height) = l1_status.hcp_last_proven_height {
+            metric.hcp_last_proven_height.set(height as f64);
+        }
+        if let Some(height) = l1_status.btc_syncer_synced_height {
+            metric.btc_syncer_synced_height.set(height as f64);
+        }
+        if let Some(height) = l1_status.finalized_synced_height {
+            metric.finalized_synced_height.set(height as f64);
+        }
+        if let Some(height) = l1_status.tx_sender_synced_height {
+            metric.tx_sender_synced_height.set(height as f64);
+        }
+        if let Some(height) = l1_status.state_manager_next_height {
+            metric.state_manager_next_height.set(height as f64);
+        }
+        if let Some(rate) = l1_status.bitcoin_fee_rate_sat_vb {
+            metric.bitcoin_fee_rate_sat_vb.set(rate as f64);
+        }
+        if let Some(height) = l1_status.lcp_synced_height {
+            metric.lcp_synced_height.set(height as f64);
+        }
 
         Ok(false)
     }
