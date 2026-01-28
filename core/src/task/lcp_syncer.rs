@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use crate::bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask};
+use crate::builder::block_cache::BlockCache;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
-use crate::states::block_cache::BlockCache;
 use crate::task::{RecoverableTask, Task, TaskVariant};
 use crate::verifier::Verifier;
 use clementine_errors::BridgeError;
