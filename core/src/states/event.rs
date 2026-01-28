@@ -360,7 +360,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), BridgeError> {
         // Pull the current round state data first to avoid holding a mutable borrow of self
         // while calling into owner duties (which require an immutable borrow of self.owner).
-        let (was_challenged_before, round_idx) = {
+        let was_challenged_before = {
             let round_machine = self
                 .get_round_machine(&kickoff_data.operator_xonly_pk)
                 .await
@@ -368,22 +368,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     "Round machine not found for operator {} while checking if kickoff is malicious",
                 )?;
 
-            if let crate::states::round::State::RoundTx {
-                challenged_before,
-                round_idx,
-                ..
-            } = round_machine.state()
-            {
-                (*challenged_before, *round_idx)
-            } else {
-                return Ok(());
-            }
+            round_machine
+                .challenged_rounds
+                .contains(&kickoff_data.round_idx)
         };
-
-        if round_idx != kickoff_data.round_idx {
-            // current round is already past the kickoff's round, no need to consider if it is malicious
-            return Ok(());
-        }
 
         let duty = super::Duty::CheckIfKickoffMalicious {
             kickoff_data: *kickoff_data,
@@ -406,7 +394,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         .await
                     {
                         round_machine
-                            .handle_with_context(&RoundEvent::SetChallenged, dummy_context)
+                            .handle_with_context(
+                                &RoundEvent::SetChallenged {
+                                    round_idx: kickoff_data.round_idx,
+                                },
+                                dummy_context,
+                            )
                             .await;
                     }
                 }

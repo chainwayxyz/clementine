@@ -3379,11 +3379,6 @@ mod states {
                             challenged_before,
                         )
                         .await?;
-                    tracing::warn!(
-                        "checking kickoff {:?} malicious: {}",
-                        kickoff_data,
-                        is_malicious
-                    );
                     Ok(DutyResult::CheckIfKickoffMalicious {
                         challenged: is_malicious,
                     })
