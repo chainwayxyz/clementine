@@ -77,7 +77,7 @@ pub struct RoundStateMachine<T: Owner> {
     /// This set stores the rounds that have been challenged.
     /// If that challenge is successful, operator will not be able to get reimbursement from all kickoffs.
     /// serde default is used to ensure backwards compatibility with old state machines.
-    /// Why store like this insetad of local storage of round_tx state? Because an operator might start a kickoff and instantly move to the next round (which should get it slashed). 
+    /// Why store like this instead of local storage of round_tx state? Because an operator might start a kickoff and instantly move to the next round (which should get it slashed).
     #[serde(default)]
     pub(crate) challenged_rounds: HashSet<RoundIndex>,
     phantom: std::marker::PhantomData<T>,
