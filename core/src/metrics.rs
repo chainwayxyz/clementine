@@ -135,7 +135,7 @@ pub async fn get_btc_syncer_consumer_last_processed_block_height(
         .await
 }
 
-/// Get the last processed fianlized block height of the given consumer or None if no
+/// Get the last processed finalized block height of the given consumer or None if no
 /// block was processed by the consumer.
 pub async fn get_btc_syncer_consumer_last_processed_finalized_block_height(
     db: &Database,
