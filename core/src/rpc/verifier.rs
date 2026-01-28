@@ -37,6 +37,7 @@ impl<C> ClementineVerifier for VerifierServer<C>
 where
     C: CitreaClientT,
 {
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn get_compatibility_params(
         &self,
         _request: Request<Empty>,
@@ -45,11 +46,13 @@ where
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn restart_background_tasks(
         &self,
         _request: tonic::Request<super::Empty>,
@@ -66,6 +69,7 @@ where
         Ok(Response::new(Empty {}))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn optimistic_payout_sign(
         &self,
         request: Request<OptimisticPayoutParams>,
@@ -132,6 +136,7 @@ where
         Ok(Response::new(partial_sig.into()))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_create_watchtower_challenge(
         &self,
         request: tonic::Request<super::TransactionRequest>,
@@ -173,6 +178,7 @@ where
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         tracing::info!("Verifier get params rpc called");
         let params: VerifierParams = (&self.verifier).try_into()?;
@@ -180,6 +186,7 @@ where
         Ok(Response::new(params))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn set_operator(
         &self,
         req: Request<Streaming<OperatorParams>>,
@@ -240,6 +247,7 @@ where
         Ok(Response::new(Empty {}))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn nonce_gen(
         &self,
         req: Request<NonceGenRequest>,
@@ -274,10 +282,10 @@ where
             Ok::<(), Status>(())
         });
         monitor_standalone_task(handle, "Verifier nonce_gen", monitor_sender);
-
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn deposit_sign(
         &self,
         req: Request<Streaming<VerifierDepositSignParams>>,
@@ -407,6 +415,7 @@ where
     /// Function to finalize the deposit. Verifier will check the validity of the both nofn signatures and
     /// operator signatures. It will receive data from the stream in this order -> nofn sigs, movetx agg nonce, operator sigs.
     /// If everything is correct, it will partially sign the move tx and send it to aggregator.
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
@@ -580,6 +589,7 @@ where
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn set_operator_keys(
         &self,
         request: tonic::Request<super::OperatorKeysWithDeposit>,
@@ -599,6 +609,7 @@ where
         Ok(Response::new(Empty {}))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_create_signed_txs(
         &self,
         request: tonic::Request<super::TransactionRequest>,
@@ -633,6 +644,7 @@ where
         Ok(Response::new(raw_txs.into()))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_handle_kickoff(
         &self,
         request: Request<clementine::Txid>,
@@ -665,13 +677,11 @@ where
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
-        dbtx.commit()
-            .await
-            .wrap_err("Failed to commit transaction")
-            .map_to_status()?;
+        dbtx.commit().await.map_to_status()?;
         Ok(Response::new(Empty {}))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn debug_tx(
         &self,
         request: tonic::Request<super::TxDebugRequest>,
@@ -697,6 +707,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_current_status(
         &self,
         _request: Request<Empty>,

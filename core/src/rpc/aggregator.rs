@@ -958,6 +958,7 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for AggregatorServer {
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_params(
         &self,
         _request: Request<Empty>,
@@ -966,6 +967,7 @@ impl ClementineAggregator for AggregatorServer {
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_data_from_entities(
         &self,
         _request: Request<Empty>,
@@ -979,11 +981,16 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
-
+    #[tracing::instrument(
+        skip_all,
+        fields(restart_tasks = %request.get_ref().restart_tasks),
+        err(level = tracing::Level::ERROR)
+    )]
     async fn get_entity_statuses(
         &self,
         request: Request<GetEntityStatusesRequest>,
@@ -997,6 +1004,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn optimistic_payout(
         &self,
         request: tonic::Request<super::OptimisticWithdrawParams>,
@@ -1256,6 +1264,7 @@ impl ClementineAggregator for AggregatorServer {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_send_tx(
         &self,
         request: Request<clementine::SendTxRequest>,
@@ -1300,7 +1309,7 @@ impl ClementineAggregator for AggregatorServer {
         }
     }
 
-    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn setup(
         &self,
         _request: Request<Empty>,
@@ -1434,8 +1443,7 @@ impl ClementineAggregator for AggregatorServer {
     ///    - Nonce aggregation
     ///    - Nonce distribution
     ///    - Signature aggregation
-    ///    - Signature distribution
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn new_deposit(
         &self,
         request: Request<Deposit>,
@@ -1798,7 +1806,7 @@ impl ClementineAggregator for AggregatorServer {
         .await.map_err(Into::into)
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn withdraw(
         &self,
         request: Request<AggregatorWithdrawalInput>,
@@ -1905,9 +1913,10 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_nofn_aggregated_xonly_pk(
         &self,
-        _: tonic::Request<super::Empty>,
+        _request: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
         tracing::info!("Get nofn aggregated xonly pk rpc called");
         let verifier_keys = self.fetch_verifier_keys().await?;
@@ -1924,6 +1933,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_get_emergency_stop_tx(
         &self,
         request: Request<clementine::GetEmergencyStopTxRequest>,
@@ -1958,6 +1968,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn send_move_to_vault_tx(
         &self,
         request: Request<clementine::SendMoveTxRequest>,
