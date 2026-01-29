@@ -63,11 +63,11 @@ impl JsonRpcTxSenderClient {
     /// `send_citrea_raw_tx` method which expects a single `InsertCitreaRawTxParams` argument.
     /// This helper takes a strongly-typed `RawTxData` and forwards it to that method.
     #[cfg(feature = "citrea")]
-    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<(), BridgeError> {
+    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<i64, BridgeError> {
         let req = InsertCitreaRawTxParams { raw_tx_data };
 
         self.inner
-            .request::<(), _>("send_citrea_tx", rpc_params![req])
+            .request::<i64, _>("send_citrea_tx", rpc_params![req])
             .await
             .map_err(|e| BridgeError::Eyre(e.into()))
     }

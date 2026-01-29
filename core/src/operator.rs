@@ -659,6 +659,7 @@ where
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(1),
                     change_type: None,

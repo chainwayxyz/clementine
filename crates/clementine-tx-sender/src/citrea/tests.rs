@@ -16,7 +16,6 @@ async fn insert_single_citrea_row_with_body_size(
     body_size: usize,
 ) -> i64 {
     use crate::client::TxSenderClient;
-    use sqlx::Row;
 
     let mut body = vec![0u8; body_size];
     rand::thread_rng().fill_bytes(&mut body);
@@ -29,22 +28,7 @@ async fn insert_single_citrea_row_with_body_size(
     };
 
     let client = TxSenderClient::new(tx_sender.db.clone());
-    client.send_citrea_tx(raw).await.unwrap();
-
-    // Look up the row we just inserted to get its insertion_id.
-    let row = sqlx::query(
-        "SELECT insertion_id \
-         FROM tx_sender_citrea_raw_tx_queue \
-         WHERE body = $1 \
-         ORDER BY id DESC \
-         LIMIT 1",
-    )
-    .bind(&body)
-    .fetch_one(tx_sender.db.pool())
-    .await
-    .unwrap();
-
-    row.get("insertion_id")
+    client.send_citrea_tx(raw).await.unwrap()
 }
 
 async fn insert_single_citrea_row(tx_sender: &TxSender, kind: TransactionKind) -> i64 {
@@ -54,7 +38,6 @@ async fn insert_single_citrea_row(tx_sender: &TxSender, kind: TransactionKind) -
 /// Helper to insert a chunked Citrea raw tx group.
 async fn insert_chunked_citrea_rows(tx_sender: &TxSender) -> i64 {
     use crate::client::TxSenderClient;
-    use sqlx::Row;
 
     let mut chunks = Vec::new();
     for _ in 0..3 {
@@ -65,24 +48,9 @@ async fn insert_chunked_citrea_rows(tx_sender: &TxSender) -> i64 {
 
     let client = TxSenderClient::new(tx_sender.db.clone());
     client
-        .send_citrea_tx(RawTxData::Chunks(chunks.clone()))
+        .send_citrea_tx(RawTxData::Chunks(chunks))
         .await
-        .unwrap();
-
-    // All chunk rows in the group share the same insertion_id; get it from one of them.
-    let row = sqlx::query(
-        "SELECT insertion_id \
-         FROM tx_sender_citrea_raw_tx_queue \
-         WHERE body = $1 \
-         ORDER BY id ASC \
-         LIMIT 1",
-    )
-    .bind(&chunks[0])
-    .fetch_one(tx_sender.db.pool())
-    .await
-    .unwrap();
-
-    row.get("insertion_id")
+        .unwrap()
 }
 
 /// Returns the commit txid and all try_to_send_ids for the given insertion_id.

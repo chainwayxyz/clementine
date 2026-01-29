@@ -116,12 +116,12 @@ pub async fn start_jsonrpc_server(
             .register_async_method("send_citrea_tx", |params, client, _| async move {
                 let req: InsertCitreaRawTxParams = params.one().map_err(jsonrpc_err)?;
 
-                client
+                let insertion_id = client
                     .send_citrea_tx(req.raw_tx_data)
                     .await
                     .map_err(jsonrpc_err)?;
 
-                Ok::<(), ErrorObjectOwned>(())
+                Ok::<i64, ErrorObjectOwned>(insertion_id)
             })
             .map_err(|e| BridgeError::Eyre(e.into()))?;
     }

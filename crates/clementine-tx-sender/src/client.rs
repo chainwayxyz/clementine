@@ -179,7 +179,7 @@ impl TxSenderClient {
     }
 
     #[cfg(feature = "citrea")]
-    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<(), eyre::Report> {
+    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<i64, eyre::Report> {
         const MAX_BODY_BYTES: usize = 397_000;
 
         let too_large = match &raw_tx_data {
@@ -198,11 +198,11 @@ impl TxSenderClient {
 
         let mut dbtx = self.db.begin_transaction().await?;
 
-        match raw_tx_data {
+        let insertion_id = match raw_tx_data {
             RawTxData::BatchProof(body) => {
                 self.db
                     .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &body)
-                    .await?;
+                    .await?
             }
             RawTxData::BatchProofMethodId(body) => {
                 self.db
@@ -211,7 +211,7 @@ impl TxSenderClient {
                         TransactionKind::BatchProofMethodId,
                         &body,
                     )
-                    .await?;
+                    .await?
             }
             RawTxData::SequencerCommitment(body) => {
                 self.db
@@ -220,17 +220,17 @@ impl TxSenderClient {
                         TransactionKind::SequencerCommitment,
                         &body,
                     )
-                    .await?;
+                    .await?
             }
             RawTxData::Chunks(chunks) => {
                 self.db
                     .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks)
-                    .await?;
+                    .await?
             }
-        }
+        };
 
         self.db.commit_transaction(dbtx).await?;
-        Ok(())
+        Ok(insertion_id)
     }
 }
 
@@ -249,7 +249,7 @@ mod tests {
         let client = TxSenderClient::new(db.clone());
 
         let body = vec![1, 2, 3, 4, 5];
-        client
+        let insertion_id = client
             .send_citrea_tx(RawTxData::BatchProof(body.clone()))
             .await
             .expect("Should insert successfully");
@@ -265,6 +265,7 @@ mod tests {
 
         assert_eq!(row.get::<i16, _>("transaction_kind"), 0); // Complete
         assert_eq!(row.get::<Vec<u8>, _>("body"), body);
+        assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
     }
 
     #[cfg(feature = "citrea")]
@@ -277,7 +278,7 @@ mod tests {
         let client = TxSenderClient::new(db.clone());
 
         let chunks = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
-        client
+        let insertion_id = client
             .send_citrea_tx(RawTxData::Chunks(chunks.clone()))
             .await
             .expect("Should insert successfully");
@@ -292,7 +293,8 @@ mod tests {
 
         assert_eq!(rows.len(), 4); // 3 chunks + 1 aggregate
 
-        let insertion_id = rows[0].get::<i64, _>("insertion_id");
+        let db_insertion_id = rows[0].get::<i64, _>("insertion_id");
+        assert_eq!(db_insertion_id, insertion_id);
         for (idx, row) in rows.iter().enumerate() {
             assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
             if idx < 3 {
