@@ -46,6 +46,8 @@ pub async fn create_test_environment(
             endpoint: None,
         },
         limits: TxSenderLimits::default(),
+        #[cfg(feature = "citrea")]
+        body_max_limit: 390_000,
     };
 
     tracing::info!("Test txsender db name: {}", config.postgres.dbname);

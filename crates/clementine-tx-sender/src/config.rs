@@ -9,6 +9,8 @@ use secrecy::SecretString;
 use std::str::FromStr;
 
 const DEFAULT_POLL_DELAY_MS: u64 = 60_000;
+#[cfg(feature = "citrea")]
+const DEFAULT_BODY_MAX_LIMIT: u64 = 390_000;
 
 #[derive(Clone, Debug)]
 pub struct TxSenderPostgresConfig {
@@ -61,6 +63,10 @@ pub struct TxSenderConfig {
     /// Optional JSON-RPC configuration (feature-gated).
     #[cfg(feature = "json-rpc")]
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
+
+    /// Maximum allowed body size in bytes for Citrea payloads.
+    #[cfg(feature = "citrea")]
+    pub body_max_limit: u64,
 }
 
 fn env_required(name: &'static str) -> Result<String, BridgeError> {
@@ -141,6 +147,8 @@ impl TxSenderConfig {
             .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
             fee_bump_after_blocks: env_parse_required::<u32>("TX_SENDER_FEE_BUMP_AFTER_BLOCKS")
                 .unwrap_or(defaults.fee_bump_after_blocks),
+            min_bump_kwu: env_parse_required::<u64>("TX_SENDER_MIN_BUMP_KWU")
+                .unwrap_or(defaults.min_bump_kwu),
         };
 
         let finality_depth = env_parse_required::<u32>("TX_SENDER_FINALITY_DEPTH")?;
@@ -178,6 +186,10 @@ impl TxSenderConfig {
             .transpose()?
         };
 
+        #[cfg(feature = "citrea")]
+        let body_max_limit = env_parse_optional::<u64>("TX_SENDER_BODY_MAX_LIMIT")?
+            .unwrap_or(DEFAULT_BODY_MAX_LIMIT);
+
         Ok(Self {
             network,
             secret_key,
@@ -189,6 +201,8 @@ impl TxSenderConfig {
             poll_delay_ms,
             #[cfg(feature = "json-rpc")]
             jsonrpc,
+            #[cfg(feature = "citrea")]
+            body_max_limit,
         })
     }
 }

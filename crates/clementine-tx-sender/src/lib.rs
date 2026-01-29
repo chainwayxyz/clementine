@@ -514,9 +514,17 @@ impl TxSender {
         let min_bump_feerate =
             previous_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
 
-        // If new fee rate is higher than previous, use max of new_fee_rate and min_bump_feerate
+        // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kwu
         if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() {
             let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
+            let effective_increment =
+                effective_feerate.saturating_sub(previous_rate.to_sat_per_kwu());
+
+            // if the effective increment is less than min_bump_kwu, do not bump
+            if effective_increment < self.tx_sender_limits.min_bump_kwu {
+                return Ok(previous_rate);
+            }
+
             let result = FeeRate::from_sat_per_kwu(effective_feerate);
             return Ok(std::cmp::min(result, hard_cap));
         }
