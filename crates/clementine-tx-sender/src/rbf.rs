@@ -154,6 +154,7 @@ impl TxSender {
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             add_inputs: Some(true), // Let the wallet add its inputs
+            include_unsafe: Some(true),
             change_address: None,
             change_position: Some(tx.output.len() as u16), // Add change output at last index (so that SinglePlusAnyoneCanPay signatures stay valid)
             change_type: None,
@@ -454,12 +455,13 @@ impl TxSender {
     /// It interacts with the database to track the latest RBF attempt (`last_rbf_txid`).
     ///
     /// # Logic:
-    /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
+    /// 1.  **Check for Existing RBF Tx:** Retrieves RBF txids for the `try_to_send_id` and
+    ///     selects the most recent one still in the mempool.
+    /// 2.  **Bump Existing Tx:** If a mempool tx exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
     ///
-    /// 3.  **Send Initial RBF Tx:** If no `last_rbf_txid` exists (first attempt):
+    /// 3.  **Send Initial RBF Tx:** If no RBF tx is found in the mempool:
     ///     - It uses `fund_raw_transaction` RPC to let the wallet add (potentially) inputs,
     ///       outputs, set the fee according to `fee_rate`, and mark the transaction as replaceable.
     ///     - Uses `sign_raw_transaction_with_wallet` RPC to sign the funded transaction.
@@ -492,17 +494,39 @@ impl TxSender {
             .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", true)
             .await;
 
-        let mut dbtx = self
+        let rbf_txids = self
             .db
-            .begin_transaction()
+            .list_rbf_txids_for_id(None, try_to_send_id)
             .await
-            .wrap_err("Failed to begin database transaction")?;
+            .wrap_err("Failed to list RBF txids")?;
 
-        let last_rbf_txid = self
-            .db
-            .get_last_rbf_txid(Some(&mut dbtx), try_to_send_id)
-            .await
-            .wrap_err("Failed to get last RBF txid")?;
+        // We check all bumps here but technically as wallet bumpfee rpcs do not use unsafe utxos, if the last rbf txid is
+        // evicted all should be evicted as well. Only while funding the first rbf tx can unsafe outputs be used.
+        let mut bump_from_txid = None;
+        for txid in rbf_txids {
+            match self.rpc.get_mempool_entry(&txid).await {
+                Ok(_) => {
+                    bump_from_txid = Some(txid);
+                    break;
+                }
+                Err(e) => {
+                    // If not in mempool, either evicted or already confirmed/replaced.
+                    if !e.to_string().contains("Transaction not in mempool") {
+                        return Err(eyre!("Failed to get mempool entry for {txid}: {e}").into());
+                    }
+
+                    if let Ok(tx_info) = self.rpc.get_transaction(&txid, None).await {
+                        if tx_info.info.blockhash.is_some() && tx_info.info.confirmations > 0 {
+                            tracing::debug!(
+                                ?try_to_send_id,
+                                "RBF tx {txid} already confirmed, skipping bump"
+                            );
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
 
         // cache the leaf hash for script path spends
         let cached_leaf_hash = match &rbf_signing_info {
@@ -516,14 +540,14 @@ impl TxSender {
             None => None,
         };
 
-        if let Some(last_rbf_txid) = last_rbf_txid {
+        if let Some(bump_from_txid) = bump_from_txid {
             tracing::debug!(
                 ?try_to_send_id,
-                "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
+                "Attempting to bump fee for txid {bump_from_txid} using psbt_bump_fee"
             );
 
             let effective_feerate = self
-                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
+                .calculate_bump_feerate_if_needed(&bump_from_txid, fee_rate)
                 .await?;
 
             let Some(effective_feerate) = effective_feerate else {
@@ -546,7 +570,7 @@ impl TxSender {
 
             let bump_result = self
                 .rpc
-                .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
+                .psbt_bump_fee(&bump_from_txid, Some(&psbt_bump_opts))
                 .await;
 
             let mut bumped_psbt = match bump_result {
@@ -556,12 +580,9 @@ impl TxSender {
                     if rpc_error_str.contains("Transaction already in block chain") {
                         tracing::debug!(
                             ?try_to_send_id,
-                            "RBF bump failed for {last_rbf_txid}, likely confirmed or spent: {e}"
+                            "RBF bump failed for {bump_from_txid}, likely confirmed or spent: {e}"
                         );
                         // No need to return error, just log and proceed
-                        self.db.commit_transaction(dbtx).await.wrap_err(
-                            "Failed to commit database transaction after failed bump check",
-                        )?;
                         return Ok(());
                     } else {
                         // Other potentially transient errors
@@ -746,7 +767,7 @@ impl TxSender {
 
             tracing::debug!(
                 ?try_to_send_id,
-                "RBF tx {last_rbf_txid} successfully bumped and sent as {sent_txid}"
+                "RBF tx {bump_from_txid} successfully bumped and sent as {sent_txid}"
             );
 
             let _ = self
@@ -755,14 +776,14 @@ impl TxSender {
                 .await;
 
             self.db
-                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
+                .save_rbf_txid(None, try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
 
             // Save the effective fee rate to the db
             self.db
                 .update_effective_fee_rate(
-                    Some(&mut dbtx),
+                    None,
                     try_to_send_id,
                     effective_feerate,
                     current_tip_height,
@@ -1025,26 +1046,16 @@ impl TxSender {
                 .await;
 
             self.db
-                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
+                .save_rbf_txid(None, try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
 
             // Save the effective fee rate to the db
             self.db
-                .update_effective_fee_rate(
-                    Some(&mut dbtx),
-                    try_to_send_id,
-                    fee_rate,
-                    current_tip_height,
-                )
+                .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
                 .await
                 .wrap_err("Failed to update effective fee rate")?;
         }
-
-        self.db
-            .commit_transaction(dbtx)
-            .await
-            .wrap_err("Failed to commit database transaction")?;
 
         Ok(())
     }

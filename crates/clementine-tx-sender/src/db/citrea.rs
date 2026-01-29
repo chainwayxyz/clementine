@@ -36,6 +36,20 @@ type CitreaRawTxRowDb = (
     Option<i32>,
 );
 
+impl From<CitreaRawTxRowDb> for CitreaRawTxRow {
+    fn from(row: CitreaRawTxRowDb) -> Self {
+        let (id, insertion_id, kind, body, commit_outpoint, try_to_send_id) = row;
+        Self {
+            id,
+            insertion_id,
+            transaction_kind: TransactionKind::from_u16(kind as u16),
+            body: body.unwrap_or_default(),
+            commit_outpoint: commit_outpoint.map(|op| op.0),
+            try_to_send_id,
+        }
+    }
+}
+
 impl TxSenderDb {
     /// Inserts a single non-chunked Citrea raw tx row.
     /// Returns the insertion_id assigned to this row.
@@ -136,17 +150,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
-        let query = sqlx::query_as::<
-            _,
-            (
-                i64,
-                i64,
-                i16,
-                Option<Vec<u8>>,
-                Option<OutPointDB>,
-                Option<i32>,
-            ),
-        >(
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
             "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id
              FROM tx_sender_citrea_raw_tx_queue
              WHERE transaction_kind != $1
@@ -159,24 +163,7 @@ impl TxSenderDb {
         let results: Vec<CitreaRawTxRowDb> =
             txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
 
-        results
-            .into_iter()
-            .map(
-                |(id, insertion_id, kind, body, commit_outpoint, try_to_send_id)| {
-                    let transaction_kind = TransactionKind::from_u16(kind as u16);
-                    let body = body.ok_or_eyre("Expected body to be present")?;
-                    let commit_outpoint = commit_outpoint.map(|op| op.0);
-                    Ok(CitreaRawTxRow {
-                        id,
-                        insertion_id,
-                        transaction_kind,
-                        body,
-                        commit_outpoint,
-                        try_to_send_id,
-                    })
-                },
-            )
-            .collect::<Result<Vec<_>, BridgeError>>()
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
     /// Returns non-aggregate citrea transactions with commit_outpoint but no try_to_send_id.
@@ -199,25 +186,82 @@ impl TxSenderDb {
         let results: Vec<CitreaRawTxRowDb> =
             txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
 
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
+    /// Returns citrea transactions with commit_outpoint (regardless of try_to_send_id).
+    pub async fn get_citrea_txs_with_commit_outpoint(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+    ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
+            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id
+             FROM tx_sender_citrea_raw_tx_queue
+             WHERE commit_outpoint IS NOT NULL",
+        );
+
+        let results: Vec<CitreaRawTxRowDb> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
+    /// Returns non-aggregate citrea transactions with commit_outpoint where
+    /// try_to_send_id is NULL or the try_to_send tx has not been seen yet.
+    pub async fn get_citrea_txs_with_unseen_try_to_send(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+    ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
+            "SELECT q.id, q.insertion_id, q.transaction_kind, q.body, q.commit_outpoint, q.try_to_send_id
+             FROM tx_sender_citrea_raw_tx_queue q
+             LEFT JOIN tx_sender_try_to_send_txs t
+               ON t.id = q.try_to_send_id
+             WHERE q.commit_outpoint IS NOT NULL
+               AND (q.try_to_send_id IS NULL OR t.seen_at_height IS NULL)",
+        );
+
+        let results: Vec<CitreaRawTxRowDb> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
+    /// Clears commit_outpoint and try_to_send_id for all citrea rows in an insertion group.
+    pub async fn clear_citrea_commit_and_try_to_send_by_insertion_id(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        insertion_id: i64,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_citrea_raw_tx_queue
+             SET commit_outpoint = NULL, try_to_send_id = NULL
+             WHERE insertion_id = $1",
+        )
+        .bind(insertion_id);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    /// Lists distinct try_to_send_ids for an insertion group.
+    pub async fn list_citrea_try_to_send_ids_by_insertion_id(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        insertion_id: i64,
+    ) -> Result<Vec<u32>, BridgeError> {
+        let query = sqlx::query_scalar::<_, i32>(
+            "SELECT DISTINCT try_to_send_id
+             FROM tx_sender_citrea_raw_tx_queue
+             WHERE insertion_id = $1
+               AND try_to_send_id IS NOT NULL",
+        )
+        .bind(insertion_id);
+
+        let results: Vec<i32> = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
             .into_iter()
-            .map(
-                |(id, insertion_id, kind, body, commit_outpoint, try_to_send_id)| {
-                    let transaction_kind = TransactionKind::from_u16(kind as u16);
-                    let body = body.ok_or_eyre("Expected body to be present")?;
-                    let commit_outpoint = commit_outpoint
-                        .ok_or_eyre("Expected commit_outpoint to be present")?
-                        .0;
-                    Ok(CitreaRawTxRow {
-                        id,
-                        insertion_id,
-                        transaction_kind,
-                        body,
-                        commit_outpoint: Some(commit_outpoint),
-                        try_to_send_id,
-                    })
-                },
-            )
+            .map(|id| u32::try_from(id).map_err(|_| BridgeError::IntConversionError))
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 

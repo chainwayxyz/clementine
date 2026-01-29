@@ -255,6 +255,21 @@ impl TxSenderDb {
         Ok(result.map(|(txid,)| txid.0))
     }
 
+    pub async fn list_rbf_txids_for_id(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+    ) -> Result<Vec<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT txid FROM tx_sender_rbf_txids WHERE id = $1 ORDER BY insertion_order DESC",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        let results: Vec<(TxidDB,)> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+        Ok(results.into_iter().map(|(txid,)| txid.0).collect())
+    }
+
     pub async fn save_cancelled_outpoint(
         &self,
         tx: TxSenderDbTx<'_>,
@@ -1172,6 +1187,59 @@ impl TxSenderDb {
         .bind(in_mempool);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn get_activate_txid_status(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        txid: Txid,
+    ) -> Result<Option<(bool, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<bool>, Option<i32>)>(
+            "SELECT bool_or(in_mempool), max(seen_at_height)
+             FROM tx_sender_activate_try_to_send_txids
+             WHERE txid = $1",
+        )
+        .bind(TxidDB(txid));
+
+        let (any_in_mempool, seen_at_height): (Option<bool>, Option<i32>) =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_one)?;
+
+        if any_in_mempool.is_none() && seen_at_height.is_none() {
+            return Ok(None);
+        }
+
+        let any_in_mempool = any_in_mempool.unwrap_or(false);
+        let seen_at_height = seen_at_height
+            .map(u32::try_from)
+            .transpose()
+            .wrap_err("Failed to convert seen_at_height to u32")?;
+
+        Ok(Some((any_in_mempool, seen_at_height)))
+    }
+
+    pub async fn delete_try_to_send_tx(
+        &self,
+        mut tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let id_i32 = i32::try_from(id).wrap_err("Failed to convert id to i32")?;
+
+        let queries = [
+            "DELETE FROM tx_sender_rbf_txids WHERE id = $1",
+            "DELETE FROM tx_sender_fee_payer_utxos WHERE bumped_id = $1",
+            "DELETE FROM tx_sender_cancel_try_to_send_outpoints WHERE cancelled_id = $1",
+            "DELETE FROM tx_sender_cancel_try_to_send_txids WHERE cancelled_id = $1",
+            "DELETE FROM tx_sender_activate_try_to_send_outpoints WHERE activated_id = $1",
+            "DELETE FROM tx_sender_activate_try_to_send_txids WHERE activated_id = $1",
+            "DELETE FROM tx_sender_try_to_send_txs WHERE id = $1",
+        ];
+
+        for sql in queries {
+            let query = sqlx::query(sql).bind(id_i32);
+            txsender_execute_query_with_tx!(&self.pool, tx.as_deref_mut(), query, execute)?;
+        }
+
         Ok(())
     }
 

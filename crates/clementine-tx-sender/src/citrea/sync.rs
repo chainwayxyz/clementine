@@ -11,6 +11,65 @@ impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.
     /// After creating commit tx, the reveal txs are added to the core txsender queue using insert_try_to_send as RBF txs.
     pub async fn sync_citrea_txs(&self, fee_rate: FeeRate) -> Result<(), eyre::Report> {
+        // First, check existing commit txids for eviction based on citrea rows whose
+        // try_to_send_id is NULL or not seen yet.
+        // If evicted (not in mempool and never seen), clear commit_outpoint and delete
+        // any reveal RBF entries tied to it.
+        // These check is only required because commit_tx creation uses include_unsafe = true, if some unsafe input is
+        // spent in another way, commit tx will become invalid.
+        let committed_rows = self.db.get_citrea_txs_with_unseen_try_to_send(None).await?;
+
+        let mut committed_by_insertion_id: BTreeMap<i64, Vec<CitreaRawTxRow>> = BTreeMap::new();
+        for row in committed_rows {
+            committed_by_insertion_id
+                .entry(row.insertion_id)
+                .or_default()
+                .push(row);
+        }
+
+        for (insertion_id, rows) in committed_by_insertion_id {
+            let commit_outpoint = rows
+                .first()
+                .and_then(|row| row.commit_outpoint)
+                .ok_or_eyre("Expected commit_outpoint to be present")?;
+
+            let Some((in_mempool, seen_at_height)) = self
+                .db
+                .get_activate_txid_status(None, commit_outpoint.txid)
+                .await?
+            else {
+                continue;
+            };
+
+            if in_mempool || seen_at_height.is_some() {
+                continue;
+            }
+            tracing::warn!(
+                insertion_id,
+                commit_txid = %commit_outpoint.txid,
+                "Commit tx evicted; clearing commit_outpoint and deleting reveal RBF entries"
+            );
+
+            let mut dbtx = self.db.begin_transaction().await?;
+
+            let try_to_send_ids = self
+                .db
+                .list_citrea_try_to_send_ids_by_insertion_id(Some(&mut dbtx), insertion_id)
+                .await?;
+
+            for try_to_send_id in try_to_send_ids {
+                self.db
+                    .delete_try_to_send_tx(Some(&mut dbtx), try_to_send_id)
+                    .await?;
+            }
+
+            self.db
+                .clear_citrea_commit_and_try_to_send_by_insertion_id(Some(&mut dbtx), insertion_id)
+                .await?;
+
+            self.db.commit_transaction(dbtx).await?;
+        }
+
         // First get all citrea rows (except aggregate tx) with commit_outpoint IS NULL.
         // For all of these we will try to fund and create a tx that creates commit utxos.
         let citrea_rows = self
@@ -64,6 +123,7 @@ impl TxSender {
                     &raw_bytes,
                     Some(&FundRawTransactionOptions {
                         add_inputs: Some(true),
+                        include_unsafe: Some(true),
                         change_address: None,
                         // add change output at the end, that means outputs 0..len-1 are the commit outputs and output len is the change output
                         change_position: Some(unsigned_commit_tx.output.len() as u32),
