@@ -632,9 +632,9 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
-        let fee_rate_result = self
+        let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset.network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -642,15 +642,7 @@ where
                 self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
                 self.config.tx_sender_limits.fee_rate_hard_cap,
             )
-            .await;
-
-        let fee_rate_option = match fee_rate_result {
-            Ok(fee_rate) => Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
-            Err(e) => {
-                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:?}");
-                None
-            }
-        };
+            .await?;
 
         // send payout tx using RBF
         let funded_tx = self
@@ -665,7 +657,7 @@ where
                     change_type: None,
                     include_watching: None,
                     lock_unspents: Some(false),
-                    fee_rate: fee_rate_option,
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                     subtract_fee_from_outputs: None,
                     replaceable: None,
                     conf_target: None,
@@ -1974,7 +1966,7 @@ where
 
         let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset().network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -1989,9 +1981,10 @@ where
         self.signer
             .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
 
-        let tx_weight_wu = txhandler.get_cached_tx().weight().to_wu();
-        let fee_sat = (fee_rate.to_sat_per_kwu() * tx_weight_wu).div_ceil(1000);
-        let fee = Amount::from_sat(fee_sat);
+        let tx_weight = txhandler.get_cached_tx().weight();
+        let fee = fee_rate.fee_wu(tx_weight).ok_or_eyre(format!(
+            "Fee calculation overflow in transfer to wallet, current feerate: {fee_rate}"
+        ))?;
 
         output_txout.value = output_txout
             .value

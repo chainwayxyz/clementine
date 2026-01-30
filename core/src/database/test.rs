@@ -4,8 +4,9 @@ use crate::{
     database::{Database, TxidDB},
     execute_query_with_tx,
 };
-use bitcoin::{Amount, FeeRate, Txid};
+use bitcoin::{Amount, Txid};
 use clementine_errors::BridgeError;
+use clementine_primitives::FeeRateKvb;
 use eyre::Context;
 
 impl Database {
@@ -59,7 +60,7 @@ impl Database {
         }
     }
 
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
+    pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         // Query all transactions that aren't confirmed yet
@@ -256,10 +257,10 @@ impl Database {
             };
 
             if let Some(rate) = effective_fee_rate {
-                if rate >= fee_rate.to_sat_per_kwu() as i64 {
+                if rate >= fee_rate.to_sat_per_kvb() as i64 {
                     tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kwu) is >= the current fee rate ({} sat/kwu)",
-                        id, rate, fee_rate.to_sat_per_kwu()
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kvB) is >= the current fee rate ({} sat/kvB)",
+                        id, rate, fee_rate.to_sat_per_kvb()
                     );
                 }
             }

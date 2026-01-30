@@ -1643,7 +1643,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=ea0de4ec8fc70b86eb1b5a135379c38956fe588a#ea0de4ec8fc70b86eb1b5a135379c38956fe588a"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=13fb11651212868bb1581146305770654b909637#13fb11651212868bb1581146305770654b909637"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -1658,7 +1658,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=ea0de4ec8fc70b86eb1b5a135379c38956fe588a#ea0de4ec8fc70b86eb1b5a135379c38956fe588a"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=13fb11651212868bb1581146305770654b909637#13fb11651212868bb1581146305770654b909637"
 dependencies = [
  "bitcoin",
  "serde",
@@ -2318,6 +2318,7 @@ dependencies = [
  "bitcoin",
  "bitcoincore-rpc",
  "clementine-errors",
+ "clementine-primitives",
  "eyre",
  "http 1.3.1",
  "reqwest",
@@ -2354,6 +2355,8 @@ dependencies = [
  "clementine-extended-rpc",
  "clementine-primitives",
  "clementine-tx-sender",
+ "clementine-tx-sender-jsonrpc-client",
+ "clementine-tx-sender-types",
  "clementine-utils",
  "eyre",
  "hex",
@@ -2373,12 +2376,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "clementine-tx-sender-jsonrpc-client"
+version = "0.6.4"
+dependencies = [
+ "bitcoin",
+ "clementine-tx-sender-types",
+ "jsonrpsee",
+]
+
+[[package]]
+name = "clementine-tx-sender-types"
+version = "0.6.4"
+dependencies = [
+ "bitcoin",
+ "clementine-primitives",
+ "serde",
+ "sqlx",
+]
+
+[[package]]
 name = "clementine-utils"
 version = "0.6.4"
 dependencies = [
  "bitcoin",
  "clementine-errors",
  "clementine-primitives",
+ "clementine-tx-sender-types",
  "color-eyre",
  "eyre",
  "secp256k1 0.31.0",

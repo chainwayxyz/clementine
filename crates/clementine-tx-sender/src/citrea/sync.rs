@@ -1,8 +1,9 @@
 use crate::db::citrea::CitreaRawTxRow;
 use crate::TxSender;
-use bitcoin::{Amount, FeeRate, TapSighashType};
+use bitcoin::{Amount, TapSighashType};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::RpcApi;
+use clementine_primitives::FeeRateKvb;
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
@@ -10,7 +11,7 @@ use std::collections::BTreeMap;
 impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.
     /// After creating commit tx, the reveal txs are added to the core txsender queue using insert_try_to_send as RBF txs.
-    pub async fn sync_citrea_txs(&self, fee_rate: FeeRate) -> Result<(), eyre::Report> {
+    pub async fn sync_citrea_txs(&self, fee_rate: FeeRateKvb) -> Result<(), eyre::Report> {
         // First, check existing commit txids for eviction based on citrea rows whose
         // try_to_send_id is NULL or not seen yet.
         // If evicted (not in mempool and never seen), clear commit_outpoint and delete
@@ -57,15 +58,15 @@ impl TxSender {
                 .list_citrea_try_to_send_ids_by_insertion_id(Some(&mut dbtx), insertion_id)
                 .await?;
 
+            self.db
+                .clear_citrea_commit_and_try_to_send_by_insertion_id(Some(&mut dbtx), insertion_id)
+                .await?;
+
             for try_to_send_id in try_to_send_ids {
                 self.db
                     .delete_try_to_send_tx(Some(&mut dbtx), try_to_send_id)
                     .await?;
             }
-
-            self.db
-                .clear_citrea_commit_and_try_to_send_by_insertion_id(Some(&mut dbtx), insertion_id)
-                .await?;
 
             self.db.commit_transaction(dbtx).await?;
         }
@@ -130,7 +131,7 @@ impl TxSender {
                         change_type: None,
                         include_watching: None,
                         lock_unspents: None,
-                        fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
+                        fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                         subtract_fee_from_outputs: None,
                         replaceable: Some(true),
                         conf_target: None,

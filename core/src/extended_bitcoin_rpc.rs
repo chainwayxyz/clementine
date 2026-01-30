@@ -351,7 +351,7 @@ mod tests {
         bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
     use bitcoin::Amount;
-    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
     use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
@@ -359,6 +359,7 @@ mod tests {
     use citrea_e2e::test_case::TestCaseRunner;
     use citrea_e2e::Result;
     use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+    use clementine_primitives::FeeRateKvb;
     use tonic::async_trait;
 
     #[tokio::test]
@@ -471,7 +472,7 @@ mod tests {
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
         rpc.mine_blocks(1).await.unwrap();
         assert!(rpc
-            .bump_fee_with_fee_rate(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
+            .bump_fee_with_fee_rate(utxo.txid, FeeRateKvb::from_sat_per_vb(1).unwrap())
             .await
             .inspect_err(|e| {
                 match e {
@@ -481,7 +482,7 @@ mod tests {
             })
             .is_err());
 
-        let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        let current_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(1);
 
         // Trying to bump a transaction with a fee rate that is already enough
         // should return the original txid.
@@ -493,7 +494,7 @@ mod tests {
         assert_eq!(txid, utxo.txid);
 
         // A bigger fee rate should return a different txid.
-        let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+        let new_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(10000);
         let txid = rpc
             .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
             .await
@@ -792,7 +793,7 @@ mod tests {
 
             // Test potentially retryable errors
             let txid = Txid::all_zeros();
-            let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+            let fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(1);
             assert!(BitcoinRPCError::BumpFeeError(txid, fee_rate).is_retryable());
 
             // Test Other error with retryable patterns
@@ -899,7 +900,7 @@ mod tests {
 
             // Create an unconfirmed transaction
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-            let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+            let new_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(10000);
 
             let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());

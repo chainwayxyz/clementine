@@ -30,11 +30,18 @@ clementine-primitives = { path = "../clementine-primitives" }
 clementine-config = { path = "../clementine-config" }
 clementine-utils = { path = "../clementine-utils" }
 clementine-extended-rpc = { path = "../clementine-extended-rpc" }
+clementine-tx-sender-types = { path = "../clementine-tx-sender-types", default-features = false, features = ["clementine"] }
+clementine-tx-sender-jsonrpc-client = { path = "../clementine-tx-sender-jsonrpc-client", default-features = false, optional = true }
 
 [features]
-json-rpc = ["dep:jsonrpsee"]
+json-rpc = [
+	"dep:jsonrpsee",
+	"dep:clementine-tx-sender-jsonrpc-client",
+	"clementine-tx-sender-jsonrpc-client/clementine",
+	"clementine-tx-sender-jsonrpc-client/citrea",
+]
 standalone = ["json-rpc"]
-citrea = ["standalone", "dep:sha2"]
+citrea = ["standalone", "dep:sha2", "clementine-tx-sender-types/citrea"]
 testing = []
 
 [dev-dependencies]

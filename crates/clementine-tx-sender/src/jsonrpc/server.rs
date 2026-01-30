@@ -1,19 +1,17 @@
 use std::net::SocketAddr;
 
 use bitcoin::consensus;
-use bitcoin::{Transaction, Txid};
+use bitcoin::Transaction;
 use jsonrpsee::server::{ServerBuilder, ServerHandle};
 use jsonrpsee::types::ErrorObjectOwned;
 use jsonrpsee::{server::Server, RpcModule};
-use serde::{Deserialize, Serialize};
 
 use crate::client::TxSenderClient;
-use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use clementine_errors::BridgeError;
-use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use clementine_tx_sender_types::clementine::InsertTryToSendParams;
 
 #[cfg(feature = "citrea")]
-use crate::citrea::CitreaTxRequest;
+use clementine_tx_sender_types::citrea::InsertCitreaRawTxParams;
 
 const JSONRPC_INTERNAL_ERROR_CODE: i32 = -32_000;
 
@@ -35,27 +33,6 @@ impl TxSenderJsonRpcServer {
     pub fn stop(self) -> ServerHandle {
         self.handle
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InsertTryToSendParams {
-    pub tx_metadata: Option<TxMetadata>,
-    /// Signed tx encoded as hex.
-    pub signed_tx_hex: String,
-    pub fee_paying_type: FeePayingType,
-    pub rbf_signing_info: Option<RbfSigningInfo>,
-    pub cancel_outpoints: Vec<bitcoin::OutPoint>,
-    pub cancel_txids: Vec<Txid>,
-    pub activate_txids: Vec<ActivatedWithTxid>,
-    pub activate_outpoints: Vec<ActivatedWithOutpoint>,
-}
-
-/// Parameters for inserting a Citrea DA transaction request.
-#[cfg(feature = "citrea")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InsertCitreaRawTxParams {
-    /// Opaque DA payload to be inscribed on Bitcoin.
-    pub citrea_tx_request: CitreaTxRequest,
 }
 
 /// Starts a JSON-RPC server exposing `send_tx` and `send_citrea_tx` methods.
@@ -135,6 +112,7 @@ pub async fn start_jsonrpc_server(
 mod tests {
     use crate::test_utils::create_test_environment;
     use crate::TxSenderDb;
+    use clementine_utils::FeePayingType;
 
     use super::*;
 
@@ -158,7 +136,8 @@ mod tests {
         let tx_sender_cfg = config.clone();
         let (addr, handle) = spawn_txsender_loop_with_free_localhost_jsonrpc_port(tx_sender_cfg);
         let url = format!("http://{addr}");
-        let client = JsonRpcTxSenderClient::new(&url)?;
+        let client =
+            JsonRpcTxSenderClient::new(&url).map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
         // A minimal syntactically-valid transaction (doesn't need to be mineable for enqueueing).
         let tx = Transaction {

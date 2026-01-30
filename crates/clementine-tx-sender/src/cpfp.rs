@@ -23,7 +23,8 @@ use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
 use bitcoin::transaction::Version;
-use bitcoin::{Amount, FeeRate, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Weight};
+use bitcoin::{Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Weight};
+use clementine_primitives::FeeRateKvb;
 use bitcoin::{TapSighashType, Witness};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
@@ -147,7 +148,7 @@ impl TxSender {
         bumped_id: u32,
         dbtx: Option<&mut TxSenderTransaction>,
         tx: &Transaction,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
@@ -186,7 +187,7 @@ impl TxSender {
         };
 
         tracing::debug!(
-            "Creating fee payer UTXO with amount {} ({} sat/vb)",
+            "Creating fee payer UTXO with amount {} ({} sat/kvB)",
             new_fee_payer_amount,
             fee_rate
         );
@@ -216,7 +217,7 @@ impl TxSender {
                     change_type: None,
                     include_watching: None,
                     lock_unspents: None,
-                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                     subtract_fee_from_outputs: None,
                     replaceable: Some(true),
                     conf_target: None,
@@ -290,7 +291,7 @@ impl TxSender {
         anchor_sat: Amount,
         fee_payer_utxos: Vec<crate::SpendableUtxo>,
         parent_tx_size: Weight,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
     ) -> Result<Transaction> {
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
@@ -337,7 +338,7 @@ impl TxSender {
     async fn create_package(
         &self,
         tx: Transaction,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         fee_payer_utxos: Vec<crate::SpendableUtxo>,
     ) -> Result<Vec<Transaction>> {
         let txid = tx.compute_txid();
@@ -430,7 +431,10 @@ impl TxSender {
     /// # Arguments
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(fee_rate))]
-    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRate) -> Result<()> {
+    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(
+        &self,
+        fee_rate: FeeRateKvb,
+    ) -> Result<()> {
         let bumpable_txs = self
             .db
             .get_all_unconfirmed_fee_payer_txs(None)
@@ -576,7 +580,7 @@ impl TxSender {
         try_to_send_id: u32,
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         current_tip_height: u32,
     ) -> Result<()> {
         let unconfirmed = self

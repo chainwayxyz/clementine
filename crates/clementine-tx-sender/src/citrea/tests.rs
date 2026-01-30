@@ -1,6 +1,7 @@
 #![cfg(all(feature = "citrea", feature = "testing"))]
 
-use bitcoin::{FeeRate, Txid};
+use bitcoin::Txid;
+use clementine_primitives::FeeRateKvb;
 use rand::RngCore;
 
 use crate::citrea::{CitreaTxRequest, TransactionKind};
@@ -119,20 +120,20 @@ async fn get_citrea_commit_and_try_to_send_ids(
     )
 }
 
-/// Calculates the fee rate of a transaction in sat/kwu (satoshis per kilo-weight-unit).
-async fn calculate_feerate_sat_per_kwu(tx_sender: &TxSender, tx: &bitcoin::Transaction) -> u64 {
+/// Calculates the fee rate of a transaction in sat/kvB (satoshis per kilovbyte).
+async fn calculate_feerate_sat_per_kvb(tx_sender: &TxSender, tx: &bitcoin::Transaction) -> u64 {
     use bitcoin::Weight;
 
     let fee = tx_sender.get_tx_fee(tx).await.unwrap();
     let weight: Weight = tx.weight();
-    let weight_wu = weight.to_wu();
+    let vbytes = weight.to_vbytes_ceil();
 
-    // fee_rate_sat_per_kwu = fee_sat * 1000 / weight_wu
-    (fee.to_sat() * 1000) / weight_wu
+    // fee_rate_sat_per_kvb = fee_sat * 1000 / vbytes
+    fee.to_sat().saturating_mul(1000).div_ceil(vbytes)
 }
 
-/// Calculates the package fee rate of two transactions (e.g. parent+child) in sat/kwu.
-async fn calculate_package_feerate_sat_per_kwu(
+/// Calculates the package fee rate of two transactions (e.g. parent+child) in sat/kvB.
+async fn calculate_package_feerate_sat_per_kvb(
     tx_sender: &TxSender,
     parent: &bitcoin::Transaction,
     child: &bitcoin::Transaction,
@@ -141,10 +142,10 @@ async fn calculate_package_feerate_sat_per_kwu(
     let child_fee = tx_sender.get_tx_fee(child).await.unwrap();
 
     let total_fee_sat = parent_fee.to_sat().saturating_add(child_fee.to_sat());
-    let total_weight_wu = (parent.weight() + child.weight()).to_wu();
+    let total_vbytes = (parent.weight() + child.weight()).to_vbytes_ceil();
 
-    // fee_rate_sat_per_kwu = fee_sat * 1000 / weight_wu
-    (total_fee_sat * 1000) / total_weight_wu
+    // fee_rate_sat_per_kvb = fee_sat * 1000 / vbytes
+    total_fee_sat.saturating_mul(1000).div_ceil(total_vbytes)
 }
 
 #[tokio::test]
@@ -189,17 +190,17 @@ async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
         "reveal tx must spend the commit tx output"
     );
 
-    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
-    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
-    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
-        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
     );
     assert!(
         reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
-        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB, got {reveal_feerate}"
     );
 
     // Mine a block and ensure the commit tx is confirmed.
@@ -269,22 +270,22 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
             "reveal tx must spend the commit tx output"
         );
 
-        let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
-        let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+        let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
+        let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
         let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
         assert!(
             reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
-            "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+            "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB, got {reveal_feerate}"
         );
     }
 
     let commit_tx = tx_sender.rpc.get_tx_of_txid(&commit_txid).await.unwrap();
-    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
-    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
-        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
     );
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
@@ -349,17 +350,17 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
         "reveal tx must spend the commit tx output"
     );
 
-    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
-    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
-    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
-        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
     );
     assert!(
         reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
-        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB, got {reveal_feerate}"
     );
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
@@ -422,17 +423,17 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
         "reveal tx must spend the commit tx output"
     );
 
-    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
-    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
-    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
-        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu, got {commit_feerate}"
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
     );
     assert!(
         reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
-        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu, got {reveal_feerate}"
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB, got {reveal_feerate}"
     );
 
     rpc_env.rpc().mine_blocks(1).await.unwrap();
@@ -487,24 +488,24 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
         .expect("initial RBF txid should exist");
     let commit_tx = tx_sender.rpc.get_tx_of_txid(&commit_txid).await.unwrap();
     let original_tx = tx_sender.rpc.get_tx_of_txid(&original_txid).await.unwrap();
-    let original_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &original_tx).await;
-    let target_feerate_before_bump = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let original_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &original_tx).await;
+    let target_feerate_before_bump = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate_before_bump = target_feerate_before_bump
         .saturating_mul(101)
         .saturating_div(100);
     assert!(
         original_feerate >= target_feerate_before_bump
             && original_feerate <= max_feerate_before_bump,
-        "expected original feerate between {target_feerate_before_bump} and {max_feerate_before_bump} sat/kwu before bump, got {original_feerate}"
+        "expected original feerate between {target_feerate_before_bump} and {max_feerate_before_bump} sat/kvB before bump, got {original_feerate}"
     );
 
     let current_tip = tx_sender.rpc.get_current_chain_height().await.unwrap();
 
-    // First bump attempt: set target below previous + min_bump_kwu; expect no bump.
-    let min_bump_kwu = tx_sender.tx_sender_limits.min_bump_kwu;
-    let lower_target = FeeRate::from_sat_per_kwu(
+    // First bump attempt: set target below previous + min_bump_kvb; expect no bump.
+    let min_bump_kvb = tx_sender.tx_sender_limits.min_bump_kvb;
+    let lower_target = FeeRateKvb::from_sat_per_kvb(
         original_feerate
-            .saturating_add(min_bump_kwu)
+            .saturating_add(min_bump_kvb)
             .saturating_sub(11),
     );
 
@@ -521,13 +522,13 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
         .expect("RBF txid should still exist");
     assert_eq!(
         not_bumped_txid, original_txid,
-        "expected no bump when below previous + min_bump_kwu"
+        "expected no bump when below previous + min_bump_kvb"
     );
 
-    // Second bump attempt: set target above previous + min_bump_kwu; expect a bump.
-    let higher_feerate = FeeRate::from_sat_per_kwu(
+    // Second bump attempt: set target above previous + min_bump_kvb; expect a bump.
+    let higher_feerate = FeeRateKvb::from_sat_per_kvb(
         original_feerate
-            .saturating_add(min_bump_kwu)
+            .saturating_add(min_bump_kvb)
             .saturating_add(11),
     );
 
@@ -547,17 +548,17 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     let bumped_tx = tx_sender.rpc.get_tx_of_txid(&bumped_txid).await.unwrap();
     // bump should also take into account the commit transaction, so we calculate effective feerate of the package (commit+reveal)
     let bumped_feerate =
-        calculate_package_feerate_sat_per_kwu(&tx_sender, &commit_tx, &bumped_tx).await;
+        calculate_package_feerate_sat_per_kvb(&tx_sender, &commit_tx, &bumped_tx).await;
 
     assert!(
         bumped_feerate > original_feerate,
         "expected bumped feerate ({bumped_feerate}) to be greater than original ({original_feerate})"
     );
-    let target_feerate = higher_feerate.to_sat_per_kwu();
+    let target_feerate = higher_feerate.to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         bumped_feerate <= max_feerate && bumped_feerate >= target_feerate,
-        "expected bumped package feerate (commit+reveal) <= {max_feerate} sat/kwu (1% above target {target_feerate}), got {bumped_feerate}"
+        "expected bumped package feerate (commit+reveal) <= {max_feerate} sat/kvB (1% above target {target_feerate}), got {bumped_feerate}"
     );
 
     // Mine a block and ensure bumped tx is confirmed.
@@ -616,17 +617,17 @@ async fn citrea_large_body_tx_flow_commits_and_mines_with_min_feerate() {
     );
 
     // Fee calculation should still be sane for large bodies.
-    let commit_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &commit_tx).await;
-    let reveal_feerate = calculate_feerate_sat_per_kwu(&tx_sender, &reveal_tx).await;
-    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kwu();
+    let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
+    let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
+    let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
     let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
-        "expected commit feerate between {target_feerate} and {max_feerate} sat/kwu for large-body commit tx, got {commit_feerate}"
+        "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB for large-body commit tx, got {commit_feerate}"
     );
     assert!(
         reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
-        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kwu for large-body reveal tx, got {reveal_feerate}"
+        "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB for large-body reveal tx, got {reveal_feerate}"
     );
 
     tracing::info!(

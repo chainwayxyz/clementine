@@ -4,7 +4,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self, LeafVersion};
-use bitcoin::{Address, Amount, FeeRate, ScriptBuf, TapLeafHash, Transaction};
+use bitcoin::{Address, Amount, ScriptBuf, TapLeafHash, Transaction};
 use bitcoin::{Psbt, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOutput,
@@ -13,6 +13,7 @@ use bitcoincore_rpc::json::{
 use bitcoincore_rpc::RpcApi;
 use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use clementine_errors::SendTxError;
+use clementine_primitives::FeeRateKvb;
 use clementine_utils::sign::TapTweakData;
 use clementine_utils::{RbfSigningInfo, RbfSigningSpendPath, TxMetadata};
 use eyre::Context;
@@ -44,14 +45,14 @@ impl TxSender {
     /// * `new_feerate` - The target fee rate requested for the replacement transaction
     ///
     /// # Returns
-    /// * `Ok(Some(FeeRate))` - The effective fee rate (in satoshis per kilo-wu) to use for the replacement
+    /// * `Ok(Some(FeeRateKvb))` - The effective fee rate (in satoshis per kvB) to use for the replacement
     /// * `Ok(None)` - If the original transaction already has a higher fee rate than requested
     /// * `Err(...)` - If there was an error retrieving or analyzing the original transaction
     pub async fn calculate_bump_feerate_if_needed(
         &self,
         txid: &Txid,
-        new_feerate: FeeRate,
-    ) -> Result<Option<FeeRate>> {
+        new_feerate: FeeRateKvb,
+    ) -> Result<Option<FeeRateKvb>> {
         let original_tx = self.rpc.get_tx_of_txid(txid).await.map_err(|e| eyre!(e))?;
 
         // Calculate original tx fee
@@ -60,14 +61,16 @@ impl TxSender {
         let original_tx_weight = original_tx.weight();
 
         // Original fee rate calculation according to Bitcoin Core
-        // In Rust Bitcoin, the calculations are done in sat/kwu
-        // so some precision is lost. https://github.com/bitcoin/bitcoin/blob/a33bd767a37dccf39a094d03c2f62ea81633410f/src/policy/feerate.cpp#L11
-        let original_feerate_sat_per_kwu = FeeRate::from_sat_per_kwu(
-            (original_tx_fee.to_sat() * 1000) / (original_tx_weight.to_vbytes_ceil() * 4),
+        // Use sat/kvB to retain precision when converting to sat/vB.
+        let original_feerate_sat_per_kvb = FeeRateKvb::from_sat_per_kvb(
+            original_tx_fee
+                .to_sat()
+                .saturating_mul(1000)
+                .div_ceil(original_tx_weight.to_vbytes_ceil() as u64),
         );
 
         // If original feerate is already higher than target, avoid bumping
-        if original_feerate_sat_per_kwu >= new_feerate {
+        if original_feerate_sat_per_kvb >= new_feerate {
             return Ok(None);
         }
 
@@ -79,17 +82,17 @@ impl TxSender {
             .map_err(|e| eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+        let incremental_fee_rate = FeeRateKvb::from_sat_per_kvb(incremental_fee_rate_sat_per_kvb);
 
         // Use max of target fee rate and original + minimum fee increment rate.
-        let min_bump_feerate =
-            original_feerate_sat_per_kwu.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+        let min_bump_feerate = original_feerate_sat_per_kvb.to_sat_per_kvb()
+            + incremental_fee_rate.to_sat_per_kvb();
 
-        let effective_feerate_sat_per_kwu =
-            std::cmp::max(new_feerate.to_sat_per_kwu(), min_bump_feerate);
+        let effective_feerate_sat_per_kvb =
+            std::cmp::max(new_feerate.to_sat_per_kvb(), min_bump_feerate);
 
-        Ok(Some(FeeRate::from_sat_per_kwu(
-            effective_feerate_sat_per_kwu,
+        Ok(Some(FeeRateKvb::from_sat_per_kvb(
+            effective_feerate_sat_per_kvb,
         )))
     }
 
@@ -149,7 +152,7 @@ impl TxSender {
     pub async fn create_funded_psbt(
         &self,
         tx: &Transaction,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
     ) -> Result<WalletCreateFundedPsbtResult> {
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
@@ -480,7 +483,7 @@ impl TxSender {
         try_to_send_id: u32,
         mut tx: Transaction,
         tx_metadata: Option<TxMetadata>,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         rbf_signing_info: Option<RbfSigningInfo>,
         current_tip_height: u32,
         needs_wtxid_grind: bool,
@@ -562,7 +565,7 @@ impl TxSender {
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
                 fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kwu(Amount::from_sat(
-                    effective_feerate.to_sat_per_kwu(),
+                    effective_feerate.to_sat_per_kwu_ceil(),
                 ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,

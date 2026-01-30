@@ -1,0 +1,22 @@
+[package]
+name = "clementine-tx-sender-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+# Citrea-specific payload types.
+citrea = []
+# Clementine-specific tx-sender types (requires bitcoin + clementine-utils).
+clementine = ["dep:bitcoin", "dep:clementine-primitives", "dep:sqlx", "sqlx"]
+# Enable sqlx derive support for DB-mapped types.
+sqlx = ["dep:sqlx"]
+
+[dependencies]
+serde = { workspace = true }
+bitcoin = { workspace = true, optional = true }
+clementine-primitives = { path = "../clementine-primitives", optional = true }
+sqlx = { workspace = true, optional = true, features = ["derive"] }

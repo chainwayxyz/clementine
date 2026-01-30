@@ -12,6 +12,7 @@ test-fields = []
 [dependencies]
 clementine-primitives = { path = "../clementine-primitives" }
 clementine-errors = { path = "../clementine-errors" }
+clementine-tx-sender-types = { path = "../clementine-tx-sender-types", default-features = false, features = ["clementine"] }
 bitcoin = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }

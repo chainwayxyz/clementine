@@ -171,7 +171,7 @@ pub async fn get_bitcoin_fee_rate(
     config: &crate::config::BridgeConfig,
 ) -> Result<u64, BridgeError> {
     let fee_rate = rpc
-        .get_fee_rate(
+        .get_fee_rate_kvb(
             config.protocol_paramset.network,
             &config.mempool_api_host,
             &config.mempool_api_endpoint,

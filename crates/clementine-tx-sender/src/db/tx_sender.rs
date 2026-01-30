@@ -4,8 +4,9 @@ use super::wrapper::TxidDB;
 use super::{TxSenderDb, TxSenderDbTx};
 use crate::txsender_execute_query_with_tx;
 use bitcoin::consensus::{deserialize, serialize};
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, Txid};
+use bitcoin::{Amount, OutPoint, Transaction, Txid};
 use clementine_errors::BridgeError;
+use clementine_primitives::FeeRateKvb;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::{Context, OptionExt};
 use sqlx::Executor;
@@ -341,7 +342,7 @@ impl TxSenderDb {
     pub async fn get_sendable_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
@@ -405,7 +406,7 @@ impl TxSenderDb {
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(
-            i64::try_from(fee_rate.to_sat_per_kwu()).wrap_err("Failed to convert fee rate to i64")?,
+            i64::try_from(fee_rate.to_sat_per_kvb()).wrap_err("Failed to convert fee rate to i64")?,
         )
         .bind(i32::try_from(current_tip_height).wrap_err("Failed to convert current tip height to i32")?);
 
@@ -424,7 +425,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         id: u32,
-    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError> {
+    ) -> Result<(Option<FeeRateKvb>, Option<u32>), BridgeError> {
         let query = sqlx::query_as::<_, (Option<i64>, Option<i32>)>(
             "SELECT effective_fee_rate, last_bump_block_height FROM tx_sender_try_to_send_txs WHERE id = $1",
         )
@@ -434,7 +435,7 @@ impl TxSenderDb {
 
         match result {
             Some((Some(rate), block_height)) => Ok((
-                Some(FeeRate::from_sat_per_kwu(
+                Some(FeeRateKvb::from_sat_per_kvb(
                     u64::try_from(rate).wrap_err("Failed to convert effective fee rate to u64")?,
                 )),
                 block_height.map(|h| h as u32),
@@ -447,7 +448,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         id: u32,
-        effective_fee_rate: FeeRate,
+        effective_fee_rate: FeeRateKvb,
         block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
@@ -456,7 +457,7 @@ impl TxSenderDb {
              WHERE id = $3 AND (effective_fee_rate IS NULL OR effective_fee_rate != $1)",
         )
         .bind(
-            i64::try_from(effective_fee_rate.to_sat_per_kwu())
+            i64::try_from(effective_fee_rate.to_sat_per_kvb())
                 .wrap_err("Failed to convert effective fee rate to i64")?,
         )
         .bind(i32::try_from(block_height).wrap_err("Failed to convert block_height to i32")?)
@@ -641,7 +642,7 @@ impl TxSenderDb {
     }
 
     /// Debug-only helper: log why some txs are inactive (not sendable).
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
+    pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
@@ -1226,6 +1227,8 @@ impl TxSenderDb {
         let id_i32 = i32::try_from(id).wrap_err("Failed to convert id to i32")?;
 
         let queries = [
+            "DELETE FROM tx_sender_debug_sending_state WHERE tx_id = $1",
+            "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
             "DELETE FROM tx_sender_rbf_txids WHERE id = $1",
             "DELETE FROM tx_sender_fee_payer_utxos WHERE bumped_id = $1",
             "DELETE FROM tx_sender_cancel_try_to_send_outpoints WHERE cancelled_id = $1",

@@ -36,38 +36,21 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
+pub use clementine_tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 pub use client::TxSenderClient;
 
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Amount, FeeRate, OutPoint, Sequence, Transaction, Txid, Weight};
+use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
+use clementine_primitives::FeeRateKvb;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
-use serde::{Deserialize, Serialize};
 use signer::TxSenderSigningKey;
-
-/// Activation condition based on a transaction ID.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ActivatedWithTxid {
-    /// The transaction ID that must be seen.
-    pub txid: Txid,
-    /// Number of blocks that must pass after seeing the transaction.
-    pub relative_block_height: u32,
-}
-
-/// Activation condition based on an outpoint.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ActivatedWithOutpoint {
-    /// The outpoint that must be spent.
-    pub outpoint: OutPoint,
-    /// Number of blocks that must pass after seeing the outpoint spent.
-    pub relative_block_height: u32,
-}
 
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
@@ -201,9 +184,9 @@ impl TxSender {
         })
     }
 
-    pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
+    pub async fn get_fee_rate(&self) -> Result<FeeRateKvb, BridgeError> {
         self.rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.network,
                 &self.mempool_config.host,
                 &self.mempool_config.endpoint,
@@ -220,7 +203,7 @@ impl TxSender {
     /// # Arguments
     /// * `parent_tx_weight` - The weight of the main transaction being bumped.
     /// * `num_fee_payer_utxos` - The number of fee payer UTXOs used (relevant for child tx size in CPFP).
-    /// * `fee_rate` - The target fee rate (sat/kwu or similar).
+    /// * `fee_rate` - The target fee rate (sat/kvB).
     /// * `fee_paying_type` - The strategy being used (CPFP or RBF).
     ///
     /// # Calculation Logic
@@ -236,7 +219,7 @@ impl TxSender {
     fn calculate_required_fee(
         parent_tx_weight: Weight,
         num_fee_payer_utxos: usize,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
         tracing::info!(
@@ -277,7 +260,7 @@ impl TxSender {
         };
 
         fee_rate
-            .checked_mul_by_weight(total_weight)
+            .fee_wu(total_weight)
             .ok_or_eyre("Fee calculation overflow")
             .map_err(Into::into)
     }
@@ -316,7 +299,7 @@ impl TxSender {
     #[tracing::instrument(skip_all, fields(new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,
-        new_fee_rate: FeeRate,
+        new_fee_rate: FeeRateKvb,
         current_tip_height: u32,
         is_tip_height_increased: bool,
     ) -> Result<()> {
@@ -326,7 +309,7 @@ impl TxSender {
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
         // if block height is increased, we use a dummy high fee rate to get all sendable txs
         let get_sendable_txs_fee_rate = if is_tip_height_increased {
-            FeeRate::from_sat_per_kwu(u32::MAX as u64)
+            FeeRateKvb::from_sat_per_kvb(u32::MAX as u64)
         } else {
             new_fee_rate
         };
@@ -474,16 +457,16 @@ impl TxSender {
     /// * `current_tip_height` - The current blockchain tip height
     ///
     /// # Returns
-    /// The effective fee rate to use (in sat/kwu), capped by the hard cap from config
+    /// The effective fee rate to use (in sat/kvB), capped by the hard cap from config
     pub async fn calculate_target_fee_rate(
         &self,
-        previous_effective_fee_rate: Option<FeeRate>,
-        new_fee_rate: FeeRate,
+        previous_effective_fee_rate: Option<FeeRateKvb>,
+        new_fee_rate: FeeRateKvb,
         last_bump_block_height: Option<u32>,
         current_tip_height: u32,
-    ) -> Result<FeeRate> {
-        // Hard cap from config (in sat/vB), convert to sat/kwu
-        let hard_cap = FeeRate::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
+    ) -> Result<FeeRateKvb> {
+        // Hard cap from config (in sat/vB), convert to sat/kvB
+        let hard_cap = FeeRateKvb::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
             .expect("fee_rate_hard_cap should be valid");
 
         let Some(previous_rate) = previous_effective_fee_rate else {
@@ -508,41 +491,42 @@ impl TxSender {
             .map_err(|e| eyre::eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+        let incremental_fee_rate = FeeRateKvb::from_sat_per_kvb(incremental_fee_rate_sat_per_kvb);
 
         // Minimum bump fee rate required by BIP125
         let min_bump_feerate =
-            previous_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
-        let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
+            previous_rate.to_sat_per_kvb() + incremental_fee_rate.to_sat_per_kvb();
+        let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kvb(), min_bump_feerate);
 
-        // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kwu
-        if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() && !is_stuck {
+        // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kvb
+        if new_fee_rate.to_sat_per_kvb() > previous_rate.to_sat_per_kvb() && !is_stuck {
             let effective_increment =
-                effective_feerate.saturating_sub(previous_rate.to_sat_per_kwu());
+                effective_feerate.saturating_sub(previous_rate.to_sat_per_kvb());
 
-            // if the effective increment is less than min_bump_kwu, do not bump
-            if effective_increment < self.tx_sender_limits.min_bump_kwu {
+            // if the effective increment is less than min_bump_kvb, do not bump
+            if effective_increment < self.tx_sender_limits.min_bump_kvb {
                 return Ok(previous_rate);
             }
 
-            let result = FeeRate::from_sat_per_kwu(effective_feerate);
-            Ok(std::cmp::min(result, hard_cap))
+            let result = FeeRateKvb::from_sat_per_kvb(effective_feerate);
+            return Ok(std::cmp::min(result, hard_cap));
         }
         // If the tx is stuck for 10+ blocks, force a fee bump
-        else {
-            let result = FeeRate::from_sat_per_kwu(effective_feerate);
+        else if is_stuck {
+            let result = FeeRateKvb::from_sat_per_kvb(effective_feerate);
             let capped_result = std::cmp::min(result, hard_cap);
 
             tracing::debug!(
-                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kwu (hard cap: {} sat/kwu)",
+                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kvB (hard cap: {} sat/kvB)",
                 self.tx_sender_limits.fee_bump_after_blocks,
-                previous_rate.to_sat_per_kwu(),
-                capped_result.to_sat_per_kwu(),
-                hard_cap.to_sat_per_kwu()
+                previous_rate.to_sat_per_kvb(),
+                capped_result.to_sat_per_kvb(),
+                hard_cap.to_sat_per_kvb()
             );
 
-            Ok(capped_result)
+            return Ok(capped_result);
         }
+        Ok(previous_rate)
     }
 
     /// Sends a transaction that is already fully funded and signed.

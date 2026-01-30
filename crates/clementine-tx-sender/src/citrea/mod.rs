@@ -12,26 +12,10 @@ use bitcoin::blockdata::script;
 use bitcoin::secp256k1::{Message, PublicKey, SecretKey};
 use bitcoin::{Address, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
 use clementine_primitives::MIN_TAPROOT_AMOUNT;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::signer::SECP;
-
-/// Citrea DA payload request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CitreaTxRequest {
-    /// borsh(DataOnDa::Complete(compress(Proof)))
-    BatchProof {
-        bytes: Vec<u8>,
-        /// Optional chunk size for splitting large batch proofs.
-        /// If omitted or larger than the max supported size, it is clamped.
-        chunk_size: Option<u32>,
-    },
-    /// borsh(DataOnDa::BatchProofMethodId(MethodId))
-    BatchProofMethodId(Vec<u8>),
-    /// borsh(DataOnDa::SequencerCommitment(SequencerCommitment))
-    SequencerCommitment(Vec<u8>),
-}
+pub use clementine_tx_sender_types::CitreaTxRequest;
 
 /// Type represents a typed enum for transaction kind
 #[derive(Debug, Clone, Copy)]

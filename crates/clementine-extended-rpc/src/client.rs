@@ -1,9 +1,10 @@
 //! Extended Bitcoin RPC client with retry logic.
 
 use async_trait::async_trait;
-use bitcoin::{Address, Amount, FeeRate, Network, OutPoint, TxOut, Txid};
+use bitcoin::{Address, Amount, Network, OutPoint, TxOut, Txid, Weight};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use clementine_errors::{BitcoinRPCError, FeeErr};
+use clementine_primitives::FeeRateKvb;
 use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
@@ -538,7 +539,7 @@ impl ExtendedBitcoinRpc {
     ///  * `TransactionAlreadyInBlock` - If the transaction is already confirmed
     /// * `BumpFeeUTXOSpent` - If the UTXO being spent by the transaction is already spent
     /// * `BumpFeeError` - For other errors with fee bumping
-    pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
+    pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRateKvb) -> Result<Txid> {
         // Check if transaction is already confirmed
         let transaction_info = self
             .get_transaction(&txid, None)
@@ -567,39 +568,38 @@ impl ExtendedBitcoinRpc {
         )
         .wrap_err("Failed to convert fee to sat")?;
 
-        let current_fee_rate_sat_kwu = current_fee_sat as f64 * 1000.0 / tx_weight as f64;
+        let required_fee = fee_rate
+            .fee_wu(Weight::from_wu(tx_weight))
+            .ok_or_eyre("Fee overflow while calculating required fee during bumpfee")?;
 
-        tracing::trace!(
-            "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
+        tracing::debug!(
+            "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - required fee from current fee rate: {required_fee}, current fee rate: {fee_rate}"
         );
 
         // If current fee rate is already sufficient, return original txid
-        if current_fee_rate_sat_kwu >= fee_rate.to_sat_per_kwu() as f64 {
+        if current_fee_sat >= required_fee.to_sat() {
             return Ok(txid);
         }
-
-        tracing::trace!(
-            "Bump fee with fee rate txid: {txid} - Current fee rate: {current_fee_rate_sat_kwu} sat/kwu, target fee rate: {fee_rate} sat/kwu"
-        );
 
         // Get node's incremental fee to determine how much to increase
         let network_info = self
             .get_network_info()
             .await
             .wrap_err("Failed to get network info")?;
-        // incremental fee is in BTC/kvB
+        // incremental fee is in sat/kvB
         let incremental_fee = network_info.incremental_fee;
-        // Convert from sat/kvB to sat/kwu by dividing by 4.0, since 1 kvB = 4 kwu.
-        let incremental_fee_rate_sat_kwu = incremental_fee.to_sat() as f64 / 4.0;
+
+        let current_fee_sat_kvb =
+            (current_fee_sat as f64 / (tx_weight as f64 / 4.0 / 1000.0)).ceil() as u64;
 
         // Calculate new fee rate by adding incremental fee to current fee rate, or use the target fee rate if it's higher
-        let new_fee_rate = FeeRate::from_sat_per_kwu(std::cmp::max(
-            (current_fee_rate_sat_kwu + incremental_fee_rate_sat_kwu).ceil() as u64,
-            fee_rate.to_sat_per_kwu(),
+        let new_fee_rate = FeeRateKvb::from_sat_per_kvb(std::cmp::max(
+            current_fee_sat_kvb + incremental_fee.to_sat(),
+            fee_rate.to_sat_per_kvb(),
         ));
 
         tracing::debug!(
-            "Bumping fee for txid: {txid} from {current_fee_rate_sat_kwu} to {new_fee_rate} with incremental fee {incremental_fee_rate_sat_kwu} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
+            "Bumping fee for txid: {txid} from {current_fee_sat_kvb} to {new_fee_rate} with incremental fee {incremental_fee} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
         );
 
         // Call Bitcoin Core's bumpfee RPC
@@ -607,9 +607,9 @@ impl ExtendedBitcoinRpc {
             .bump_fee(
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
-                    fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
-                        new_fee_rate.to_sat_per_vb_ceil(),
-                    ))),
+                    fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
+                        Amount::from_sat(new_fee_rate.to_sat_per_vb_ceil()),
+                    )),
                     replaceable: Some(true),
                     ..Default::default()
                 }),
@@ -701,7 +701,7 @@ impl ExtendedBitcoinRpc {
     /// # Fallbacks
     /// *   If one source fails, it uses the other.
     /// *   If both fail, it falls back to a default of 1 sat/vB.
-    pub async fn get_fee_rate(
+    pub async fn get_fee_rate_kvb(
         &self,
         network: Network,
         mempool_api_host: &Option<String>,
@@ -709,12 +709,35 @@ impl ExtendedBitcoinRpc {
         mempool_fee_rate_multiplier: u64,
         mempool_fee_rate_offset_sat_kvb: u64,
         fee_rate_hard_cap: u64,
-    ) -> Result<FeeRate> {
+    ) -> Result<FeeRateKvb> {
+        let fee_sat_kvb = self
+            .get_fee_rate_sat_per_kvb(
+                network,
+                mempool_api_host,
+                mempool_api_endpoint,
+                mempool_fee_rate_multiplier,
+                mempool_fee_rate_offset_sat_kvb,
+                fee_rate_hard_cap,
+            )
+            .await?;
+
+        Ok(FeeRateKvb::from_sat_per_kvb(fee_sat_kvb))
+    }
+
+    async fn get_fee_rate_sat_per_kvb(
+        &self,
+        network: Network,
+        mempool_api_host: &Option<String>,
+        mempool_api_endpoint: &Option<String>,
+        mempool_fee_rate_multiplier: u64,
+        mempool_fee_rate_offset_sat_kvb: u64,
+        fee_rate_hard_cap: u64,
+    ) -> Result<u64> {
         match network {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {
                 tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
-                Ok(FeeRate::from_sat_per_vb_unchecked(1))
+                Ok(1000)
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
@@ -801,7 +824,6 @@ impl ExtendedBitcoinRpc {
                     }
                 };
 
-                // Convert sat/kvB to sat/vB and apply hard cap
                 let mut fee_sat_kvb = selected_fee_amount.to_sat();
 
                 // Apply hard cap from config
@@ -815,7 +837,7 @@ impl ExtendedBitcoinRpc {
                 }
 
                 tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
-                Ok(FeeRate::from_sat_per_kwu(fee_sat_kvb.div_ceil(4)))
+                Ok(fee_sat_kvb)
             }
 
             // All other network types are unsupported.

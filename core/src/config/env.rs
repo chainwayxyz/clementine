@@ -78,8 +78,8 @@ impl TxSenderLimitsExt for TxSenderLimits {
                 "TX_SENDER_FEE_BUMP_AFTER_BLOCKS",
             )
             .unwrap_or(defaults.fee_bump_after_blocks),
-            min_bump_kwu: read_string_from_env_then_parse::<u64>("TX_SENDER_MIN_BUMP_KWU")
-                .unwrap_or(defaults.min_bump_kwu),
+            min_bump_kvb: read_string_from_env_then_parse::<u64>("TX_SENDER_MIN_BUMP_KVB")
+                .unwrap_or(defaults.min_bump_kvb),
         })
     }
 }
