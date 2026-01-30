@@ -5,7 +5,8 @@ async fn main() -> Result<(), eyre::Report> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let config: clementine_tx_sender::config::TxSenderConfig = clementine_tx_sender::config::TxSenderConfig::from_env()?;
+    let config: clementine_tx_sender::config::TxSenderConfig =
+        clementine_tx_sender::config::TxSenderConfig::from_env()?;
 
     if config.jsonrpc.is_none() {
         return Err(eyre::eyre!(

@@ -36,8 +36,8 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
-pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 pub use client::TxSenderClient;
+pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};

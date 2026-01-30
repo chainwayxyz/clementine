@@ -141,8 +141,8 @@ impl TxSenderConfig {
             .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
             fee_bump_after_blocks: env_parse_required::<u32>("TX_SENDER_FEE_BUMP_AFTER_BLOCKS")
                 .unwrap_or(defaults.fee_bump_after_blocks),
-                min_bump_kvb: env_parse_required::<u64>("TX_SENDER_MIN_BUMP_KVB")
-                    .unwrap_or(defaults.min_bump_kvb),
+            min_bump_kvb: env_parse_required::<u64>("TX_SENDER_MIN_BUMP_KVB")
+                .unwrap_or(defaults.min_bump_kvb),
         };
 
         let finality_depth = env_parse_required::<u32>("TX_SENDER_FINALITY_DEPTH")?;

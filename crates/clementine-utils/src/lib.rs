@@ -9,6 +9,6 @@ pub mod sign;
 pub mod tracing;
 pub mod traits;
 
-pub use tx_sender_types::{FeePayingType, TxMetadata};
 pub use sign::{RbfSigningInfo, RbfSigningSpendPath, TapTweakData};
 pub use traits::{Last20Bytes, NamedEntity, ScriptBufExt, TryLast20Bytes};
+pub use tx_sender_types::{FeePayingType, TxMetadata};

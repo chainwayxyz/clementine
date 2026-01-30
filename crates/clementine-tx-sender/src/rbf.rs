@@ -85,8 +85,8 @@ impl TxSender {
         let incremental_fee_rate = FeeRateKvb::from_sat_per_kvb(incremental_fee_rate_sat_per_kvb);
 
         // Use max of target fee rate and original + minimum fee increment rate.
-        let min_bump_feerate = original_feerate_sat_per_kvb.to_sat_per_kvb()
-            + incremental_fee_rate.to_sat_per_kvb();
+        let min_bump_feerate =
+            original_feerate_sat_per_kvb.to_sat_per_kvb() + incremental_fee_rate.to_sat_per_kvb();
 
         let effective_feerate_sat_per_kvb =
             std::cmp::max(new_feerate.to_sat_per_kvb(), min_bump_feerate);

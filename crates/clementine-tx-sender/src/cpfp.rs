@@ -24,11 +24,11 @@ use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
 use bitcoin::transaction::Version;
 use bitcoin::{Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Weight};
-use clementine_primitives::FeeRateKvb;
 use bitcoin::{TapSighashType, Witness};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use clementine_errors::{BitcoinRPCError, BridgeError, ResultExt as _, SendTxError};
+use clementine_primitives::FeeRateKvb;
 use clementine_primitives::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{eyre, Context};
@@ -431,10 +431,7 @@ impl TxSender {
     /// # Arguments
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(fee_rate))]
-    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(
-        &self,
-        fee_rate: FeeRateKvb,
-    ) -> Result<()> {
+    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRateKvb) -> Result<()> {
         let bumpable_txs = self
             .db
             .get_all_unconfirmed_fee_payer_txs(None)
