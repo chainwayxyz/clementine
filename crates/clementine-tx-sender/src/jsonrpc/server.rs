@@ -8,10 +8,10 @@ use jsonrpsee::{server::Server, RpcModule};
 
 use crate::client::TxSenderClient;
 use clementine_errors::BridgeError;
-use clementine_tx_sender_types::clementine::InsertTryToSendParams;
+use tx_sender_types::clementine::InsertTryToSendParams;
 
 #[cfg(feature = "citrea")]
-use clementine_tx_sender_types::citrea::InsertCitreaRawTxParams;
+use tx_sender_types::citrea::InsertCitreaRawTxParams;
 
 const JSONRPC_INTERNAL_ERROR_CODE: i32 = -32_000;
 

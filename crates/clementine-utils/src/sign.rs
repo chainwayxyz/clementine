@@ -3,7 +3,7 @@
 use bitcoin::TapNodeHash;
 use serde::{Deserialize, Serialize};
 
-pub use clementine_tx_sender_types::{RbfSigningInfo, RbfSigningSpendPath};
+pub use tx_sender_types::{RbfSigningInfo, RbfSigningSpendPath};
 
 /// Contains information about the spend path that is needed to sign the utxo.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

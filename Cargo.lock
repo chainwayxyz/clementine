@@ -2355,8 +2355,6 @@ dependencies = [
  "clementine-extended-rpc",
  "clementine-primitives",
  "clementine-tx-sender",
- "clementine-tx-sender-jsonrpc-client",
- "clementine-tx-sender-types",
  "clementine-utils",
  "eyre",
  "hex",
@@ -2373,25 +2371,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.20",
-]
-
-[[package]]
-name = "clementine-tx-sender-jsonrpc-client"
-version = "0.6.4"
-dependencies = [
- "bitcoin",
- "clementine-tx-sender-types",
- "jsonrpsee",
-]
-
-[[package]]
-name = "clementine-tx-sender-types"
-version = "0.6.4"
-dependencies = [
- "bitcoin",
- "clementine-primitives",
- "serde",
- "sqlx",
+ "tx-sender-jsonrpc-client",
+ "tx-sender-types",
 ]
 
 [[package]]
@@ -2401,7 +2382,6 @@ dependencies = [
  "bitcoin",
  "clementine-errors",
  "clementine-primitives",
- "clementine-tx-sender-types",
  "color-eyre",
  "eyre",
  "secp256k1 0.31.0",
@@ -2409,6 +2389,7 @@ dependencies = [
  "sqlx",
  "tracing",
  "tracing-subscriber 0.3.20",
+ "tx-sender-types",
 ]
 
 [[package]]
@@ -8816,6 +8797,25 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "static_assertions",
+]
+
+[[package]]
+name = "tx-sender-jsonrpc-client"
+version = "0.6.4"
+dependencies = [
+ "bitcoin",
+ "jsonrpsee",
+ "tx-sender-types",
+]
+
+[[package]]
+name = "tx-sender-types"
+version = "0.6.4"
+dependencies = [
+ "bitcoin",
+ "clementine-primitives",
+ "serde",
+ "sqlx",
 ]
 
 [[package]]

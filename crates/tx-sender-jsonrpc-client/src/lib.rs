@@ -8,11 +8,11 @@ use jsonrpsee::rpc_params;
 #[cfg(feature = "clementine")]
 use bitcoin::{consensus, OutPoint, Transaction, Txid};
 #[cfg(feature = "citrea")]
-pub use clementine_tx_sender_types::citrea::InsertCitreaRawTxParams;
+pub use tx_sender_types::citrea::InsertCitreaRawTxParams;
 #[cfg(feature = "citrea")]
-pub use clementine_tx_sender_types::CitreaTxRequest;
+pub use tx_sender_types::CitreaTxRequest;
 #[cfg(feature = "clementine")]
-pub use clementine_tx_sender_types::{
+pub use tx_sender_types::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo,
     RbfSigningSpendPath, TxMetadata,
 };

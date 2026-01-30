@@ -11,8 +11,8 @@ members = [
   "crates/clementine-config",
   "crates/clementine-utils",
   "crates/clementine-extended-rpc",
-  "crates/clementine-tx-sender-types",
-  "crates/clementine-tx-sender-jsonrpc-client",
+  "crates/tx-sender-types",
+  "crates/tx-sender-jsonrpc-client",
   "crates/clementine-tx-sender",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 

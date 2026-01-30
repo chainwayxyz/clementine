@@ -15,7 +15,7 @@ use clementine_primitives::MIN_TAPROOT_AMOUNT;
 use sha2::{Digest, Sha256};
 
 use crate::signer::SECP;
-pub use clementine_tx_sender_types::CitreaTxRequest;
+pub use tx_sender_types::CitreaTxRequest;
 
 /// Type represents a typed enum for transaction kind
 #[derive(Debug, Clone, Copy)]

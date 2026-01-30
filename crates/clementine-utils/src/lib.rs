@@ -9,6 +9,6 @@ pub mod sign;
 pub mod tracing;
 pub mod traits;
 
-pub use clementine_tx_sender_types::{FeePayingType, TxMetadata};
+pub use tx_sender_types::{FeePayingType, TxMetadata};
 pub use sign::{RbfSigningInfo, RbfSigningSpendPath, TapTweakData};
 pub use traits::{Last20Bytes, NamedEntity, ScriptBufExt, TryLast20Bytes};
