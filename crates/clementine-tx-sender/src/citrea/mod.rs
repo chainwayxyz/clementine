@@ -17,15 +17,16 @@ use sha2::{Digest, Sha256};
 
 use crate::signer::SECP;
 
-/// These are real blobs we put on DA.
+/// Citrea DA payload request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RawTxData {
+pub enum CitreaTxRequest {
     /// borsh(DataOnDa::Complete(compress(Proof)))
-    BatchProof(Vec<u8>),
-    /// let compressed = compress(borsh(Proof))
-    /// let chunks = compressed.chunks(MAX_TX_BODY_SIZE)
-    /// [borsh(DataOnDa::Chunk(chunk)) for chunk in chunks]
-    Chunks(Vec<Vec<u8>>),
+    BatchProof {
+        bytes: Vec<u8>,
+        /// Optional chunk size for splitting large batch proofs.
+        /// If omitted or larger than the max supported size, it is clamped.
+        chunk_size: Option<u32>,
+    },
     /// borsh(DataOnDa::BatchProofMethodId(MethodId))
     BatchProofMethodId(Vec<u8>),
     /// borsh(DataOnDa::SequencerCommitment(SequencerCommitment))

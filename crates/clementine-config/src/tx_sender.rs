@@ -28,7 +28,7 @@ impl Default for TxSenderLimits {
             mempool_fee_rate_offset_sat_kvb: 0,
             cpfp_fee_payer_bump_wait_time_seconds: 60 * 60, // 1 hour in seconds
             fee_bump_after_blocks: 10,
-            // 0.2 sat/vB ~= 500 sat/kwu
+            // 0.2 sat/vB ~= 250 sat/kwu
             min_bump_kwu: 500,
         }
     }

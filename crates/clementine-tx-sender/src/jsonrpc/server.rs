@@ -13,7 +13,7 @@ use clementine_errors::BridgeError;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 
 #[cfg(feature = "citrea")]
-use crate::citrea::RawTxData;
+use crate::citrea::CitreaTxRequest;
 
 const JSONRPC_INTERNAL_ERROR_CODE: i32 = -32_000;
 
@@ -55,7 +55,7 @@ pub struct InsertTryToSendParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsertCitreaRawTxParams {
     /// Opaque DA payload to be inscribed on Bitcoin.
-    pub raw_tx_data: RawTxData,
+    pub citrea_tx_request: CitreaTxRequest,
 }
 
 /// Starts a JSON-RPC server exposing `send_tx` and `send_citrea_tx` methods.
@@ -117,7 +117,7 @@ pub async fn start_jsonrpc_server(
                 let req: InsertCitreaRawTxParams = params.one().map_err(jsonrpc_err)?;
 
                 let insertion_id = client
-                    .send_citrea_tx(req.raw_tx_data)
+                    .send_citrea_tx(req.citrea_tx_request)
                     .await
                     .map_err(jsonrpc_err)?;
 

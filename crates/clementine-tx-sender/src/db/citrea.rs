@@ -14,7 +14,7 @@ use crate::citrea::{calculate_sha256, TransactionKind};
 pub struct CitreaRawTxRow {
     /// Database row ID.
     pub id: i64,
-    /// Group identifier shared across all rows belonging to the same RawTxData request.
+    /// Group identifier shared across all rows belonging to the same CitreaTxRequest.
     pub insertion_id: i64,
     /// Transaction kind as defined in `citrea::TransactionKind`.
     pub transaction_kind: TransactionKind,

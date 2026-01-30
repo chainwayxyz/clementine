@@ -11,7 +11,7 @@ use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use super::server::InsertCitreaRawTxParams;
 use super::server::InsertTryToSendParams;
 #[cfg(feature = "citrea")]
-use crate::citrea::RawTxData;
+use crate::citrea::CitreaTxRequest;
 
 #[derive(Debug, Clone)]
 pub struct JsonRpcTxSenderClient {
@@ -57,14 +57,17 @@ impl JsonRpcTxSenderClient {
             .map_err(|e| BridgeError::Eyre(e.into()))
     }
 
-    /// Citrea-only RPC to submit a DA payload described by `RawTxData`.
+    /// Citrea-only RPC to submit a DA payload described by `CitreaTxRequest`.
     ///
     /// When the `citrea` feature is enabled on this crate, the JSON-RPC server exposes the
     /// `send_citrea_raw_tx` method which expects a single `InsertCitreaRawTxParams` argument.
-    /// This helper takes a strongly-typed `RawTxData` and forwards it to that method.
+    /// This helper takes a strongly-typed `CitreaTxRequest` and forwards it to that method.
     #[cfg(feature = "citrea")]
-    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<i64, BridgeError> {
-        let req = InsertCitreaRawTxParams { raw_tx_data };
+    pub async fn send_citrea_tx(
+        &self,
+        citrea_tx_request: CitreaTxRequest,
+    ) -> Result<i64, BridgeError> {
+        let req = InsertCitreaRawTxParams { citrea_tx_request };
 
         self.inner
             .request::<i64, _>("send_citrea_tx", rpc_params![req])

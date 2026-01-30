@@ -9,8 +9,6 @@ use secrecy::SecretString;
 use std::str::FromStr;
 
 const DEFAULT_POLL_DELAY_MS: u64 = 60_000;
-#[cfg(feature = "citrea")]
-const DEFAULT_BODY_MAX_LIMIT: u64 = 390_000;
 
 #[derive(Clone, Debug)]
 pub struct TxSenderPostgresConfig {
@@ -63,10 +61,6 @@ pub struct TxSenderConfig {
     /// Optional JSON-RPC configuration (feature-gated).
     #[cfg(feature = "json-rpc")]
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
-
-    /// Maximum allowed body size in bytes for Citrea payloads.
-    #[cfg(feature = "citrea")]
-    pub body_max_limit: u64,
 }
 
 fn env_required(name: &'static str) -> Result<String, BridgeError> {
@@ -186,10 +180,6 @@ impl TxSenderConfig {
             .transpose()?
         };
 
-        #[cfg(feature = "citrea")]
-        let body_max_limit = env_parse_optional::<u64>("TX_SENDER_BODY_MAX_LIMIT")?
-            .unwrap_or(DEFAULT_BODY_MAX_LIMIT);
-
         Ok(Self {
             network,
             secret_key,
@@ -201,8 +191,6 @@ impl TxSenderConfig {
             poll_delay_ms,
             #[cfg(feature = "json-rpc")]
             jsonrpc,
-            #[cfg(feature = "citrea")]
-            body_max_limit,
         })
     }
 }

@@ -3,7 +3,7 @@
 use bitcoin::{FeeRate, Txid};
 use rand::RngCore;
 
-use crate::citrea::{RawTxData, TransactionKind};
+use crate::citrea::{CitreaTxRequest, TransactionKind};
 use crate::task::TxSenderTaskInternal;
 use crate::test_utils::create_test_environment;
 use crate::TxSender;
@@ -21,9 +21,12 @@ async fn insert_single_citrea_row_with_body_size(
     rand::thread_rng().fill_bytes(&mut body);
 
     let raw = match kind {
-        TransactionKind::Complete => RawTxData::BatchProof(body.clone()),
-        TransactionKind::BatchProofMethodId => RawTxData::BatchProofMethodId(body.clone()),
-        TransactionKind::SequencerCommitment => RawTxData::SequencerCommitment(body.clone()),
+        TransactionKind::Complete => CitreaTxRequest::BatchProof {
+            bytes: body.clone(),
+            chunk_size: None,
+        },
+        TransactionKind::BatchProofMethodId => CitreaTxRequest::BatchProofMethodId(body.clone()),
+        TransactionKind::SequencerCommitment => CitreaTxRequest::SequencerCommitment(body.clone()),
         other => panic!("unsupported TransactionKind for single row helper: {other:?}",),
     };
 
@@ -45,10 +48,14 @@ async fn insert_chunked_citrea_rows(tx_sender: &TxSender) -> i64 {
         rand::thread_rng().fill_bytes(&mut body);
         chunks.push(body);
     }
+    let bytes = chunks.concat();
 
     let client = TxSenderClient::new(tx_sender.db.clone());
     client
-        .send_citrea_tx(RawTxData::Chunks(chunks))
+        .send_citrea_tx(CitreaTxRequest::BatchProof {
+            bytes,
+            chunk_size: Some(64),
+        })
         .await
         .unwrap()
 }
@@ -493,8 +500,36 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
 
     let current_tip = tx_sender.rpc.get_current_chain_height().await.unwrap();
 
-    // Bump fee: choose a clearly higher target feerate.
-    let higher_feerate = FeeRate::from_sat_per_kwu(555);
+    // First bump attempt: set target below previous + min_bump_kwu; expect no bump.
+    let min_bump_kwu = tx_sender.tx_sender_limits.min_bump_kwu;
+    let lower_target = FeeRate::from_sat_per_kwu(
+        original_feerate
+            .saturating_add(min_bump_kwu)
+            .saturating_sub(11),
+    );
+
+    tx_sender
+        .try_to_send_unconfirmed_txs(lower_target, current_tip, false)
+        .await
+        .unwrap();
+
+    let not_bumped_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, try_to_send_id)
+        .await
+        .unwrap()
+        .expect("RBF txid should still exist");
+    assert_eq!(
+        not_bumped_txid, original_txid,
+        "expected no bump when below previous + min_bump_kwu"
+    );
+
+    // Second bump attempt: set target above previous + min_bump_kwu; expect a bump.
+    let higher_feerate = FeeRate::from_sat_per_kwu(
+        original_feerate
+            .saturating_add(min_bump_kwu)
+            .saturating_add(11),
+    );
 
     tx_sender
         .try_to_send_unconfirmed_txs(higher_feerate, current_tip, false)

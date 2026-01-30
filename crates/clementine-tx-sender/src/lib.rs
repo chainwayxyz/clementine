@@ -513,10 +513,10 @@ impl TxSender {
         // Minimum bump fee rate required by BIP125
         let min_bump_feerate =
             previous_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+        let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
 
         // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kwu
-        if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() {
-            let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
+        if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() && !is_stuck {
             let effective_increment =
                 effective_feerate.saturating_sub(previous_rate.to_sat_per_kwu());
 
@@ -526,12 +526,11 @@ impl TxSender {
             }
 
             let result = FeeRate::from_sat_per_kwu(effective_feerate);
-            return Ok(std::cmp::min(result, hard_cap));
+            Ok(std::cmp::min(result, hard_cap))
         }
-
-        // If the tx is stuck for 10+ blocks, force a fee bump (previous + incremental)
-        if is_stuck {
-            let result = FeeRate::from_sat_per_kwu(min_bump_feerate);
+        // If the tx is stuck for 10+ blocks, force a fee bump
+        else {
+            let result = FeeRate::from_sat_per_kwu(effective_feerate);
             let capped_result = std::cmp::min(result, hard_cap);
 
             tracing::debug!(
@@ -542,11 +541,8 @@ impl TxSender {
                 hard_cap.to_sat_per_kwu()
             );
 
-            return Ok(capped_result);
+            Ok(capped_result)
         }
-
-        // Neither higher fee rate nor stuck, use previous rate (no change needed)
-        Ok(previous_rate)
     }
 
     /// Sends a transaction that is already fully funded and signed.

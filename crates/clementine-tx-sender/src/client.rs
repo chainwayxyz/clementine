@@ -11,7 +11,7 @@ use eyre::eyre;
 use std::collections::BTreeMap;
 
 #[cfg(feature = "citrea")]
-use crate::citrea::RawTxData;
+use crate::citrea::CitreaTxRequest;
 #[cfg(feature = "citrea")]
 use crate::citrea::TransactionKind;
 
@@ -179,32 +179,43 @@ impl TxSenderClient {
     }
 
     #[cfg(feature = "citrea")]
-    pub async fn send_citrea_tx(&self, raw_tx_data: RawTxData) -> Result<i64, eyre::Report> {
-        const MAX_BODY_BYTES: usize = 397_000;
-
-        let too_large = match &raw_tx_data {
-            RawTxData::BatchProof(body)
-            | RawTxData::BatchProofMethodId(body)
-            | RawTxData::SequencerCommitment(body) => body.len() >= MAX_BODY_BYTES,
-            RawTxData::Chunks(chunks) => chunks.iter().any(|chunk| chunk.len() >= MAX_BODY_BYTES),
-        };
-
-        if too_large {
-            return Err(eyre!(
-                "Citrea DA payload body too large; max {} bytes per body/chunk",
-                MAX_BODY_BYTES,
-            ));
-        }
+    pub async fn send_citrea_tx(&self, request: CitreaTxRequest) -> Result<i64, eyre::Report> {
+        const MAX_CHUNK_SIZE: u32 = 390_000;
 
         let mut dbtx = self.db.begin_transaction().await?;
 
-        let insertion_id = match raw_tx_data {
-            RawTxData::BatchProof(body) => {
-                self.db
-                    .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &body)
-                    .await?
+        let insertion_id = match request {
+            CitreaTxRequest::BatchProof { bytes, chunk_size } => {
+                let mut chunk_size = chunk_size.unwrap_or(MAX_CHUNK_SIZE);
+                if chunk_size == 0 {
+                    chunk_size = MAX_CHUNK_SIZE;
+                }
+                if chunk_size > MAX_CHUNK_SIZE {
+                    chunk_size = MAX_CHUNK_SIZE;
+                }
+                let chunk_size = chunk_size as usize;
+
+                if bytes.len() <= chunk_size {
+                    self.db
+                        .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &bytes)
+                        .await?
+                } else {
+                    let chunks: Vec<Vec<u8>> = bytes
+                        .chunks(chunk_size)
+                        .map(|chunk| chunk.to_vec())
+                        .collect();
+                    self.db
+                        .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks)
+                        .await?
+                }
             }
-            RawTxData::BatchProofMethodId(body) => {
+            CitreaTxRequest::BatchProofMethodId(body) => {
+                if body.len() as u32 > MAX_CHUNK_SIZE {
+                    return Err(eyre!(
+                        "Citrea BatchProofMethodId DA payload body too large; max {} bytes",
+                        MAX_CHUNK_SIZE,
+                    ));
+                }
                 self.db
                     .insert_citrea_raw_tx_single(
                         &mut dbtx,
@@ -213,18 +224,19 @@ impl TxSenderClient {
                     )
                     .await?
             }
-            RawTxData::SequencerCommitment(body) => {
+            CitreaTxRequest::SequencerCommitment(body) => {
+                if body.len() as u32 > MAX_CHUNK_SIZE {
+                    return Err(eyre!(
+                        "Citrea SequencerCommitment DA payload body too large; max {} bytes",
+                        MAX_CHUNK_SIZE,
+                    ));
+                }
                 self.db
                     .insert_citrea_raw_tx_single(
                         &mut dbtx,
                         TransactionKind::SequencerCommitment,
                         &body,
                     )
-                    .await?
-            }
-            RawTxData::Chunks(chunks) => {
-                self.db
-                    .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks)
                     .await?
             }
         };
@@ -242,7 +254,7 @@ mod tests {
     #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_batch_proof() {
-        use crate::citrea::RawTxData;
+        use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
         let db = create_test_environment(true, false).await.1.unwrap();
@@ -250,7 +262,10 @@ mod tests {
 
         let body = vec![1, 2, 3, 4, 5];
         let insertion_id = client
-            .send_citrea_tx(RawTxData::BatchProof(body.clone()))
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: body.clone(),
+                chunk_size: None,
+            })
             .await
             .expect("Should insert successfully");
 
@@ -271,15 +286,19 @@ mod tests {
     #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_chunks() {
-        use crate::citrea::RawTxData;
+        use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
         let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
-        let chunks = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+        let bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let chunks: Vec<Vec<u8>> = bytes.chunks(3).map(|chunk| chunk.to_vec()).collect();
         let insertion_id = client
-            .send_citrea_tx(RawTxData::Chunks(chunks.clone()))
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: Some(3),
+            })
             .await
             .expect("Should insert successfully");
 
@@ -315,7 +334,7 @@ mod tests {
     #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_duplicate_body() {
-        use crate::citrea::RawTxData;
+        use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
         let db = create_test_environment(true, false).await.1.unwrap();
@@ -323,13 +342,13 @@ mod tests {
 
         let body = vec![10, 20, 30];
         client
-            .send_citrea_tx(RawTxData::BatchProofMethodId(body.clone()))
+            .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body.clone()))
             .await
             .expect("First insert should succeed");
 
         // Try to insert duplicate body - should not insert and return err
         assert!(client
-            .send_citrea_tx(RawTxData::BatchProofMethodId(body))
+            .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body))
             .await
             .is_err());
 
@@ -349,25 +368,28 @@ mod tests {
     #[tokio::test]
     #[ignore = "Think about duplicate body possibility first"]
     async fn test_send_citrea_tx_transaction_rollback() {
-        use crate::citrea::RawTxData;
+        use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
         let db = create_test_environment(true, false).await.1.unwrap();
         let client = TxSenderClient::new(db.clone());
 
         let body1 = vec![100, 200];
-        let body2 = vec![100, 200]; // Duplicate to cause failure
-
         // Insert first body
         client
-            .send_citrea_tx(RawTxData::SequencerCommitment(body1))
+            .send_citrea_tx(CitreaTxRequest::SequencerCommitment(body1))
             .await
             .expect("First insert should succeed");
 
         // Try to insert chunks where one chunk body duplicates body1
         // This should cause transaction rollback, so no rows should be inserted
-        let chunks = vec![vec![1, 2, 3], body2, vec![4, 5, 6]];
-        let result = client.send_citrea_tx(RawTxData::Chunks(chunks)).await;
+        let bytes = vec![1, 2, 100, 200, 4, 5, 6];
+        let result = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: Some(2),
+            })
+            .await;
 
         assert!(result.is_err(), "Should fail due to duplicate body");
 
