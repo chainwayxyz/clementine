@@ -433,6 +433,60 @@ impl TxSender {
         psbt.inputs.len() > original_tx.input.len()
     }
 
+    /// Reorders PSBT outputs so that the original transaction outputs appear first
+    /// in the same order, followed by any newly added outputs (e.g., change outputs).
+    ///
+    /// This is important for watchtower challenge transactions where the OP_RETURN
+    /// output is expected to remain at a specific index.
+    pub fn reorder_psbt_outputs(&self, psbt: &mut Psbt, original_tx: &Transaction) -> Result<()> {
+        if psbt.unsigned_tx.output.len() != psbt.outputs.len() {
+            return Err(SendTxError::Other(eyre!(
+                "PSBT outputs length mismatch: unsigned_tx outputs={} psbt outputs={}",
+                psbt.unsigned_tx.output.len(),
+                psbt.outputs.len()
+            )));
+        }
+
+        let mut used = vec![false; psbt.unsigned_tx.output.len()];
+        let mut new_outputs = Vec::with_capacity(psbt.unsigned_tx.output.len());
+        let mut new_psbt_outputs = Vec::with_capacity(psbt.outputs.len());
+
+        for original_out in &original_tx.output {
+            let mut found_idx = None;
+            for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+                if !used[idx]
+                    && out.value == original_out.value
+                    && out.script_pubkey == original_out.script_pubkey
+                {
+                    found_idx = Some(idx);
+                    break;
+                }
+            }
+
+            let Some(idx) = found_idx else {
+                return Err(SendTxError::Other(eyre!(
+                    "Failed to find original output in PSBT"
+                )));
+            };
+
+            used[idx] = true;
+            new_outputs.push(psbt.unsigned_tx.output[idx].clone());
+            new_psbt_outputs.push(psbt.outputs[idx].clone());
+        }
+
+        for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+            if !used[idx] {
+                new_outputs.push(out.clone());
+                new_psbt_outputs.push(psbt.outputs[idx].clone());
+            }
+        }
+
+        psbt.unsigned_tx.output = new_outputs;
+        psbt.outputs = new_psbt_outputs;
+
+        Ok(())
+    }
+
     pub async fn get_tx_fee(&self, tx: &Transaction) -> Result<Amount> {
         let inputs = {
             let mut inputs = Amount::ZERO;
@@ -643,6 +697,16 @@ impl TxSender {
                 .wrap_err("Failed to fill SAP signatures")?;
 
             let mut unsigned_psbt = Psbt::from_str(&bumped_psbt).map_err(|e| eyre!(e))?;
+
+            if let Err(err) = self.reorder_psbt_outputs(&mut unsigned_psbt, &tx) {
+                let err_msg = format!("Failed to reorder bumped PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
+            }
             let mut current_locktime = unsigned_psbt.unsigned_tx.lock_time;
 
             let final_tx = loop {
@@ -905,6 +969,15 @@ impl TxSender {
                     .last_mut()
                     .expect("Change output should exist")
                     .value += needed_fee_for_dummy_output + dummy_output_value;
+            } else if let Err(err) = self.reorder_psbt_outputs(&mut funded_psbt, &tx) {
+                // fund transaction shouldn't reorder but keep it here in case it does
+                let err_msg = format!("Failed to reorder initial PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
             }
             let mut current_locktime = tx.lock_time;
 
