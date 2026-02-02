@@ -64,20 +64,36 @@ impl TxSenderDb {
         transaction_kind: TransactionKind,
         body: &[u8],
     ) -> Result<i64, BridgeError> {
+        let (insertion_id, _) = self
+            .insert_citrea_raw_tx_single_with_status(tx, transaction_kind, body)
+            .await?;
+        Ok(insertion_id)
+    }
+
+    /// Inserts a single non-chunked Citrea raw tx row and returns whether it was newly inserted.
+    /// If the body already exists, returns the existing insertion_id with `inserted = false`.
+    async fn insert_citrea_raw_tx_single_with_status(
+        &self,
+        tx: TxSenderDbTx<'_>,
+        transaction_kind: TransactionKind,
+        body: &[u8],
+    ) -> Result<(i64, bool), BridgeError> {
         let body_hash = calculate_sha256(body).to_vec();
-        let query = sqlx::query_scalar::<_, i64>(
+        let query = sqlx::query_as::<_, (i64, bool)>(
             r#"
             INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
             VALUES ($1, $2, $3)
-            RETURNING insertion_id
+            ON CONFLICT (body_hash) DO UPDATE
+            SET body = EXCLUDED.body
+            RETURNING insertion_id, (xmax = 0) AS inserted
             "#,
         )
         .bind(transaction_kind.as_i16())
         .bind(body)
         .bind(body_hash);
 
-        let insertion_id = query.fetch_one(&mut **tx).await?;
-        Ok(insertion_id)
+        let (insertion_id, inserted) = query.fetch_one(&mut **tx).await?;
+        Ok((insertion_id, inserted))
     }
 
     /// Sets the commit outpoint for a specific Citrea raw tx row.
@@ -106,13 +122,15 @@ impl TxSenderDb {
         chunks: &[Vec<u8>],
     ) -> Result<i64, BridgeError> {
         // First, get a new insertion_id by inserting the first chunk
-        // This will fail if body is duplicate, which is what we want
         let first_chunk = chunks.first().ok_or_eyre("Chunks vector cannot be empty")?;
 
         // insert first chunk and generate the insertion_id, all others will be added with same insertion id
-        let insertion_id = self
-            .insert_citrea_raw_tx_single(tx, TransactionKind::Chunks, first_chunk)
+        let (insertion_id, inserted) = self
+            .insert_citrea_raw_tx_single_with_status(tx, TransactionKind::Chunks, first_chunk)
             .await?;
+        if !inserted {
+            return Ok(insertion_id);
+        }
 
         // Insert remaining chunks (1..N-1)
         for chunk in chunks.iter().skip(1) {

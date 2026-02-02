@@ -341,16 +341,18 @@ mod tests {
         let client = TxSenderClient::new(db.clone());
 
         let body = vec![10, 20, 30];
-        client
+        let first_insertion_id = client
             .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body.clone()))
             .await
             .expect("First insert should succeed");
 
-        // Try to insert duplicate body - should not insert and return err
-        assert!(client
+        // Try to insert duplicate body - should return existing insertion_id
+        let second_insertion_id = client
             .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body))
             .await
-            .is_err());
+            .expect("Second insert should return existing insertion_id");
+
+        assert_eq!(first_insertion_id, second_insertion_id);
 
         // Verify only one row exists
         let count: i64 = sqlx::query_scalar(
