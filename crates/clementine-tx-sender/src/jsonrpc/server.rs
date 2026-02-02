@@ -43,6 +43,7 @@ pub async fn start_jsonrpc_server(
     bind_addr: SocketAddr,
 ) -> Result<TxSenderJsonRpcServer, BridgeError> {
     let server: Server = ServerBuilder::default()
+        .max_request_body_size(10 * 1024 * 1024) // 10 MB
         .build(bind_addr)
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
