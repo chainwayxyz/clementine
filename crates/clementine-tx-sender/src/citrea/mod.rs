@@ -1,7 +1,7 @@
 //! Provides functions to build Bitcoin transactions
 //! related to commit-reveal pattern for Citrea rollup.
 
-mod data_serialization;
+pub mod data_serialization;
 mod reveal_scripts;
 pub mod sync;
 

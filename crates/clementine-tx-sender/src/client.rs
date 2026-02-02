@@ -180,6 +180,8 @@ impl TxSenderClient {
 
     #[cfg(feature = "citrea")]
     pub async fn send_citrea_tx(&self, request: CitreaTxRequest) -> Result<i64, eyre::Report> {
+        use crate::citrea::data_serialization::DataOnDa;
+
         const MAX_CHUNK_SIZE: u32 = 390_000;
 
         let mut dbtx = self.db.begin_transaction().await?;
@@ -196,13 +198,18 @@ impl TxSenderClient {
                 let chunk_size = chunk_size as usize;
 
                 if bytes.len() <= chunk_size {
+                    let data = DataOnDa::Complete(bytes);
+                    let blob = borsh::to_vec(&data).expect("zk::Proof serialize must not fail");
                     self.db
-                        .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &bytes)
+                        .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &blob)
                         .await?
                 } else {
                     let chunks: Vec<Vec<u8>> = bytes
                         .chunks(chunk_size)
-                        .map(|chunk| chunk.to_vec())
+                        .map(|chunk| {
+                            borsh::to_vec(&DataOnDa::Chunk(chunk.to_vec()))
+                                .expect("zk::Proof serialize must not fail")
+                        })
                         .collect();
                     self.db
                         .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks)
@@ -254,6 +261,7 @@ mod tests {
     #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_batch_proof() {
+        use crate::citrea::data_serialization::DataOnDa;
         use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
@@ -269,23 +277,27 @@ mod tests {
             .await
             .expect("Should insert successfully");
 
+        let serialized_body =
+            borsh::to_vec(&DataOnDa::Complete(body)).expect("Serialization should not fail");
+
         // Verify row was inserted
         let row = sqlx::query(
             "SELECT insertion_id, transaction_kind, body FROM tx_sender_citrea_raw_tx_queue WHERE body = $1",
         )
-        .bind(&body)
+        .bind(&serialized_body)
         .fetch_one(db.pool())
         .await
         .expect("Should find inserted row");
 
         assert_eq!(row.get::<i16, _>("transaction_kind"), 0); // Complete
-        assert_eq!(row.get::<Vec<u8>, _>("body"), body);
+        assert_eq!(row.get::<Vec<u8>, _>("body"), serialized_body);
         assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
     }
 
     #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_chunks() {
+        use crate::citrea::data_serialization::DataOnDa;
         use crate::citrea::CitreaTxRequest;
         use crate::test_utils::create_test_environment;
 
@@ -321,7 +333,10 @@ mod tests {
                 assert_eq!(row.get::<i16, _>("transaction_kind"), 2); // Chunks
                 assert_eq!(
                     row.get::<Option<Vec<u8>>, _>("body"),
-                    Some(chunks[idx].clone())
+                    Some(
+                        borsh::to_vec(&DataOnDa::Chunk(chunks[idx].clone()))
+                            .expect("Serialization should not fail")
+                    )
                 );
             } else {
                 // Aggregate row

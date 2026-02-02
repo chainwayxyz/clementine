@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// citrea/crates/sovereign-sdk/rollup-interface/src/state_machine/da.rs
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
 #[allow(clippy::large_enum_variant)]
-pub enum DataOnDa {
+pub(crate) enum DataOnDa {
     /// A zk proof and state diff
     Complete(Proof),
     /// A list of tx ids
@@ -21,7 +21,7 @@ pub enum DataOnDa {
 /// Commitments made to the DA layer from the sequencer.
 /// Has merkle root of l2 block hashes from L1 start block to L1 end block (inclusive)
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
-pub struct SequencerCommitment {
+pub(crate) struct SequencerCommitment {
     /// Merkle root of l2 block hashes
     pub merkle_root: [u8; 32],
     /// Absolute order of the sequencer commitment, the first commitment has index 0, the next one has 1...
@@ -40,7 +40,7 @@ const SECURITY_COUNCIL_SIGNATURE_SIZE: usize = 64;
 
 /// A new batch proof method_id starting to be applied from the l2_block_number (inclusive).
 #[derive(Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct BatchProofMethodId {
+pub(crate) struct BatchProofMethodId {
     /// Body of the method id update, the message to be signed
     /// Includes method id and activation height
     pub body: BatchProofMethodIdBody,
@@ -57,7 +57,7 @@ pub struct BatchProofMethodId {
 
 /// Body of the batch proof method id update for light client
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
-pub struct BatchProofMethodIdBody {
+pub(crate) struct BatchProofMethodIdBody {
     /// New method id of upcoming fork
     pub method_id: [u32; 8],
     /// Activation L2 height of the new method id
