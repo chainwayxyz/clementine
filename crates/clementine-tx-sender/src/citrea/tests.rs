@@ -583,7 +583,7 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     let (mut config, _db, rpc_env) = create_test_environment(true, true).await;
     let rpc_env = rpc_env.expect("RPC environment must be created");
 
-    // make min_bump higher than 1 sat/vb for this test so that if btc node used is <v30 (min 1 sat/vb increment by default), it doesnt fail
+    // make min_bump higher than 1 sat/vb for this test so that if btc node used is <v30 (min 1 sat/vb increment by default), it doesn't fail
     config.limits.min_bump_kvb = 1234;
 
     let tx_sender = TxSender::new(config).await.unwrap();
