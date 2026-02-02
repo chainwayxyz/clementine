@@ -1,4 +1,7 @@
-use crate::{rpc_errors::is_mempool_not_found_error, rpc_errors::is_not_found_error, FeePayingType, TxSender, TxSenderTransaction};
+use crate::{
+    rpc_errors::is_mempool_not_found_error, rpc_errors::is_not_found_error, FeePayingType,
+    TxSender, TxSenderTransaction,
+};
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;

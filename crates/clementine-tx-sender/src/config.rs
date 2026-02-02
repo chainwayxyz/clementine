@@ -44,6 +44,11 @@ pub struct TxSenderConfig {
     /// In clementine_core usage this is derived from `BridgeConfig.secret_key`.
     /// In standalone usage it is sourced from env `SECRET_KEY`.
     pub secret_key: SecretKey,
+    /// Optional Citrea DA blob signing key.
+    ///
+    /// If not provided, tx-sender falls back to `secret_key` for Citrea blob signing.
+    #[cfg(feature = "citrea")]
+    pub private_da_key: Option<SecretKey>,
     pub postgres: TxSenderPostgresConfig,
     pub bitcoin_rpc: TxSenderBitcoinRpcConfig,
     pub mempool: MempoolConfig,
@@ -101,6 +106,15 @@ impl TxSenderConfig {
         let secret_key_str = env_required("SECRET_KEY")?;
         let secret_key = SecretKey::from_str(&secret_key_str)
             .map_err(|e| BridgeError::EnvVarMalformed("SECRET_KEY", format!("{e:?}")))?;
+
+        #[cfg(feature = "citrea")]
+        let private_da_key =
+            match env_optional("PRIVATE_DA_KEY") {
+                Some(value) => Some(SecretKey::from_str(&value).map_err(|e| {
+                    BridgeError::EnvVarMalformed("PRIVATE_DA_KEY", format!("{e:?}"))
+                })?),
+                None => None,
+            };
 
         let postgres = TxSenderPostgresConfig {
             host: env_required("DB_HOST")?,
@@ -183,6 +197,8 @@ impl TxSenderConfig {
         Ok(Self {
             network,
             secret_key,
+            #[cfg(feature = "citrea")]
+            private_da_key,
             postgres,
             bitcoin_rpc,
             mempool,

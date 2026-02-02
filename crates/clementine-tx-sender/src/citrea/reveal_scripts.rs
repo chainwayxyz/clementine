@@ -68,7 +68,7 @@ impl TxSender {
 
         // Add signature and signer_public_key for transaction kinds that require authentication
         if needs_signature {
-            let (signature, signer_public_key) = self.signer.sign_blob(body);
+            let (signature, signer_public_key) = self.da_signer.sign_blob(body);
             reveal_script_builder = reveal_script_builder
                 .push_slice(PushBytesBuf::try_from(signature).expect("Cannot push signature"))
                 .push_slice(

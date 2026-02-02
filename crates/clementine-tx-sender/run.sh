@@ -16,6 +16,9 @@ export NETWORK="${NETWORK:-regtest}"
 # "111...1" is commonly used in Clementine configs.
 export SECRET_KEY="${SECRET_KEY:-1111111111111111111111111111111111111111111111111111111111111111}"
 
+# Optional Citrea DA blob signing key. If not set, SECRET_KEY is used.
+export PRIVATE_DA_KEY="${PRIVATE_DA_KEY:-}"
+
 # Postgres
 export DB_HOST="${DB_HOST:-127.0.0.1}"
 export DB_PORT="${DB_PORT:-5432}"

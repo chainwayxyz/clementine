@@ -125,6 +125,8 @@ pub struct MempoolConfig {
 #[derive(Clone)]
 pub struct TxSender {
     signer: TxSenderSigningKey,
+    #[cfg(feature = "citrea")]
+    da_signer: TxSenderSigningKey,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
     pub db: TxSenderDb,
     client: TxSenderClient,
@@ -137,8 +139,11 @@ pub struct TxSender {
 
 impl std::fmt::Debug for TxSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TxSender")
-            .field("signer", &self.signer)
+        let mut builder = f.debug_struct("TxSender");
+        builder.field("signer", &self.signer);
+        #[cfg(feature = "citrea")]
+        builder.field("da_signer", &self.da_signer);
+        builder
             .field("db", &self.db)
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
@@ -159,7 +164,13 @@ impl TxSender {
     pub async fn new(
         tx_sender_config: crate::config::TxSenderConfig,
     ) -> std::result::Result<Self, BridgeError> {
-        let signer = TxSenderSigningKey::new(tx_sender_config.secret_key, tx_sender_config.network);
+        let secret_key = tx_sender_config.secret_key;
+        let signer = TxSenderSigningKey::new(secret_key, tx_sender_config.network);
+        #[cfg(feature = "citrea")]
+        let da_signer = {
+            let da_key = tx_sender_config.private_da_key.unwrap_or(secret_key);
+            TxSenderSigningKey::new(da_key, tx_sender_config.network)
+        };
         let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
             tx_sender_config.bitcoin_rpc.url.clone(),
             tx_sender_config.bitcoin_rpc.user.clone(),
@@ -174,6 +185,8 @@ impl TxSender {
 
         Ok(Self {
             signer,
+            #[cfg(feature = "citrea")]
+            da_signer,
             rpc,
             db,
             client,

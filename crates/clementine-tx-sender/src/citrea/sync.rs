@@ -1,4 +1,5 @@
 use crate::db::citrea::CitreaRawTxRow;
+use crate::rpc_errors::{is_mempool_not_found_error, is_not_found_error};
 use crate::TxSender;
 use bitcoin::{Amount, TapSighashType};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
@@ -7,7 +8,6 @@ use clementine_primitives::FeeRateKvb;
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
-use crate::rpc_errors::{is_mempool_not_found_error, is_not_found_error};
 
 impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.

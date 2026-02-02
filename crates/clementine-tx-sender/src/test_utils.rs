@@ -26,6 +26,8 @@ pub async fn create_test_environment(
     let mut config = TxSenderConfig {
         network: bitcoin::Network::Regtest,
         secret_key: SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng()),
+        #[cfg(feature = "citrea")]
+        private_da_key: Some(SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng())),
         postgres: TxSenderPostgresConfig {
             host: "127.0.0.1".to_string(),
             port: 5432,

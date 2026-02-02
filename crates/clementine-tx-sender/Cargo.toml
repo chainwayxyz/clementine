@@ -38,10 +38,9 @@ json-rpc = [
 	"dep:jsonrpsee",
 	"dep:tx-sender-jsonrpc-client",
 	"tx-sender-jsonrpc-client/clementine",
-	"tx-sender-jsonrpc-client/citrea",
 ]
 standalone = ["json-rpc"]
-citrea = ["standalone", "dep:sha2", "tx-sender-types/citrea"]
+citrea = ["standalone", "dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client/citrea"]
 testing = []
 
 [dev-dependencies]
