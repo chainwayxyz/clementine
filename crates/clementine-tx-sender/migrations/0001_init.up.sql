@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
     commit_outpoint TEXT,
     -- Optional link to a tx_sender_try_to_send_txs row once it exists.
     try_to_send_id INT REFERENCES tx_sender_try_to_send_txs(id),
+    -- Whether the aggregate row has been finalized and should no longer be processed.
+    aggregate_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE (body_hash)
 );

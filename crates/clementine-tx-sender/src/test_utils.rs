@@ -42,6 +42,7 @@ pub async fn create_test_environment(
         },
         finality_depth: 1,
         poll_delay_ms: 500,
+        #[cfg(feature = "json-rpc")]
         jsonrpc: None,
         mempool: MempoolConfig {
             host: None,

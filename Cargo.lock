@@ -2350,6 +2350,7 @@ dependencies = [
  "async-trait",
  "bitcoin",
  "bitcoincore-rpc",
+ "borsh",
  "clementine-config",
  "clementine-errors",
  "clementine-extended-rpc",

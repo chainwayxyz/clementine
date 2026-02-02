@@ -24,6 +24,8 @@ pub struct CitreaRawTxRow {
     pub commit_outpoint: Option<OutPoint>,
     /// Optional link to a tx_sender_try_to_send_txs row once it exists.
     pub try_to_send_id: Option<i32>,
+    /// Whether this aggregate row is finalized and should not be reprocessed.
+    pub aggregate_finalized: bool,
 }
 
 /// Raw row shape returned by SQLx for Citrea queue rows.
@@ -34,11 +36,13 @@ type CitreaRawTxRowDb = (
     Option<Vec<u8>>,
     Option<OutPointDB>,
     Option<i32>,
+    bool,
 );
 
 impl From<CitreaRawTxRowDb> for CitreaRawTxRow {
     fn from(row: CitreaRawTxRowDb) -> Self {
-        let (id, insertion_id, kind, body, commit_outpoint, try_to_send_id) = row;
+        let (id, insertion_id, kind, body, commit_outpoint, try_to_send_id, aggregate_finalized) =
+            row;
         Self {
             id,
             insertion_id,
@@ -46,6 +50,7 @@ impl From<CitreaRawTxRowDb> for CitreaRawTxRow {
             body: body.unwrap_or_default(),
             commit_outpoint: commit_outpoint.map(|op| op.0),
             try_to_send_id,
+            aggregate_finalized,
         }
     }
 }
@@ -151,7 +156,7 @@ impl TxSenderDb {
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
         let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
-            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id
+                        "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
              FROM tx_sender_citrea_raw_tx_queue
              WHERE transaction_kind != $1
                AND commit_outpoint IS NULL
@@ -173,7 +178,7 @@ impl TxSenderDb {
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
         let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
-            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id
+                        "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
              FROM tx_sender_citrea_raw_tx_queue
              WHERE transaction_kind != $1
                AND commit_outpoint IS NOT NULL
@@ -195,7 +200,7 @@ impl TxSenderDb {
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
         let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
-            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id
+            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
              FROM tx_sender_citrea_raw_tx_queue
              WHERE commit_outpoint IS NOT NULL",
         );
@@ -213,12 +218,13 @@ impl TxSenderDb {
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
         let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
-            "SELECT q.id, q.insertion_id, q.transaction_kind, q.body, q.commit_outpoint, q.try_to_send_id
+                        "SELECT q.id, q.insertion_id, q.transaction_kind, q.body, q.commit_outpoint, q.try_to_send_id, q.aggregate_finalized
              FROM tx_sender_citrea_raw_tx_queue q
              LEFT JOIN tx_sender_try_to_send_txs t
                ON t.id = q.try_to_send_id
              WHERE q.commit_outpoint IS NOT NULL
-               AND (q.try_to_send_id IS NULL OR t.seen_at_height IS NULL)",
+               AND (q.try_to_send_id IS NULL OR t.seen_at_height IS NULL)
+             ORDER BY q.id ASC",
         );
 
         let results: Vec<CitreaRawTxRowDb> =
@@ -279,6 +285,90 @@ impl TxSenderDb {
         .bind(try_to_send_id);
 
         query.execute(&mut **tx).await?;
+        Ok(())
+    }
+
+    /// Returns aggregate placeholder rows that are not finalized.
+    pub async fn get_citrea_aggregate_rows_pending(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+    ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
+            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
+             FROM tx_sender_citrea_raw_tx_queue
+             WHERE transaction_kind = $1
+               AND aggregate_finalized = FALSE
+             ORDER BY created_at ASC",
+        )
+        .bind(TransactionKind::Aggregate.as_i16());
+
+        let results: Vec<CitreaRawTxRowDb> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
+    /// Returns chunk rows for a given insertion_id, ordered by row id.
+    pub async fn get_citrea_chunk_rows_by_insertion_id(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        insertion_id: i64,
+    ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
+            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
+             FROM tx_sender_citrea_raw_tx_queue
+             WHERE insertion_id = $1
+               AND transaction_kind = $2
+             ORDER BY id ASC",
+        )
+        .bind(insertion_id)
+        .bind(TransactionKind::Chunks.as_i16());
+
+        let results: Vec<CitreaRawTxRowDb> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
+    /// Updates the body and hash for a Citrea row, resetting commit/try_to_send state.
+    pub async fn update_citrea_body_and_reset(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: i64,
+        body: &[u8],
+    ) -> Result<(), BridgeError> {
+        let body_hash = calculate_sha256(body).to_vec();
+        let query = sqlx::query(
+            "UPDATE tx_sender_citrea_raw_tx_queue
+             SET body = $2,
+                 body_hash = $3,
+                 commit_outpoint = NULL,
+                 try_to_send_id = NULL,
+                 aggregate_finalized = FALSE
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(body)
+        .bind(body_hash);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
+    }
+
+    /// Marks an aggregate row as finalized.
+    pub async fn set_citrea_aggregate_finalized(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: i64,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_citrea_raw_tx_queue
+             SET aggregate_finalized = TRUE
+             WHERE id = $1",
+        )
+        .bind(id);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
     }
 }

@@ -1,10 +1,11 @@
 //! Provides functions to build Bitcoin transactions
 //! related to commit-reveal pattern for Citrea rollup.
 
-pub mod reveal_scripts;
+mod data_serialization;
+mod reveal_scripts;
 pub mod sync;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "standalone"))]
 mod tests;
 
 use bitcoin::absolute::LockTime;
@@ -18,6 +19,8 @@ use crate::signer::SECP;
 pub use tx_sender_types::CitreaTxRequest;
 
 /// Type represents a typed enum for transaction kind
+/// Conversion to u16 (to_bytes) should be same as used in citrea repo.
+/// citrea/crates/bitcoin-da/src/helpers/mod.rs
 #[derive(Debug, Clone, Copy)]
 #[repr(u16)]
 pub enum TransactionKind {

@@ -1,6 +1,7 @@
 #![cfg(all(feature = "citrea", feature = "testing"))]
 
 use bitcoin::Txid;
+use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;
 use rand::RngCore;
 
@@ -118,6 +119,38 @@ async fn get_citrea_commit_and_try_to_send_ids(
         commit_txid.expect("commit_txid must be set"),
         try_to_send_ids,
     )
+}
+
+struct CitreaAggregateRow {
+    body: Vec<u8>,
+    commit_outpoint: Option<bitcoin::OutPoint>,
+    try_to_send_id: Option<u32>,
+}
+
+async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> CitreaAggregateRow {
+    use crate::db::wrapper::OutPointDB;
+    use sqlx::Row;
+
+    let row = sqlx::query(
+        "SELECT body, commit_outpoint, try_to_send_id \
+         FROM tx_sender_citrea_raw_tx_queue \
+         WHERE insertion_id = $1 AND transaction_kind = 1 \
+         LIMIT 1",
+    )
+    .bind(insertion_id)
+    .fetch_one(tx_sender.db.pool())
+    .await
+    .unwrap();
+
+    let body: Option<Vec<u8>> = row.get("body");
+    let commit_outpoint: Option<OutPointDB> = row.get("commit_outpoint");
+    let try_to_send_id: Option<i32> = row.get("try_to_send_id");
+
+    CitreaAggregateRow {
+        body: body.unwrap_or_default(),
+        commit_outpoint: commit_outpoint.map(|op| op.0),
+        try_to_send_id: try_to_send_id.map(|id| id as u32),
+    }
 }
 
 /// Calculates the fee rate of a transaction in sat/kvB (satoshis per kilovbyte).
@@ -310,6 +343,93 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
             "expected reveal tx to be confirmed, got {reveal_confirmations} confirmations"
         );
     }
+
+    // Run once to sync confirmations, then again to send aggregate.
+    task.run_once().await.unwrap();
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    assert!(
+        !aggregate_row.body.is_empty(),
+        "aggregate body should be set"
+    );
+    let aggregate_commit_outpoint = aggregate_row
+        .commit_outpoint
+        .expect("aggregate commit_outpoint must be set");
+    let aggregate_try_to_send_id = aggregate_row
+        .try_to_send_id
+        .expect("aggregate try_to_send_id must be set");
+
+    let aggregate_reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, aggregate_try_to_send_id)
+        .await
+        .unwrap()
+        .expect("aggregate reveal RBF txid must exist");
+    let aggregate_reveal_tx = tx_sender
+        .rpc
+        .get_tx_of_txid(&aggregate_reveal_txid)
+        .await
+        .unwrap();
+    assert_eq!(
+        aggregate_reveal_tx.input[0].previous_output, aggregate_commit_outpoint,
+        "aggregate reveal tx must spend the aggregate commit outpoint"
+    );
+
+    // Invalidate last 2 blocks and ensure aggregate sending is still correct after reorg.
+    let tip_height = rpc_env.rpc().get_current_chain_height().await.unwrap();
+    let last_block_hash = rpc_env
+        .rpc()
+        .get_block_hash(tip_height as u64)
+        .await
+        .unwrap();
+    let prev_block_hash = rpc_env
+        .rpc()
+        .get_block_hash((tip_height - 1) as u64)
+        .await
+        .unwrap();
+    rpc_env
+        .rpc()
+        .invalidate_block(&last_block_hash)
+        .await
+        .unwrap();
+    rpc_env
+        .rpc()
+        .invalidate_block(&prev_block_hash)
+        .await
+        .unwrap();
+
+    rpc_env.rpc().mine_blocks(2).await.unwrap();
+    task.run_once().await.unwrap();
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    assert!(
+        !aggregate_row.body.is_empty(),
+        "aggregate body should be set after reorg"
+    );
+    let aggregate_commit_outpoint = aggregate_row
+        .commit_outpoint
+        .expect("aggregate commit_outpoint must be set after reorg");
+    let aggregate_try_to_send_id = aggregate_row
+        .try_to_send_id
+        .expect("aggregate try_to_send_id must be set after reorg");
+
+    let aggregate_reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, aggregate_try_to_send_id)
+        .await
+        .unwrap()
+        .expect("aggregate reveal RBF txid must exist after reorg");
+    let aggregate_reveal_tx = tx_sender
+        .rpc
+        .get_tx_of_txid(&aggregate_reveal_txid)
+        .await
+        .unwrap();
+    assert_eq!(
+        aggregate_reveal_tx.input[0].previous_output, aggregate_commit_outpoint,
+        "aggregate reveal tx must spend the aggregate commit outpoint after reorg"
+    );
 }
 
 #[tokio::test]
@@ -460,8 +580,11 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
 
 #[tokio::test]
 async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
-    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let (mut config, _db, rpc_env) = create_test_environment(true, true).await;
     let rpc_env = rpc_env.expect("RPC environment must be created");
+
+    // make min_bump higher than 1 sat/vb for this test so that if btc node used is <v30 (min 1 sat/vb increment by default), it doesnt fail
+    config.limits.min_bump_kvb = 1234;
 
     let tx_sender = TxSender::new(config).await.unwrap();
 

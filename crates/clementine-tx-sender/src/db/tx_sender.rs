@@ -10,6 +10,7 @@ use clementine_primitives::FeeRateKvb;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::{Context, OptionExt};
 use sqlx::Executor;
+use std::collections::HashMap;
 
 use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 
@@ -900,7 +901,7 @@ impl TxSenderDb {
             .wrap_err("Failed to convert ids to i32")?;
 
         let query = sqlx::query_as::<_, (i32, TxidDB)>(
-            "SELECT id, txid FROM tx_sender_rbf_txids WHERE id = ANY($1)",
+            "SELECT id, txid FROM tx_sender_rbf_txids WHERE id = ANY($1) ORDER BY insertion_order DESC",
         )
         .bind(ids_i32);
 
@@ -934,6 +935,44 @@ impl TxSenderDb {
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
+    }
+
+    /// Returns seen_at_height and is_finalized for a set of try_to_send ids.
+    pub async fn list_try_to_send_statuses_by_ids(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        ids: &[u32],
+    ) -> Result<HashMap<u32, (Option<u32>, bool)>, BridgeError> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let ids_i32: Vec<i32> = ids
+            .iter()
+            .copied()
+            .map(i32::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .wrap_err("Failed to convert ids to i32")?;
+
+        let query = sqlx::query_as::<_, (i32, Option<i32>, bool)>(
+            "SELECT id, seen_at_height, is_finalized
+             FROM tx_sender_try_to_send_txs
+             WHERE id = ANY($1)",
+        )
+        .bind(ids_i32);
+
+        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+        let mut map = HashMap::with_capacity(results.len());
+        for (id, seen_at_height, is_finalized) in results {
+            let id = u32::try_from(id).wrap_err("Failed to convert id to u32")?;
+            let seen_at_height = seen_at_height
+                .map(u32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_at_height to u32")?;
+            map.insert(id, (seen_at_height, is_finalized));
+        }
+
+        Ok(map)
     }
 
     pub async fn set_try_to_send_finalized(

@@ -22,8 +22,9 @@ secrecy = { workspace = true }
 log = { workspace = true }
 jsonrpsee = { workspace = true, optional = true, features = ["macros", "server", "client", "http-client"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-sha2 = {workspace = true, optional = true}
+sha2 = { workspace = true, optional = true }
 tempfile = { workspace = true }
+borsh = { workspace = true, optional = true }
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }
@@ -40,7 +41,7 @@ json-rpc = [
 	"tx-sender-jsonrpc-client/clementine",
 ]
 standalone = ["json-rpc"]
-citrea = ["standalone", "dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client/citrea"]
+citrea = ["dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client/citrea", "dep:borsh"]
 testing = []
 
 [dev-dependencies]
