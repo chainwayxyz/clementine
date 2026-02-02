@@ -514,11 +514,12 @@ impl TxSender {
 
         // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kvb
         if new_fee_rate.to_sat_per_kvb() > previous_rate.to_sat_per_kvb() && !is_stuck {
-            let effective_increment =
-                effective_feerate.saturating_sub(previous_rate.to_sat_per_kvb());
+            // Check the increment based on the requested fee rate, not the BIP125-adjusted one
+            let requested_increment =
+                new_fee_rate.to_sat_per_kvb().saturating_sub(previous_rate.to_sat_per_kvb());
 
-            // if the effective increment is less than min_bump_kvb, do not bump
-            if effective_increment < self.tx_sender_limits.min_bump_kvb {
+            // if the requested increment is less than min_bump_kvb, do not bump
+            if requested_increment < self.tx_sender_limits.min_bump_kvb {
                 return Ok(previous_rate);
             }
 
