@@ -14,6 +14,7 @@ pub mod db;
 pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
+mod rpc_errors;
 mod signer;
 pub mod task;
 #[cfg(feature = "testing")]

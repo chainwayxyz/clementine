@@ -7,6 +7,7 @@ use clementine_primitives::FeeRateKvb;
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
+use crate::rpc_errors::{is_mempool_not_found_error, is_not_found_error};
 
 impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.
@@ -43,6 +44,53 @@ impl TxSender {
             };
 
             if in_mempool || seen_at_height.is_some() {
+                continue;
+            }
+            // We don't want to mark commit tx as evicted if it is present in rpc (mempool or confirmed).
+            // To be sure if it shows as evicted in db check rpc for it too.
+
+            let rpc_present = match self
+                .rpc
+                .get_raw_transaction_info(&commit_outpoint.txid, None)
+                .await
+            {
+                Ok(info) => {
+                    if info.confirmations.unwrap_or(0) > 0 {
+                        true
+                    } else {
+                        match self.rpc.get_mempool_entry(&commit_outpoint.txid).await {
+                            Ok(_) => true,
+                            Err(e) if is_mempool_not_found_error(&e) => false,
+                            Err(e) => {
+                                tracing::warn!(
+                                    insertion_id,
+                                    commit_txid = %commit_outpoint.txid,
+                                    error = %e,
+                                    "RPC mempool check failed; skipping eviction"
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) if is_not_found_error(&e) => false,
+                Err(e) => {
+                    tracing::warn!(
+                        insertion_id,
+                        commit_txid = %commit_outpoint.txid,
+                        error = %e,
+                        "RPC tx lookup failed; skipping eviction"
+                    );
+                    continue;
+                }
+            };
+
+            if rpc_present {
+                tracing::debug!(
+                    insertion_id,
+                    commit_txid = %commit_outpoint.txid,
+                    "Commit tx present according to RPC; skipping eviction"
+                );
                 continue;
             }
             tracing::warn!(

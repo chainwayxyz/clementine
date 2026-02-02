@@ -1,4 +1,4 @@
-use crate::{FeePayingType, TxSender, TxSenderTransaction};
+use crate::{rpc_errors::is_mempool_not_found_error, rpc_errors::is_not_found_error, FeePayingType, TxSender, TxSenderTransaction};
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
@@ -13,22 +13,6 @@ enum TxChainStatus {
     InMempool,
     /// Neither in mempool nor in the active chain.
     NotPresent,
-}
-
-fn is_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
-    // Bitcoin Core returns this when the tx is neither in mempool nor in the active chain.
-    // We treat it as "not confirmed" for our purposes.
-    let s = err.to_string();
-    s.contains("No such mempool or blockchain transaction")
-        || s.contains("No such mempool transaction")
-        || s.contains("No such transaction")
-}
-
-fn is_mempool_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
-    // Bitcoin Core returns this when the tx is not in the mempool.
-    // We treat it as "not present" for our purposes.
-    let s = err.to_string();
-    s.contains("Transaction not in mempool")
 }
 
 fn target_seen_at_height_for_confirmations(
