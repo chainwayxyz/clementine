@@ -383,7 +383,7 @@ impl TxSender {
                 &raw_bytes,
                 Some(&FundRawTransactionOptions {
                     add_inputs: Some(true),
-                    include_unsafe: Some(true),
+                    include_unsafe: Some(self.include_unsafe),
                     change_address: None,
                     change_position: Some(unsigned_commit_tx.output.len() as u32),
                     change_type: None,

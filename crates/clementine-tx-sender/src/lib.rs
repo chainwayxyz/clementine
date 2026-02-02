@@ -135,6 +135,8 @@ pub struct TxSender {
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
+    /// Whether to include unsafe UTXOs when funding transactions.
+    include_unsafe: bool,
 }
 
 impl std::fmt::Debug for TxSender {
@@ -147,6 +149,7 @@ impl std::fmt::Debug for TxSender {
             .field("db", &self.db)
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
+            .field("include_unsafe", &self.include_unsafe)
             .finish()
     }
 }
@@ -195,6 +198,7 @@ impl TxSender {
             finality_depth: tx_sender_config.finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: tx_sender_config.mempool,
+            include_unsafe: tx_sender_config.include_unsafe,
         })
     }
 

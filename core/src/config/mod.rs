@@ -368,6 +368,7 @@ impl BridgeConfig {
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
             poll_delay_ms: 60_000,
+            include_unsafe: false,
             jsonrpc: None,
         }
     }
