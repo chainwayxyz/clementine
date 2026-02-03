@@ -760,6 +760,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 {
                     // Add all watchtower challenges and operator asserts to matchers
                     self.add_default_kickoff_matchers(context).await?;
+                    context
+                        .dispatch_duty(Duty::AddNecessaryTxsForKickoff {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                        })
+                        .await?;
                     Ok::<(), BridgeError>(())
                 }
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))

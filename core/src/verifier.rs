@@ -3216,6 +3216,10 @@ mod states {
 
                     Ok(DutyResult::Handled)
                 }
+                Duty::AddNecessaryTxsForKickoff { .. } => {
+                    // Verifiers do not need to add any transactions for kickoff if it is not challenged
+                    Ok(DutyResult::Handled)
+                }
                 Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
                 Duty::AddRelevantTxsToTxSenderIfChallenged {
                     kickoff_data,

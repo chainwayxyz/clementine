@@ -2573,6 +2573,19 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    // Why is this needed if these txs are already added when kickoff is created in handle_finalized_payout?
+                    // If it was created when operator had no automation, and now automation is enabled, we need to ensure the necessary txs are queued.
+                    // Or if operator lost db and is resyncing.
+                    tracing::info!("Operator {:?} called add necessary txs for kickoff with kickoff_data: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data);
+                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
                 Duty::AddRelevantTxsToTxSenderIfChallenged {
                     kickoff_data,
                     deposit_data,
