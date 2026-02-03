@@ -38,7 +38,7 @@ pub enum SystemEvent {
         deposit_data: DepositData,
         payout_blockhash: Witness,
     },
-    /// An event for when a the LCP for an L1 block height is processed
+    /// An event for when the LCP for an L1 block height is processed
     LCPProcessed { height: u32 },
 }
 
@@ -60,7 +60,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    /// Appends a  message to the state manager's message queue to notify that the LCP for an L1 block height is processed
+    /// Appends a message to the state manager's message queue to notify that the LCP for an L1 block height is processed
     pub async fn dispatch_lcp_processed(
         db: &Database,
         tx: DatabaseTransaction<'_>,
@@ -356,7 +356,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         payout_blockhash: &Witness,
         kickoff_data: &KickoffData,
         deposit_data: &DepositData,
-        dummy_context: &mut StateContext<T>,
+        context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
         // Pull the current round state data first to avoid holding a mutable borrow of self
         // while calling into owner duties (which require an immutable borrow of self.owner).
@@ -365,7 +365,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .get_round_machine(&kickoff_data.operator_xonly_pk)
                 .await
                 .ok_or_eyre(
-                    "Round machine not found for operator {} while checking if kickoff is malicious",
+                    format!("Round machine not found for operator {} while checking if kickoff is malicious", kickoff_data.operator_xonly_pk),
                 )?;
 
             round_machine
@@ -380,7 +380,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             challenged_before: was_challenged_before,
         };
 
-        let res = dummy_context
+        let res = context
             .dispatch_duty(duty)
             .await
             .wrap_err("Error while checking if kickoff is malicious")?;
@@ -398,7 +398,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                                 &RoundEvent::SetChallenged {
                                     round_idx: kickoff_data.round_idx,
                                 },
-                                dummy_context,
+                                context,
                             )
                             .await;
                     }

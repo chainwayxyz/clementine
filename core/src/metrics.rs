@@ -303,7 +303,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
                 ),
             )
             .await,
-            "getting finalized synced height",
+            "getting lcp synced height",
         )
         .flatten();
 
