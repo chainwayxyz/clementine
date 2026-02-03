@@ -70,7 +70,7 @@ impl<T: NamedEntity, C: CitreaClientT> Task for EntityMetricPublisher<T, C> {
             Ok(sync_status) => sync_status,
             Err(e) => {
                 tracing::error!(
-                    "Failed to get l1 status when publishing metrics for {}: {:?}",
+                    "Failed to get status when publishing metrics for {}: {:?}",
                     T::ENTITY_NAME,
                     e
                 );

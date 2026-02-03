@@ -23,6 +23,7 @@ use metrics_derive::Metrics;
 
 const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
+// Metric scope is named l1_sync_status for backward compatibility even if it includes l2 metrics.
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
 /// The sync status metrics for the currently running entity. (operator/verifier)
@@ -49,7 +50,7 @@ pub struct SyncStatusMetrics {
 
 #[derive(Metrics)]
 #[metrics(dynamic = true)]
-/// The L1 sync status metrics for an entity. This is used by the aggregator to
+/// The sync status metrics for an entity. This is used by the aggregator to
 /// publish external entity metrics.  The scope will be set to the EntityId +
 /// "_l1_sync_status", which will be displayed as
 /// `Operator(abcdef123...)_l1_sync_status` or
@@ -88,7 +89,7 @@ pub struct EntitySyncStatusMetrics {
     pub stopped_tasks_count: Gauge,
 }
 
-/// The L1 sync status metrics static for the currently running entity. (operator/verifier)
+/// The sync status metrics static for the currently running entity. (operator/verifier)
 pub static ENTITY_SYNC_STATUS: LazyLock<SyncStatusMetrics> = LazyLock::new(|| {
     SyncStatusMetrics::describe();
     SyncStatusMetrics::default()
@@ -191,8 +192,8 @@ pub async fn get_bitcoin_fee_rate(
     Ok(fee_rate.to_sat_per_vb_ceil())
 }
 
+/// Extension trait on named entities to retrieve their sync status (including both L1 and L2 data).  
 #[async_trait]
-/// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
 pub trait SyncStatusProvider: NamedEntity {
     async fn get_sync_status<C: crate::citrea::CitreaClientT>(
         db: &Database,
