@@ -37,7 +37,7 @@ impl<C> ClementineVerifier for VerifierServer<C>
 where
     C: CitreaClientT,
 {
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_params(
         &self,
         _request: Request<Empty>,
@@ -46,13 +46,13 @@ where
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn restart_background_tasks(
         &self,
         _request: tonic::Request<super::Empty>,
@@ -178,7 +178,7 @@ where
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         tracing::info!("Verifier get params rpc called");
         let params: VerifierParams = (&self.verifier).try_into()?;
@@ -677,7 +677,10 @@ where
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
-        dbtx.commit().await.map_to_status()?;
+        dbtx.commit()
+            .await
+            .wrap_err("Failed to commit transaction")
+            .map_to_status()?;
         Ok(Response::new(Empty {}))
     }
 
