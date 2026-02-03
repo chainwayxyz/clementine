@@ -2032,7 +2032,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         TransactionType::Challenge,
                         &challenge_tx,
                         &[],
