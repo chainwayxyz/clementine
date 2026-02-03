@@ -56,9 +56,17 @@ pub enum Duty {
         witness: Witness,
         challenged_before: bool,
     },
-    /// This duty is sent after a kickoff is detected and added to the state manager.
+    /// This duty is sent when a new kickoff state machine starts.
+    /// It notifies the owner to add necessary transactions for the kickoff to the tx sender.
+    /// For verifiers it doesn't do anything as they don't need to add any transactions unless the kickoff is challenged.
+    /// For operators, this queues transactions like ChallengeTimeout.
+    AddNecessaryTxsForKickoff {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    },
+    /// This duty is sent after a kickoff is detected to be challenged.
     /// It includes the kickoff data so that the owner can add the relevant txs to the tx sender.
-    AddRelevantTxsToTxSender {
+    AddRelevantTxsToTxSenderIfChallenged {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     },
