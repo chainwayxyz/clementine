@@ -470,8 +470,6 @@ impl TxSender {
                         script: signing_data.reveal_script.into_bytes(),
                     },
                     tap_sighash_type: TapSighashType::Default,
-                    annex: None,
-                    additional_taproot_output_count: None,
                 }),
                 &[],
                 &[],

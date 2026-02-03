@@ -239,7 +239,6 @@ pub async fn send_txs(
             consensus::deserialize(&tx_data.raw_tx).context("expected valid tx")?;
 
         let fee_paying_type = if tx_data.tx_type == TxType::Challenge
-            || matches!(tx_data.tx_type, TxType::WatchtowerChallenge(_))
         {
             FeePayingType::RBF
         } else {

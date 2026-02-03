@@ -27,8 +27,6 @@ use citrea_e2e::{
 pub enum BridgeCircuitTestDataVariant {
     WithAnnex,
     LargeInput,
-    LargeOutput,
-    LargeInputAndOutput,
     InsufficientTotalWork,
     Valid,
     FirstTwoValid,
@@ -116,12 +114,6 @@ impl TestCase for BridgeCircuitTestData {
             }
             BridgeCircuitTestDataVariant::LargeInput => {
                 config.test_params.use_large_annex = true;
-            }
-            BridgeCircuitTestDataVariant::LargeOutput => {
-                config.test_params.use_large_output = true;
-            }
-            BridgeCircuitTestDataVariant::LargeInputAndOutput => {
-                config.test_params.use_large_annex_and_output = true;
             }
             BridgeCircuitTestDataVariant::FirstTwoValid => {
                 config
@@ -244,30 +236,6 @@ async fn challenge_tx_with_large_input() -> Result<()> {
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInput,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
-}
-
-#[tokio::test]
-#[ignore = "Only run this test manually, it's for data generation purposes"]
-async fn challenge_tx_with_large_output() -> Result<()> {
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::LargeOutput,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
-        .run()
-        .await
-}
-
-#[tokio::test]
-#[ignore = "Only run this test manually, it's for data generation purposes"]
-async fn challenge_tx_with_both_large_input_and_output() -> Result<()> {
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()

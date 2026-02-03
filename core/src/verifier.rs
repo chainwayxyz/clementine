@@ -418,7 +418,26 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        #[cfg(not(test))]
         let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+
+        #[cfg(test)]
+        let signer = {
+            let mut signer = Actor::new(config.secret_key, config.protocol_paramset().network);
+            if config.test_params.use_small_annex {
+                signer.annex = Some(vec![80u8; 520]);
+            } else if config.test_params.use_large_annex {
+                signer.annex = Some(vec![80u8; 3990000]);
+            }
+            if config.test_params.use_large_annex || config.test_params.use_small_annex {
+                tracing::warn!(
+                    "Using annex: small: {}, large: {}",
+                    config.test_params.use_small_annex,
+                    config.test_params.use_large_annex
+                );
+            }
+            signer
+        };
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -2123,7 +2142,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -2133,15 +2152,6 @@ where
                 Some(dbtx),
             )
             .await?;
-
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
 
         #[cfg(feature = "automation")]
         {
@@ -2159,7 +2169,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     self.config.protocol_paramset(),
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 

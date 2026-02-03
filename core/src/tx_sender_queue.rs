@@ -73,7 +73,8 @@ impl TxSenderClientQueueExt for TxSenderClient {
             | TransactionType::OptimisticPayout
             | TransactionType::ReadyToReimburse
             | TransactionType::ReplacementDeposit
-            | TransactionType::AssertTimeout(_) => {
+            | TransactionType::AssertTimeout(_)
+            | TransactionType::WatchtowerChallenge(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
@@ -88,9 +89,7 @@ impl TxSenderClientQueueExt for TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Payout => {
+            TransactionType::Challenge | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,

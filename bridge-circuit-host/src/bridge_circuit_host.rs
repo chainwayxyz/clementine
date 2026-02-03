@@ -394,7 +394,7 @@ pub fn create_spv(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx};
+    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx_test_util};
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -565,7 +565,8 @@ mod tests {
                 watchtower_input.watchtower_challenge_tx.output[2]
             );
 
-            let total_work = total_work_from_wt_tx(&watchtower_input.watchtower_challenge_tx);
+            let total_work =
+                total_work_from_wt_tx_test_util(&watchtower_input.watchtower_challenge_tx);
             total_works.push(total_work);
         }
 

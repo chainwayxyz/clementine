@@ -85,10 +85,6 @@ pub struct RbfSigningInfo {
     pub spend_path: RbfSigningSpendPath,
     /// Taproot sighash type to use when signing.
     pub tap_sighash_type: TapSighashType,
-    /// Annex data (used for testing large transaction scenarios).
-    pub annex: Option<Vec<u8>>,
-    /// Additional taproot output count (used for testing large transaction scenarios).
-    pub additional_taproot_output_count: Option<u32>,
 }
 
 /// Metadata about a transaction.

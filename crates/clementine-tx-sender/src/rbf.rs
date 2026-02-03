@@ -330,31 +330,6 @@ impl TxSender {
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?,
         };
 
-        #[cfg(feature = "testing")]
-        let mut sighash = sighash;
-
-        #[cfg(feature = "testing")]
-        {
-            // these annex code will be deleted in another PR anyway
-            use bitcoin::sighash::Annex;
-            // This should provide the Sighash for the key spend
-            if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                if let RbfSigningSpendPath::ScriptPath { .. } = &rbf_signing_info.spend_path {
-                    return Err(eyre!("Script path RBF signing with annex not supported").into());
-                }
-                let annex = Annex::new(annex_bytes).unwrap();
-                sighash = sighash_cache
-                    .taproot_signature_hash(
-                        input_index,
-                        &Prevouts::All(&prevouts),
-                        Some(annex),
-                        None,
-                        tap_sighash_type,
-                    )
-                    .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
-            }
-        }
-
         // Sign the sighash with our signer
         let tweak_data = match &rbf_signing_info.spend_path {
             RbfSigningSpendPath::KeyPath { tweak_merkle_root } => {
@@ -386,14 +361,6 @@ impl TxSender {
                 witness.push(signature.serialize());
                 witness.push(script.clone());
                 witness.push(control_block.clone());
-            }
-        }
-
-        #[cfg(feature = "testing")]
-        {
-            if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                witness.push(annex_bytes);
-                tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
             }
         }
         decoded_psbt.inputs[input_index].final_script_witness = Some(witness);

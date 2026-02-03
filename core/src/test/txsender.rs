@@ -990,10 +990,6 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1018,10 +1014,6 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
             false,
@@ -1127,10 +1119,6 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1190,10 +1178,6 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1218,10 +1202,6 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
             false,
@@ -1360,10 +1340,6 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
             false,
@@ -1404,10 +1380,6 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
                     tweak_merkle_root: None,
                 },
                 tap_sighash_type: TapSighashType::Default,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
             false,

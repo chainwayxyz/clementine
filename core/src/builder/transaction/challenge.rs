@@ -9,10 +9,10 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
+use crate::constants::NON_STANDARD_V3;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::script::PushBytesBuf;
-use bitcoin::{Sequence, TxOut, WitnessVersion};
+use bitcoin::{Sequence, TxOut};
 use clementine_errors::{BridgeError, TransactionType, TxError};
 use clementine_primitives::EVMAddress;
 use eyre::Context;
@@ -48,13 +48,12 @@ pub fn create_watchtower_challenge_txhandler(
     watchtower_idx: usize,
     commit_data: &[u8],
     paramset: &'static ProtocolParamset,
-    #[cfg(test)] test_params: &crate::config::TestParams,
 ) -> Result<TxHandler, BridgeError> {
     if commit_data.len() != paramset.watchtower_challenge_bytes {
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .with_version(Version::TWO)
+        .with_version(NON_STANDARD_V3)
         .add_input(
             (
                 NumberedSignatureKind::WatchtowerChallenge,
@@ -65,35 +64,14 @@ pub fn create_watchtower_challenge_txhandler(
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
-    let mut current_idx = 0;
-    while current_idx + 80 < paramset.watchtower_challenge_bytes {
-        // encode next 32 bytes of data as script pubkey of taproot utxo
-        let data = PushBytesBuf::try_from(commit_data[current_idx..current_idx + 32].to_vec())
-            .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return: {}")?;
 
-        let data_encoded_scriptbuf = Builder::new()
-            .push_opcode(WitnessVersion::V1.into())
-            .push_slice(data)
-            .into_script();
-
-        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: data_encoded_scriptbuf,
-        }));
-        current_idx += 32;
-    }
-
-    // add the remaining data as an op_return output
-    if current_idx < paramset.watchtower_challenge_bytes {
-        let remaining_data = PushBytesBuf::try_from(commit_data[current_idx..].to_vec())
-            .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return")?;
-        builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
-    }
-
-    #[cfg(test)]
-    {
-        builder = test_params.maybe_add_large_test_outputs(builder)?;
-    }
+    let push_data = PushBytesBuf::try_from(commit_data.to_vec())
+        .wrap_err("Failed to create pushbytesbuf for watchtower challenge op_return")?;
+    builder = builder
+        .add_output(UnspentTxOut::from_partial(op_return_txout(push_data)))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.anchor_amount(),
+        )));
 
     Ok(builder.finalize())
 }
