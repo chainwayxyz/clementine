@@ -82,7 +82,7 @@ jobs:
       - uses: ./.github/actions/test-prerequisites
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -348,6 +348,12 @@ jobs:
         run: |
           ./scripts/generate_certs.sh
           cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
+
+      - name: Dump database
+        if: failure() || cancelled()
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=clementine pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists > test-logs/standalone/db_dump.sql
 
       - name: Upload test logs
         if: failure() || cancelled()
