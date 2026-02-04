@@ -118,6 +118,7 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     config: BridgeConfig,
     next_height_to_process: u32,
+    last_processed_lcp: Option<u32>,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
     last_finalized_block: Option<Arc<BlockCache>>,
@@ -138,6 +139,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_machines: Vec::new(),
             config: self.config.clone(),
             next_height_to_process: self.next_height_to_process,
+            last_processed_lcp: self.last_processed_lcp,
             rpc: self.rpc.clone(),
             last_finalized_block: self.last_finalized_block.clone(),
         }
@@ -194,6 +196,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_machines: Vec::new(),
             queue,
             next_height_to_process: config.protocol_paramset.start_height,
+            last_processed_lcp: None,
             rpc,
         };
 
@@ -224,6 +227,16 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .db
             .get_next_height_to_process(Some(&mut dbtx), owner_type)
             .await?;
+
+        // Load last processed LCP
+        let last_processed_lcp = self
+            .db
+            .get_last_processed_lcp(Some(&mut dbtx), owner_type)
+            .await?;
+
+        self.last_processed_lcp = last_processed_lcp
+            .map(|lcp| u32::try_from(lcp).wrap_err("Last processed LCP doesn't fit into u32"))
+            .transpose()?;
 
         // If no state is saved, return early
         self.next_height_to_process = match status {
@@ -415,14 +428,25 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         {
             let mut dbtx = context.shared_dbtx.lock().await;
+
+            let last_processed_lcp_i32 = self
+                .last_processed_lcp
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert last_processed_lcp to i32")?;
+
+            let block_height_i32 = i32::try_from(context.cache.block_height)
+                .wrap_err("Failed to convert block_height to i32")?;
+
             // Use the database function to save the state machines
             self.db
                 .save_state_machines(
                     &mut dbtx,
                     kickoff_machines?,
                     round_machines?,
-                    context.cache.block_height as i32 + 1,
+                    block_height_i32 + 1,
                     owner_type,
+                    last_processed_lcp_i32,
                 )
                 .await?;
         }

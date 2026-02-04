@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS state_machines (
 CREATE TABLE IF NOT EXISTS state_manager_status (
     owner_type VARCHAR(100) PRIMARY KEY,
     next_height_to_process INT NOT NULL,
+    last_processed_lcp INT,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 -- Create indexes for better query performance

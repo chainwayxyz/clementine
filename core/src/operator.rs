@@ -215,6 +215,7 @@ where
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
             citrea_l2_block_height: sync_status.citrea_l2_block_height,
+            lcp_synced_height: sync_status.lcp_synced_height,
         })
     }
 }
@@ -2528,8 +2529,8 @@ where
     const ENTITY_NAME: &'static str = "operator";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "operator_finalized_block_fetcher_automation";
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-        "operator_finalized_block_fetcher_no_automation";
+    // operator uses verifier's lcp syncer
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 
 #[cfg(feature = "automation")]
@@ -2540,10 +2541,9 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner, StateManager};
+    use crate::states::{Duty, Owner, StateManager};
     use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     #[tonic::async_trait]
     impl<C> Owner for Operator<C>
@@ -2624,7 +2624,6 @@ mod states {
                     txid,
                     block_height,
                     witness,
-                    challenged_before: _,
                 } => {
                     tracing::debug!(
                         "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -2655,6 +2654,8 @@ mod states {
 
                     Ok(DutyResult::Handled)
                 }
+                // Operators do not check if kickoffs are malicious
+                Duty::CheckIfKickoffMalicious { .. } => Ok(DutyResult::Handled),
             }
         }
 
@@ -2674,17 +2675,6 @@ mod states {
             )
             .await?;
             Ok(txhandlers)
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
 
         fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {

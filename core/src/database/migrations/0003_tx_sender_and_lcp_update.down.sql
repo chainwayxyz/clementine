@@ -11,3 +11,7 @@ ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints DROP COLUMN IF EX
 ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids DROP COLUMN IF EXISTS in_mempool;
 -- Drop unique constraint on txid column in tx_sender_try_to_send_txs table
 ALTER TABLE tx_sender_try_to_send_txs DROP CONSTRAINT uq_tx_sender_txid;
+
+
+-- Remove last_processed_lcp column from state_manager_status table
+ALTER TABLE state_manager_status DROP COLUMN IF EXISTS last_processed_lcp;

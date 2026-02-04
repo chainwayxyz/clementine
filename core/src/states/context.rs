@@ -54,6 +54,15 @@ pub enum Duty {
         txid: Txid,
         block_height: u32,
         witness: Witness,
+    },
+    /// This duty is sent after a kickoff is detected and the LCP of the block height that contains the kickoff is processed.
+    /// It includes the relevant data so that the owner can check if the kickoff is malicious.
+    /// Only verifiers check if the kickoff is malicious,
+    CheckIfKickoffMalicious {
+        kickoff_witness: Witness,
+        deposit_data: DepositData,
+        kickoff_data: KickoffData,
+        /// challenged_before indicates if another kickoff belonging to the same round was challenged before, because only one challenge is needed per round.
         challenged_before: bool,
     },
     /// This duty is sent when a new kickoff state machine starts.
@@ -120,7 +129,7 @@ pub enum DutyResult {
     /// Duty was handled, no return value is necessary
     Handled,
     /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
-    CheckIfKickoff { challenged: bool },
+    CheckIfKickoffMalicious { challenged: bool },
 }
 
 /// Owner trait with async handling and tx handler creation
@@ -140,16 +149,6 @@ pub trait Owner: Clone + NamedEntity {
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
-
-    /// Handle a new finalized block
-    async fn handle_finalized_block(
-        &self,
-        dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
-        block_height: u32,
-        block_cache: Arc<block_cache::BlockCache>,
-        _light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError>;
 
     /// Check if a kickoff is relevant for the owner
     /// For verifiers, all kickoffs are relevant

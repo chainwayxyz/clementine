@@ -114,6 +114,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_height: u32,
     /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
     pub(crate) payout_blockhash: Witness,
+    /// Indicates if the kickoff is considered to be malicious. Used so that we can determine that if another kickoff in the same round is malicious, we don't need to send challenge txs for this one.
+    pub(crate) is_malicious: bool,
     /// Marker to indicate if the state machine is in the challenged state.
     challenged: bool,
     /// Set of indices of watchtower UTXOs that have already been spent.
@@ -166,6 +168,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             kickoff_height,
             deposit_data,
             payout_blockhash,
+            is_malicious: false,
             latest_blockhash: Witness::default(),
             matchers: HashMap::new(),
             dirty: true,

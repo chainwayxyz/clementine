@@ -150,6 +150,9 @@ impl Task for AggregatorMetricPublisher {
                     if let Some(height) = status.citrea_l2_block_height {
                         metrics.citrea_l2_block_height.set(height as f64);
                     }
+                    if let Some(height) = status.lcp_synced_height {
+                        metrics.lcp_synced_height.set(height as f64);
+                    }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {
                     tracing::error!("Entity {} error: {}", entity_id, error.error);

@@ -46,6 +46,8 @@ pub struct SyncStatusMetrics {
     pub bitcoin_fee_rate_sat_vb: Gauge,
     #[metric(describe = "The current Citrea L2 block height")]
     pub citrea_l2_block_height: Gauge,
+    #[metric(describe = "The last processed Citrea Light Client Proof L1 height for the entity")]
+    pub lcp_synced_height: Gauge,
 }
 
 #[derive(Metrics)]
@@ -87,6 +89,9 @@ pub struct EntitySyncStatusMetrics {
 
     #[metric(describe = "The number of stopped tasks for the entity")]
     pub stopped_tasks_count: Gauge,
+
+    #[metric(describe = "The last processed Citrea Light Client Proof L1 height for the entity")]
+    pub lcp_synced_height: Gauge,
 }
 
 /// The sync status metrics static for the currently running entity. (operator/verifier)
@@ -107,6 +112,7 @@ pub struct SyncStatus {
     pub state_manager_next_height: Option<u32>,
     pub bitcoin_fee_rate_sat_vb: Option<u64>,
     pub citrea_l2_block_height: Option<u32>,
+    pub lcp_synced_height: Option<u32>,
 }
 
 /// Get the current balance of the wallet.
@@ -133,6 +139,18 @@ pub async fn get_btc_syncer_consumer_last_processed_block_height(
 ) -> Result<Option<u32>, BridgeError> {
     db.get_last_processed_event_block_height(None, consumer_handle)
         .await
+}
+
+/// Get the last processed finalized block height of the given consumer or None if no
+/// block was processed by the consumer.
+pub async fn get_btc_syncer_consumer_last_processed_finalized_block_height(
+    db: &Database,
+    consumer_handle: &str,
+    finality_depth: u32,
+) -> Result<Option<u32>, BridgeError> {
+    get_btc_syncer_consumer_last_processed_block_height(db, consumer_handle)
+        .await
+        .map(|opt_height| opt_height.map(|h| h.saturating_sub(finality_depth - 1)))
 }
 
 /// Get the last processed block height of the Bitcoin Syncer or None if no
@@ -257,9 +275,10 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
                 "get_finalized_synced_height",
-                get_btc_syncer_consumer_last_processed_block_height(
+                get_btc_syncer_consumer_last_processed_finalized_block_height(
                     db,
                     T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+                    config.protocol_paramset.finality_depth,
                 ),
             )
             .await,
@@ -268,17 +287,20 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         .flatten();
 
         #[cfg(not(feature = "automation"))]
-        let finalized_synced_height = log_errs_and_ok::<_, T>(
+        let finalized_synced_height = None;
+
+        let lcp_synced_height = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_finalized_synced_height",
-                get_btc_syncer_consumer_last_processed_block_height(
+                "get_lcp_synced_height",
+                get_btc_syncer_consumer_last_processed_finalized_block_height(
                     db,
-                    T::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+                    T::LCP_SYNCER_CONSUMER_ID,
+                    config.protocol_paramset.finality_depth,
                 ),
             )
             .await,
-            "getting finalized synced height",
+            "getting lcp synced height",
         )
         .flatten();
 
@@ -344,6 +366,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,
             citrea_l2_block_height,
+            lcp_synced_height,
         })
     }
 }

@@ -108,6 +108,9 @@ impl<T: NamedEntity, C: CitreaClientT> Task for EntityMetricPublisher<T, C> {
         if let Some(height) = sync_status.citrea_l2_block_height {
             metric.citrea_l2_block_height.set(height as f64);
         }
+        if let Some(height) = sync_status.lcp_synced_height {
+            metric.lcp_synced_height.set(height as f64);
+        }
 
         Ok(false)
     }
