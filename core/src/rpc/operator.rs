@@ -41,6 +41,7 @@ where
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_params(
         &self,
         _request: Request<Empty>,
@@ -49,11 +50,13 @@ where
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn restart_background_tasks(
         &self,
         _request: tonic::Request<super::Empty>,
@@ -109,7 +112,7 @@ where
         Ok(Response::new(out_stream))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn deposit_sign(
         &self,
         request: Request<DepositSignSession>,
@@ -162,7 +165,7 @@ where
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_withdraw(
         &self,
         request: Request<WithdrawParams>,
@@ -186,7 +189,7 @@ where
         Ok(Response::new(RawSignedTx::from(&payout_tx)))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn withdraw(
         &self,
         request: Request<WithdrawParamsWithSig>,
@@ -254,7 +257,7 @@ where
         Ok(Response::new(RawSignedTx::from(&payout_tx)))
     }
 
-    #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<TransactionRequest>,
@@ -292,7 +295,7 @@ where
         }))
     }
 
-    #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn get_deposit_keys(
         &self,
         request: Request<DepositParams>,
@@ -324,6 +327,7 @@ where
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn internal_create_signed_txs(
         &self,
         request: tonic::Request<super::TransactionRequest>,
@@ -416,7 +420,7 @@ where
         Ok(Response::new(kickoff_txid.into()))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn internal_end_round(
         &self,
         _request: Request<Empty>,
@@ -443,7 +447,7 @@ where
         ))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_x_only_public_key(
         &self,
         _request: Request<Empty>,
@@ -455,6 +459,7 @@ where
         }))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_current_status(
         &self,
         _request: Request<Empty>,
@@ -465,6 +470,7 @@ where
         Ok(Response::new(status))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_reimbursement_txs(
         &self,
         request: Request<clementine::Outpoint>,

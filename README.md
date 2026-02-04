@@ -8,12 +8,6 @@ The repository includes:
 - A library for bridge operator, verifiers, aggregator and watchtower
 - Circuits that will be optimistically verified with BitVM
 
-> [!WARNING]
->
-> Clementine is still a work in progress. It has not been audited and should not
-> be used in production under any circumstances. It also requires a full BitVM
-> implementation to be run fully on-chain.
-
 ## Documentation
 
 High level documentations are in [docs/](docs). These documentations explains
