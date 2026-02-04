@@ -518,7 +518,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
         let mut expected_next_finalized = self.next_finalized_height;
 
         // Process the event
-        let did_find_new_block = match event {
+        match event {
             BitcoinSyncerEvent::NewBlock(block_id) => {
                 let new_block_height = self
                     .db
@@ -574,17 +574,15 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
 
                     expected_next_finalized += 1;
                 }
-
-                new_tip
             }
-            BitcoinSyncerEvent::ReorgedBlock(_) => false,
+            BitcoinSyncerEvent::ReorgedBlock(_) => {}
         };
 
         dbtx.commit().await?;
         // update next height only after db commit is successful so next_height is consistent with state in DB
         self.next_finalized_height = expected_next_finalized;
         // Return whether we found new blocks
-        Ok(did_find_new_block)
+        Ok(true)
     }
 }
 
