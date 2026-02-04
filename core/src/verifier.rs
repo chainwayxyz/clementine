@@ -30,9 +30,11 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
+#[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::musig2;
+#[cfg(feature = "automation")]
 use crate::operator::Operator;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
