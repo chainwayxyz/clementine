@@ -352,8 +352,8 @@ jobs:
       - name: Dump database
         if: failure() || cancelled()
         run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          PGPASSWORD=clementine pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists > test-logs/standalone/db_dump.sql
+          docker run --rm --network host -e PGPASSWORD=clementine postgres:latest \
+            pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists > test-logs/standalone/db_dump.sql
 
       - name: Upload test logs
         if: failure() || cancelled()
