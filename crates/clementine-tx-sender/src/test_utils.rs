@@ -81,17 +81,12 @@ pub async fn create_test_environment(
 /// - Database connection fails
 /// - Database operations fail
 pub async fn setup_txsender_test_db(config: &TxSenderConfig) -> TxSenderDb {
-    use secrecy::ExposeSecret;
-
     let db_name = config.postgres.dbname.clone();
 
     // Use same defaults as core test util
     let admin_config = TxSenderPostgresConfig {
-        host: "127.0.0.1".to_string(),
-        port: 5432,
-        user: "clementine".to_string().into(),
-        password: "clementine".to_string().into(),
         dbname: "postgres".to_string(),
+        ..config.postgres.clone()
     };
 
     // Connect to postgres database to create/drop the test database
@@ -107,7 +102,7 @@ pub async fn setup_txsender_test_db(config: &TxSenderConfig) -> TxSenderDb {
     let _ = sqlx::query(&format!(
         "CREATE DATABASE {} WITH OWNER {}",
         db_name,
-        admin_config.user.expose_secret()
+        config.postgres.user.expose_secret()
     ))
     .execute(admin_db.pool())
     .await;
