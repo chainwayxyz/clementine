@@ -198,25 +198,7 @@ pub fn stark_to_bitvm2_g16(
         .as_str()
         .ok_or_else(|| eyre!("Failed to get output string from JSON"))?;
 
-    // Step 2: Convert the decimal string to BigUint and then to hexadecimal
-    let output_content_hex = BigUint::from_str_radix(output_str, 10)
-        .wrap_err("Failed to parse decimal string")?
-        .to_str_radix(16);
-
-    // If the length of the hexadecimal string is odd, add a leading zero
-    let output_content_hex = if output_content_hex.len() % 2 == 0 {
-        output_content_hex
-    } else {
-        format!("0{output_content_hex}")
-    };
-
-    // Step 3: Decode the hexadecimal string to a byte vector
-    let output_byte_vec =
-        hex::decode(&output_content_hex).wrap_err("Failed to decode hex string")?;
-    let output_bytes: [u8; 31] = output_byte_vec
-        .as_slice()
-        .try_into()
-        .wrap_err("Failed to convert output bytes to array")?;
+    let output_bytes = decimal_str_to_output_bytes(output_str)?;
 
     Ok((
         proof_json
@@ -1024,36 +1006,30 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         .as_str()
         .wrap_err("Failed to get output string from JSON")?; // Extracts the string from the JSON array
 
-    // Step 2: Convert the decimal string to BigUint and then to hexadecimal
-    let output_content_hex = BigUint::from_str_radix(output_str, 10)
-        .wrap_err("Failed to parse decimal string")?
-        .to_str_radix(16);
-
-    // If the length of the hexadecimal string is odd, add a leading zero
-    let output_content_hex = if output_content_hex.len() % 2 == 0 {
-        output_content_hex
-    } else {
-        format!("0{output_content_hex}")
-    };
-
-    // Step 3: Decode the hexadecimal string to a byte vector
-    let output_byte_vec =
-        hex::decode(&output_content_hex).wrap_err("Failed to decode hex string")?;
-    // Create our target 31-byte array, initialized to all zeros.
-    let mut output_bytes = [0u8; 31];
-
-    // Calculate the starting position in the destination array.
-    // This ensures the bytes are right-aligned, effectively padding with leading zeros.
-    let start_index = 31 - output_byte_vec.len();
-
-    // Copy the decoded bytes from the vector into the correct slice of the array.
-    output_bytes[start_index..].copy_from_slice(&output_byte_vec);
+    let output_bytes = decimal_str_to_output_bytes(output_str)?;
     Ok((
         proof_json
             .try_into()
             .map_err(|e| eyre!("Failed to convert proof JSON to Seal: {:?}", e))?,
         output_bytes,
     ))
+}
+
+fn decimal_str_to_output_bytes(output_str: &str) -> Result<[u8; 31]> {
+    const OUTPUT_LEN: usize = 31;
+
+    let bytes = BigUint::from_str_radix(output_str, 10)
+        .wrap_err("Failed to parse decimal string")?
+        .to_bytes_be();
+
+    if bytes.len() > OUTPUT_LEN {
+        return Err(eyre!("output too large: {} bytes", bytes.len()));
+    }
+
+    let mut output_bytes = [0u8; OUTPUT_LEN];
+    let start = OUTPUT_LEN - bytes.len();
+    output_bytes[start..].copy_from_slice(&bytes);
+    Ok(output_bytes)
 }
 
 fn is_x86_architecture() -> bool {
@@ -1068,6 +1044,8 @@ pub fn to_decimal(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigUint;
+    use num_traits::One;
 
     /// Test that pull_or_load_image succeeds for the STARK_TO_BITVM2 image.
     /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
@@ -1145,5 +1123,54 @@ mod tests {
         );
         let path = result.unwrap();
         assert!(path.exists(), "Modified tar file should exist at {path:?}");
+    }
+
+    #[test]
+    fn decimal_str_to_output_bytes_zero() {
+        let bytes = decimal_str_to_output_bytes("0").expect("zero should parse");
+        assert_eq!(bytes, [0u8; 31]);
+    }
+
+    #[test]
+    fn decimal_str_to_output_bytes_small_values() {
+        let one = decimal_str_to_output_bytes("1").expect("one should parse");
+        let mut expected = [0u8; 31];
+        expected[30] = 1;
+        assert_eq!(one, expected);
+
+        let max_u8 = decimal_str_to_output_bytes("255").expect("255 should parse");
+        expected[30] = 0xff;
+        assert_eq!(max_u8, expected);
+
+        let two_bytes = decimal_str_to_output_bytes("256").expect("256 should parse");
+        let mut expected_two = [0u8; 31];
+        expected_two[29] = 1;
+        expected_two[30] = 0;
+        assert_eq!(two_bytes, expected_two);
+    }
+
+    #[test]
+    fn decimal_str_to_output_bytes_max_value() {
+        let max: BigUint = (BigUint::one() << (8 * 31)) - BigUint::one();
+        let max_str = max.to_str_radix(10);
+        let bytes = decimal_str_to_output_bytes(&max_str).expect("max should parse");
+        assert!(bytes.iter().all(|&b| b == 0xff));
+    }
+
+    #[test]
+    fn decimal_str_to_output_bytes_rejects_too_large() {
+        let max = (BigUint::one() << (8 * 31)) - BigUint::one();
+        let too_large: BigUint = max + BigUint::one();
+        let too_large_str = too_large.to_str_radix(10);
+        let err = decimal_str_to_output_bytes(&too_large_str).unwrap_err();
+        assert!(
+            err.to_string().contains("output too large"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn decimal_str_to_output_bytes_rejects_invalid_input() {
+        assert!(decimal_str_to_output_bytes("not-a-number").is_err());
     }
 }
