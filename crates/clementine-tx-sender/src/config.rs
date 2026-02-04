@@ -8,7 +8,7 @@ use clementine_errors::BridgeError;
 use secrecy::SecretString;
 use std::str::FromStr;
 
-const DEFAULT_POLL_DELAY_MS: u64 = 60_000;
+const DEFAULT_POLL_DELAY_MS: u64 = 30_000;
 
 #[derive(Clone, Debug)]
 pub struct TxSenderPostgresConfig {
@@ -26,7 +26,6 @@ pub struct TxSenderBitcoinRpcConfig {
     pub password: SecretString,
 }
 
-#[cfg(feature = "json-rpc")]
 #[derive(Clone, Debug)]
 pub struct TxSenderJsonRpcConfig {
     /// Bind address for the JSON-RPC server. Restricted to 127.0.0.1 or 0.0.0.0.
@@ -47,7 +46,6 @@ pub struct TxSenderConfig {
     /// Optional Citrea DA blob signing key.
     ///
     /// If not provided, tx-sender falls back to `secret_key` for Citrea blob signing.
-    #[cfg(feature = "citrea")]
     pub private_da_key: Option<SecretKey>,
     pub postgres: TxSenderPostgresConfig,
     pub bitcoin_rpc: TxSenderBitcoinRpcConfig,
@@ -58,16 +56,15 @@ pub struct TxSenderConfig {
     /// The chain tip has 1 confirmation. Minimum value should be 1.
     pub finality_depth: u32,
 
-    /// Poll delay for the txsender loop, in milliseconds.
+    /// Poll delay for the txsender loop if txsender is used as standalone, in milliseconds.
     ///
-    /// If not provided, defaults to 1 minute.
+    /// If not provided, defaults to 30 seconds.
     pub poll_delay_ms: u64,
 
     /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx wwith at least one non wallet input, if it belongs to a tx that was rbf replaced.
     pub include_unsafe: bool,
 
-    /// Optional JSON-RPC configuration (feature-gated).
-    #[cfg(feature = "json-rpc")]
+    /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
 }
 
@@ -110,7 +107,6 @@ impl TxSenderConfig {
         let secret_key = SecretKey::from_str(&secret_key_str)
             .map_err(|e| BridgeError::EnvVarMalformed("SECRET_KEY", format!("{e:?}")))?;
 
-        #[cfg(feature = "citrea")]
         let private_da_key =
             match env_optional("PRIVATE_DA_KEY") {
                 Some(value) => Some(SecretKey::from_str(&value).map_err(|e| {
@@ -199,10 +195,12 @@ impl TxSenderConfig {
             .transpose()?
         };
 
+        #[cfg(not(feature = "json-rpc"))]
+        let jsonrpc = None;
+
         Ok(Self {
             network,
             secret_key,
-            #[cfg(feature = "citrea")]
             private_da_key,
             postgres,
             bitcoin_rpc,
@@ -211,7 +209,6 @@ impl TxSenderConfig {
             finality_depth,
             poll_delay_ms,
             include_unsafe,
-            #[cfg(feature = "json-rpc")]
             jsonrpc,
         })
     }
