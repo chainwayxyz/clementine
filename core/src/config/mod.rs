@@ -333,6 +333,7 @@ impl BridgeConfig {
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     pub fn mempool_config(&self) -> clementine_tx_sender::MempoolConfig {
         clementine_tx_sender::MempoolConfig {
             host: self.mempool_api_host.clone(),
@@ -344,6 +345,7 @@ impl BridgeConfig {
     ///
     /// This keeps tx-sender wiring centralized in the config module, so core can
     /// run tx-sender using a single derived config object.
+    #[cfg(feature = "automation")]
     pub fn tx_sender_config(&self) -> clementine_tx_sender::config::TxSenderConfig {
         use clementine_tx_sender::config::{
             TxSenderBitcoinRpcConfig, TxSenderConfig, TxSenderPostgresConfig,

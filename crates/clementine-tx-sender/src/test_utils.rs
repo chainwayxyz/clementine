@@ -26,7 +26,6 @@ pub async fn create_test_environment(
     let mut config = TxSenderConfig {
         network: bitcoin::Network::Regtest,
         secret_key: SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng()),
-        #[cfg(feature = "citrea")]
         private_da_key: Some(SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng())),
         postgres: TxSenderPostgresConfig {
             host: "127.0.0.1".to_string(),
@@ -43,7 +42,6 @@ pub async fn create_test_environment(
         finality_depth: 1,
         poll_delay_ms: 500,
         include_unsafe: true,
-        #[cfg(feature = "json-rpc")]
         jsonrpc: None,
         mempool: MempoolConfig {
             host: None,
@@ -81,17 +79,12 @@ pub async fn create_test_environment(
 /// - Database connection fails
 /// - Database operations fail
 pub async fn setup_txsender_test_db(config: &TxSenderConfig) -> TxSenderDb {
-    use secrecy::ExposeSecret;
-
     let db_name = config.postgres.dbname.clone();
 
     // Use same defaults as core test util
     let admin_config = TxSenderPostgresConfig {
-        host: "127.0.0.1".to_string(),
-        port: 5432,
-        user: "clementine".to_string().into(),
-        password: "clementine".to_string().into(),
         dbname: "postgres".to_string(),
+        ..config.postgres.clone()
     };
 
     // Connect to postgres database to create/drop the test database
@@ -107,7 +100,7 @@ pub async fn setup_txsender_test_db(config: &TxSenderConfig) -> TxSenderDb {
     let _ = sqlx::query(&format!(
         "CREATE DATABASE {} WITH OWNER {}",
         db_name,
-        admin_config.user.expose_secret()
+        config.postgres.user.expose_secret()
     ))
     .execute(admin_db.pool())
     .await;
