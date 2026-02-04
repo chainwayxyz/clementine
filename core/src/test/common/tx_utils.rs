@@ -238,8 +238,7 @@ pub async fn send_txs(
         let tx: Transaction =
             consensus::deserialize(&tx_data.raw_tx).context("expected valid tx")?;
 
-        let fee_paying_type = if tx_data.tx_type == TxType::Challenge
-        {
+        let fee_paying_type = if tx_data.tx_type == TxType::Challenge {
             FeePayingType::RBF
         } else {
             FeePayingType::CPFP
