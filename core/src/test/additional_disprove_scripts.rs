@@ -5,7 +5,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
-use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
+use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
 use crate::utils::initialize_logger;
 use crate::{
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
@@ -183,7 +183,7 @@ impl<const USE_ANNEX: bool> TestCase for AdditionalDisproveTest<USE_ANNEX> {
             kickoff_txid
         );
 
-        let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+        let txid = get_txid_where_utxo_is_spent_while_synced(
             &rpc,
             disprove_outpoint,
             &actors,

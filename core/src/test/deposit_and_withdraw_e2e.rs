@@ -29,10 +29,9 @@ use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
-    get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync,
-    wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_synced, ensure_tx_onchain,
+    get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent_while_synced, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
@@ -426,7 +425,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> 
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
-            ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+            ensure_outpoint_spent_while_synced(
                 &rpc,
                 *reimburse_connector,
                 &actors,
@@ -1040,14 +1039,10 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     };
 
     tracing::warn!("Waiting for challenge");
-    let challenge_spent_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-        &rpc,
-        challenge_outpoint,
-        &actors,
-        None,
-    )
-    .await
-    .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
     tracing::warn!("Challenge spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was spent on timeout -> meaning challenge was not sent
@@ -1603,10 +1598,12 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    let _kickoff_block_height =
+    let kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
             .unwrap();
+
+    tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
 
     // sync all nodes
     rpc.mine_blocks_while_synced(1, &actors, None)
@@ -1618,14 +1615,10 @@ async fn mock_citrea_run_malicious() {
         vout: UtxoVout::Challenge.get_vout(),
     };
 
-    let challenge_spent_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-        &rpc,
-        challenge_outpoint,
-        &actors,
-        None,
-    )
-    .await
-    .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 

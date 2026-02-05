@@ -1,8 +1,17 @@
-use crate::task::{Task, TaskVariant};
+use std::time::Duration;
+
+use crate::task::{BufferedErrors, TaskExt, WithDelay};
+use crate::task::{RecoverableTask, Task, TaskVariant};
 use clementine_errors::BridgeError;
 use clementine_tx_sender::task::TxSenderTaskInternal;
 use clementine_tx_sender::TxSender;
 use tonic::async_trait;
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(400)
+} else {
+    Duration::from_secs(30)
+};
 
 #[derive(Debug)]
 pub struct TxSenderTask {
@@ -27,10 +36,20 @@ impl Task for TxSenderTask {
     }
 }
 
+#[async_trait]
+impl RecoverableTask for TxSenderTask {
+    async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
+        // No special recovery needed; retry on next run.
+        Ok(())
+    }
+}
+
 // Implement IntoTask for TxSender
 impl crate::task::IntoTask for TxSender {
-    type Task = TxSenderTask;
+    type Task = WithDelay<BufferedErrors<TxSenderTask>>;
     fn into_task(self) -> Self::Task {
         TxSenderTask::new(self)
+            .into_buffered_errors(10, 1, Duration::from_secs(10))
+            .with_delay(POLL_DELAY)
     }
 }
