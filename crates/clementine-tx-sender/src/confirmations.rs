@@ -18,19 +18,13 @@ enum TxChainStatus {
     NotPresent,
 }
 
-fn target_seen_at_height_for_confirmations(
-    observed_tip_height: u32,
-    confirmations: u32,
-    finality_depth: u32,
-) -> u32 {
-    if confirmations >= finality_depth {
-        // Make it final immediately:
-        // observed_tip - seen_at + 1 >= finality_depth
-        observed_tip_height.saturating_sub(finality_depth.saturating_sub(1))
-    } else {
-        // Conservative: treat it as first observed "now".
-        observed_tip_height
+fn confirmed_height(observed_tip_height: u32, confirmations: u32) -> u32 {
+    if confirmations == 0 {
+        return observed_tip_height;
     }
+
+    // Actual block height = tip - (confirmations - 1)
+    observed_tip_height.saturating_sub(confirmations.saturating_sub(1))
 }
 
 impl TxSender {
@@ -384,11 +378,7 @@ impl TxSender {
         // Apply any "newly observed" confirmations/spends using a conservative observation height.
 
         for (id, confirmations, current_seen_at_height) in pending_try_to_send {
-            let target_height = target_seen_at_height_for_confirmations(
-                observed_tip_height,
-                confirmations,
-                finality,
-            );
+            let target_height = confirmed_height(observed_tip_height, confirmations);
             // Only update if the target height differs from current
             if current_seen_at_height != Some(target_height) {
                 self.db
@@ -404,11 +394,7 @@ impl TxSender {
         }
 
         for (fee_payer_utxo_id, confirmations, current_seen_at_height) in pending_fee_payers {
-            let target_height = target_seen_at_height_for_confirmations(
-                observed_tip_height,
-                confirmations,
-                finality,
-            );
+            let target_height = confirmed_height(observed_tip_height, confirmations);
             // Only update if the target height differs from current
             if current_seen_at_height != Some(target_height) {
                 self.db
@@ -428,11 +414,7 @@ impl TxSender {
         }
 
         for (cancelled_id, txid, confirmations, current_seen_at_height) in pending_cancel_txids {
-            let target_height = target_seen_at_height_for_confirmations(
-                observed_tip_height,
-                confirmations,
-                finality,
-            );
+            let target_height = confirmed_height(observed_tip_height, confirmations);
             // Only update if the target height differs from current
             if current_seen_at_height != Some(target_height) {
                 self.db
@@ -453,11 +435,7 @@ impl TxSender {
         }
 
         for (activated_id, txid, confirmations, current_seen_at_height) in pending_activate_txids {
-            let target_height = target_seen_at_height_for_confirmations(
-                observed_tip_height,
-                confirmations,
-                finality,
-            );
+            let target_height = confirmed_height(observed_tip_height, confirmations);
             // Only update if the target height differs from current
             if current_seen_at_height != Some(target_height) {
                 self.db
