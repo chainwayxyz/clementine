@@ -270,11 +270,7 @@ where
             let tx_sender = TxSender::new(tx_sender_cfg).await?;
 
             self.background_tasks
-                .ensure_task_looping(tx_sender.into_task().into_buffered_errors(
-                    10,
-                    1,
-                    Duration::from_secs(10),
-                ))
+                .ensure_task_looping(tx_sender.into_task())
                 .await;
             let state_manager = StateManager::new(
                 self.verifier.db.clone(),
