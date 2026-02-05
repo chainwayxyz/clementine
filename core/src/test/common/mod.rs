@@ -21,8 +21,7 @@ use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
-    SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use bitcoin::secp256k1::rand;
@@ -139,52 +138,6 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Get the minimum next state manager height from all the state managers
-/// If automation is off for any entity, their state manager is assumed to be synced
-/// (by setting their next height to u32::MAX).
-pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
-    entity_statuses
-        .entity_statuses
-        .into_iter()
-        .map(|entity| {
-            if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
-            {
-                if status.automation {
-                    Ok(status.state_manager_next_height.unwrap_or(0))
-                } else {
-                    // assume synced if automation is off
-                    Ok(u32::MAX)
-                }
-            } else {
-                Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
-                    entity.entity_id,
-                    entity.status_result
-                ))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Calls get_entity_statuses and returns the minimum next state manager height
-pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
-    actors: &TestActors<C>,
-) -> eyre::Result<u32> {
-    let mut aggregator = actors.get_aggregator();
-    let l1_sync_status = aggregator
-        .get_entity_statuses(Request::new(GetEntityStatusesRequest {
-            restart_tasks: false,
-        }))
-        .await?
-        .into_inner();
-    let min_next_sync_height = get_next_sync_heights(l1_sync_status)
-        .await?
-        .into_iter()
-        .min()
-        .ok_or_else(|| eyre::eyre!("No entities found"))?;
-    Ok(min_next_sync_height)
-}
-
 /// Checks if all the state managers are synced to the latest finalized block
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
@@ -201,6 +154,7 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
+    // tx sender doent have to be finalized but keep some buffer so that the requirement is not too strict, so tests are faster
     let tx_sender_threshold = current_chain_height.saturating_sub(finality_depth / 2);
 
     let mut min_next_sync_height = u32::MAX;
