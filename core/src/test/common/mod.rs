@@ -21,8 +21,7 @@ use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
-    SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use bitcoin::secp256k1::rand;
@@ -139,73 +138,57 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Get the minimum next state manager height and lcp synced height (+1 because its not "next" like state manager) from all the state managers
-/// If automation is off for any entity, their state manager is assumed to be synced
-/// (by setting their next height to u32::MAX).
-pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
-    entity_statuses
-        .entity_statuses
-        .into_iter()
-        .map(|entity| {
-            if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
-            {
-                if status.automation {
-                    Ok(status
-                        .state_manager_next_height
-                        .unwrap_or(0)
-                        .min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0)))
-                } else {
-                    // assume synced if automation is off
-                    Ok(u32::MAX)
-                }
-            } else {
-                Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
-                    entity.entity_id,
-                    entity.status_result
-                ))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Calls get_entity_statuses and returns the minimum next state manager height
-pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
+/// Checks if all the state managers are synced to the latest finalized block
+pub async fn are_all_nodes_synced<C: CitreaClientT>(
+    rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
-) -> eyre::Result<u32> {
+) -> eyre::Result<bool> {
     let mut aggregator = actors.get_aggregator();
-    let sync_status = aggregator
+    let entity_statuses = aggregator
         .get_entity_statuses(Request::new(GetEntityStatusesRequest {
             restart_tasks: false,
         }))
         .await?
         .into_inner();
-    let min_next_sync_height = get_next_sync_heights(sync_status)
-        .await?
-        .into_iter()
-        .min()
-        .ok_or_else(|| eyre::eyre!("No entities found"))?;
-    Ok(min_next_sync_height)
-}
 
-/// Checks if all the state managers are synced to the latest finalized block
-/// Additionally checks if lcp syncer is also synced to latest finalized block
-pub async fn are_all_state_managers_synced<C: CitreaClientT>(
-    rpc: &ExtendedBitcoinRpc,
-    actors: &TestActors<C>,
-) -> eyre::Result<bool> {
-    let min_next_sync_height = get_min_next_state_manager_height(actors).await?;
-    let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
-    // get the current finalized chain height
+    let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
-    // assume synced if state manager is not running
+    let tx_sender_threshold = current_chain_height.saturating_sub(finality_depth / 2);
+
+    let mut min_next_sync_height = u32::MAX;
+    let mut all_tx_sender_synced = true;
+
+    for entity in &entity_statuses.entity_statuses {
+        let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
+        else {
+            return Err(eyre::eyre!(
+                "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                entity.entity_id,
+                entity.status_result
+            ));
+        };
+
+        if status.automation {
+            min_next_sync_height =
+                min_next_sync_height.min(status.state_manager_next_height.unwrap_or(0));
+            let tx_sender_height = status.tx_sender_synced_height.unwrap_or(0);
+            if tx_sender_height < tx_sender_threshold {
+                all_tx_sender_synced = false;
+            }
+        }
+    }
+
     let state_manager_running = actors
         .aggregator
         .config
         .test_params
         .should_run_state_manager;
-    Ok(!state_manager_running || min_next_sync_height > current_finalized_chain_height)
+
+    Ok(
+        (!state_manager_running || min_next_sync_height > current_finalized_chain_height)
+            && all_tx_sender_synced,
+    )
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make

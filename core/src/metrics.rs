@@ -169,6 +169,20 @@ pub async fn get_hcp_last_proven_height(db: &Database) -> Result<Option<u32>, Br
     Ok(latest_proven_block_height)
 }
 
+/// Get the synced height of the Transaction Sender or None if the
+/// tx_sender_sync_state table is empty or missing.
+pub async fn get_tx_sender_synced_height(db: &Database) -> Result<Option<u32>, BridgeError> {
+    let result: Option<i32> =
+        sqlx::query_scalar("SELECT synced_height FROM tx_sender_sync_state WHERE id = 1")
+            .fetch_optional(&db.get_pool())
+            .await
+            .map_err(BridgeError::DatabaseError)?;
+
+    Ok(result
+        .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
+        .transpose()?)
+}
+
 /// Get the next height of the State Manager or None if the State Manager status
 /// for the owner is missing or the next_height_to_process is NULL.
 pub async fn get_state_manager_next_height(
@@ -325,6 +339,18 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             "getting hcp last proven height",
         )
         .flatten();
+
+        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_tx_sender_synced_height",
+                get_tx_sender_synced_height(db),
+            )
+            .await,
+            "getting tx sender synced height",
+        )
+        .flatten();
+
         let state_manager_next_height = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
@@ -361,7 +387,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             rpc_tip_height,
             btc_syncer_synced_height,
             hcp_last_proven_height,
-            tx_sender_synced_height: None,
+            tx_sender_synced_height,
             finalized_synced_height,
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,

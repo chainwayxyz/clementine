@@ -49,6 +49,11 @@ impl TxSenderTaskInternal {
             .await?;
         self.last_processed_tip_height = self.current_tip_height;
 
+        self.inner
+            .db
+            .update_synced_height(self.current_tip_height)
+            .await?;
+
         Ok(false)
     }
 }

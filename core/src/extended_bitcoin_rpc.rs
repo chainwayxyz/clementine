@@ -40,7 +40,7 @@ use crate::test::common::citrea::CitreaE2EData;
 #[cfg(test)]
 use crate::{
     citrea::CitreaClientT,
-    test::common::{are_all_state_managers_synced, test_actors::TestActors},
+    test::common::{are_all_nodes_synced, test_actors::TestActors},
 };
 #[cfg(test)]
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
@@ -276,7 +276,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
 
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
@@ -307,7 +307,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
@@ -322,7 +322,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
             _ => {
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }

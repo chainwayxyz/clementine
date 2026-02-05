@@ -1434,4 +1434,29 @@ impl TxSenderDb {
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
     }
+
+    pub async fn update_synced_height(&self, height: u32) -> Result<(), BridgeError> {
+        sqlx::query(
+            "INSERT INTO tx_sender_sync_state (id, synced_height, updated_at)
+             VALUES (1, $1, NOW())
+             ON CONFLICT (id) DO UPDATE SET synced_height = EXCLUDED.synced_height, updated_at = NOW()",
+        )
+        .bind(i32::try_from(height).wrap_err("Failed to convert height to i32")?)
+        .execute(&self.pool)
+        .await
+        .map_err(BridgeError::DatabaseError)?;
+        Ok(())
+    }
+
+    pub async fn get_synced_height(&self) -> Result<Option<u32>, BridgeError> {
+        let result: Option<i32> =
+            sqlx::query_scalar("SELECT synced_height FROM tx_sender_sync_state WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(BridgeError::DatabaseError)?;
+
+        Ok(result
+            .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
+            .transpose()?)
+    }
 }

@@ -27,3 +27,10 @@ ADD CONSTRAINT uq_tx_sender_txid UNIQUE (txid);
 -- Add last_processed_lcp column to state_manager_status table
 ALTER TABLE state_manager_status
 ADD COLUMN IF NOT EXISTS last_processed_lcp INT DEFAULT NULL;
+-- Add tx_sender_sync_state table to track the synced height of the Transaction Sender.
+CREATE TABLE IF NOT EXISTS tx_sender_sync_state (
+    -- Singleton row constraint
+    id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    synced_height INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);

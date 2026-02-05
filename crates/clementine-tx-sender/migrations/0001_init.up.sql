@@ -142,3 +142,9 @@ CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
 );
 CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_insertion_id_idx ON tx_sender_citrea_raw_tx_queue(insertion_id);
 CREATE INDEX IF NOT EXISTS tx_sender_citrea_raw_tx_queue_try_to_send_id_idx ON tx_sender_citrea_raw_tx_queue(try_to_send_id);
+CREATE TABLE IF NOT EXISTS tx_sender_sync_state (
+    -- Singleton row constraint
+    id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    synced_height INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);

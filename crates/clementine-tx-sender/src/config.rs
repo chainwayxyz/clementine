@@ -61,7 +61,7 @@ pub struct TxSenderConfig {
     /// If not provided, defaults to 30 seconds.
     pub poll_delay_ms: u64,
 
-    /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx wwith at least one non wallet input, if it belongs to a tx that was rbf replaced.
+    /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx with at least one non wallet input, if it belongs to a tx that was rbf replaced.
     pub include_unsafe: bool,
 
     /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
