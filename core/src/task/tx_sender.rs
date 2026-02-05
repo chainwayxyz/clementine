@@ -1,4 +1,4 @@
-use crate::task::{Task, TaskVariant};
+use crate::task::{RecoverableTask, Task, TaskVariant};
 use clementine_errors::BridgeError;
 use clementine_tx_sender::task::TxSenderTaskInternal;
 use clementine_tx_sender::TxSender;
@@ -24,6 +24,14 @@ impl Task for TxSenderTask {
 
     async fn run_once(&mut self) -> Result<bool, BridgeError> {
         self.inner.run_once().await
+    }
+}
+
+#[async_trait]
+impl RecoverableTask for TxSenderTask {
+    async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
+        // No special recovery needed; retry on next run.
+        Ok(())
     }
 }
 
