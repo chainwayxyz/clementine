@@ -16,7 +16,21 @@ shift
 
 mkdir -p "${output_dir}"
 
-failed_tests=$(cat "$@" 2>/dev/null \
+existing_logs=()
+for log_file in "$@"; do
+  if [[ -f "${log_file}" ]]; then
+    existing_logs+=("${log_file}")
+  else
+    echo "Log file not found (skipping): ${log_file}"
+  fi
+done
+
+if [[ ${#existing_logs[@]} -eq 0 ]]; then
+  echo "No log files found."
+  exit 0
+fi
+
+failed_tests=$(cat "${existing_logs[@]}" \
   | grep -E "^test .* \.\.\. FAILED" \
   | sed -E 's/^test (.*) \.\.\. FAILED/\1/' \
   | awk -F'::' '{print $NF}' \

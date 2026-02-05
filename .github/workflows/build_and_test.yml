@@ -102,7 +102,7 @@ jobs:
           cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture 2>&1 | tee no_automation_test_output.log
 
       - name: Dump databases for failed tests
-        if: failure() || cancelled()
+        if: failure()
         run: |
           ./scripts/dump_failed_test_dbs.sh test-logs/release no_automation_test_output.log
 
@@ -189,7 +189,7 @@ jobs:
           cargo test_integration 2>&1 | tee integration_test_output.log
 
       - name: Dump databases for failed tests
-        if: failure() || cancelled()
+        if: failure()
         run: |
           ./scripts/dump_failed_test_dbs.sh test-logs/debug unit_test_output.log integration_test_output.log
 
@@ -276,7 +276,7 @@ jobs:
           cargo test_integration_release 2>&1 | tee integration_test_output.log
 
       - name: Dump databases for failed tests
-        if: failure() || cancelled()
+        if: failure()
         run: |
           ./scripts/dump_failed_test_dbs.sh test-logs/release unit_test_output.log integration_test_output.log
 
