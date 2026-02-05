@@ -22,8 +22,7 @@ use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
-    ensure_outpoint_spent_while_synced,
-    mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_synced, mine_once_after_outpoint_spent_in_mempool,
 };
 
 /// Sends a payout tx with given operator for the given withdrawal, starts a kickoff then returns
@@ -82,14 +81,10 @@ pub async fn payout_and_start_kickoff(
             .unwrap();
     }
 
-    let payout_txid = get_txid_where_utxo_is_spent_while_synced(
-        e2e.rpc,
-        *withdrawal_utxo,
-        actors,
-        Some(e2e),
-    )
-    .await
-    .unwrap();
+    let payout_txid =
+        get_txid_where_utxo_is_spent_while_synced(e2e.rpc, *withdrawal_utxo, actors, Some(e2e))
+            .await
+            .unwrap();
 
     e2e.rpc
         .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
