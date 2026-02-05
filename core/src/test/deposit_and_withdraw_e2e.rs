@@ -1587,6 +1587,8 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
+    panic("test");
+
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
 
