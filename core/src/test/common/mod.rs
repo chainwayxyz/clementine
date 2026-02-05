@@ -138,7 +138,10 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Checks if all the state managers are synced to the latest finalized block
+/// Checks if all clementine nodes are synced.
+/// State managers must be synced to the last finalized height. (If they are running)
+/// Tx senders must be synced to at least current height - finality depth / 2.
+/// LCPs must be synced to the last finalized height. (We add +1 internally because its not "next" height like state manager but last synced height)
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
@@ -154,10 +157,17 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
     let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
+    // tx sender doent have to be finalized but keep some buffer so that the requirement is not too strict, so tests are faster
     let tx_sender_threshold = current_chain_height.saturating_sub(finality_depth / 2);
 
     let mut min_next_sync_height = u32::MAX;
     let mut all_tx_sender_synced = true;
+
+    let state_manager_running = actors
+        .aggregator
+        .config
+        .test_params
+        .should_run_state_manager;
 
     for entity in &entity_statuses.entity_statuses {
         let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
@@ -170,25 +180,26 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
         };
 
         if status.automation {
-            min_next_sync_height =
-                min_next_sync_height.min(status.state_manager_next_height.unwrap_or(0));
+            min_next_sync_height = min_next_sync_height.min(
+                status
+                    .state_manager_next_height
+                    .unwrap_or(match state_manager_running {
+                        true => 0,
+                        false => u32::MAX,
+                    })
+                    .min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0)),
+            );
             let tx_sender_height = status.tx_sender_synced_height.unwrap_or(0);
             if tx_sender_height < tx_sender_threshold {
                 all_tx_sender_synced = false;
             }
+        } else {
+            min_next_sync_height =
+                min_next_sync_height.min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0));
         }
     }
 
-    let state_manager_running = actors
-        .aggregator
-        .config
-        .test_params
-        .should_run_state_manager;
-
-    Ok(
-        (!state_manager_running || min_next_sync_height > current_finalized_chain_height)
-            && all_tx_sender_synced,
-    )
+    Ok((min_next_sync_height > current_finalized_chain_height) && all_tx_sender_synced)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
