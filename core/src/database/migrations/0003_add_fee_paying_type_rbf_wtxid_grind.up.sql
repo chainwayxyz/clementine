@@ -24,3 +24,10 @@ ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
 -- Add unique constraint to txid column in tx_sender_try_to_send_txs table
 ALTER TABLE tx_sender_try_to_send_txs
 ADD CONSTRAINT uq_tx_sender_txid UNIQUE (txid);
+-- Add tx_sender_sync_state table to track the synced height of the Transaction Sender.
+CREATE TABLE IF NOT EXISTS tx_sender_sync_state (
+    -- Singleton row constraint
+    id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    synced_height INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
