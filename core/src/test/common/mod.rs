@@ -19,7 +19,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _, MINE_BLOCK_COUNT};
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
@@ -140,7 +140,7 @@ pub async fn poll_get<T>(
 
 /// Checks if all clementine nodes are synced.
 /// State managers must be synced to the last finalized height. (If they are running)
-/// Tx senders must be synced to at least current height - finality depth / 2.
+/// Tx senders must be synced to at least current height - some buffer.
 /// LCPs must be synced to the last finalized height. (We add +1 internally because its not "next" height like state manager but last synced height)
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
@@ -158,7 +158,7 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
     let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     // tx sender doent have to be finalized but keep some buffer so that the requirement is not too strict, so tests are faster
-    let tx_sender_threshold = current_chain_height.saturating_sub(finality_depth / 2);
+    let tx_sender_threshold = current_chain_height.saturating_sub(MINE_BLOCK_COUNT as u32);
 
     let mut min_next_sync_height = u32::MAX;
     let mut all_tx_sender_synced = true;
