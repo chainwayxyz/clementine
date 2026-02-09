@@ -2,11 +2,14 @@ use crate::{
     rpc_errors::is_mempool_not_found_error, rpc_errors::is_not_found_error, FeePayingType,
     TxSender, TxSenderTransaction,
 };
-use bitcoin::{BlockHash, OutPoint, Txid};
+use bitcoin::{BlockHash, Network, OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
-use clementine_extended_rpc::BitcoinRPCError;
+use clementine_extended_rpc::{BitcoinRPCError, RetryConfig};
+use serde::Deserialize;
 use std::collections::HashMap;
+use tokio::time::{timeout, Duration};
+use tokio_retry::RetryIf;
 
 #[derive(Copy, Clone, Debug)]
 enum TxChainStatus {
@@ -19,6 +22,28 @@ enum TxChainStatus {
     InMempool,
     /// Neither in mempool nor in the active chain.
     NotPresent,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct MempoolOutspendStatus {
+    confirmed: bool,
+    block_height: Option<u32>,
+    block_hash: Option<BlockHash>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct MempoolOutspendResponse {
+    spent: bool,
+    txid: Option<Txid>,
+    vin: Option<u32>,
+    status: Option<MempoolOutspendStatus>,
+}
+
+#[derive(Clone, Debug)]
+struct ValidatedOutspend {
+    confirmed: bool,
+    confirmations: u32,
+    block_height: Option<u32>,
 }
 
 impl TxSender {
@@ -102,7 +127,7 @@ impl TxSender {
                         .await?
                         {
                             first_confirmed_rbf = Some((confirmations, block_height));
-							break;
+                            break;
                         }
                     }
                     match first_confirmed_rbf {
@@ -386,7 +411,40 @@ impl TxSender {
         {
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
-                    if seen_at_height.is_none() {
+                    if let Some(validated) = self.get_mempool_outspend(&outpoint).await {
+                        if validated.confirmed {
+                            let seen_height = validated.block_height.unwrap_or(observed_tip_height);
+                            if seen_at_height != Some(seen_height) {
+                                self.db
+                                    .set_cancel_outpoint_seen_at_height(
+                                        dbtx.as_deref_mut(),
+                                        cancelled_id,
+                                        outpoint,
+                                        Some(seen_height),
+                                    )
+                                    .await?;
+                            }
+                            if validated.confirmations >= finality {
+                                self.db
+                                    .set_cancel_outpoint_finalized(
+                                        dbtx.as_deref_mut(),
+                                        cancelled_id,
+                                        outpoint,
+                                        true,
+                                    )
+                                    .await?;
+                            }
+                        } else if seen_at_height.is_some() {
+                            self.db
+                                .set_cancel_outpoint_seen_at_height(
+                                    dbtx.as_deref_mut(),
+                                    cancelled_id,
+                                    outpoint,
+                                    None,
+                                )
+                                .await?;
+                        }
+                    } else if seen_at_height.is_none() {
                         self.db
                             .set_cancel_outpoint_seen_at_height(
                                 dbtx.as_deref_mut(),
@@ -426,7 +484,7 @@ impl TxSender {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(?outpoint, "Failed to check outpoint spent status: {}", e);
+                    tracing::warn!(%outpoint, "Failed to check outpoint spent status: {e}");
                 }
             }
         }
@@ -438,7 +496,40 @@ impl TxSender {
         {
             match check_spent(&self.rpc, &outpoint).await {
                 Ok(Some(true)) => {
-                    if seen_at_height.is_none() {
+                    if let Some(validated) = self.get_mempool_outspend(&outpoint).await {
+                        if validated.confirmed {
+                            let seen_height = validated.block_height.unwrap_or(observed_tip_height);
+                            if seen_at_height != Some(seen_height) {
+                                self.db
+                                    .set_activate_outpoint_seen_at_height(
+                                        dbtx.as_deref_mut(),
+                                        activated_id,
+                                        outpoint,
+                                        Some(seen_height),
+                                    )
+                                    .await?;
+                            }
+                            if validated.confirmations >= finality {
+                                self.db
+                                    .set_activate_outpoint_finalized(
+                                        dbtx.as_deref_mut(),
+                                        activated_id,
+                                        outpoint,
+                                        true,
+                                    )
+                                    .await?;
+                            }
+                        } else if seen_at_height.is_some() {
+                            self.db
+                                .set_activate_outpoint_seen_at_height(
+                                    dbtx.as_deref_mut(),
+                                    activated_id,
+                                    outpoint,
+                                    None,
+                                )
+                                .await?;
+                        }
+                    } else if seen_at_height.is_none() {
                         self.db
                             .set_activate_outpoint_seen_at_height(
                                 dbtx.as_deref_mut(),
@@ -477,13 +568,227 @@ impl TxSender {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(?outpoint, "Failed to check outpoint spent status: {}", e);
+                    tracing::warn!(%outpoint, "Failed to check outpoint spent status: {}", e);
                 }
             }
         }
 
         Ok(())
     }
+
+    /// Get the outspend status of an outpoint from the mempool space API.
+    /// If  it errors at some point, it will return None and the caller should fallback to the Bitcoin RPC.
+    /// If the outspend is confirmed to be spent, it will return a ValidatedOutspend struct with the confirmed status, confirmations and Some(block height).
+    async fn get_mempool_outspend(&self, outpoint: &OutPoint) -> Option<ValidatedOutspend> {
+        let host = self.mempool_config.host.as_ref()?;
+
+        let url = match mempool_outspend_url(host, self.network, outpoint) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::warn!(%outpoint, "Failed to build mempool outspend URL: {e}");
+                return None;
+            }
+        };
+
+        let response = match fetch_mempool_outspend_with_backoff(&self.http_client, &url).await {
+            Ok(response) => response,
+            Err(e) => {
+                tracing::warn!(%outpoint, "Mempool outspend request failed: {e}");
+                return None;
+            }
+        };
+
+        if !response.spent {
+            tracing::warn!(
+                %outpoint,
+                ?response,
+                "Mempool space outspend response says unspent after RPC detected spent"
+            );
+            return None;
+        }
+
+        let Some(txid) = response.txid else {
+            tracing::warn!(%outpoint, ?response, "Mempool outspend missing txid");
+            return None;
+        };
+
+        let tx_info = match self.rpc.get_raw_transaction_info(&txid, None).await {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::warn!(
+                    %outpoint,
+                    %txid,
+                    "Failed to fetch spending tx info from RPC: {e}"
+                );
+                return None;
+            }
+        };
+
+        let Some(vin_index) = response.vin else {
+            tracing::warn!(
+                %outpoint,
+                %txid,
+                "Mempool space outspend missing vin index"
+            );
+            return None;
+        };
+
+        let vin = tx_info.vin.get(vin_index as usize);
+
+        let Some(vin_response) = vin else {
+            tracing::warn!(
+                %outpoint,
+                %txid,
+                vin_index,
+                "Mempool space outspend vin does not match outpoint"
+            );
+            return None;
+        };
+        if !(vin_response.txid == Some(outpoint.txid) && vin_response.vout == Some(outpoint.vout)) {
+            tracing::warn!(
+                %outpoint,
+                %txid,
+                vin_index,
+                "Mempool space outspend vin does not match outpoint"
+            );
+            return None;
+        }
+
+        let confirmations = tx_info.confirmations.unwrap_or(0) as u32;
+        if confirmations > 0 {
+            let Some(rpc_block_hash) = tx_info.blockhash else {
+                tracing::warn!(
+                    %outpoint,
+                    %txid,
+                    "Spending tx missing blockhash in RPC response"
+                );
+                return None;
+            };
+
+            let block_height = match response.status {
+                Some(status) if status.confirmed => {
+                    let Some(block_hash) = status.block_hash else {
+                        tracing::warn!(
+                            %outpoint,
+                            %txid,
+                            "Mempool space outspend missing block_hash for confirmed spend"
+                        );
+                        return None;
+                    };
+                    let Some(block_height) = status.block_height else {
+                        tracing::warn!(
+                            %outpoint,
+                            %txid,
+                            "Mempool space outspend missing block_height for confirmed spend"
+                        );
+                        return None;
+                    };
+
+                    if rpc_block_hash != block_hash {
+                        tracing::warn!(
+                            %outpoint,
+                            %txid,
+                            ?block_hash,
+                            ?rpc_block_hash,
+                            "Mempool space outspend block hash does not match RPC"
+                        );
+                        return None;
+                    }
+
+                    block_height
+                }
+                _ => {
+                    let block_info = match self.rpc.get_block_info(&rpc_block_hash).await {
+                        Ok(info) => info,
+                        Err(e) => {
+                            tracing::warn!(
+                                %outpoint,
+                                %txid,
+                                "Failed to fetch block info for spending tx: {e}"
+                            );
+                            return None;
+                        }
+                    };
+                    block_info.height as u32
+                }
+            };
+
+            Some(ValidatedOutspend {
+                confirmed: true,
+                confirmations,
+                block_height: Some(block_height),
+            })
+        } else {
+            Some(ValidatedOutspend {
+                confirmed: false,
+                confirmations,
+                block_height: None,
+            })
+        }
+    }
+}
+
+fn mempool_outspend_url(
+    host: &str,
+    network: Network,
+    outpoint: &OutPoint,
+) -> Result<String, eyre::Report> {
+    let host = host.trim_end_matches('/');
+    let prefix = match network {
+        Network::Bitcoin => "",
+        Network::Testnet4 => "/testnet4",
+        Network::Signet => "", // you should use mempool.devnet.citrea.xyz for signet hostname
+        _ => {
+            return Err(eyre::eyre!(
+                "Unsupported network for mempool.space outspend: {network:?}"
+            ))
+        }
+    };
+
+    Ok(format!(
+        "{host}{prefix}/api/tx/{}/outspend/{}",
+        outpoint.txid, outpoint.vout
+    ))
+}
+
+async fn fetch_mempool_outspend_with_backoff(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<MempoolOutspendResponse, eyre::Report> {
+    fn always_retry(_: &eyre::Report) -> bool {
+        true
+    }
+
+    let retry_config = RetryConfig::new(250, Duration::from_secs(5), 4, 2, true);
+    let retry_strategy = retry_config.get_strategy();
+
+    RetryIf::spawn(
+        retry_strategy,
+        || {
+            let url = url.to_string();
+            let client = client.clone();
+            async move {
+                let resp = timeout(Duration::from_secs(20), client.get(&url).send())
+                    .await
+                    .map_err(|_| eyre::eyre!("Mempool outspend request timed out"))?
+                    .map_err(|e| eyre::eyre!("Mempool outspend request failed: {e}"))?;
+
+                let status = resp.status();
+                if !status.is_success() {
+                    return Err(eyre::eyre!("Mempool outspend HTTP status: {status}"));
+                }
+
+                let parsed = timeout(Duration::from_secs(5), resp.json())
+                    .await
+                    .map_err(|_| eyre::eyre!("Mempool outspend JSON timed out"))?
+                    .map_err(|e| eyre::eyre!("Mempool outspend JSON error: {e}"))?;
+
+                Ok(parsed)
+            }
+        },
+        always_retry,
+    )
+    .await
 }
 
 /// Get the status of a transaction from the cache or from the RPC.
