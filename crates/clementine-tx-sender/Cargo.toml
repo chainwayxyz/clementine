@@ -25,6 +25,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 sha2 = { workspace = true, optional = true }
 tempfile = { workspace = true }
 borsh = { workspace = true, optional = true }
+tokio-retry = { workspace = true }
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }
