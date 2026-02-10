@@ -50,15 +50,24 @@ fn only_aggregator_and_self(
         }
     };
 
+    // IMPORTANT: Only check the leaf (end-entity) certificate, which is always the first
+    // certificate in the chain. The leaf is the only certificate whose private key the peer
+    // proved possession of during the TLS handshake. Checking anywhere else in the chain
+    // would allow identity spoofing: an attacker could include a pinned cert as an
+    // intermediate in their chain without possessing its private key.
+    let Some(leaf_cert) = peer_certs.first() else {
+        return Err(Status::unauthenticated("Peer certificate chain is empty"));
+    };
+
     if is_internal(&req) {
-        if peer_certs.contains(our_cert) {
+        if leaf_cert == our_cert {
             Ok(req)
         } else {
             Err(Status::unauthenticated(
                 "Unauthorized call to internal method (not self)",
             ))
         }
-    } else if peer_certs.contains(aggregator_cert) || peer_certs.contains(our_cert) {
+    } else if leaf_cert == aggregator_cert || leaf_cert == our_cert {
         Ok(req)
     } else {
         Err(Status::unauthenticated(
