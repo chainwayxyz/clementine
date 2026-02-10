@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{TxSender, TxSenderTransaction};
+use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -666,19 +666,6 @@ impl TxSender {
             .await
             .wrap_err("Failed to update effective fee rate")?;
 
-        tracing::debug!(
-            try_to_send_id,
-            "Submitting package\n Pkg tx hexs: {:?}",
-            if env::var("DBG_PACKAGE_HEX").is_ok() {
-                package
-                    .iter()
-                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                    .collect::<Vec<_>>()
-            } else {
-                vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
-            }
-        );
-
         // Update sending state to submitting_package
         let _ = self
             .db
@@ -698,15 +685,27 @@ impl TxSender {
 
         for (_txid, result) in submit_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(
-                    try_to_send_id,
-                    "Error submitting package: {:?}, package: {:?}",
-                    error,
-                    package_refs
-                        .iter()
-                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                        .collect::<Vec<_>>()
-                );
+                if crate::rpc_errors::is_rejecting_replacement_error(&error) {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Package tx rejected (tx already in mempool): {error}"
+                    );
+                } else {
+                    tracing::error!(
+                        try_to_send_id,
+                        "Error submitting package: {:?}, package: {:?}",
+                        error,
+                        package_refs
+                            .iter()
+                            .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                            .collect::<Vec<_>>()
+                    );
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("Failed to submit package: {error}")
+                    );
+                }
             }
         }
 

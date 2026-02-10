@@ -11,3 +11,7 @@ pub(crate) fn is_mempool_not_found_error(err: &Error) -> bool {
     let s = err.to_string();
     s.contains("Transaction not in mempool")
 }
+
+pub(crate) fn is_rejecting_replacement_error(s: &str) -> bool {
+    s.contains("insufficient fee, rejecting replacement")
+}

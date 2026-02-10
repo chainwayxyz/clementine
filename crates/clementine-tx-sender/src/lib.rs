@@ -399,7 +399,7 @@ impl TxSender {
                 };
 
             // Calculate adjusted fee rate considering:
-            // 1. If new_fee_rate > previous_effective_fee_rate, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
+            // 1. If new_fee_rate > previous_effective_fee_rate + min_bump_kvb, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
             // 2. If tx has been stuck for 10+ blocks, bump with incremental fee
             let adjusted_fee_rate = match self
                 .calculate_target_fee_rate(
@@ -588,11 +588,18 @@ impl TxSender {
                     .await;
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
-                log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                let err_str = e.to_string();
+                if rpc_errors::is_rejecting_replacement_error(&err_str) {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "No funding tx rejected (tx already in mempool): {err_str}"
+                    );
+                } else {
+                    tracing::error!(
+                        "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
+                    );
+                    log_error_for_tx!(self.db, try_to_send_id, format!("send_raw_transaction error for no funding tx: {err_str}"));
+                }
                 let _ = self
                     .db
                     .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
