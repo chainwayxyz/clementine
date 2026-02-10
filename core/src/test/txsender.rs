@@ -146,6 +146,7 @@ async fn get_fee_rate() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
@@ -284,6 +285,7 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -366,6 +368,7 @@ async fn test_hard_cap() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -458,6 +461,7 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -541,6 +545,7 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -628,6 +633,7 @@ async fn test_get_fee_rate_mempool_space_timeout() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -715,6 +721,7 @@ async fn test_get_fee_rate_rpc_timeout() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -808,6 +815,7 @@ async fn test_rpc_retry_after_failures() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -908,6 +916,7 @@ async fn test_mempool_retry_after_failures() {
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
@@ -943,6 +952,7 @@ async fn create_local_tx_sender(
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     (

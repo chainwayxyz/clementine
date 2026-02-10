@@ -67,6 +67,8 @@ pub struct BridgeConfig {
     pub mempool_api_host: Option<String>,
     /// mempool.space API endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
     pub mempool_api_endpoint: Option<String>,
+    /// Optional configuration for using MARA Slipstream APIs (fee rate, tx/package submission).
+    pub maraslipstream_config: Option<clementine_tx_sender::MaraSlipstreamConfig>,
 
     /// PostgreSQL database host address.
     pub db_host: String,
@@ -404,6 +406,7 @@ impl Default for BridgeConfig {
             bitcoin_rpc_password: "admin".to_string().into(),
             mempool_api_host: None,
             mempool_api_endpoint: None,
+            maraslipstream_config: None,
 
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,

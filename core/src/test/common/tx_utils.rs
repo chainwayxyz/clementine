@@ -380,6 +380,7 @@ pub async fn create_tx_sender(
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
+        config.maraslipstream_config.clone(),
     );
 
     (

@@ -5,6 +5,7 @@
 
 pub mod client;
 pub mod cpfp;
+pub mod maraslipstream;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
@@ -27,6 +28,7 @@ macro_rules! log_error_for_tx {
 
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
+pub use maraslipstream::MaraSlipstreamConfig;
 
 use async_trait::async_trait;
 use bitcoin::secp256k1::schnorr;
@@ -408,6 +410,8 @@ where
     pub tx_sender_limits: TxSenderLimits,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
+
+    maraslipstream_config: Option<MaraSlipstreamConfig>,
     /// Phantom data to track the TxBuilder type.
     /// B provides static methods for transaction building.
     _tx_builder: std::marker::PhantomData<B>,
@@ -448,6 +452,7 @@ where
         protocol_paramset: &'static ProtocolParamset,
         tx_sender_limits: TxSenderLimits,
         mempool_config: MempoolConfig,
+        maraslipstream_config: Option<MaraSlipstreamConfig>,
     ) -> Self {
         Self {
             signer,
@@ -458,6 +463,7 @@ where
             tx_sender_limits,
             http_client: reqwest::Client::new(),
             mempool_config,
+            maraslipstream_config,
             _tx_builder: std::marker::PhantomData,
         }
     }

@@ -18,6 +18,7 @@ async-trait = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
+secrecy = { workspace = true }
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }

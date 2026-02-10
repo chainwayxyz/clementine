@@ -113,6 +113,7 @@ impl TestCase for TxSenderReorgBehavior {
             config.protocol_paramset(),
             config.tx_sender_limits.clone(),
             config.mempool_config(),
+            config.maraslipstream_config.clone(),
         );
         let tx_sender_client: TxSenderClient<Database> = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();

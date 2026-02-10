@@ -9,6 +9,8 @@ use crate::{
     deposit::SecurityCouncil,
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
+use clementine_tx_sender::maraslipstream;
+use clementine_tx_sender::MaraSlipstreamConfig;
 use clementine_errors::BridgeError;
 use eyre::Context;
 use std::{path::PathBuf, str::FromStr, time::Duration};
@@ -26,6 +28,18 @@ where
     read_string_from_env(env_var)?
         .parse::<T>()
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
+}
+
+fn trim_env_in_place(s: &mut String) {
+    // Trim end first (common case: trailing newline/space in env files).
+    let end_len = s.trim_end().len();
+    s.truncate(end_len);
+
+    // Trim start without allocating a new String.
+    let start_idx = s
+        .find(|c: char| !c.is_whitespace())
+        .unwrap_or_else(|| s.len());
+    s.drain(..start_idx);
 }
 
 impl GrpcLimitsExt for GrpcLimits {
@@ -184,6 +198,69 @@ impl BridgeConfig {
             .and_then(|timeout| timeout.parse::<u64>().ok())
             .map(Duration::from_secs);
 
+        // MARA Slipstream config is optional and enabled when `MARASLIPSTREAM_HOST` is set.
+        //
+        // We provide sensible defaults for endpoints (as documented in the public Slipstream
+        // swagger/UI) so environments that only define the host won't cause errors.
+        // Slipstream is only available for Bitcoin mainnet/testnet4 (not regtest/signet).
+        //
+        // The client code is optional and, if used, is read from an env var.
+        let maraslipstream_config = std::env::var("MARASLIPSTREAM_HOST")
+            .ok()
+            .map(|mut host| {
+                trim_env_in_place(&mut host);
+                while host.ends_with('/') {
+                    host.pop();
+                }
+                host
+            })
+            .filter(|s| !s.is_empty())
+            .map(|host| {
+                let fee_rate_endpoint = std::env::var("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
+                    .ok()
+                    .map(|mut s| {
+                        trim_env_in_place(&mut s);
+                        s
+                    })
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
+
+                let submit_package_endpoint = std::env::var("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
+                    .ok()
+                    .map(|mut s| {
+                        trim_env_in_place(&mut s);
+                        s
+                    })
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
+
+                let submit_tx_endpoint = std::env::var("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
+                    .ok()
+                    .map(|mut s| {
+                        trim_env_in_place(&mut s);
+                        s
+                    })
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
+
+                let client_code = std::env::var("MARASLIPSTREAM_CLIENT_CODE")
+                    .ok()
+                    .map(|mut s| {
+                        trim_env_in_place(&mut s);
+                        s
+                    })
+                    .filter(|s| !s.is_empty())
+                    .map(Into::into);
+
+                MaraSlipstreamConfig {
+                    host,
+                    fee_rate_endpoint,
+                    submit_package_endpoint,
+                    submit_tx_endpoint,
+                    client_code,
+                }
+            });
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -198,6 +275,7 @@ impl BridgeConfig {
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
             mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
             mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
+            maraslipstream_config,
             db_host: read_string_from_env("DB_HOST")?,
             db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),

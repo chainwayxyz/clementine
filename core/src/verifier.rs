@@ -270,6 +270,7 @@ where
                 self.verifier.config.protocol_paramset(),
                 Default::default(),
                 self.verifier.config.mempool_config(),
+                self.verifier.config.maraslipstream_config.clone(),
             );
 
             self.background_tasks
