@@ -6,6 +6,7 @@
 pub mod client;
 pub mod cpfp;
 pub mod maraslipstream;
+pub mod maraslipstream_client;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
@@ -29,6 +30,7 @@ macro_rules! log_error_for_tx {
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
 pub use maraslipstream::MaraSlipstreamConfig;
+pub use maraslipstream_client::MaraSlipstreamClient;
 
 use async_trait::async_trait;
 use bitcoin::secp256k1::schnorr;
