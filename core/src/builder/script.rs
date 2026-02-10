@@ -91,9 +91,11 @@ pub fn extract_winternitz_commits(
                     let second_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[1])?);
 
                     let first_u8 = u8::try_from(first_digit)
-                        .wrap_err("Failed to convert first digit to u8")?;
+                        .wrap_err("Failed to convert first digit to u8")?
+                        .min(15);
                     let second_u8 = u8::try_from(second_digit)
-                        .wrap_err("Failed to convert second digit to u8")?;
+                        .wrap_err("Failed to convert second digit to u8")?
+                        .min(15);
 
                     Ok(second_u8 * (1 << paramset.winternitz_log_d) + first_u8)
                 })
@@ -1185,5 +1187,130 @@ mod tests {
         // println!("multisig_address: {:?}", multisig_address);
 
         assert_eq!(addr, multisig_address);
+    }
+
+    /// On-chain, the ListpickVerifier uses `OP_MIN(digit, max_digit)` to clamp digits.
+    /// Off-chain, `extract_winternitz_commits` uses raw digit values from the witness.
+    /// Check that even if the digit commited to chain is higher than 15, we clamp it to 15 when parsing.
+    #[test]
+    fn test_unclamped_digit_extraction() {
+        // On-chain, ListpickVerifier::verify_digits applies OP_MIN to clamp digits.
+        // See bitvm/src/signatures/winternitz.rs:378-379
+
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
+        assert_eq!(paramset.winternitz_log_d, 4);
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
+
+        let kickoff = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset);
+
+        let commit_script = WinternitzCommit::new(
+            vec![(
+                signer
+                    .derive_winternitz_pk(kickoff.clone())
+                    .expect("failed to derive Winternitz public key"),
+                40,
+            )],
+            signer.xonly_public_key,
+            4,
+        );
+
+        // Choose a message where only byte 0 has low nibble = 15 (0x0F).
+        // Other bytes are 0 to avoid accidentally matching digit value 15 elsewhere.
+        // For byte 0x0F: low_nibble=15 (digit value 15), high_nibble=0.
+        let mut original_message: Vec<u8> = vec![0u8; 20];
+        original_message[0] = 0x0F;
+
+        let signature = taproot::Signature::from_slice(&[1u8; 64]).expect("valid signature");
+        let witness = commit_script.generate_script_inputs(
+            &[(
+                original_message.clone(),
+                signer.get_derived_winternitz_sk(kickoff.clone()).unwrap(),
+            )],
+            &signature,
+        );
+
+        // Verify normal extraction works.
+        let normal_extracted =
+            extract_winternitz_commits(witness.clone(), &[kickoff.clone()], paramset).unwrap();
+        assert_eq!(
+            normal_extracted[0], original_message,
+            "Normal extraction should match original message"
+        );
+
+        // Witness layout: [taproot_sig, hash0, digit0, hash1, digit1, ...]
+        // Digits are at indices 2, 4, 6, ... (0-indexed)
+        //
+        // The digits are in forward order: digit0 is for the first position in the
+        // Winternitz signature. After extraction, elements are reversed and chunked
+        // into pairs: [high_nibble, low_nibble] → byte = high * 16 + low.
+        //
+        // We find a digit element with value 15 (0x0F) and change it to 16 (0x10)..
+
+        let mut tampered_witness_vec: Vec<Vec<u8>> = witness.to_vec();
+
+        // Find a digit element (at even witness index >= 2) with value 15.
+        // Digit elements are at indices 2, 4, 6, ... (skipping hash elements at 1, 3, 5, ...).
+        let mut tampered_idx = None;
+        for i in (2..tampered_witness_vec.len()).step_by(2) {
+            if tampered_witness_vec[i] == vec![0x0F] {
+                tampered_idx = Some(i);
+                break;
+            }
+        }
+        let tampered_idx = tampered_idx.expect("Should find a digit element with value 15");
+
+        // Change digit from 15 to 16
+        tampered_witness_vec[tampered_idx] = vec![0x10];
+
+        let tampered_witness = bitcoin::Witness::from_slice(&tampered_witness_vec);
+
+        // Extract from tampered witness
+        let tampered_extracted =
+            extract_winternitz_commits(tampered_witness.clone(), &[kickoff.clone()], paramset)
+                .unwrap();
+
+        // The extracted data should differ from the original message.
+        // This demonstrates the vulnerability: off-chain extraction produces
+        // different data than what on-chain verification actually validated.
+        assert_eq!(
+            tampered_extracted[0], original_message,
+            "Extraction should match original message
+             Original: {original_message:?}, Tampered extraction: {:?}",
+            tampered_extracted[0]
+        );
+
+        // ===== Verify on-chain script ACCEPTS the tampered witness =====
+        //
+        // Build the on-chain Winternitz verification script and run it with the
+        // tampered witness to prove that on-chain verification passes (because
+        // ListpickVerifier applies OP_MIN to clamp digit 16 → 15).
+        use bitvm::signatures::winternitz::{
+            generate_public_key as wt_generate_public_key, ListpickVerifier, VoidConverter,
+            Winternitz,
+        };
+
+        let wt_params = kickoff.get_params();
+        let wt_sk = signer.get_derived_winternitz_sk(kickoff.clone()).unwrap();
+        let wt_pk = wt_generate_public_key(&wt_params, &wt_sk);
+
+        let verifier = Winternitz::<ListpickVerifier, VoidConverter>::new();
+        let verify_script = verifier.checksig_verify_and_clear_stack(&wt_params, &wt_pk);
+
+        // Build complete script: checksig_verify_and_clear_stack + OP_TRUE
+        let mut script_bytes = verify_script.compile().to_bytes();
+        script_bytes.push(0x51); // OP_TRUE
+
+        // The signing witness is the tampered witness without the taproot signature prefix
+        let signing_witness: Vec<Vec<u8>> = tampered_witness_vec[1..].to_vec();
+
+        let result = bitvm::execute_raw_script_with_inputs(script_bytes, signing_witness);
+        assert!(
+            result.success,
+            "On-chain Winternitz verification should ACCEPT the tampered witness \
+             (digit=16 is clamped to 15 by OP_MIN). Script error: {:?}",
+            result.error
+        );
     }
 }
