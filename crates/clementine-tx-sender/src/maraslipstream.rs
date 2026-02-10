@@ -1,7 +1,8 @@
 use secrecy::SecretString;
 use serde::Deserialize;
 
-pub const DEFAULT_FEE_RATE_ENDPOINT: &str = "/rest-api/getinfo";
+// This is the endpoint that provides `discounted_multiplier` and `submit_fee_rate`.
+pub const DEFAULT_FEE_RATE_ENDPOINT: &str = "/rest-api/getrate";
 pub const DEFAULT_SUBMIT_PACKAGE_ENDPOINT: &str = "/rest-api/submit-package";
 pub const DEFAULT_SUBMIT_TX_ENDPOINT: &str = "/rest-api/submit-tx";
 
