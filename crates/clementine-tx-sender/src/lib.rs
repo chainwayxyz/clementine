@@ -598,7 +598,11 @@ impl TxSender {
                     tracing::error!(
                         "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
                     );
-                    log_error_for_tx!(self.db, try_to_send_id, format!("send_raw_transaction error for no funding tx: {err_str}"));
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("send_raw_transaction error for no funding tx: {err_str}")
+                    );
                 }
                 let _ = self
                     .db
