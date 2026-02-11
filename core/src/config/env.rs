@@ -9,9 +9,9 @@ use crate::{
     deposit::SecurityCouncil,
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
+use clementine_errors::BridgeError;
 use clementine_tx_sender::maraslipstream;
 use clementine_tx_sender::MaraSlipstreamConfig;
-use clementine_errors::BridgeError;
 use eyre::Context;
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
@@ -45,7 +45,11 @@ fn trim_env_in_place(s: &mut String) {
 fn read_optional_trimmed_env(env_var: &'static str) -> Option<String> {
     let mut s = std::env::var(env_var).ok()?;
     trim_env_in_place(&mut s);
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 // MARA Slipstream config is optional and enabled when `MARASLIPSTREAM_HOST` is set.
@@ -61,8 +65,9 @@ fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
     let fee_rate_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
         .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
 
-    let submit_package_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
-        .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
+    let submit_package_endpoint =
+        read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
 
     let submit_tx_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
         .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
