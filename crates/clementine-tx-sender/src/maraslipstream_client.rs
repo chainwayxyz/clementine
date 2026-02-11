@@ -1,8 +1,10 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use clementine_errors::SendTxError;
+use eyre::eyre;
 use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
 const SLIPSTREAM_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -33,9 +35,7 @@ impl MaraSlipstreamClient {
     ) -> Result<SlipstreamRateInfo, SendTxError> {
         match self.get_rate(client_code).await {
             Ok(res) => Ok(res),
-            Err(SendTxError::NetworkError(msg)) if is_invalid_client_code_msg(&msg) => {
-                self.get_rate(None).await
-            }
+            Err(e) if is_invalid_client_code_msg(&e.to_string()) => self.get_rate(None).await,
             Err(e) => Err(e),
         }
     }
@@ -47,7 +47,7 @@ impl MaraSlipstreamClient {
     ) -> Result<SlipstreamTxSubmitResponse, SendTxError> {
         match self.submit_tx(tx_hex, client_code).await {
             Ok(res) => Ok(res),
-            Err(SendTxError::NetworkError(msg)) if is_invalid_client_code_msg(&msg) => {
+            Err(e) if is_invalid_client_code_msg(&e.to_string()) => {
                 self.submit_tx(tx_hex, None).await
             }
             Err(e) => Err(e),
@@ -61,7 +61,7 @@ impl MaraSlipstreamClient {
     ) -> Result<SlipstreamPackageSubmitResponse, SendTxError> {
         match self.submit_package(tx_hexes, client_code).await {
             Ok(res) => Ok(res),
-            Err(SendTxError::NetworkError(msg)) if is_invalid_client_code_msg(&msg) => {
+            Err(e) if is_invalid_client_code_msg(&e.to_string()) => {
                 self.submit_package(tx_hexes, None).await
             }
             Err(e) => Err(e),
@@ -80,7 +80,7 @@ impl MaraSlipstreamClient {
         let (status, body) = send_read_text(req).await?;
         if status.is_success() {
             let res: SlipstreamRateInfo = serde_json::from_str(&body).map_err(|e| {
-                SendTxError::NetworkError(format!("Slipstream getrate invalid JSON: {e}"))
+                SendTxError::Other(eyre!(e).wrap_err("Slipstream getrate invalid JSON"))
             })?;
             return Ok(res);
         }
@@ -103,7 +103,7 @@ impl MaraSlipstreamClient {
 
         // The API returns a JSON response body even for 400s.
         let res: SlipstreamTxSubmitResponse = serde_json::from_str(&body).map_err(|e| {
-            SendTxError::NetworkError(format!("Slipstream submit-tx invalid JSON: {e}"))
+            SendTxError::Other(eyre!(e).wrap_err("Slipstream submit-tx invalid JSON"))
         })?;
 
         if status.is_success() && res.status.eq_ignore_ascii_case("success") {
@@ -128,7 +128,7 @@ impl MaraSlipstreamClient {
 
         // The API returns a JSON response body even for 400s.
         let res: SlipstreamPackageSubmitResponse = serde_json::from_str(&body).map_err(|e| {
-            SendTxError::NetworkError(format!("Slipstream submit-package invalid JSON: {e}"))
+            SendTxError::Other(eyre!(e).wrap_err("Slipstream submit-package invalid JSON"))
         })?;
 
         if status.is_success() && res.status.eq_ignore_ascii_case("success") {
@@ -148,9 +148,7 @@ fn join(host: &str, endpoint: &str) -> String {
     }
 }
 
-async fn send_read_text(
-    req: reqwest::RequestBuilder,
-) -> Result<(StatusCode, String), SendTxError> {
+async fn send_read_text(req: reqwest::RequestBuilder) -> Result<(StatusCode, String), SendTxError> {
     let resp = tokio::time::timeout(SLIPSTREAM_HTTP_TIMEOUT, req.send())
         .await
         .map_err(|_| SendTxError::NetworkError("Slipstream request timed out".to_string()))?
@@ -161,7 +159,9 @@ async fn send_read_text(
         .map_err(|_| {
             SendTxError::NetworkError("Slipstream reading response body timed out".to_string())
         })?
-        .map_err(|e| SendTxError::NetworkError(format!("Slipstream failed reading response body: {e}")))?;
+        .map_err(|e| {
+            SendTxError::NetworkError(format!("Slipstream failed reading response body: {e}"))
+        })?;
     Ok((status, body))
 }
 
@@ -169,33 +169,26 @@ fn map_slipstream_error(status: StatusCode, body: &str, op: &str) -> SendTxError
     // For getrate, invalid client codes return:
     // {"is_success":false,"message":"Requested client code is invalid"}
     if let Ok(err) = serde_json::from_str::<SlipstreamErrorResponse>(body) {
-        return SendTxError::NetworkError(format!("Slipstream {op} HTTP {status}: {}", err.message));
+        return SendTxError::Other(eyre!("Slipstream {op} HTTP {status}: {}", err.message));
     }
 
     // For submit endpoints, errors may be:
     // {"status":"error","message":"..."}
     if let Ok(err) = serde_json::from_str::<SlipstreamTxSubmitResponse>(body) {
         if err.status.eq_ignore_ascii_case("error") {
-            return SendTxError::NetworkError(format!(
-                "Slipstream {op} HTTP {status}: {}",
-                err.message
-            ));
+            return SendTxError::Other(eyre!("Slipstream {op} HTTP {status}: {}", err.message));
         }
     }
 
     if let Ok(err) = serde_json::from_str::<SlipstreamPackageSubmitResponse>(body) {
         if err.status.eq_ignore_ascii_case("error") {
             if let Some(msg) = err.error {
-                return SendTxError::NetworkError(format!(
-                    "Slipstream {op} HTTP {status}: {msg}"
-                ));
+                return SendTxError::Other(eyre!("Slipstream {op} HTTP {status}: {msg}"));
             }
         }
     }
 
-    SendTxError::NetworkError(format!(
-        "Slipstream {op} HTTP {status}: {body}"
-    ))
+    SendTxError::Other(eyre!("Slipstream {op} HTTP {status}: {body}"))
 }
 
 fn is_invalid_client_code_msg(msg: &str) -> bool {
@@ -224,6 +217,7 @@ pub struct SlipstreamErrorResponse {
 #[derive(Debug, Deserialize)]
 pub struct SlipstreamTxSubmitResponse {
     pub status: String,
+    // Per Swagger, on success this is a txid string.
     pub message: String,
 }
 
@@ -231,9 +225,16 @@ pub struct SlipstreamTxSubmitResponse {
 pub struct SlipstreamPackageSubmitResponse {
     pub status: String,
     #[serde(default)]
-    pub result: Option<serde_json::Value>,
+    pub result: Option<SlipstreamPackageSubmitResult>,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlipstreamPackageSubmitResult {
+    // Swagger returns this as `{ "tx-results": { "<txid>": "submitted", ... } }`
+    #[serde(rename = "tx-results", default)]
+    pub tx_results: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
