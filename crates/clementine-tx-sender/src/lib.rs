@@ -296,12 +296,15 @@ impl TxSender {
     }
 
     /// Checks whether all inputs of the given transaction are currently unspent.
-    /// Because this is called in try_to_send_unconfirmed_txs, it is guaranteed that the input utxos were created. (Txs that created the inputs were mined)
     ///
-    /// Uses `gettxout` to verify each input's previous output is still in the UTXO set.
+    /// For each input:
+    /// - If the creating transaction (`outpoint.txid`) is still in the mempool, we **skip**
+    ///   checking its spend status via `gettxout`, since the output is not yet in the UTXO set.
+    /// - Otherwise, we use `gettxout` to verify the previous output is still in the UTXO set.
     async fn are_tx_inputs_unspent(&self, tx: &Transaction) -> Result<bool> {
         for input in &tx.input {
             let outpoint = input.previous_output;
+
             let utxo = self
                 .rpc
                 .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -309,6 +312,18 @@ impl TxSender {
                 .wrap_err("Failed to gettxout for tx input")?;
 
             if utxo.is_none() {
+                // If the transaction that created this UTXO is still in the mempool, don't consider it as spent
+                // outputs as "spent" just because they're not yet in the UTXO set.
+                // If timelock of activate_txid is 0, we try to send txs directly while the activate_txid is in mempool.
+                let in_mempool = match self.rpc.get_mempool_entry(&outpoint.txid).await {
+                    Ok(_) => Ok(true),
+                    Err(e) if crate::rpc_errors::is_mempool_not_found_error(&e) => Ok(false),
+                    Err(e) => Err(e).wrap_err("Failed to get mempool entry for tx input"),
+                }?;
+
+                if in_mempool {
+                    continue;
+                }
                 return Ok(false);
             }
         }
