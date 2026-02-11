@@ -79,6 +79,14 @@ pub enum Duty {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     },
+    /// This duty is sent when a specific watchtower challenge transaction is detected on Bitcoin.
+    /// It includes the watchtower index so the owner (if it is an operator) can queue the corresponding OperatorChallengeAck
+    /// transaction for that exact watchtower.
+    WatchtowerChallengeDetected {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        watchtower_idx: usize,
+    },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
     /// This duty is sent after some time (config.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.

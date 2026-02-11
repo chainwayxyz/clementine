@@ -471,6 +471,22 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
+                // notify owner so it can queue OperatorChallengeAck for this specific watchtower
+                context
+                    .capture_error(async |context| {
+                        {
+                            context
+                                .dispatch_duty(Duty::WatchtowerChallengeDetected {
+                                    kickoff_data: self.kickoff_data,
+                                    deposit_data: self.deposit_data.clone(),
+                                    watchtower_idx: *watchtower_idx,
+                                })
+                                .await?;
+                            Ok::<(), BridgeError>(())
+                        }
+                        .wrap_err(self.kickoff_meta("on_watchtower_challenge_detected"))
+                    })
+                    .await;
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
                 self.send_operator_asserts_if_ready(context).await;

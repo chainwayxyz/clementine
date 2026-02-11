@@ -3143,6 +3143,7 @@ mod states {
                     .await?;
                     Ok(DutyResult::Handled)
                 }
+                Duty::WatchtowerChallengeDetected { .. } => Ok(DutyResult::Handled),
                 Duty::WatchtowerChallenge {
                     kickoff_data,
                     deposit_data,

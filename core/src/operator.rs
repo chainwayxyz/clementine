@@ -2494,6 +2494,33 @@ where
 
         Ok(())
     }
+
+    /// Queues an OperatorChallengeAck transaction for the given watchtower index.
+    #[cfg(feature = "automation")]
+    async fn queue_operator_challenge_ack_for_watchtower(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        watchtower_idx: usize,
+    ) -> Result<(), BridgeError> {
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, None)
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
+        for (tx_type, signed_tx) in &signed_txs {
+            if let TransactionType::OperatorChallengeAck(idx) = *tx_type {
+                if idx == watchtower_idx {
+                    self.tx_sender
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<C> NamedEntity for Operator<C>
@@ -2561,6 +2588,27 @@ mod states {
                     self.signer.xonly_public_key, kickoff_data, deposit_data);
                     self.queue_watchtower_challenge_timeout_txs(dbtx, kickoff_data, deposit_data)
                         .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallengeDetected {
+                    kickoff_data,
+                    deposit_data,
+                    watchtower_idx,
+                } => {
+                    tracing::info!(
+                        "Operator {:?} detected watchtower challenge for watchtower_idx: {} with kickoff_data: {:?}, deposit_data: {:?}",
+                        self.signer.xonly_public_key,
+                        watchtower_idx,
+                        kickoff_data,
+                        deposit_data
+                    );
+                    self.queue_operator_challenge_ack_for_watchtower(
+                        dbtx,
+                        kickoff_data,
+                        deposit_data,
+                        watchtower_idx,
+                    )
+                    .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::SendOperatorAsserts {
