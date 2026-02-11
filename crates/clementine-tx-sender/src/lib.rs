@@ -50,7 +50,7 @@ use clementine_primitives::FeeRateKvb;
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
 use clementine_utils::{FeePayingType, TxMetadata};
-use eyre::OptionExt;
+use eyre::{OptionExt, WrapErr};
 use signer::TxSenderSigningKey;
 
 /// Default sequence for transactions.
@@ -295,6 +295,27 @@ impl TxSender {
             .map_err(BridgeError::Eyre)
     }
 
+    /// Checks whether all inputs of the given transaction are currently unspent.
+    /// Because this is called in try_to_send_unconfirmed_txs, it is guaranteed that the input utxos were created. (Txs that created the inputs were mined)
+    ///
+    /// Uses `gettxout` to verify each input's previous output is still in the UTXO set.
+    async fn are_tx_inputs_unspent(&self, tx: &Transaction) -> Result<bool> {
+        for input in &tx.input {
+            let outpoint = input.previous_output;
+            let utxo = self
+                .rpc
+                .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+                .await
+                .wrap_err("Failed to gettxout for tx input")?;
+
+            if utxo.is_none() {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Fetches transactions that are eligible to be sent or bumped from
     /// database based on the given fee rate and tip height. Then, places a send
     /// transaction request to the Bitcoin based on the fee strategy.
@@ -379,6 +400,33 @@ impl TxSender {
                 let _ = self
                     .db
                     .update_tx_debug_sending_state(id, "confirmed", true)
+                    .await;
+
+                continue;
+            }
+
+            // Before attempting to (re)send, ensure all inputs are still unspent.
+            let inputs_unspent = match self.are_tx_inputs_unspent(&tx).await {
+                Ok(res) => res,
+                Err(e) => {
+                    log_error_for_tx!(
+                        self.db,
+                        id,
+                        format!("Failed to verify tx inputs are unspent: {}", e)
+                    );
+                    continue;
+                }
+            };
+
+            if !inputs_unspent {
+                tracing::debug!(
+                    try_to_send_id = id,
+                    "Skipping tx because one or more inputs are already spent"
+                );
+
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(id, "inputs_already_spent", true)
                     .await;
 
                 continue;
