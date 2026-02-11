@@ -2404,6 +2404,43 @@ where
         }
     }
 
+    /// Creates and signs all kickoff-related transactions for a given deposit,
+    /// returning them together with the associated `TxMetadata`.
+    #[cfg(feature = "automation")]
+    async fn create_signed_kickoff_related_txs(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        block_hash: Option<[u8; 20]>,
+    ) -> Result<(Vec<(TransactionType, Transaction)>, TxMetadata), BridgeError> {
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let context = ContractContext::new_context_for_kickoff(
+            kickoff_data,
+            deposit_data,
+            self.config.protocol_paramset(),
+        );
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            context,
+            block_hash,
+            Some(dbtx),
+        )
+        .await?;
+
+        let tx_metadata = TxMetadata {
+            tx_type: TransactionType::Dummy,
+            operator_xonly_pk: Some(self.signer.xonly_public_key),
+            round_idx: Some(kickoff_data.round_idx),
+            kickoff_idx: Some(kickoff_data.kickoff_idx),
+            deposit_outpoint: Some(deposit_outpoint),
+        };
+
+        Ok((signed_txs, tx_metadata))
+    }
+
     /// Adds relevant transactions to tx_sender queue for a kickoff.
     /// Used during resync to ensure all necessary txs are queued.
     #[cfg(feature = "automation")]
@@ -2413,28 +2450,12 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoff(
-            kickoff_data,
-            deposit_data.clone(),
-            self.config.protocol_paramset(),
-        );
-        let signed_txs = create_and_sign_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            context,
-            // dummy blockhash, as kickoff is already sent and payout blockhash does not affect the txid, we can use a dummy blockhash
-            Some([0u8; 20]),
-            Some(dbtx),
-        )
-        .await?;
-        let tx_metadata = Some(TxMetadata {
-            tx_type: TransactionType::Dummy,
-            operator_xonly_pk: Some(self.signer.xonly_public_key),
-            round_idx: Some(kickoff_data.round_idx),
-            kickoff_idx: Some(kickoff_data.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-        });
+        // dummy blockhash, as kickoff is already sent and payout blockhash does not affect the txid, we can use a dummy blockhash
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, Some([0u8; 20]))
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
                 TransactionType::ChallengeTimeout
@@ -2447,6 +2468,30 @@ where
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    /// Queues watchtower challenge timeout transactions for a kickoff that was challenged.
+    #[cfg(feature = "automation")]
+    async fn queue_watchtower_challenge_timeout_txs(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, None)
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
+        for (tx_type, signed_tx) in &signed_txs {
+            if let TransactionType::WatchtowerChallengeTimeout(_) = *tx_type {
+                self.tx_sender
+                    .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                    .await?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -2514,7 +2559,7 @@ mod states {
                 } => {
                     tracing::info!("Operator {:?} called add relevant txs to tx sender with kickoff_data: {:?}, deposit_data: {:?}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data);
-                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                    self.queue_watchtower_challenge_timeout_txs(dbtx, kickoff_data, deposit_data)
                         .await?;
                     Ok(DutyResult::Handled)
                 }
