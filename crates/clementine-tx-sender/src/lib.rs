@@ -7,6 +7,7 @@ pub mod client;
 pub mod cpfp;
 pub mod maraslipstream;
 pub mod maraslipstream_client;
+pub mod maraslipstream_integration;
 pub mod nonstandard;
 pub mod rbf;
 pub mod task;
@@ -643,13 +644,6 @@ where
             }
 
             let result = match fee_paying_type {
-                // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
-                // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.protocol_paramset.network == bitcoin::Network::Testnet4
-                    && self.is_bridge_tx_nonstandard(&tx) =>
-                {
-                    self.send_testnet4_nonstandard_tx(&tx, id).await
-                }
                 FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
                 FeePayingType::RBF => {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
@@ -695,6 +689,83 @@ where
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
+        if let Some(cfg) = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx) {
+            let client = self.slipstream_client(cfg);
+            let tx_hex = Self::tx_to_hex(&tx);
+
+            match client
+                .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
+                .await
+            {
+                Ok(res) => {
+                    // Slipstream returns the txid in `message` on success; verify it matches what
+                    // we computed locally.
+                    let expected_txid = tx.compute_txid();
+                    match res.message.parse::<Txid>() {
+                        Ok(returned_txid) => {
+                            if returned_txid != expected_txid {
+                                let err_msg = format!(
+                                    "Slipstream returned unexpected txid {} (expected {})",
+                                    returned_txid, expected_txid
+                                );
+                                log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                                let _ = self
+                                    .db
+                                    .update_tx_debug_sending_state(
+                                        try_to_send_id,
+                                        "slipstream_txid_mismatch",
+                                        true,
+                                    )
+                                    .await;
+                                return Err(SendTxError::Other(eyre::eyre!(
+                                    "Slipstream returned unexpected txid"
+                                )));
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                try_to_send_id,
+                                "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
+                                res.message,
+                                e
+                            );
+                        }
+                    }
+
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Successfully submitted nonstandard tx to Slipstream: {}",
+                        res.message
+                    );
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "slipstream_submit_tx_success",
+                            true,
+                        )
+                        .await;
+                    return Ok(());
+                }
+                Err(e) => {
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("Slipstream submit-tx failed: {e:?}")
+                    );
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "slipstream_submit_tx_failed",
+                            true,
+                        )
+                        .await;
+                    return Err(e);
+                }
+            }
+        }
+
         match self.rpc.send_raw_transaction(&tx).await {
             Ok(sent_txid) => {
                 tracing::debug!(

@@ -18,7 +18,10 @@
 //! send.
 
 use super::Result;
-use crate::{SpendableInputInfo, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{
+    log_error_for_tx, SpendableInputInfo, TxSender, TxSenderDatabase, TxSenderSigner,
+    TxSenderTxBuilder,
+};
 use bitcoin::absolute::LockTime;
 use bitcoin::transaction::Version;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
@@ -392,6 +395,8 @@ where
         _tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
     ) -> Result<()> {
+        let base_fee_rate = fee_rate;
+
         let unconfirmed = self
             .db
             .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
@@ -409,11 +414,17 @@ where
             return Ok(());
         }
 
+        let slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
+
+        let submit_fee_rate = self
+            .maybe_slipstream_adjust_fee_rate(base_fee_rate, slipstream_cfg)
+            .await;
+
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.get_prevout().value).sum();
 
         let package = match self
-            .create_package(tx.clone(), fee_rate, confirmed.clone())
+            .create_package(tx.clone(), submit_fee_rate, confirmed.clone())
             .await
         {
             Ok(p) => p,
@@ -422,7 +433,7 @@ where
                     try_to_send_id,
                     None,
                     &tx,
-                    fee_rate,
+                    submit_fee_rate,
                     total_amount,
                     confirmed.len(),
                 )
@@ -440,26 +451,92 @@ where
             Err(e) => return Err(e),
         };
 
-        let package_refs: Vec<&Transaction> = package.iter().collect();
-        let submit_result = self
-            .rpc
-            .submit_package(&package_refs, Some(Amount::ZERO), None)
-            .await
-            .wrap_err("Failed to submit package")?;
+        if let Some(cfg) = slipstream_cfg {
+            let client = self.slipstream_client(cfg);
+            let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
 
-        if submit_result.tx_results.is_empty() {
-            return Ok(());
-        }
+            match client
+                .submit_package_with_fallback(&tx_hexes, cfg.client_code.as_ref())
+                .await
+            {
+                Ok(res) => {
+                    // Slipstream includes per-tx statuses in `result.tx-results` when present.
+                    // Warn when status details are missing or explicitly non-submitted.
+                    if let Some(result) = res.result.as_ref() {
+                        for t in &package {
+                            let txid = t.compute_txid().to_string();
+                            if let Some(state) = result.tx_results.get(&txid) {
+                                if !state.eq_ignore_ascii_case("submitted") {
+                                    tracing::warn!(
+                                        try_to_send_id,
+                                        "Slipstream submit-package returned non-submitted state for txid {}: {}",
+                                        txid,
+                                        state
+                                    );
+                                }
+                            } else {
+                                tracing::warn!(
+                                    try_to_send_id,
+                                    "Slipstream submit-package response missing state for txid {}",
+                                    txid
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            try_to_send_id,
+                            "Slipstream submit-package response missing optional result field"
+                        );
+                    }
 
-        for (_txid, result) in submit_result.tx_results {
-            if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(try_to_send_id, "Error submitting package: {:?}", error);
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "slipstream_submit_package_success",
+                            true,
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("Slipstream submit-package failed: {e:?}")
+                    );
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "slipstream_submit_package_failed",
+                            true,
+                        )
+                        .await;
+                    return Err(e);
+                }
+            }
+        } else {
+            let package_refs: Vec<&Transaction> = package.iter().collect();
+            let submit_result = self
+                .rpc
+                .submit_package(&package_refs, Some(Amount::ZERO), None)
+                .await
+                .wrap_err("Failed to submit package")?;
+
+            if submit_result.tx_results.is_empty() {
                 return Ok(());
+            }
+
+            for (_txid, result) in submit_result.tx_results {
+                if let PackageTransactionResult::Failure { error, .. } = result {
+                    tracing::error!(try_to_send_id, "Error submitting package: {:?}", error);
+                    return Ok(());
+                }
             }
         }
 
         self.db
-            .update_effective_fee_rate(None, try_to_send_id, fee_rate)
+            .update_effective_fee_rate(None, try_to_send_id, base_fee_rate)
             .await
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
         Ok(())
