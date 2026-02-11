@@ -57,7 +57,7 @@ use {
         header_chain_prover::HeaderChainProver,
         states::StateManager,
         task::IntoTask,
-        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        tx_sender::{ActivatedWithTxid, TxSenderClient},
         utils::FeePayingType,
     },
     bitcoin::Witness,
@@ -938,22 +938,12 @@ where
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
                 TransactionType::Kickoff
-                | TransactionType::OperatorChallengeAck(_)
-                | TransactionType::WatchtowerChallengeTimeout(_)
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
                     #[cfg(feature = "automation")]
                     self.tx_sender
-                        .add_tx_to_queue(
-                            dbtx,
-                            *tx_type,
-                            signed_tx,
-                            &signed_txs,
-                            tx_metadata,
-                            self.config.protocol_paramset(),
-                            None,
-                        )
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
                         .await?;
                 }
                 _ => {}
@@ -1015,9 +1005,6 @@ where
                 FeePayingType::CPFP,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 
@@ -1036,8 +1023,6 @@ where
     ) -> Result<(), BridgeError> {
         // get current round index
         let current_round_index = self.db.get_current_round_index(Some(&mut dbtx)).await?;
-
-        let mut activation_prerequisites = Vec::new();
 
         let operator_winternitz_public_keys = self
             .db
@@ -1089,7 +1074,6 @@ where
             .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[], Some(&mut tweak_cache))
             .wrap_err("Failed to sign next round tx")?;
 
-        let current_round_txid = current_round_txhandler.get_cached_tx().compute_txid();
         let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
         let next_round_tx = next_round_txhandler.get_cached_tx();
 
@@ -1110,20 +1094,8 @@ where
                 )
                 .await?;
             match kickoff_txid {
-                Some(kickoff_txid) => {
-                    activation_prerequisites.push(ActivatedWithOutpoint {
-                        outpoint: OutPoint {
-                            txid: kickoff_txid,
-                            vout: UtxoVout::KickoffFinalizer.get_vout(), // Kickoff finalizer output index
-                        },
-                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
-                    });
-                }
+                Some(_) => {}
                 None => {
-                    let unspent_kickoff_connector = OutPoint {
-                        txid: current_round_txid,
-                        vout: UtxoVout::Kickoff(kickoff_connector_idx as usize).get_vout(),
-                    };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
                         .mark_kickoff_connector_as_used(
@@ -1133,10 +1105,6 @@ where
                             None,
                         )
                         .await?;
-                    activation_prerequisites.push(ActivatedWithOutpoint {
-                        outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
-                    });
                 }
             }
         }
@@ -1173,32 +1141,10 @@ where
                 FeePayingType::CPFP,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 
-        // send ready to reimburse tx
-        self.tx_sender
-            .insert_try_to_send(
-                dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::ReadyToReimburse,
-                    operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                ready_to_reimburse_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &activation_prerequisites,
-            )
-            .await?;
+        // Ready to reimburse tx will be sent using state manager
 
         // send next round tx
         self.tx_sender
@@ -1214,8 +1160,6 @@ where
                 next_round_tx,
                 FeePayingType::CPFP,
                 None,
-                &[],
-                &[],
                 &[ActivatedWithTxid {
                     txid: ready_to_reimburse_txid,
                     relative_block_height: self
@@ -1224,7 +1168,6 @@ where
                         .operator_reimburse_timelock
                         as u32,
                 }],
-                &[],
             )
             .await?;
 
@@ -1633,7 +1576,6 @@ where
                     dbtx,
                     tx_type,
                     &tx,
-                    &[],
                     Some(TxMetadata {
                         tx_type,
                         operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1641,7 +1583,6 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -1685,7 +1626,6 @@ where
                 dbtx,
                 tx_type,
                 &tx,
-                &[],
                 Some(TxMetadata {
                     tx_type,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1693,7 +1633,6 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -2498,21 +2437,11 @@ where
         });
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
-                TransactionType::OperatorChallengeAck(_)
-                | TransactionType::WatchtowerChallengeTimeout(_)
-                | TransactionType::ChallengeTimeout
+                TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
                     self.tx_sender
-                        .add_tx_to_queue(
-                            dbtx,
-                            *tx_type,
-                            signed_tx,
-                            &signed_txs,
-                            tx_metadata,
-                            self.config.protocol_paramset(),
-                            None,
-                        )
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
                         .await?;
                 }
                 _ => {}

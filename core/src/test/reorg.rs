@@ -133,9 +133,6 @@ impl TestCase for TxSenderReorgBehavior {
                 FeePayingType::CPFP,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await
             .unwrap();

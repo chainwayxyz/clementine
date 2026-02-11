@@ -4,7 +4,7 @@ use super::wrapper::TxidDB;
 use super::{TxSenderDb, TxSenderDbTx};
 use crate::txsender_execute_query_with_tx;
 use bitcoin::consensus::{deserialize, serialize};
-use bitcoin::{Amount, OutPoint, Transaction, Txid};
+use bitcoin::{Amount, Transaction, Txid};
 use clementine_errors::BridgeError;
 use clementine_primitives::FeeRateKvb;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
@@ -12,7 +12,7 @@ use eyre::{Context, OptionExt};
 use sqlx::Executor;
 use std::collections::HashMap;
 
-use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
+use crate::ActivatedWithTxid;
 
 impl TxSenderDb {
     /// Saves a fee payer transaction to the database.
@@ -272,39 +272,6 @@ impl TxSenderDb {
         Ok(results.into_iter().map(|(txid,)| txid.0).collect())
     }
 
-    pub async fn save_cancelled_outpoint(
-        &self,
-        tx: TxSenderDbTx<'_>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
-        .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?);
-
-        query.execute(&mut **tx).await?;
-        Ok(())
-    }
-
-    pub async fn save_cancelled_txid(
-        &self,
-        tx: TxSenderDbTx<'_>,
-        cancelled_id: u32,
-        txid: Txid,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
-        .bind(TxidDB(txid));
-
-        query.execute(&mut **tx).await?;
-        Ok(())
-    }
-
     pub async fn save_activated_txid(
         &self,
         tx: TxSenderDbTx<'_>,
@@ -317,24 +284,6 @@ impl TxSenderDb {
         .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
         .bind(TxidDB(prerequisite_tx.txid))
         .bind(i32::try_from(prerequisite_tx.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
-
-        query.execute(&mut **tx).await?;
-        Ok(())
-    }
-
-    pub async fn save_activated_outpoint(
-        &self,
-        tx: TxSenderDbTx<'_>,
-        activated_id: u32,
-        activated_outpoint: &ActivatedWithOutpoint,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-        )
-        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
-        .bind(TxidDB(activated_outpoint.outpoint.txid))
-        .bind(i32::try_from(activated_outpoint.outpoint.vout).wrap_err("Failed to convert vout to i32")?)
-        .bind(i32::try_from(activated_outpoint.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
 
         query.execute(&mut **tx).await?;
         Ok(())
@@ -366,35 +315,7 @@ impl TxSenderDb {
                             AND activate_txid.seen_at_height IS NULL
                             AND activate_txid.in_mempool IS NOT TRUE
                         )
-
-                    UNION
-
-                    SELECT DISTINCT
-                        activate_outpoint.activated_id AS tx_id
-                    FROM
-                        tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                    WHERE
-                        activate_outpoint.seen_at_height IS NULL
-                        OR (activate_outpoint.seen_at_height::bigint + activate_outpoint.timelock > $2::bigint)
                 ),
-
-                cancelled_txs AS (
-                    SELECT DISTINCT
-                        cancelled_id AS tx_id
-                    FROM
-                        tx_sender_cancel_try_to_send_outpoints
-                    WHERE
-                        seen_at_height IS NOT NULL
-
-                    UNION
-
-                    SELECT DISTINCT
-                        cancelled_id AS tx_id
-                    FROM
-                        tx_sender_cancel_try_to_send_txids
-                    WHERE
-                        seen_at_height IS NOT NULL
-                )
 
                 SELECT
                     txs.id
@@ -402,7 +323,6 @@ impl TxSenderDb {
                     tx_sender_try_to_send_txs AS txs
                 WHERE
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
-                    AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
                     AND txs.seen_at_height IS NULL
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
@@ -738,111 +658,10 @@ impl TxSenderDb {
                     );
                 }
             }
-
-            // outpoint activations
-            let outpoint_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB, i32)>(
-                "SELECT seen_at_height, timelock, txid, vout
-                    FROM tx_sender_activate_try_to_send_outpoints
-                    WHERE activated_id = $1",
-            )
-            .bind(tx_id)
-            .fetch_all(&self.pool)
-            .await
-            {
-                Ok(activations) => activations,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query outpoint activations: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            for (seen_at_height, timelock, txid, vout) in outpoint_activations {
-                if seen_at_height.is_none() {
-                    tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation {}:{} has not been seen spent", id, txid.0, vout);
-                    continue;
-                }
-
-                let seen_at_height = seen_at_height.expect("checked above");
-                if (seen_at_height as i64) + timelock > current_tip_height as i64 {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (seen_at_height: {}, timelock: {}, current_tip_height: {})",
-                        id, seen_at_height, timelock, current_tip_height
-                    );
-                }
-            }
-
-            // cancellations
-            let cancelled_txids = match sqlx::query_as::<_, (TxidDB, Option<i32>)>(
-                "SELECT txid, seen_at_height
-                FROM tx_sender_cancel_try_to_send_txids
-                WHERE cancelled_id = $1",
-            )
-            .bind(tx_id)
-            .fetch_all(&self.pool)
-            .await
-            {
-                Ok(x) => x,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query cancelled txids: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            for (txid, seen_at_height) in cancelled_txids {
-                if seen_at_height.is_some() {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it was cancelled by txid {}",
-                        id,
-                        txid.0
-                    );
-                }
-            }
-
-            let cancelled_outpoints = match sqlx::query_as::<_, (TxidDB, i32, Option<i32>)>(
-                "SELECT txid, vout, seen_at_height
-                FROM tx_sender_cancel_try_to_send_outpoints
-                WHERE cancelled_id = $1",
-            )
-            .bind(tx_id)
-            .fetch_all(&self.pool)
-            .await
-            {
-                Ok(x) => x,
-                Err(e) => {
-                    tracing::error!(
-                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query cancelled outpoints: {}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            for (txid, vout, seen_at_height) in cancelled_outpoints {
-                if seen_at_height.is_some() {
-                    tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because it was cancelled by outpoint {}:{}",
-                        id,
-                        txid.0,
-                        vout
-                    );
-                }
-            }
         }
     }
 
     /// Lists all unfinalized try-to-send transactions that should be checked for confirmation.
-    ///
-    /// This function excludes transactions that have been permanently cancelled (i.e., any cancellation
-    /// from `tx_sender_cancel_try_to_send_txids` or `tx_sender_cancel_try_to_send_outpoints` is finalized).
-    /// Once a cancellation is finalized, the transaction can never be sent, so there's no point in
-    /// repeatedly checking it via RPC. This prevents unnecessary RPC calls for transactions that are
-    /// permanently cancelled.
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -852,18 +671,6 @@ impl TxSenderDb {
             SELECT id, fee_paying_type, txid, seen_at_height
             FROM tx_sender_try_to_send_txs
             WHERE is_finalized = FALSE
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM tx_sender_cancel_try_to_send_txids
-                  WHERE cancelled_id = tx_sender_try_to_send_txs.id
-                    AND is_finalized = TRUE
-              )
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM tx_sender_cancel_try_to_send_outpoints
-                  WHERE cancelled_id = tx_sender_try_to_send_txs.id
-                    AND is_finalized = TRUE
-              )
             "#,
         );
 
@@ -1071,76 +878,6 @@ impl TxSenderDb {
         Ok(())
     }
 
-    pub async fn list_unfinalized_cancel_txids(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-    ) -> Result<Vec<(u32, Txid, Option<u32>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, Option<i32>)>(
-            r#"
-            SELECT cancelled_id, txid, seen_at_height
-            FROM tx_sender_cancel_try_to_send_txids
-            WHERE is_finalized = FALSE
-            "#,
-        );
-
-        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
-        results
-            .into_iter()
-            .map(|(cancelled_id, txid, seen_at_height)| {
-                Ok((
-                    u32::try_from(cancelled_id)
-                        .wrap_err("Failed to convert cancelled_id to u32")?,
-                    txid.0,
-                    seen_at_height
-                        .map(u32::try_from)
-                        .transpose()
-                        .wrap_err("Failed to convert seen_at_height to u32")?,
-                ))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()
-    }
-
-    pub async fn set_cancel_txid_seen_at_height(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        cancelled_id: u32,
-        txid: Txid,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_txids SET seen_at_height = $3 WHERE cancelled_id = $1 AND txid = $2",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
-        .bind(TxidDB(txid))
-        .bind(
-            seen_at_height
-                .map(i32::try_from)
-                .transpose()
-                .wrap_err("Failed to convert seen_at_height to i32")?,
-        );
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn set_cancel_txid_finalized(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        cancelled_id: u32,
-        txid: Txid,
-        is_finalized: bool,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_txids SET is_finalized = $3 WHERE cancelled_id = $1 AND txid = $2",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
-        .bind(TxidDB(txid))
-        .bind(is_finalized);
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
     pub async fn list_unfinalized_activate_txids(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -1270,9 +1007,6 @@ impl TxSenderDb {
             "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
             "DELETE FROM tx_sender_rbf_txids WHERE id = $1",
             "DELETE FROM tx_sender_fee_payer_utxos WHERE bumped_id = $1",
-            "DELETE FROM tx_sender_cancel_try_to_send_outpoints WHERE cancelled_id = $1",
-            "DELETE FROM tx_sender_cancel_try_to_send_txids WHERE cancelled_id = $1",
-            "DELETE FROM tx_sender_activate_try_to_send_outpoints WHERE activated_id = $1",
             "DELETE FROM tx_sender_activate_try_to_send_txids WHERE activated_id = $1",
             "DELETE FROM tx_sender_try_to_send_txs WHERE id = $1",
         ];
@@ -1282,156 +1016,6 @@ impl TxSenderDb {
             txsender_execute_query_with_tx!(&self.pool, tx.as_deref_mut(), query, execute)?;
         }
 
-        Ok(())
-    }
-
-    pub async fn list_unfinalized_cancel_outpoints(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
-            r#"
-            SELECT cancelled_id, txid, vout, seen_at_height
-            FROM tx_sender_cancel_try_to_send_outpoints
-            WHERE is_finalized = FALSE
-            "#,
-        );
-
-        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
-        results
-            .into_iter()
-            .map(|(cancelled_id, txid, vout, seen_at_height)| {
-                Ok((
-                    u32::try_from(cancelled_id)
-                        .wrap_err("Failed to convert cancelled_id to u32")?,
-                    OutPoint {
-                        txid: txid.0,
-                        vout: u32::try_from(vout).wrap_err("Failed to convert vout to u32")?,
-                    },
-                    seen_at_height
-                        .map(u32::try_from)
-                        .transpose()
-                        .wrap_err("Failed to convert seen_at_height to u32")?,
-                ))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()
-    }
-
-    pub async fn set_cancel_outpoint_seen_at_height(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_outpoints SET seen_at_height = $4 WHERE cancelled_id = $1 AND txid = $2 AND vout = $3",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
-        .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
-        .bind(
-            seen_at_height
-                .map(i32::try_from)
-                .transpose()
-                .wrap_err("Failed to convert seen_at_height to i32")?,
-        );
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn set_cancel_outpoint_finalized(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-        is_finalized: bool,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_outpoints SET is_finalized = $4 WHERE cancelled_id = $1 AND txid = $2 AND vout = $3",
-        )
-        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled_id to i32")?)
-        .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
-        .bind(is_finalized);
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn list_unfinalized_activate_outpoints(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-    ) -> Result<Vec<(u32, OutPoint, Option<u32>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, i32, Option<i32>)>(
-            r#"
-            SELECT activated_id, txid, vout, seen_at_height
-            FROM tx_sender_activate_try_to_send_outpoints
-            WHERE is_finalized = FALSE
-            "#,
-        );
-
-        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
-        results
-            .into_iter()
-            .map(|(activated_id, txid, vout, seen_at_height)| {
-                Ok((
-                    u32::try_from(activated_id)
-                        .wrap_err("Failed to convert activated_id to u32")?,
-                    OutPoint {
-                        txid: txid.0,
-                        vout: u32::try_from(vout).wrap_err("Failed to convert vout to u32")?,
-                    },
-                    seen_at_height
-                        .map(u32::try_from)
-                        .transpose()
-                        .wrap_err("Failed to convert seen_at_height to u32")?,
-                ))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()
-    }
-
-    pub async fn set_activate_outpoint_seen_at_height(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        activated_id: u32,
-        outpoint: OutPoint,
-        seen_at_height: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_outpoints SET seen_at_height = $4 WHERE activated_id = $1 AND txid = $2 AND vout = $3",
-        )
-        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
-        .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
-        .bind(
-            seen_at_height
-                .map(i32::try_from)
-                .transpose()
-                .wrap_err("Failed to convert seen_at_height to i32")?,
-        );
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn set_activate_outpoint_finalized(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        activated_id: u32,
-        outpoint: OutPoint,
-        is_finalized: bool,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_outpoints SET is_finalized = $4 WHERE activated_id = $1 AND txid = $2 AND vout = $3",
-        )
-        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?)
-        .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?)
-        .bind(is_finalized);
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
     }
 

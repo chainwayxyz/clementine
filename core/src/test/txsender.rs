@@ -63,31 +63,11 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
 
     let mut dbtx = db.begin_transaction().await.unwrap();
     let tx_id1 = client
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::CPFP,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::CPFP, None, &[])
         .await
         .unwrap();
     let tx_id2 = client
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::CPFP,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::CPFP, None, &[])
         .await
         .unwrap();
     dbtx.commit().await.unwrap();
@@ -921,17 +901,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await?;
     let try_to_send_id = tx_sender
         .client()
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::RBF,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, None, &[])
         .await?;
     dbtx.commit().await?;
 
@@ -992,9 +962,6 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
                 tap_sighash_type: TapSighashType::Default,
             }),
             &[],
-            &[],
-            &[],
-            &[],
         )
         .await?;
     dbtx.commit().await?;
@@ -1049,17 +1016,7 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await?;
     let try_to_send_id = tx_sender
         .client()
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::NoFunding,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::NoFunding, None, &[])
         .await?;
     dbtx.commit().await?;
 
@@ -1121,9 +1078,6 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
                 tap_sighash_type: TapSighashType::Default,
             }),
             &[],
-            &[],
-            &[],
-            &[],
         )
         .await
         .unwrap();
@@ -1179,9 +1133,6 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
                 },
                 tap_sighash_type: TapSighashType::Default,
             }),
-            &[],
-            &[],
-            &[],
             &[],
         )
         .await?;
@@ -1247,17 +1198,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await?;
     let try_to_send_id = tx_sender
         .client()
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::RBF,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, None, &[])
         .await?;
     dbtx.commit().await?;
 
@@ -1310,17 +1251,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await?;
     let try_to_send_id = tx_sender
         .client()
-        .insert_try_to_send(
-            &mut dbtx,
-            None,
-            &tx,
-            FeePayingType::RBF,
-            None,
-            &[],
-            &[],
-            &[],
-            &[],
-        )
+        .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, None, &[])
         .await?;
     dbtx.commit().await?;
 

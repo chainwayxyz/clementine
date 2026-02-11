@@ -14,16 +14,6 @@ pub struct ActivatedWithTxid {
     pub relative_block_height: u32,
 }
 
-/// Activation condition based on an outpoint.
-#[cfg(feature = "clementine")]
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ActivatedWithOutpoint {
-    /// The outpoint that must be spent.
-    pub outpoint: OutPoint,
-    /// Number of blocks that must pass after seeing the outpoint spent.
-    pub relative_block_height: u32,
-}
-
 /// Specifies the fee bumping strategy used for a transaction.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
@@ -130,8 +120,5 @@ pub struct InsertTryToSendParams {
     pub signed_tx_hex: String,
     pub fee_paying_type: FeePayingType,
     pub rbf_signing_info: Option<RbfSigningInfo>,
-    pub cancel_outpoints: Vec<OutPoint>,
-    pub cancel_txids: Vec<Txid>,
     pub activate_txids: Vec<ActivatedWithTxid>,
-    pub activate_outpoints: Vec<ActivatedWithOutpoint>,
 }

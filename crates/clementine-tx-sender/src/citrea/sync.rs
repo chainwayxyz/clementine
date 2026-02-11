@@ -472,9 +472,6 @@ impl TxSender {
                     tap_sighash_type: TapSighashType::Default,
                 }),
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 

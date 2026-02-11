@@ -3,8 +3,8 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
-use bitcoin::{OutPoint, Transaction, Txid};
+use crate::ActivatedWithTxid;
+use bitcoin::Transaction;
 use clementine_errors::BridgeError;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::eyre;
@@ -63,10 +63,7 @@ impl TxSenderClient {
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         rbf_signing_info: Option<RbfSigningInfo>,
-        cancel_outpoints: &[OutPoint],
-        cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
-        activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
@@ -103,24 +100,6 @@ impl TxSenderClient {
         // only log the raw tx in tests so that logs do not contain sensitive information
         #[cfg(test)]
         tracing::debug!(target: "ci", "Saved tx to database with try_to_send_id: {try_to_send_id}, metadata: {tx_metadata:?}, raw tx: {}", hex::encode(bitcoin::consensus::serialize(signed_tx)));
-
-        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
-            self.db
-                .save_cancelled_outpoint(dbtx, try_to_send_id, input_outpoint)
-                .await?;
-        }
-
-        for outpoint in cancel_outpoints {
-            self.db
-                .save_cancelled_outpoint(dbtx, try_to_send_id, *outpoint)
-                .await?;
-        }
-
-        for txid in cancel_txids {
-            self.db
-                .save_cancelled_txid(dbtx, try_to_send_id, *txid)
-                .await?;
-        }
 
         let mut max_timelock_of_activated_txids = BTreeMap::new();
 
@@ -166,12 +145,6 @@ impl TxSenderClient {
                         relative_block_height: timelock,
                     },
                 )
-                .await?;
-        }
-
-        for activated_outpoint in activate_outpoints {
-            self.db
-                .save_activated_outpoint(dbtx, try_to_send_id, activated_outpoint)
                 .await?;
         }
 

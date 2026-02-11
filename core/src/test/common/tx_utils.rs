@@ -258,9 +258,6 @@ pub async fn send_txs(
                 fee_paying_type,
                 tx_data.rbf_info.clone(),
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await
             .expect("failed to send tx");

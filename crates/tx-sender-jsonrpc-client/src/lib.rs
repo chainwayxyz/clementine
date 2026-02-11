@@ -6,15 +6,15 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 
 #[cfg(feature = "clementine")]
-use bitcoin::{consensus, OutPoint, Transaction, Txid};
+use bitcoin::{consensus, Transaction};
 #[cfg(feature = "citrea")]
 pub use tx_sender_types::citrea::InsertCitreaRawTxParams;
 #[cfg(feature = "citrea")]
 pub use tx_sender_types::CitreaTxRequest;
 #[cfg(feature = "clementine")]
 pub use tx_sender_types::{
-    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo,
-    RbfSigningSpendPath, TxMetadata,
+    ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo, RbfSigningSpendPath,
+    TxMetadata,
 };
 
 #[derive(Debug, Clone)]
@@ -36,10 +36,7 @@ impl JsonRpcTxSenderClient {
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         rbf_signing_info: Option<RbfSigningInfo>,
-        cancel_outpoints: &[OutPoint],
-        cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
-        activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32, JsonRpcError> {
         let signed_tx_hex = consensus::encode::serialize_hex(signed_tx);
 
@@ -48,10 +45,7 @@ impl JsonRpcTxSenderClient {
             signed_tx_hex,
             fee_paying_type,
             rbf_signing_info,
-            cancel_outpoints: cancel_outpoints.to_vec(),
-            cancel_txids: cancel_txids.to_vec(),
             activate_txids: activate_txids.to_vec(),
-            activate_outpoints: activate_outpoints.to_vec(),
         };
 
         self.inner

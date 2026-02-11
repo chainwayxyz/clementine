@@ -275,9 +275,6 @@ pub async fn disprove_tests_common_setup(
             FeePayingType::RBF,
             None,
             &[],
-            &[],
-            &[],
-            &[],
         )
         .await
         .unwrap();

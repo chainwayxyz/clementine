@@ -37,7 +37,7 @@ impl TxSenderTaskInternal {
         self.inner.sync_citrea_txs(fee_rate).await?;
         // No need for db transaction as it doesn't matter if it fails midway, we resync from rpc continuously
         self.inner
-            .sync_transaction_confirmations_via_rpc(None, self.current_tip_height)
+            .sync_transaction_confirmations_via_rpc(None)
             .await?;
 
         self.inner

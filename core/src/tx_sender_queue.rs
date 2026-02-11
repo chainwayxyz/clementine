@@ -4,14 +4,12 @@
 //! `insert_try_to_send` API. The higher-level mapping from `TransactionType`
 //! to cancellation/activation semantics is Clementine-core specific and lives here.
 
-use bitcoin::{OutPoint, Transaction};
-use clementine_config::protocol::ProtocolParamset;
+use bitcoin::Transaction;
 use clementine_errors::BridgeError;
-use clementine_primitives::{TransactionType, UtxoVout};
+use clementine_primitives::TransactionType;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
-use eyre::eyre;
 
-use crate::tx_sender::{ActivatedWithOutpoint, TxSenderClient, TxSenderTransaction};
+use crate::tx_sender::{TxSenderClient, TxSenderTransaction};
 
 #[tonic::async_trait]
 pub trait TxSenderClientQueueExt {
@@ -23,30 +21,24 @@ pub trait TxSenderClientQueueExt {
     ///
     /// IMPORTANT: `insert_try_to_send` is transactional. This helper requires an active
     /// DB transaction and will not partially insert state.
-    #[allow(clippy::too_many_arguments)]
     async fn add_tx_to_queue(
         &self,
         dbtx: &mut TxSenderTransaction,
         tx_type: TransactionType,
         signed_tx: &Transaction,
-        related_txs: &[(TransactionType, Transaction)],
         tx_metadata: Option<TxMetadata>,
-        protocol_paramset: &ProtocolParamset,
         rbf_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError>;
 }
 
 #[tonic::async_trait]
 impl TxSenderClientQueueExt for TxSenderClient {
-    #[allow(clippy::too_many_arguments)]
     async fn add_tx_to_queue(
         &self,
         dbtx: &mut TxSenderTransaction,
         tx_type: TransactionType,
         signed_tx: &Transaction,
-        related_txs: &[(TransactionType, Transaction)],
         tx_metadata: Option<TxMetadata>,
-        protocol_paramset: &ProtocolParamset,
         rbf_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let tx_metadata = tx_metadata.map(|mut data| {
@@ -74,7 +66,9 @@ impl TxSenderClientQueueExt for TxSenderClient {
             | TransactionType::ReadyToReimburse
             | TransactionType::ReplacementDeposit
             | TransactionType::AssertTimeout(_)
-            | TransactionType::WatchtowerChallenge(_) => {
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::WatchtowerChallengeTimeout(_)
+            | TransactionType::OperatorChallengeAck(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
@@ -82,9 +76,6 @@ impl TxSenderClientQueueExt for TxSenderClient {
                     signed_tx,
                     FeePayingType::CPFP,
                     rbf_info,
-                    &[],
-                    &[],
-                    &[],
                     &[],
                 )
                 .await
@@ -97,68 +88,6 @@ impl TxSenderClientQueueExt for TxSenderClient {
                     FeePayingType::RBF,
                     rbf_info,
                     &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::WatchtowerChallengeTimeout(_) => {
-                // Do not send watchtower timeout if kickoff is already finalized
-                // which is done by adding kickoff finalizer utxo to cancel_outpoints
-                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout.
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(t, tx)| {
-                        (matches!(t, TransactionType::Kickoff)).then(|| tx.compute_txid())
-                    })
-                    .ok_or(BridgeError::Eyre(eyre!(
-                        "Couldn't find kickoff tx in related_txs"
-                    )))?;
-
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[OutPoint {
-                        txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                    }],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::OperatorChallengeAck(watchtower_idx) => {
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(t, tx)| {
-                        (matches!(t, TransactionType::Kickoff)).then(|| tx.compute_txid())
-                    })
-                    .ok_or(BridgeError::Eyre(eyre!(
-                        "Couldn't find kickoff tx in related_txs"
-                    )))?;
-
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[],
-                    &[],
-                    &[],
-                    &[ActivatedWithOutpoint {
-                        // only send OperatorChallengeAck if corresponding watchtower challenge is sent
-                        outpoint: OutPoint {
-                            txid: kickoff_txid,
-                            vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
-                        },
-                        relative_block_height: protocol_paramset.finality_depth - 1,
-                    }],
                 )
                 .await
             }
@@ -169,9 +98,6 @@ impl TxSenderClientQueueExt for TxSenderClient {
                     signed_tx,
                     FeePayingType::NoFunding,
                     rbf_info,
-                    &[],
-                    &[],
-                    &[],
                     &[],
                 )
                 .await

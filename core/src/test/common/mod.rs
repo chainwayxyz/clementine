@@ -740,9 +740,6 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
             FeePayingType::CPFP,
             None,
             &[],
-            &[],
-            &[],
-            &[],
         )
         .await
         .unwrap();
