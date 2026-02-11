@@ -315,7 +315,7 @@ impl TxSenderDb {
                             AND activate_txid.seen_at_height IS NULL
                             AND activate_txid.in_mempool IS NOT TRUE
                         )
-                ),
+                )
 
                 SELECT
                     txs.id
