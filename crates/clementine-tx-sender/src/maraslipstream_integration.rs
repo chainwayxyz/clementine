@@ -25,16 +25,29 @@ where
         self.maraslipstream_config.as_ref()
     }
 
-    pub(crate) fn slipstream_cfg_for_nonstandard_tx(
+    /// Returns Slipstream config only when the tx is nonstandard, the current
+    /// network supports Slipstream, and the config is present.
+    pub(crate) fn maybe_slipstream_cfg_for_nonstandard_tx(
         &self,
         tx: &Transaction,
     ) -> Option<&MaraSlipstreamConfig> {
-        // Avoid nonstandard detection overhead unless Slipstream is enabled.
-        let cfg = self.slipstream_cfg_if_enabled()?;
         if !self.is_bridge_tx_nonstandard(tx) {
             return None;
         }
-        Some(cfg)
+
+        if !self.slipstream_supported_network() {
+            return None;
+        }
+
+        let cfg = self.slipstream_cfg_if_enabled();
+        if cfg.is_none() {
+            tracing::warn!(
+                network = ?self.protocol_paramset.network,
+                "Nonstandard tx on Slipstream-supported network but Slipstream config is not set; falling back to RPC submission"
+            );
+        }
+
+        cfg
     }
 
     pub(crate) fn slipstream_client(&self, cfg: &MaraSlipstreamConfig) -> MaraSlipstreamClient {
@@ -66,7 +79,7 @@ where
         }
     }
 
-    pub(crate) async fn slipstream_adjust_fee_rate_for_cfg(
+    pub(crate) async fn maybe_slipstream_adjust_fee_rate(
         &self,
         fee_rate: FeeRate,
         cfg: Option<&MaraSlipstreamConfig>,
@@ -80,7 +93,7 @@ where
         };
 
         let mut mult = info.discounted_multiplier;
-        if !mult.is_finite() || mult <= 0.0 {
+        if !mult.is_finite() || mult < 1.0 {
             tracing::warn!(
                 "Slipstream returned invalid discounted_multiplier={mult}; using original fee rate"
             );
