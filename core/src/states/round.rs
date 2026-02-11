@@ -566,8 +566,8 @@ impl<T: Owner> RoundStateMachine<T> {
         kickoff_finalizers_spent: &HashSet<usize>,
         context: &StateContext<T>,
     ) -> Result<(), BridgeError> {
-        let all_kickoffs_spent = used_kickoffs.len()
-            == context.config.protocol_paramset.num_kickoffs_per_round;
+        let all_kickoffs_spent =
+            used_kickoffs.len() == context.config.protocol_paramset.num_kickoffs_per_round;
         let all_finalizers_spent = !possible_kickoffs.is_empty()
             && possible_kickoffs
                 .keys()

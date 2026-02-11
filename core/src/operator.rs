@@ -2716,11 +2716,7 @@ mod states {
                     )?;
 
                     self.signer
-                        .tx_sign_and_fill_sigs(
-                            &mut ready_to_reimburse_txhandler,
-                            &[],
-                            None,
-                        )
+                        .tx_sign_and_fill_sigs(&mut ready_to_reimburse_txhandler, &[], None)
                         .wrap_err("Failed to sign ready to reimburse tx")?;
 
                     let tx = ready_to_reimburse_txhandler.get_cached_tx();
@@ -2746,7 +2742,7 @@ mod states {
                     );
 
                     Ok(DutyResult::Handled)
-                },
+                }
             }
         }
 
