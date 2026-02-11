@@ -191,6 +191,25 @@ create table if not exists tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
 );
+-- Will be deleted in 6th migration. Cant remove it from here due to 2nd migration that doesn't have "if exists".
+create table if not exists tx_sender_cancel_try_to_send_outpoints (
+    cancelled_id int not null references tx_sender_try_to_send_txs(id),
+    txid bytea not null,
+    vout int not null,
+    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
+    seen_at_height int,
+    created_at timestamp not null default now(),
+    primary key (cancelled_id, txid, vout)
+);
+-- Will be deleted in 6th migration. Cant remove it from here due to 2nd migration that doesn't have "if exists".
+create table if not exists tx_sender_cancel_try_to_send_txids (
+    cancelled_id int not null references tx_sender_try_to_send_txs(id),
+    txid bytea not null,
+    -- first observed chain height when this txid was seen confirmed (used for finality tracking)
+    seen_at_height int,
+    created_at timestamp not null default now(),
+    primary key (cancelled_id, txid)
+);
 create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -201,6 +220,17 @@ create table if not exists tx_sender_activate_try_to_send_txids (
     in_mempool boolean not null default false,
     created_at timestamp not null default now(),
     primary key (activated_id, txid)
+);
+-- Will be deleted in 6th migration. Cant remove it from here due to 2nd migration that doesn't have "if exists".
+create table if not exists tx_sender_activate_try_to_send_outpoints (
+    activated_id int not null references tx_sender_try_to_send_txs(id),
+    txid bytea not null,
+    vout int not null,
+    timelock bigint not null,
+    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
+    seen_at_height int,
+    created_at timestamp not null default now(),
+    primary key (activated_id, txid, vout)
 );
 -- Citrea raw transaction queue for DA payloads.
 --

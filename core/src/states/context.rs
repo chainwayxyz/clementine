@@ -129,6 +129,15 @@ pub enum Duty {
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     },
+    /// Dispatched when all kickoff UTXOs are spent and all kickoff finalizers for
+    /// possible kickoffs (those that returned yes from CheckIfKickoff, or looked like
+    /// a kickoff based on tx structure) are spent.
+    /// Tells the operator to queue the ReadyToReimburse tx.
+    /// Verifiers do nothing with this duty.
+    QueueReadyToReimburse {
+        round_idx: RoundIndex,
+        operator_xonly_pk: XOnlyPublicKey,
+    },
 }
 
 /// Result of handling a duty
@@ -138,6 +147,8 @@ pub enum DutyResult {
     Handled,
     /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
     CheckIfKickoffMalicious { challenged: bool },
+    /// Result of checking if a spent kickoff UTXO corresponds to a known kickoff in the database
+    CheckIfKickoff { is_kickoff: bool },
 }
 
 /// Owner trait with async handling and tx handler creation

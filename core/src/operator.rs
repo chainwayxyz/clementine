@@ -2672,12 +2672,81 @@ mod states {
                         // resend relevant txs
                         self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
                             .await?;
-                    }
 
-                    Ok(DutyResult::Handled)
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: true })
+                    } else {
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: false })
+                    }
                 }
                 // Operators do not check if kickoffs are malicious
                 Duty::CheckIfKickoffMalicious { .. } => Ok(DutyResult::Handled),
+                Duty::QueueReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                } => {
+                    tracing::info!(
+                        "Operator {:?} called queue ready to reimburse with round_idx: {:?}, operator_xonly_pk: {:?}",
+                        self.signer.xonly_public_key,
+                        round_idx,
+                        operator_xonly_pk,
+                    );
+                    // Sanity check: ensure this duty is for the right operator
+                    if operator_xonly_pk != self.signer.xonly_public_key {
+                        tracing::warn!(
+                            "QueueReadyToReimburse duty operator_xonly_pk {:?} does not match self {:?}, ignoring",
+                            operator_xonly_pk,
+                            self.signer.xonly_public_key,
+                        );
+                        return Ok(DutyResult::Handled);
+                    }
+
+                    let kickoff_wpks = KickoffWinternitzKeys::new(
+                        self.generate_kickoff_winternitz_pubkeys()?,
+                        self.config.protocol_paramset().num_kickoffs_per_round,
+                        self.config.protocol_paramset().num_round_txs,
+                    )?;
+
+                    let (_, mut ready_to_reimburse_txhandler) = create_round_nth_txhandler(
+                        self.signer.xonly_public_key,
+                        self.collateral_funding_outpoint,
+                        self.config.protocol_paramset().collateral_funding_amount,
+                        round_idx,
+                        &kickoff_wpks,
+                        self.config.protocol_paramset(),
+                    )?;
+
+                    self.signer
+                        .tx_sign_and_fill_sigs(
+                            &mut ready_to_reimburse_txhandler,
+                            &[],
+                            None,
+                        )
+                        .wrap_err("Failed to sign ready to reimburse tx")?;
+
+                    let tx = ready_to_reimburse_txhandler.get_cached_tx();
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            TransactionType::ReadyToReimburse,
+                            tx,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::ReadyToReimburse,
+                                operator_xonly_pk: Some(self.signer.xonly_public_key),
+                                round_idx: Some(round_idx),
+                                kickoff_idx: None,
+                                deposit_outpoint: None,
+                            }),
+                            None,
+                        )
+                        .await?;
+                    tracing::info!(
+                        "Operator {:?} queued ReadyToReimburse tx for round {:?}",
+                        self.signer.xonly_public_key,
+                        round_idx,
+                    );
+
+                    Ok(DutyResult::Handled)
+                },
             }
         }
 

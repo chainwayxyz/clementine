@@ -3323,8 +3323,10 @@ mod states {
                             witness.clone(),
                         )
                         .await?;
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: true })
+                    } else {
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: false })
                     }
-                    Ok(DutyResult::Handled)
                 }
                 Duty::CheckIfKickoffMalicious {
                     kickoff_witness,
@@ -3344,6 +3346,10 @@ mod states {
                     Ok(DutyResult::CheckIfKickoffMalicious {
                         challenged: is_malicious,
                     })
+                }
+                Duty::QueueReadyToReimburse { .. } => {
+                    // Verifiers do nothing with this duty
+                    Ok(DutyResult::Handled)
                 }
             }
         }
