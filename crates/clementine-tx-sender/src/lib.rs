@@ -447,6 +447,7 @@ where
     ///
     /// The type parameter `B` provides static methods for CPFP child transaction creation
     /// using SpendableTxIn and TxHandler from the core builder module.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         signer: S,
         rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
@@ -705,8 +706,7 @@ where
                         Ok(returned_txid) => {
                             if returned_txid != expected_txid {
                                 let err_msg = format!(
-                                    "Slipstream returned unexpected txid {} (expected {})",
-                                    returned_txid, expected_txid
+                                    "Slipstream returned unexpected txid {returned_txid} (expected {expected_txid})"
                                 );
                                 log_error_for_tx!(self.db, try_to_send_id, err_msg);
                                 let _ = self

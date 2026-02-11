@@ -36,9 +36,7 @@ fn trim_env_in_place(s: &mut String) {
     s.truncate(end_len);
 
     // Trim start without allocating a new String.
-    let start_idx = s
-        .find(|c: char| !c.is_whitespace())
-        .unwrap_or_else(|| s.len());
+    let start_idx = s.find(|c: char| !c.is_whitespace()).unwrap_or(s.len());
     s.drain(..start_idx);
 }
 

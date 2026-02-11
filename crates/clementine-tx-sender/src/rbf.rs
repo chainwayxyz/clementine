@@ -657,8 +657,7 @@ where
                             Ok(returned_txid) => {
                                 if returned_txid != bumped_txid {
                                     let err_msg = format!(
-                                        "Slipstream returned unexpected txid {} (expected {})",
-                                        returned_txid, bumped_txid
+                                        "Slipstream returned unexpected txid {returned_txid} (expected {bumped_txid})"
                                     );
                                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                                     let _ = self
@@ -907,8 +906,7 @@ where
                             Ok(returned_txid) => {
                                 if returned_txid != initial_txid {
                                     let err_msg = format!(
-                                        "Slipstream returned unexpected txid {} (expected {}) for initial RBF",
-                                        returned_txid, initial_txid
+                                        "Slipstream returned unexpected txid {returned_txid} (expected {initial_txid}) for initial RBF"
                                     );
                                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                                     let _ = self
