@@ -304,11 +304,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     self.kickoff_machines.push(initialized);
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    return Err(eyre::eyre!(
                         "Failed to deserialize kickoff machine with ID {}: {}",
                         kickoff_id,
                         e
-                    );
+                    )
+                    .into());
                 }
             }
         }
@@ -332,11 +333,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     self.round_machines.push(initialized);
                 }
                 Err(e) => {
-                    tracing::error!(
+                    return Err(eyre::eyre!(
                         "Failed to deserialize round machine with operator index {:?}: {}",
                         operator_xonly_pk,
                         e
-                    );
+                    )
+                    .into());
                 }
             }
         }
