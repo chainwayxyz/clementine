@@ -690,80 +690,17 @@ where
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
-        if let Some(cfg) = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx) {
-            let client = self.slipstream_client(cfg);
-            let tx_hex = Self::tx_to_hex(&tx);
-
-            match client
-                .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
-                .await
-            {
-                Ok(res) => {
-                    // Slipstream returns the txid in `message` on success; verify it matches what
-                    // we computed locally.
-                    let expected_txid = tx.compute_txid();
-                    match res.message.parse::<Txid>() {
-                        Ok(returned_txid) => {
-                            if returned_txid != expected_txid {
-                                let err_msg = format!(
-                                    "Slipstream returned unexpected txid {returned_txid} (expected {expected_txid})"
-                                );
-                                log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                                let _ = self
-                                    .db
-                                    .update_tx_debug_sending_state(
-                                        try_to_send_id,
-                                        "slipstream_txid_mismatch",
-                                        true,
-                                    )
-                                    .await;
-                                return Err(SendTxError::Other(eyre::eyre!(
-                                    "Slipstream returned unexpected txid"
-                                )));
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                try_to_send_id,
-                                "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
-                                res.message,
-                                e
-                            );
-                        }
-                    }
-
-                    tracing::debug!(
-                        try_to_send_id,
-                        "Successfully submitted nonstandard tx to Slipstream: {}",
-                        res.message
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "slipstream_submit_tx_success",
-                            true,
-                        )
-                        .await;
-                    return Ok(());
-                }
-                Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Slipstream submit-tx failed: {e:?}")
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "slipstream_submit_tx_failed",
-                            true,
-                        )
-                        .await;
-                    return Err(e);
-                }
-            }
+        if self
+            .submit_tx_via_slipstream(
+                &tx,
+                tx.compute_txid(),
+                try_to_send_id,
+                "slipstream_submit_tx",
+            )
+            .await?
+            .is_some()
+        {
+            return Ok(());
         }
 
         match self.rpc.send_raw_transaction(&tx).await {

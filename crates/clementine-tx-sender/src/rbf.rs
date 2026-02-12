@@ -640,76 +640,12 @@ where
             };
             let bumped_txid = final_tx.compute_txid();
 
-            let sent_txid = if let Some(cfg) =
-                self.maybe_slipstream_cfg_for_nonstandard_tx(&final_tx)
+            let sent_txid = if self
+                .submit_tx_via_slipstream(&final_tx, bumped_txid, try_to_send_id, "rbf_slipstream")
+                .await?
+                .is_some()
             {
-                let client = self.slipstream_client(cfg);
-                let tx_hex = Self::tx_to_hex(&final_tx);
-
-                match client
-                    .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
-                    .await
-                {
-                    Ok(res) => {
-                        // Slipstream returns the txid in `message` on success; verify it matches
-                        // what we computed locally.
-                        match res.message.parse::<Txid>() {
-                            Ok(returned_txid) => {
-                                if returned_txid != bumped_txid {
-                                    let err_msg = format!(
-                                        "Slipstream returned unexpected txid {returned_txid} (expected {bumped_txid})"
-                                    );
-                                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                                    let _ = self
-                                        .db
-                                        .update_tx_debug_sending_state(
-                                            try_to_send_id,
-                                            "rbf_slipstream_txid_mismatch",
-                                            true,
-                                        )
-                                        .await;
-                                    return Err(SendTxError::Other(eyre!(
-                                        "Slipstream returned unexpected txid"
-                                    )));
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    try_to_send_id,
-                                    "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
-                                    res.message,
-                                    e
-                                );
-                            }
-                        }
-
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "rbf_slipstream_sent",
-                                true,
-                            )
-                            .await;
-                        bumped_txid
-                    }
-                    Err(e) => {
-                        log_error_for_tx!(
-                            self.db,
-                            try_to_send_id,
-                            format!("Slipstream submit-tx failed for bumped RBF tx: {e:?}")
-                        );
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "rbf_slipstream_send_failed",
-                                true,
-                            )
-                            .await;
-                        return Err(e);
-                    }
-                }
+                bumped_txid
             } else {
                 // Broadcast the finalized transaction
                 match self.rpc.send_raw_transaction(&final_tx).await {
@@ -891,74 +827,17 @@ where
 
             let initial_txid = final_tx.compute_txid();
 
-            let sent_txid = if let Some(cfg) =
-                self.maybe_slipstream_cfg_for_nonstandard_tx(&final_tx)
+            let sent_txid = if self
+                .submit_tx_via_slipstream(
+                    &final_tx,
+                    initial_txid,
+                    try_to_send_id,
+                    "rbf_initial_slipstream",
+                )
+                .await?
+                .is_some()
             {
-                let client = self.slipstream_client(cfg);
-                let tx_hex = Self::tx_to_hex(&final_tx);
-
-                match client
-                    .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
-                    .await
-                {
-                    Ok(res) => {
-                        match res.message.parse::<Txid>() {
-                            Ok(returned_txid) => {
-                                if returned_txid != initial_txid {
-                                    let err_msg = format!(
-                                        "Slipstream returned unexpected txid {returned_txid} (expected {initial_txid}) for initial RBF"
-                                    );
-                                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                                    let _ = self
-                                        .db
-                                        .update_tx_debug_sending_state(
-                                            try_to_send_id,
-                                            "rbf_initial_slipstream_txid_mismatch",
-                                            true,
-                                        )
-                                        .await;
-                                    return Err(SendTxError::Other(eyre!(
-                                        "Slipstream returned unexpected txid"
-                                    )));
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    try_to_send_id,
-                                    "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
-                                    res.message,
-                                    e
-                                );
-                            }
-                        }
-
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "rbf_initial_slipstream_sent",
-                                true,
-                            )
-                            .await;
-                        initial_txid
-                    }
-                    Err(e) => {
-                        log_error_for_tx!(
-                            self.db,
-                            try_to_send_id,
-                            format!("Slipstream submit-tx failed for initial RBF tx: {e:?}")
-                        );
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "rbf_initial_slipstream_send_failed",
-                                true,
-                            )
-                            .await;
-                        return Err(e);
-                    }
-                }
+                initial_txid
             } else {
                 // 4. Broadcast the finalized transaction
                 match self.rpc.send_raw_transaction(&final_tx).await {

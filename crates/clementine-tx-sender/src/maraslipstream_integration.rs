@@ -1,7 +1,7 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use crate::maraslipstream_client::{MaraSlipstreamClient, SlipstreamRateInfo};
-use crate::{TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
-use bitcoin::{consensus::encode::serialize, FeeRate, Transaction};
+use crate::{log_error_for_tx, Result, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use bitcoin::{consensus::encode::serialize, FeeRate, Transaction, Txid};
 
 const DISCOUNTED_MULTIPLIER_CAP: f64 = 3.0;
 
@@ -57,6 +57,92 @@ where
 
     pub(crate) fn tx_to_hex(tx: &Transaction) -> String {
         hex::encode(serialize(tx))
+    }
+
+    /// Attempts to submit a transaction to Slipstream when enabled for this tx.
+    ///
+    /// Returns:
+    /// - `Ok(Some(expected_txid))` when submitted (and txid check passed)
+    /// - `Ok(None)` when Slipstream is not applicable
+    /// - `Err(_)` when submission fails or txid mismatches
+    pub(crate) async fn submit_tx_via_slipstream(
+        &self,
+        tx: &Transaction,
+        expected_txid: Txid,
+        try_to_send_id: u32,
+        state_prefix: &str,
+    ) -> Result<Option<Txid>> {
+        let Some(cfg) = self.maybe_slipstream_cfg_for_nonstandard_tx(tx) else {
+            return Ok(None);
+        };
+
+        let client = self.slipstream_client(cfg);
+        let tx_hex = Self::tx_to_hex(tx);
+
+        let txid_mismatch_state = format!("{state_prefix}_txid_mismatch");
+        let sent_state = format!("{state_prefix}_sent");
+        let send_failed_state = format!("{state_prefix}_send_failed");
+
+        match client
+            .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
+            .await
+        {
+            Ok(res) => {
+                // Slipstream returns the txid in `message` on success; verify it matches what
+                // we computed locally when parseable.
+                match res.message.parse::<Txid>() {
+                    Ok(returned_txid) => {
+                        if returned_txid != expected_txid {
+                            let err_msg = format!(
+                                "Slipstream returned unexpected txid {returned_txid} (expected {expected_txid})"
+                            );
+                            log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    &txid_mismatch_state,
+                                    true,
+                                )
+                                .await;
+                            return Err(eyre::eyre!("Slipstream returned unexpected txid").into());
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            try_to_send_id,
+                            "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
+                            res.message,
+                            e
+                        );
+                    }
+                }
+
+                tracing::debug!(
+                    try_to_send_id,
+                    "Successfully submitted tx to Slipstream: {}",
+                    res.message
+                );
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(try_to_send_id, &sent_state, true)
+                    .await;
+
+                Ok(Some(expected_txid))
+            }
+            Err(e) => {
+                log_error_for_tx!(
+                    self.db,
+                    try_to_send_id,
+                    format!("Slipstream submit-tx failed: {e:?}")
+                );
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(try_to_send_id, &send_failed_state, true)
+                    .await;
+                Err(e)
+            }
+        }
     }
 
     pub(crate) async fn slipstream_get_rate_info_for_cfg(
