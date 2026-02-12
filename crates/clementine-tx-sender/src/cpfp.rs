@@ -466,9 +466,20 @@ where
                 .await
             {
                 Ok(res) => {
+                    tracing::debug!(
+                        try_to_send_id,
+                        tx_count = package.len(),
+                        "Successfully submitted CPFP package to Slipstream"
+                    );
+
                     // Slipstream includes per-tx statuses in `result.tx-results` when present.
                     // Warn when status details are missing or explicitly non-submitted.
                     if let Some(result) = res.result.as_ref() {
+                        tracing::debug!(
+                            try_to_send_id,
+                            statuses = result.tx_results.len(),
+                            "Slipstream submit-package returned per-tx statuses"
+                        );
                         for t in &package {
                             let txid = t.compute_txid().to_string();
                             if let Some(state) = result.tx_results.get(&txid) {
