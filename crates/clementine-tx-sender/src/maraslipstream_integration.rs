@@ -226,7 +226,7 @@ where
             mult = DISCOUNTED_MULTIPLIER_CAP;
         }
 
-        // It should be safe to do the multiplication in f64 since fee rates are smaller than 2**53.
+        // It should be safe to do the multiplication in f64 since fee rates are small.
         let target_sat_kwu = (fee_rate.to_sat_per_kwu() as f64) * mult;
 
         let min_sat_kwu_u64 = FeeRate::BROADCAST_MIN.to_sat_per_kwu();
