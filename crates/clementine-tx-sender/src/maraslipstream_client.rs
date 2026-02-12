@@ -140,7 +140,6 @@ impl MaraSlipstreamClient {
 }
 
 fn join(host: &str, endpoint: &str) -> String {
-    let host = host.trim_end_matches('/');
     if endpoint.starts_with('/') {
         format!("{host}{endpoint}")
     } else {
