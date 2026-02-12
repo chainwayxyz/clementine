@@ -58,7 +58,7 @@ fn read_optional_trimmed_env(env_var: &'static str) -> Option<String> {
 //
 // The client code is optional and, if used, is read from an env var.
 fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
-    let host = std::env::var("MARASLIPSTREAM_HOST").ok()?;
+    let host = read_optional_trimmed_env("MARASLIPSTREAM_HOST")?;
 
     let fee_rate_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
         .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
