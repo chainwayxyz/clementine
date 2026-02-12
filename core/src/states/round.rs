@@ -312,7 +312,7 @@ impl<T: Owner> RoundStateMachine<T> {
                                 DutyResult::CheckIfKickoff { is_kickoff: false } => {
                                     // Check tx structure: if it looks like a kickoff (1 input, >= expected outputs),
                                     // treat it as a possible kickoff even though we don't have it in our DB
-                                    // this is done so that if db was lost, and the operator is during a round/kickoff, it doesnt instantly send a ready to reimburse tx, even if it doesn't recognize the kickoff tx.
+                                    // this is done so that if db was lost, and the operator is during a round/kickoff, it doesn't instantly send a ready to reimburse tx, even if it doesn't recognize the kickoff tx.
                                     let tx = context
                                         .cache
                                         .get_tx_of_utxo(kickoff_outpoint)
