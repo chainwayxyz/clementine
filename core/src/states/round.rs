@@ -568,10 +568,9 @@ impl<T: Owner> RoundStateMachine<T> {
     ) -> Result<(), BridgeError> {
         let all_kickoffs_spent =
             used_kickoffs.len() == context.config.protocol_paramset.num_kickoffs_per_round;
-        let all_finalizers_spent = !possible_kickoffs.is_empty()
-            && possible_kickoffs
-                .keys()
-                .all(|idx| kickoff_finalizers_spent.contains(idx));
+        let all_finalizers_spent = possible_kickoffs
+            .keys()
+            .all(|idx| kickoff_finalizers_spent.contains(idx));
 
         if all_kickoffs_spent && all_finalizers_spent {
             tracing::info!(
