@@ -452,7 +452,13 @@ where
         };
 
         if let Some(cfg) = slipstream_cfg {
-            let client = self.slipstream_client(cfg);
+            let client = self
+                .slipstream_client_or_mark_failed(
+                    cfg,
+                    try_to_send_id,
+                    "slipstream_submit_package_failed",
+                )
+                .await?;
             let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
 
             match client

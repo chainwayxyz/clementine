@@ -50,9 +50,35 @@ where
         cfg
     }
 
-    pub(crate) fn slipstream_client(&self, cfg: &MaraSlipstreamConfig) -> MaraSlipstreamClient {
+    pub(crate) fn slipstream_client(
+        &self,
+        cfg: &MaraSlipstreamConfig,
+    ) -> Result<MaraSlipstreamClient> {
         // Clone operation should be cheap since HttpClient is Arc-based internally.
         MaraSlipstreamClient::new(self.http_client.clone(), cfg)
+    }
+
+    pub(crate) async fn slipstream_client_or_mark_failed(
+        &self,
+        cfg: &MaraSlipstreamConfig,
+        try_to_send_id: u32,
+        failed_state: &str,
+    ) -> Result<MaraSlipstreamClient> {
+        match self.slipstream_client(cfg) {
+            Ok(client) => Ok(client),
+            Err(e) => {
+                log_error_for_tx!(
+                    self.db,
+                    try_to_send_id,
+                    format!("Failed to build Slipstream client: {e:?}")
+                );
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(try_to_send_id, failed_state, true)
+                    .await;
+                Err(e)
+            }
+        }
     }
 
     pub(crate) fn tx_to_hex(tx: &Transaction) -> String {
@@ -76,12 +102,14 @@ where
             return Ok(None);
         };
 
-        let client = self.slipstream_client(cfg);
-        let tx_hex = Self::tx_to_hex(tx);
-
         let txid_mismatch_state = format!("{state_prefix}_txid_mismatch");
         let sent_state = format!("{state_prefix}_sent");
         let send_failed_state = format!("{state_prefix}_send_failed");
+
+        let client = self
+            .slipstream_client_or_mark_failed(cfg, try_to_send_id, &send_failed_state)
+            .await?;
+        let tx_hex = Self::tx_to_hex(tx);
 
         match client
             .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
@@ -149,7 +177,13 @@ where
         &self,
         cfg: &MaraSlipstreamConfig,
     ) -> Option<SlipstreamRateInfo> {
-        let client = self.slipstream_client(cfg);
+        let client = match self.slipstream_client(cfg) {
+            Ok(client) => client,
+            Err(e) => {
+                tracing::warn!("Failed to build Slipstream client; falling back to normal fee logic: {e:?}");
+                return None;
+            }
+        };
 
         match client
             .get_rate_with_fallback(cfg.client_code.as_ref())

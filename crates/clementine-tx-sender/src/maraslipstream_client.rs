@@ -1,7 +1,7 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use clementine_errors::SendTxError;
 use eyre::eyre;
-use reqwest::StatusCode;
+use reqwest::{StatusCode, Url};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,21 +12,23 @@ const SLIPSTREAM_HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone)]
 pub struct MaraSlipstreamClient {
     http: reqwest::Client,
-    get_rate_url: String,
-    submit_tx_url: String,
-    submit_package_url: String,
+    get_rate_url: Url,
+    submit_tx_url: Url,
+    submit_package_url: Url,
 }
 
 impl MaraSlipstreamClient {
-    pub fn new(http: reqwest::Client, cfg: &MaraSlipstreamConfig) -> Self {
-        let host = cfg.host.trim_end_matches('/');
+    pub fn new(http: reqwest::Client, cfg: &MaraSlipstreamConfig) -> Result<Self, SendTxError> {
+        let host = Url::parse(cfg.host.trim_end_matches('/')).map_err(|e| {
+            SendTxError::Other(eyre!(e).wrap_err("Slipstream host is not a valid URL"))
+        })?;
 
-        Self {
+        Ok(Self {
             http,
-            get_rate_url: join(host, &cfg.fee_rate_endpoint),
-            submit_tx_url: join(host, &cfg.submit_tx_endpoint),
-            submit_package_url: join(host, &cfg.submit_package_endpoint),
-        }
+            get_rate_url: join(&host, &cfg.fee_rate_endpoint)?,
+            submit_tx_url: join(&host, &cfg.submit_tx_endpoint)?,
+            submit_package_url: join(&host, &cfg.submit_package_endpoint)?,
+        })
     }
 
     pub async fn get_rate_with_fallback(
@@ -72,7 +74,7 @@ impl MaraSlipstreamClient {
         &self,
         client_code: Option<&SecretString>,
     ) -> Result<SlipstreamRateInfo, SendTxError> {
-        let mut req = self.http.get(&self.get_rate_url);
+        let mut req = self.http.get(self.get_rate_url.clone());
         if let Some(code) = client_code {
             req = req.query(&[("client_code", code.expose_secret())]);
         }
@@ -98,7 +100,7 @@ impl MaraSlipstreamClient {
             client_code: client_code.map(ExposeSecret::expose_secret),
         };
 
-        let req = self.http.post(&self.submit_tx_url).json(&req_body);
+        let req = self.http.post(self.submit_tx_url.clone()).json(&req_body);
         let (status, body) = send_read_text(req).await?;
 
         // The API returns a JSON response body even for 400s.
@@ -123,7 +125,10 @@ impl MaraSlipstreamClient {
             client_code: client_code.map(ExposeSecret::expose_secret),
         };
 
-        let req = self.http.post(&self.submit_package_url).json(&req_body);
+        let req = self
+            .http
+            .post(self.submit_package_url.clone())
+            .json(&req_body);
         let (status, body) = send_read_text(req).await?;
 
         // The API returns a JSON response body even for 400s.
@@ -139,12 +144,16 @@ impl MaraSlipstreamClient {
     }
 }
 
-fn join(host: &str, endpoint: &str) -> String {
-    if endpoint.starts_with('/') {
-        format!("{host}{endpoint}")
+fn join(host: &Url, endpoint: &str) -> Result<Url, SendTxError> {
+    let endpoint = if endpoint.starts_with('/') {
+        endpoint.to_owned()
     } else {
-        format!("{host}/{endpoint}")
-    }
+        format!("/{endpoint}")
+    };
+
+    host.join(&endpoint).map_err(|e| {
+        SendTxError::Other(eyre!(e).wrap_err("Failed to join Slipstream endpoint URL"))
+    })
 }
 
 async fn send_read_text(req: reqwest::RequestBuilder) -> Result<(StatusCode, String), SendTxError> {
