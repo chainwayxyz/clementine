@@ -3,7 +3,7 @@ use clementine_errors::SendTxError;
 use eyre::eyre;
 use reqwest::{StatusCode, Url};
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -240,9 +240,45 @@ pub struct SlipstreamPackageSubmitResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct SlipstreamPackageSubmitResult {
-    // Swagger returns this as `{ "tx-results": { "<txid>": "submitted", ... } }`
-    #[serde(rename = "tx-results", default)]
-    pub tx_results: HashMap<String, String>,
+    #[serde(default)]
+    pub package_msg: Option<String>,
+    #[serde(rename = "replaced-transactions", default)]
+    pub replaced_transactions: Vec<String>,
+    // `tx-results` comes back as an object keyed by an opaque id; the txid to trust is
+    // inside each value's `txid` field.
+    #[serde(
+        rename = "tx-results",
+        default,
+        deserialize_with = "deserialize_tx_results_values"
+    )]
+    pub tx_results: Vec<SlipstreamPackageTxResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlipstreamPackageTxResult {
+    pub txid: String,
+    pub vsize: Option<u64>,
+    #[serde(default)]
+    pub fees: Option<SlipstreamPackageTxFees>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlipstreamPackageTxFees {
+    pub base: Option<f64>,
+    #[serde(rename = "effective-feerate")]
+    pub effective_feerate: Option<f64>,
+    #[serde(rename = "effective-includes", default)]
+    pub effective_includes: Vec<String>,
+}
+
+fn deserialize_tx_results_values<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<SlipstreamPackageTxResult>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let map = HashMap::<String, SlipstreamPackageTxResult>::deserialize(deserializer)?;
+    Ok(map.into_values().collect())
 }
 
 #[derive(Debug, Serialize)]

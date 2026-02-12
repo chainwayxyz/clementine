@@ -473,28 +473,38 @@ where
                     );
 
                     // Slipstream includes per-tx statuses in `result.tx-results` when present.
-                    // Warn when status details are missing or explicitly non-submitted.
+                    // Warn when per-tx details are missing for package entries.
                     if let Some(result) = res.result.as_ref() {
+                        if let Some(package_msg) = result.package_msg.as_deref() {
+                            tracing::debug!(
+                                try_to_send_id,
+                                package_msg,
+                                replaced_transactions = result.replaced_transactions.len(),
+                                "Slipstream submit-package returned package result"
+                            );
+                        }
+
                         tracing::debug!(
                             try_to_send_id,
                             statuses = result.tx_results.len(),
-                            "Slipstream submit-package returned per-tx statuses"
+                            "Slipstream submit-package returned per-tx results"
                         );
                         for t in &package {
                             let txid = t.compute_txid().to_string();
-                            if let Some(state) = result.tx_results.get(&txid) {
-                                if !state.eq_ignore_ascii_case("submitted") {
-                                    tracing::warn!(
-                                        try_to_send_id,
-                                        "Slipstream submit-package returned non-submitted state for txid {}: {}",
-                                        txid,
-                                        state
-                                    );
-                                }
+                            if let Some(tx_result) =
+                                result.tx_results.iter().find(|res| res.txid == txid)
+                            {
+                                tracing::debug!(
+                                    try_to_send_id,
+                                    txid,
+                                    returned_txid = tx_result.txid,
+                                    vsize = tx_result.vsize,
+                                    "Slipstream submit-package tx result"
+                                );
                             } else {
                                 tracing::warn!(
                                     try_to_send_id,
-                                    "Slipstream submit-package response missing state for txid {}",
+                                    "Slipstream submit-package response missing tx result with txid {}",
                                     txid
                                 );
                             }
