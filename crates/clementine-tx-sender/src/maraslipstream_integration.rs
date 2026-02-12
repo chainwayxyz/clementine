@@ -1,6 +1,8 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use crate::maraslipstream_client::{MaraSlipstreamClient, SlipstreamRateInfo};
-use crate::{log_error_for_tx, Result, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{
+    log_error_for_tx, Result, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder,
+};
 use bitcoin::{consensus::encode::serialize, FeeRate, Transaction, Txid};
 
 const DISCOUNTED_MULTIPLIER_CAP: f64 = 3.0;
@@ -180,7 +182,9 @@ where
         let client = match self.slipstream_client(cfg) {
             Ok(client) => client,
             Err(e) => {
-                tracing::warn!("Failed to build Slipstream client; falling back to normal fee logic: {e:?}");
+                tracing::warn!(
+                    "Failed to build Slipstream client; falling back to normal fee logic: {e:?}"
+                );
                 return None;
             }
         };
