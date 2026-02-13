@@ -436,8 +436,7 @@ where
         fee_rate: FeeRate,
         rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<()> {
-        let (fee_rate, _slipstream_cfg) =
-            self.slipstream_fee_rate_and_cfg(&tx, fee_rate).await;
+        let (fee_rate, _slipstream_cfg) = self.slipstream_fee_rate_and_cfg(&tx, fee_rate).await;
 
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 

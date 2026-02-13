@@ -414,9 +414,8 @@ where
             return Ok(());
         }
 
-        let (submit_fee_rate, slipstream_cfg) = self
-            .slipstream_fee_rate_and_cfg(&tx, base_fee_rate)
-            .await;
+        let (submit_fee_rate, slipstream_cfg) =
+            self.slipstream_fee_rate_and_cfg(&tx, base_fee_rate).await;
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.get_prevout().value).sum();
