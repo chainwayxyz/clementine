@@ -99,7 +99,7 @@ where
             let mut ctx = block.clone();
             let initial_state = format!("{:?}", self.state());
             ContextProcessResult::Processing(async move {
-                tracing::info!(
+                tracing::trace!(
                     block_height,
                     initial_state = %initial_state,
                     event_count,
@@ -107,7 +107,7 @@ where
                 );
                 for (i, event) in events.iter().enumerate() {
                     let event_str = format!("{event:?}");
-                    tracing::info!(
+                    tracing::trace!(
                         block_height,
                         event_idx = i,
                         event = %event_str,
@@ -116,7 +116,7 @@ where
                     let start = std::time::Instant::now();
                     self.handle_with_context(event, &mut ctx).await;
                     let elapsed = start.elapsed();
-                    tracing::info!(
+                    tracing::trace!(
                         block_height,
                         event_idx = i,
                         event = %event_str,
@@ -125,7 +125,7 @@ where
                         "State machine finished processing event"
                     );
                 }
-                tracing::info!(block_height, "State machine completed all events");
+                tracing::trace!(block_height, "State machine completed all events");
                 (self, ctx)
             })
         }
@@ -599,7 +599,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let block_height = context.cache.block_height;
 
-        tracing::info!(
+        tracing::trace!(
             block_height,
             num_kickoff_machines = self.kickoff_machines.len(),
             num_round_machines = self.round_machines.len(),
@@ -613,7 +613,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let (mut final_round_machines, mut round_futures) =
             Self::update_machines(&mut self.round_machines, context);
 
-        tracing::info!(
+        tracing::trace!(
             block_height,
             kickoff_futures = kickoff_futures.len(),
             round_futures = round_futures.len(),
@@ -630,7 +630,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // On each iteration, we'll update the changed machines until all machines
         // stabilize in their state.
         while !kickoff_futures.is_empty() || !round_futures.is_empty() {
-            tracing::info!(
+            tracing::trace!(
                 block_height,
                 iteration = iterations,
                 kickoff_futures = kickoff_futures.len(),
@@ -644,7 +644,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 join(join_all(kickoff_futures), join_all(round_futures)).await;
 
             let join_elapsed = join_start.elapsed();
-            tracing::info!(
+            tracing::trace!(
                 block_height,
                 iteration = iterations,
                 join_elapsed_ms = join_elapsed.as_millis() as u64,
@@ -737,7 +737,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_futures = new_round_futures;
             iterations += 1;
 
-            tracing::info!(
+            tracing::trace!(
                 block_height,
                 iteration = iterations,
                 new_kickoff_futures = kickoff_futures.len(),
@@ -755,7 +755,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
 
-        tracing::info!(
+        tracing::trace!(
             block_height,
             total_iterations = iterations,
             final_kickoff_machines = self.kickoff_machines.len(),

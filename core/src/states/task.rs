@@ -114,9 +114,9 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let new_event_received = async {
-            tracing::info!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
+            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
             let mut dbtx = self.db.begin_transaction().await?;
-            tracing::info!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction done, reading queue");
+            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction done, reading queue");
 
             // Poll new event
             let Some(Message {
@@ -134,7 +134,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 return Ok::<_, BridgeError>(false);
             };
 
-            tracing::info!(
+            tracing::trace!(
                 queue = %self.queue_name,
                 msg_id,
                 event = %format!("{:?}", message),
@@ -146,7 +146,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 
             self.inner.handle_event(message, arc_dbtx.clone()).await?;
 
-            tracing::info!(
+            tracing::trace!(
                 queue = %self.queue_name,
                 msg_id,
                 elapsed_ms = handle_start.elapsed().as_millis() as u64,
@@ -164,13 +164,13 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .await
                 .wrap_err("Deleting event from queue")?;
 
-            tracing::info!(
+            tracing::trace!(
                 queue = %self.queue_name,
                 msg_id,
                 "MessageConsumerTask: committing transaction"
             );
             dbtx.commit().await?;
-            tracing::info!(
+            tracing::trace!(
                 queue = %self.queue_name,
                 msg_id,
                 total_elapsed_ms = handle_start.elapsed().as_millis() as u64,

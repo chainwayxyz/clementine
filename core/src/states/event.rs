@@ -111,7 +111,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock { block, height } => {
-                tracing::info!(height, "handle_event: NewFinalizedBlock starting");
+                tracing::trace!(height, "handle_event: NewFinalizedBlock starting");
                 if self.next_height_to_process != height {
                     return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
                 }
@@ -121,7 +121,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.process_block_parallel(&mut context).await?;
 
                 self.last_finalized_block = Some(context.cache.clone());
-                tracing::info!(
+                tracing::trace!(
                     height,
                     elapsed_ms = event_start.elapsed().as_millis() as u64,
                     "handle_event: NewFinalizedBlock completed process_block_parallel"
@@ -342,10 +342,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
-        tracing::info!("handle_event: saving state to db");
+        tracing::trace!("handle_event: saving state to db");
         let save_start = std::time::Instant::now();
         self.save_state_to_db(&mut context).await?;
-        tracing::info!(
+        tracing::trace!(
             elapsed_ms = save_start.elapsed().as_millis() as u64,
             total_elapsed_ms = event_start.elapsed().as_millis() as u64,
             "handle_event: save_state_to_db completed"
