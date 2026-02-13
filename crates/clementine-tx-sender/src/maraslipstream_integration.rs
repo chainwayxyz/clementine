@@ -238,4 +238,16 @@ where
         let target_sat_kwu_u64 = (target_sat_kwu.ceil() as u64).max(min_sat_kwu_u64);
         FeeRate::from_sat_per_kwu(target_sat_kwu_u64)
     }
+
+    pub(crate) async fn slipstream_fee_rate_and_cfg(
+        &self,
+        tx: &Transaction,
+        base_fee_rate: FeeRate,
+    ) -> (FeeRate, Option<&MaraSlipstreamConfig>) {
+        let cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(tx);
+        let fee_rate = self
+            .maybe_slipstream_adjust_fee_rate(base_fee_rate, cfg)
+            .await;
+        (fee_rate, cfg)
+    }
 }

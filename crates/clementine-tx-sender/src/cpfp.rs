@@ -414,10 +414,8 @@ where
             return Ok(());
         }
 
-        let slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
-
-        let submit_fee_rate = self
-            .maybe_slipstream_adjust_fee_rate(base_fee_rate, slipstream_cfg)
+        let (submit_fee_rate, slipstream_cfg) = self
+            .slipstream_fee_rate_and_cfg(&tx, base_fee_rate)
             .await;
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
