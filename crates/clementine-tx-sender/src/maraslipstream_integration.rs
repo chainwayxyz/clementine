@@ -6,6 +6,7 @@ use crate::{
 use bitcoin::{consensus::encode::serialize, FeeRate, Transaction, Txid};
 
 const DISCOUNTED_MULTIPLIER_CAP: f64 = 3.0;
+const F64_EXACT_INT_LIMIT: u64 = 1u64 << 53;
 
 impl<S, D, B> TxSender<S, D, B>
 where
@@ -230,8 +231,26 @@ where
             mult = DISCOUNTED_MULTIPLIER_CAP;
         }
 
+        let base_sat_kwu = fee_rate.to_sat_per_kwu();
+        // Very unlikely, but warn if we cross the f64 exact-integer boundary for safety.
+        if base_sat_kwu >= F64_EXACT_INT_LIMIT {
+            tracing::warn!(
+                base_sat_kwu,
+                "Fee rate is at or above 2^53 sat/kwu; f64 conversion may lose precision"
+            );
+        }
+
         // It should be safe to do the multiplication in f64 since fee rates are small.
-        let target_sat_kwu = (fee_rate.to_sat_per_kwu() as f64) * mult;
+        let target_sat_kwu = (base_sat_kwu as f64) * mult;
+        
+        if !target_sat_kwu.is_finite() || target_sat_kwu > (u64::MAX as f64) {
+            tracing::warn!(
+                base_sat_kwu,
+                mult,
+                "Slipstream fee rate multiplication overflowed; using original fee rate"
+            );
+            return fee_rate;
+        }
 
         let min_sat_kwu_u64 = FeeRate::BROADCAST_MIN.to_sat_per_kwu();
 
