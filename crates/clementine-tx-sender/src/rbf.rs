@@ -638,7 +638,12 @@ where
             let bumped_txid = final_tx.compute_txid();
 
             let sent_txid = if self
-                .submit_tx_via_slipstream(&final_tx, bumped_txid, try_to_send_id, "rbf_slipstream")
+                .maybe_submit_tx_via_slipstream(
+                    &final_tx,
+                    bumped_txid,
+                    try_to_send_id,
+                    "rbf_slipstream",
+                )
                 .await?
                 .is_some()
             {
@@ -825,7 +830,7 @@ where
             let initial_txid = final_tx.compute_txid();
 
             let sent_txid = if self
-                .submit_tx_via_slipstream(
+                .maybe_submit_tx_via_slipstream(
                     &final_tx,
                     initial_txid,
                     try_to_send_id,

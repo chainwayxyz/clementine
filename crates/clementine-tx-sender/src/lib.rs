@@ -691,7 +691,7 @@ where
         tx_metadata: Option<TxMetadata>,
     ) -> Result<()> {
         if self
-            .submit_tx_via_slipstream(
+            .maybe_submit_tx_via_slipstream(
                 &tx,
                 tx.compute_txid(),
                 try_to_send_id,

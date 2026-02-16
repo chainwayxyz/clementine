@@ -93,7 +93,7 @@ where
     /// - `Ok(Some(expected_txid))` when submitted (and txid check passed)
     /// - `Ok(None)` when Slipstream is not applicable
     /// - `Err(_)` when submission fails or txid mismatches
-    pub(crate) async fn submit_tx_via_slipstream(
+    pub(crate) async fn maybe_submit_tx_via_slipstream(
         &self,
         tx: &Transaction,
         expected_txid: Txid,
