@@ -351,126 +351,38 @@ fn remove_symlinks_from_image_tar(path: &Path, expected_config_digest: &str) -> 
         return Ok(cached_tar_path);
     }
 
-    // Create a temporary directory for processing - everything happens here, then we move the final file out
+    // Create a temporary directory for extracting the tar file
     let tmp_dir = tempdir().wrap_err(format!(
         "Failed to create temporary directory for processing tar file: {path:?}"
     ))?;
     let tmp_path = tmp_dir.path();
     let extracted_path = tmp_path.join("extracted");
-    let tmp_path_canonical = fs::canonicalize(tmp_path).wrap_err(format!(
-        "Failed to canonicalize temporary directory path: {tmp_path:?}"
-    ))?;
 
     // Extract tarball to a subfolder within temp directory
     fs::create_dir(&extracted_path).wrap_err(format!(
         "Failed to create extracted subdirectory: {extracted_path:?}"
     ))?;
-    let file =
-        fs::File::open(path).wrap_err(format!("Failed to open tar file for reading: {path:?}"))?;
+    // 1. Extract the original tar
+    let file = fs::File::open(path)?;
     let mut archive = Archive::new(file);
-    archive.unpack(&extracted_path).wrap_err(format!(
-        "Failed to unpack tar archive to extracted subdirectory: {extracted_path:?}"
-    ))?;
+    archive.unpack(&extracted_path)?;
 
-    // Resolve symlinks in layer.tar
-    let read_dir = fs::read_dir(&extracted_path).wrap_err(format!(
-        "Failed to read extracted directory after unpacking: {extracted_path:?}"
+    // 2. Repack with symlink dereferencing
+    let out_file = fs::File::create(&cached_tar_path).wrap_err(format!(
+        "Failed to create output tar file: {cached_tar_path:?}"
     ))?;
-    for entry in read_dir {
-        let entry = entry.wrap_err(format!(
-            "Failed to read directory entry in: {extracted_path:?}"
+    let mut builder = Builder::new(out_file);
+    builder.follow_symlinks(true);
+    builder
+        .append_dir_all(".", &extracted_path)
+        .wrap_err(format!(
+            "Failed to repack extracted directory into tar: {extracted_path:?}"
         ))?;
-        let dir_path = entry.path();
+    builder
+        .finish()
+        .wrap_err(format!("Failed to finalize tar file: {cached_tar_path:?}"))?;
 
-        if dir_path.is_dir() {
-            let layer_tar = dir_path.join("layer.tar");
-            if layer_tar.exists() {
-                let symlink_metadata = fs::symlink_metadata(&layer_tar).wrap_err(format!(
-                    "Failed to get metadata for potential symlink: {layer_tar:?}"
-                ))?;
-                if symlink_metadata.file_type().is_symlink() {
-                    let target_canonical = fs::canonicalize(&layer_tar).wrap_err(format!(
-                        "Failed to canonicalize symlink target for {layer_tar:?}"
-                    ))?;
-                    let is_allowed_target = target_canonical.starts_with(&tmp_path_canonical);
-                    if !is_allowed_target {
-                        return Err(eyre!(
-                            "Symlink target {target_canonical:?} resolves outside the allowed directories"
-                        ));
-                    }
-                    let target_metadata = fs::metadata(&target_canonical).wrap_err(format!(
-                        "Failed to get metadata for symlink target {target_canonical:?}"
-                    ))?;
-                    if !target_metadata.is_file() {
-                        return Err(eyre!(
-                            "Symlink target {target_canonical:?} is not a regular file"
-                        ));
-                    }
-                    fs::remove_file(&layer_tar)
-                        .wrap_err(format!("Failed to remove symlink: {layer_tar:?}"))?;
-                    fs::copy(&target_canonical, &layer_tar).wrap_err(format!(
-                        "Failed to copy symlink target {target_canonical:?} to {layer_tar:?}"
-                    ))?;
-                }
-            }
-        }
-    }
-
-    // Create the final tar file in the temp directory root (outside extracted subfolder)
-    let final_tar_in_temp = tmp_path.join("processed.tar");
-    let output_file = fs::File::create(&final_tar_in_temp).wrap_err(format!(
-        "Failed to create processed tar file in temp directory: {final_tar_in_temp:?}"
-    ))?;
-    let mut builder = Builder::new(output_file);
-
-    // Repack from the extracted subfolder - no need to skip processed.tar since it's not in extracted_path
-    let read_dir_repack = fs::read_dir(&extracted_path).wrap_err(format!(
-        "Failed to read extracted directory for repacking: {extracted_path:?}"
-    ))?;
-    for entry in read_dir_repack {
-        let entry = entry.wrap_err(format!(
-            "Failed to read directory entry during repacking in: {extracted_path:?}"
-        ))?;
-        let file_name = entry.file_name();
-        let entry_path = entry.path();
-        let metadata = entry
-            .metadata()
-            .wrap_err(format!("Failed to get metadata for entry: {entry_path:?}"))?;
-
-        if metadata.is_dir() {
-            builder
-                .append_dir_all(file_name, &entry_path)
-                .wrap_err(format!(
-                    "Failed to append directory {entry_path:?} to tar archive"
-                ))?;
-        } else if metadata.is_file() {
-            let mut file = fs::File::open(&entry_path).wrap_err(format!(
-                "Failed to open file for appending to tar: {entry_path:?}"
-            ))?;
-            builder.append_file(file_name, &mut file).wrap_err(format!(
-                "Failed to append file {entry_path:?} to tar archive"
-            ))?;
-        }
-        // Skip symlinks and other file types
-    }
-
-    builder.finish().wrap_err(format!(
-        "Failed to finish writing tar archive: {final_tar_in_temp:?}"
-    ))?;
-
-    // Move the final tar file from temp directory to cache location
-    // Try rename first, fall back to copy+remove if rename fails for any reason (it won't work if the files are on different mount points)
-    if fs::rename(&final_tar_in_temp, &cached_tar_path).is_err() {
-        fs::copy(&final_tar_in_temp, &cached_tar_path).wrap_err(format!(
-            "Failed to copy processed tar file from temp directory {final_tar_in_temp:?} to cache location {cached_tar_path:?}"
-        ))?;
-        fs::remove_file(&final_tar_in_temp).wrap_err(format!(
-            "Failed to remove temp tar file after copying: {final_tar_in_temp:?}"
-        ))?;
-    }
-
-    tracing::debug!("Cached processed tar file: {cached_tar_path:?}");
-
+    tracing::debug!("Successfully created flattened tar: {:?}", cached_tar_path);
     Ok(cached_tar_path)
 }
 
@@ -1101,7 +1013,7 @@ pub fn to_decimal(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tar::{EntryType, Header};
+    use tar::{Builder, EntryType, Header};
 
     /// Test that pull_or_load_image succeeds for the STARK_TO_BITVM2 image.
     /// This validates that STARK_TO_BITVM2_IMAGE_CONFIG_DIGEST is correct.
@@ -1232,6 +1144,87 @@ mod tests {
         }
 
         builder.finish()?;
+        Ok(())
+    }
+
+    /// Collect all paths under `root`, returned as sorted relative paths.
+    fn collect_relative_paths(
+        root: &Path,
+    ) -> std::result::Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        fn walk(
+            root: &Path,
+            current: &Path,
+            out: &mut Vec<PathBuf>,
+        ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+            for entry in fs::read_dir(current)? {
+                let entry = entry?;
+                let path = entry.path();
+                let relative = path.strip_prefix(root)?.to_path_buf();
+                out.push(relative);
+
+                if path.is_dir() {
+                    walk(root, &path, out)?;
+                }
+            }
+            Ok(())
+        }
+
+        let mut paths = Vec::new();
+        walk(root, root, &mut paths)?;
+        paths.sort();
+        Ok(paths)
+    }
+
+    /// Compare two tar files by extracted tree structure, file types and file bytes.
+    fn assert_tar_semantically_equal(
+        lhs_tar: &Path,
+        rhs_tar: &Path,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempdir()?;
+        let lhs_extract = tmp.path().join("lhs");
+        let rhs_extract = tmp.path().join("rhs");
+        fs::create_dir_all(&lhs_extract)?;
+        fs::create_dir_all(&rhs_extract)?;
+
+        Archive::new(fs::File::open(lhs_tar)?).unpack(&lhs_extract)?;
+        Archive::new(fs::File::open(rhs_tar)?).unpack(&rhs_extract)?;
+
+        let lhs_paths = collect_relative_paths(&lhs_extract)?;
+        let rhs_paths = collect_relative_paths(&rhs_extract)?;
+        assert_eq!(
+            lhs_paths, rhs_paths,
+            "Extracted tar contents have different path sets"
+        );
+
+        for relative in lhs_paths {
+            let lhs_path = lhs_extract.join(&relative);
+            let rhs_path = rhs_extract.join(&relative);
+            let lhs_meta = fs::symlink_metadata(&lhs_path)?;
+            let rhs_meta = fs::symlink_metadata(&rhs_path)?;
+
+            assert_eq!(
+                lhs_meta.file_type(),
+                rhs_meta.file_type(),
+                "Entry type mismatch for path: {relative:?}"
+            );
+
+            if lhs_meta.file_type().is_file() {
+                let lhs_bytes = fs::read(&lhs_path)?;
+                let rhs_bytes = fs::read(&rhs_path)?;
+                assert_eq!(
+                    lhs_bytes, rhs_bytes,
+                    "File content mismatch for path: {relative:?}"
+                );
+            } else if lhs_meta.file_type().is_symlink() {
+                let lhs_target = fs::read_link(&lhs_path)?;
+                let rhs_target = fs::read_link(&rhs_path)?;
+                assert_eq!(
+                    lhs_target, rhs_target,
+                    "Symlink target mismatch for path: {relative:?}"
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -1398,6 +1391,10 @@ mod tests {
             "Cache path should match expected path"
         );
 
+        // Verify that cached tar has the same extracted contents as original tar.
+        // (Byte-for-byte equality of tar files is not required due to metadata differences.)
+        assert_tar_semantically_equal(&tar_path, &cached_path).unwrap();
+
         // Clean up temporary tar files created during test
         let _ = fs::remove_file(&tar_path);
         let _ = fs::remove_file(&cached_path);
@@ -1454,6 +1451,9 @@ mod tests {
             cached_path.exists(),
             "Cache file should exist after processing"
         );
+
+        // Input tar has no symlink, so repacked output should be semantically identical.
+        assert_tar_semantically_equal(&tar_path, &cached_path).unwrap();
 
         // Clean up temporary tar files created during test
         let _ = fs::remove_file(&tar_path);
