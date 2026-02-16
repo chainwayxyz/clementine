@@ -242,7 +242,7 @@ where
 
         // It should be safe to do the multiplication in f64 since fee rates are small.
         let target_sat_kwu = (base_sat_kwu as f64) * mult;
-        
+
         if !target_sat_kwu.is_finite() || target_sat_kwu > (u64::MAX as f64) {
             tracing::warn!(
                 base_sat_kwu,
