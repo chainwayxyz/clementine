@@ -74,11 +74,62 @@ fn acquire_docker_mutex() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
+/// Ensures that both `udocker` and `skopeo` binaries are available on the system `PATH`.
+/// Returns an error with a descriptive message if either is missing or cannot be executed.
+fn ensure_udocker_and_skopeo_installed() -> Result<()> {
+    fn check_binary(binary: &str) -> Result<()> {
+        let output = std::process::Command::new(binary).arg("--version").output();
+
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(eyre!(
+                        "`{}` appears to be installed, but `{} --version` failed: {}",
+                        binary,
+                        binary,
+                        stderr
+                    ))
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(eyre!(
+                "`{}` is not installed or not found in PATH. Please install it before running the prover.",
+                binary
+            )),
+            Err(e) => Err(eyre!("Failed to execute `{}`: {}", binary, e)),
+        }
+    }
+
+    check_binary("udocker")?;
+    check_binary("skopeo")?;
+
+    Ok(())
+}
+
+/// Ensures that the prover environment is usable:
+/// - checks that we are running on an x86 architecture
+/// - checks that both `udocker` and `skopeo` are installed and runnable.
+fn ensure_prover_environment() -> Result<()> {
+    if !is_x86_architecture() {
+        return Err(eyre!(
+            "stark_to_snark is only supported on x86 architecture"
+        ));
+    }
+
+    ensure_udocker_and_skopeo_installed()?;
+
+    Ok(())
+}
+
 /// Convert a STARK proof to a SNARK proof. Taken from risc0-groth16 and modified slightly.
 pub fn stark_to_bitvm2_g16(
     succinct_receipt: SuccinctReceipt<ReceiptClaim>,
     journal: &[u8],
 ) -> Result<(Seal, [u8; 31])> {
+    ensure_prover_environment()?;
+
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = acquire_docker_mutex();
@@ -91,13 +142,6 @@ pub fn stark_to_bitvm2_g16(
         .value()
         .wrap_err("Failed to get receipt claim value")?;
     tracing::debug!("Journal for stark_to_bitvm2_g16: {:?}", journal);
-
-    // This part is from risc0-groth16
-    if !is_x86_architecture() {
-        return Err(eyre!(
-            "stark_to_snark is only supported on x86 architecture"
-        ));
-    }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
     let work_var = std::env::var("RISC0_WORK_DIR").ok();
@@ -405,10 +449,7 @@ fn inspect_tar_image_config_digest(tar_path: &Path) -> Result<String> {
 
     if !inspect_output.status.success() {
         let stderr = String::from_utf8_lossy(&inspect_output.stderr);
-        return Err(eyre!(
-            "Failed to inspect docker-archive image: {}",
-            stderr
-        ));
+        return Err(eyre!("Failed to inspect docker-archive image: {}", stderr));
     }
 
     let manifest_json =
@@ -428,7 +469,10 @@ fn inspect_tar_image_config_digest(tar_path: &Path) -> Result<String> {
 
 /// Verifies that a docker-archive tar file has the expected config digest
 /// using only `skopeo inspect --raw` on the given tar file.
-fn verify_tar_image_digest_inspect_only(tar_path: &Path, expected_config_digest: &str) -> Result<()> {
+fn verify_tar_image_digest_inspect_only(
+    tar_path: &Path,
+    expected_config_digest: &str,
+) -> Result<()> {
     let computed_config_digest = inspect_tar_image_config_digest(tar_path)?;
 
     if computed_config_digest != expected_config_digest {
@@ -551,7 +595,10 @@ fn pull_or_load_image(
 
 /// Pulls or loads all the images needed for the prover.
 pub fn pull_or_load_all_images() -> Result<()> {
+    ensure_udocker_and_skopeo_installed()?;
+
     let _guard = acquire_docker_mutex();
+
     if is_dev_mode() {
         pull_or_load_image(
             DEV_STARK_TO_BITVM2_IMAGE_DIGEST,
@@ -722,6 +769,8 @@ fn run_prover_container(
 }
 
 pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receipt> {
+    ensure_prover_environment()?;
+
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = acquire_docker_mutex();
@@ -732,13 +781,6 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Result<Receip
         .wrap_err("Failed to get receipt claim")?
         .value()
         .wrap_err("Failed to get receipt claim value")?;
-
-    // This part is from risc0-groth16
-    if !is_x86_architecture() {
-        return Err(eyre!(
-            "stark_to_snark is only supported on x86 architecture"
-        ));
-    }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
     let work_var = std::env::var("RISC0_WORK_DIR").ok();
@@ -862,6 +904,8 @@ const ID_BN254_FR_BITS_DEV_BRIDGE: [&str; 254] = [
 ];
 
 pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<(Seal, [u8; 31])> {
+    ensure_prover_environment()?;
+
     // Acquire the mutex to ensure only one docker operation runs at a time
     // This prevents conflicts when RISC0_WORK_DIR is set and multiple functions run concurrently
     let _guard = acquire_docker_mutex();
@@ -872,13 +916,6 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         .wrap_err("Failed to get receipt claim")?
         .value()
         .wrap_err("Failed to get receipt claim value")?;
-
-    // This part is from risc0-groth16
-    if !is_x86_architecture() {
-        return Err(eyre!(
-            "stark_to_snark is only supported on x86 architecture"
-        ));
-    }
 
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory")?;
     let work_var = std::env::var("RISC0_WORK_DIR").ok();
