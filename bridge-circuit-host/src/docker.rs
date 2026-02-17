@@ -393,10 +393,61 @@ fn command_output_error(output: &std::process::Output, error_prefix: &str) -> ey
     eyre!("{} failed: {}", error_prefix, stderr)
 }
 
-/// Verifies that a docker-archive tar file has the correct config digest by recomputing it.
-/// Uses skopeo copy to a temporary docker-archive to force digest recomputation, ensuring the tar file
-/// hasn't been tampered with. This function can be used to verify both original and
-/// symlink-removed tar files.
+/// Reads the config digest from a docker-archive tar using `skopeo inspect --raw`.
+fn inspect_tar_image_config_digest(tar_path: &Path) -> Result<String> {
+    let inspect_output = Command::new("skopeo")
+        .arg("inspect")
+        .arg("--raw")
+        .arg("--no-creds")
+        .arg(format!("docker-archive:{}", tar_path.to_string_lossy()))
+        .output()
+        .wrap_err("skopeo inspect could not be executed")?;
+
+    if !inspect_output.status.success() {
+        let stderr = String::from_utf8_lossy(&inspect_output.stderr);
+        return Err(eyre!(
+            "Failed to inspect docker-archive image: {}",
+            stderr
+        ));
+    }
+
+    let manifest_json =
+        String::from_utf8(inspect_output.stdout).wrap_err("Failed to parse manifest as UTF-8")?;
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_json).wrap_err("Failed to parse manifest JSON")?;
+
+    // For docker-archive format, the config digest is in manifest.config.digest
+    let config_digest = manifest
+        .get("config")
+        .and_then(|c| c.get("digest"))
+        .and_then(|d| d.as_str())
+        .ok_or_else(|| eyre!("Failed to get config digest from docker-archive manifest"))?;
+
+    Ok(config_digest.to_string())
+}
+
+/// Verifies that a docker-archive tar file has the expected config digest
+/// using only `skopeo inspect --raw` on the given tar file.
+fn verify_tar_image_digest_inspect_only(tar_path: &Path, expected_config_digest: &str) -> Result<()> {
+    let computed_config_digest = inspect_tar_image_config_digest(tar_path)?;
+
+    if computed_config_digest != expected_config_digest {
+        return Err(eyre!(
+            "Tar file config digest mismatch: computed={}, expected={}. The tar file may have been tampered with.",
+            computed_config_digest,
+            expected_config_digest
+        ));
+    }
+
+    tracing::debug!(
+        "Tar file digest verification (inspect only) successful: {:?}",
+        tar_path
+    );
+    Ok(())
+}
+
+/// Verifies that a docker-archive tar file has the expected config digest by
+/// forcing skopeo to reconstruct the archive first.
 ///
 /// # Arguments
 /// * `tar_path` - Path to the docker-archive tar file to verify
@@ -406,15 +457,11 @@ fn command_output_error(output: &std::process::Output, error_prefix: &str) -> ey
 /// * `Ok(())` if the computed digest matches the expected digest
 /// * `Err` if verification fails or digests don't match
 pub fn verify_tar_image_digest(tar_path: &Path, expected_config_digest: &str) -> Result<()> {
-    // Create a temporary docker-archive to force skopeo to recompute all digests
-    // by reconstructing the image. This ensures we're verifying the docker-archive format
-    // directly, not converting to a different format where digests might differ.
     let tmp_dir = tempdir().wrap_err("Failed to create temporary directory for verification")?;
     let tmp_tar_path = tmp_dir.path().join("verified.tar");
 
     // Copy from docker-archive to docker-archive - this forces skopeo to recompute all digests
-    // because it reconstructs the image structure. If the tar is tampered, this will fail
-    // or produce different digests.
+    // because it reconstructs the image structure. If the tar or manifest is tampered, this will fail.
     tracing::debug!(
         "Verifying tar file digest by copying to temporary docker-archive: {:?}",
         tar_path
@@ -434,42 +481,7 @@ pub fn verify_tar_image_digest(tar_path: &Path, expected_config_digest: &str) ->
         ));
     }
 
-    // Now inspect the docker-archive format - digests are guaranteed to be recomputed
-    let inspect_output = Command::new("skopeo")
-        .arg("inspect")
-        .arg("--raw")
-        .arg("--no-creds")
-        .arg(format!("docker-archive:{}", tmp_tar_path.to_string_lossy()))
-        .output()
-        .wrap_err("skopeo inspect could not be executed for verification")?;
-
-    if !inspect_output.status.success() {
-        let stderr = String::from_utf8_lossy(&inspect_output.stderr);
-        return Err(eyre!(
-            "Failed to inspect docker-archive image during verification: {}",
-            stderr
-        ));
-    }
-
-    let manifest_json =
-        String::from_utf8(inspect_output.stdout).wrap_err("Failed to parse manifest as UTF-8")?;
-    let manifest: serde_json::Value =
-        serde_json::from_str(&manifest_json).wrap_err("Failed to parse manifest JSON")?;
-
-    // For docker-archive format, the config digest is in manifest.config.digest
-    let computed_config_digest = manifest
-        .get("config")
-        .and_then(|c| c.get("digest"))
-        .and_then(|d| d.as_str())
-        .ok_or_else(|| eyre!("Failed to get config digest from docker-archive manifest"))?;
-
-    if computed_config_digest != expected_config_digest {
-        return Err(eyre!(
-            "Tar file config digest mismatch: computed={}, expected={}. The tar file may have been tampered with.",
-            computed_config_digest,
-            expected_config_digest
-        ));
-    }
+    verify_tar_image_digest_inspect_only(&tmp_tar_path, expected_config_digest)?;
 
     tracing::debug!("Tar file digest verification successful: {:?}", tar_path);
     Ok(())
@@ -521,8 +533,8 @@ fn pull_or_load_image(
         if !pull_output.status.success() {
             return Err(command_output_error(&pull_output, "skopeo copy"));
         }
-        // Verify the pulled image by recomputing digests
-        verify_tar_image_digest(&tar_file_path, image_config_digest)
+        // Check if config digest matches the expected digest.
+        verify_tar_image_digest_inspect_only(&tar_file_path, image_config_digest)
             .wrap_err("Newly pulled image failed digest verification")?;
     }
 
