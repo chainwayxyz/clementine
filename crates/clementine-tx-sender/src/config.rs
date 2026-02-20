@@ -104,6 +104,20 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(name, format!("{e:?}")))
 }
 
+pub(crate) fn validate_input_unspent_max_retries(
+    input_unspent_max_retries: Option<u32>,
+) -> std::result::Result<Option<u32>, String> {
+    if let Some(retries) = input_unspent_max_retries {
+        if retries == 0 {
+            return Err("must be >= 1 when set".to_string());
+        }
+        if retries > i32::MAX as u32 {
+            return Err(format!("must be <= {} when set", i32::MAX));
+        }
+    }
+    Ok(input_unspent_max_retries)
+}
+
 impl TxSenderConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
         let network_str = env_required("NETWORK")?;
@@ -176,22 +190,10 @@ impl TxSenderConfig {
             ));
         }
 
-        let input_unspent_max_retries =
-            env_parse_optional::<u32>("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES")?;
-        if let Some(retries) = input_unspent_max_retries {
-            if retries == 0 {
-                return Err(BridgeError::EnvVarMalformed(
-                    "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
-                    "must be >= 1 when set".to_string(),
-                ));
-            }
-            if retries > i32::MAX as u32 {
-                return Err(BridgeError::EnvVarMalformed(
-                    "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
-                    format!("must be <= {} when set", i32::MAX),
-                ));
-            }
-        }
+        let input_unspent_max_retries = validate_input_unspent_max_retries(
+            env_parse_optional::<u32>("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES")?,
+        )
+        .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
 
         let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
 

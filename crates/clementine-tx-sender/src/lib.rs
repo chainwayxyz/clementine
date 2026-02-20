@@ -184,21 +184,12 @@ impl TxSender {
             jsonrpc: _,
         } = tx_sender_config;
 
-        let input_unspent_max_retries = match input_unspent_max_retries {
-            Some(retries) if retries == 0 => {
-                return Err(BridgeError::ConfigError(
-                    "input_unspent_max_retries must be >= 1 when set".to_string(),
-                ));
-            }
-            Some(retries) if retries > i32::MAX as u32 => {
-                return Err(BridgeError::ConfigError(format!(
-                    "input_unspent_max_retries must be <= {} when set",
-                    i32::MAX
-                )));
-            }
-            Some(retries) => retries,
-            None => derive_input_unspent_max_retries(finality_depth, poll_delay_ms),
-        };
+        let input_unspent_max_retries =
+            crate::config::validate_input_unspent_max_retries(input_unspent_max_retries)
+                .map_err(|msg| {
+                    BridgeError::ConfigError(format!("input_unspent_max_retries {msg}"))
+                })?
+                .unwrap_or_else(|| derive_input_unspent_max_retries(finality_depth, poll_delay_ms));
 
         let signer = TxSenderSigningKey::new(secret_key, network);
         #[cfg(feature = "citrea")]
