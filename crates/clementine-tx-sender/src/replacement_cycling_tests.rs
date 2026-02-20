@@ -120,9 +120,8 @@ async fn wait_until_peer_has_txs(
         .get_raw_mempool()
         .await
         .expect("peer getrawmempool must work");
-    let missing: Vec<Txid> = txids
+    let missing: Vec<&Txid> = txids
         .iter()
-        .copied()
         .filter(|txid| !mempool.contains(txid))
         .collect();
     Err(format!(
@@ -154,7 +153,7 @@ async fn wait_for_peer_chain_sync(
     primary: &ExtendedBitcoinRpc,
     peer: &ExtendedBitcoinRpc,
     tries: usize,
-) -> bool {
+) -> Result<(), String> {
     for _ in 0..tries {
         let primary_info = primary
             .get_blockchain_info()
@@ -165,11 +164,22 @@ async fn wait_for_peer_chain_sync(
             .await
             .expect("peer getblockchaininfo must work");
         if !peer_info.initial_block_download && peer_info.blocks >= primary_info.blocks {
-            return true;
+            return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    false
+    let primary_info = primary
+        .get_blockchain_info()
+        .await
+        .expect("primary getblockchaininfo must work");
+    let peer_info = peer
+        .get_blockchain_info()
+        .await
+        .expect("peer getblockchaininfo must work");
+    Err(format!(
+        "peer chain did not sync after {tries} tries: primary blocks={}, peer blocks={}, peer ibd={}",
+        primary_info.blocks, peer_info.blocks, peer_info.initial_block_download
+    ))
 }
 
 async fn spawn_peer_node(
@@ -543,10 +553,7 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
     let rpc_password = config.bitcoin_rpc.password.clone();
 
     let tx_sender = TxSender::new(config).await.unwrap();
-    sqlx::raw_sql(include_str!("../migrations/0001_init.up.sql"))
-        .execute(tx_sender.db.pool())
-        .await
-        .unwrap();
+    tx_sender.db.run_migrations().await.unwrap();
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     let peer_node = spawn_peer_node(rpc_user.clone(), rpc_password.clone()).await;
     tx_sender
@@ -555,7 +562,9 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
         .await
         .expect("primary node should add peer node");
     wait_for_peering(&tx_sender.rpc, &peer_node.rpc, 30).await;
-    let _ = wait_for_peer_chain_sync(&tx_sender.rpc, &peer_node.rpc, 300).await;
+    wait_for_peer_chain_sync(&tx_sender.rpc, &peer_node.rpc, 300)
+        .await
+        .expect("peer chain should sync");
 
     rpc_env
         .rpc()
@@ -626,7 +635,6 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
     .await
     .unwrap_or_else(|err| panic!("initial parent+child package was not relayed to peer: {err}"));
 
-    let mut rounds_with_parent_inclusion = 0usize;
     for (round, attacker_input) in attacker_inputs.into_iter().enumerate() {
         let txsender_child_txid =
             find_child_spending_anchor(&tx_sender.rpc, parent_txid, anchor_vout)
@@ -692,6 +700,7 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
             panic!("round {round}: attacker anchorless replacement was not relayed to peer: {err}")
         });
 
+        // We need this to evict parent tx because if mempool is not full, even if parent tx has 0 fee, it will not be evicted.
         pressure_peer_until_parent_evicted(&peer_node.rpc, &attacker_rpc, parent_txid).await;
 
         assert!(
@@ -754,12 +763,5 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
             reentered_child_wtxid,
             "round {round}: peer child wtxid should match primary reentered child",
         );
-
-        rounds_with_parent_inclusion += 1;
     }
-
-    assert_eq!(
-        rounds_with_parent_inclusion, ATTACK_ROUNDS,
-        "expected parent+child package to re-enter mempool in each replacement-cycling round"
-    );
 }
