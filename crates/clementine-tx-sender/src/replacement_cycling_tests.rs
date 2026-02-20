@@ -4,7 +4,7 @@ use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
 use bitcoin::{Amount, OutPoint, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Txid};
-use bitcoincore_rpc::json::SignRawTransactionInput;
+use bitcoincore_rpc::json::{FundRawTransactionOptions, SignRawTransactionInput};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use clementine_extended_rpc::ExtendedBitcoinRpc;
 use clementine_primitives::NON_STANDARD_V3;
@@ -24,6 +24,12 @@ const ATTACKER_INPUT_AMOUNT_SAT: u64 = 300_000;
 const ATTACK_CHILD_FEE_SAT: u64 = 20_000;
 const ATTACK_EVICT_FEE_SAT: u64 = 30_000;
 const RELAY_WAIT_TRIES: usize = 300;
+const FILLER_UTXO_COUNT: usize = 90;
+const FILLER_UTXO_AMOUNT_SAT: u64 = 2_000_000;
+const FILLER_OUTPUT_COUNT: usize = 2_100;
+const FILLER_OUTPUT_VALUE_SAT: u64 = 400;
+const FILLER_FEERATE_SAT_KVB: u64 = 1;
+const PEER_MEMPOOL_PRESSURE_MAX_TXS: usize = 90;
 
 struct PeerNode {
     process: Option<std::process::Child>,
@@ -183,6 +189,9 @@ async fn spawn_peer_node(
         format!("-rpcuser={}", rpc_user.expose_secret()),
         format!("-rpcpassword={}", rpc_password.expose_secret()),
         "-txindex=1".to_string(),
+        "-maxmempool=5".to_string(),
+        "-minrelaytxfee=0.00000001".to_string(),
+        "-incrementalrelayfee=0.00000001".to_string(),
         "-whitelist=noban@127.0.0.1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
@@ -368,6 +377,105 @@ async fn build_and_sign_attacker_anchorless_replacement(
         .expect("attacker replacement must deserialize")
 }
 
+async fn build_and_sign_large_low_feerate_filler_tx(
+    attacker_rpc: &Client,
+    fee_rate_sat_kvb: u64,
+) -> Transaction {
+    let fill_address = attacker_rpc
+        .get_new_address(None, None)
+        .await
+        .expect("filler destination address must be generated")
+        .assume_checked();
+
+    let mut filler_tx = Transaction {
+        version: bitcoin::transaction::Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![],
+        output: Vec::with_capacity(FILLER_OUTPUT_COUNT),
+    };
+    for _ in 0..FILLER_OUTPUT_COUNT {
+        filler_tx.output.push(TxOut {
+            value: Amount::from_sat(FILLER_OUTPUT_VALUE_SAT),
+            script_pubkey: fill_address.script_pubkey(),
+        });
+    }
+
+    let filler_bytes = crate::serialize_tx_for_fund_raw(&filler_tx);
+    let funded_hex = attacker_rpc
+        .fund_raw_transaction(
+            &filler_bytes,
+            Some(&FundRawTransactionOptions {
+                add_inputs: Some(true),
+                include_unsafe: Some(false),
+                change_address: None,
+                change_position: None,
+                change_type: None,
+                include_watching: None,
+                lock_unspents: Some(true),
+                fee_rate: Some(Amount::from_sat(fee_rate_sat_kvb)),
+                subtract_fee_from_outputs: None,
+                replaceable: Some(true),
+                conf_target: None,
+                estimate_mode: None,
+            }),
+            None,
+        )
+        .await
+        .expect("filler tx should be funded")
+        .hex;
+
+    attacker_rpc
+        .sign_raw_transaction_with_wallet(&funded_hex, None, None)
+        .await
+        .expect("filler tx signing must succeed")
+        .transaction()
+        .expect("filler tx must deserialize")
+}
+
+async fn pressure_peer_until_parent_evicted(
+    peer_rpc: &ExtendedBitcoinRpc,
+    attacker_rpc: &Client,
+    parent_txid: Txid,
+) {
+    let mut filler_feerate_sat_kvb = FILLER_FEERATE_SAT_KVB;
+    for sent in 0..PEER_MEMPOOL_PRESSURE_MAX_TXS {
+        if !tx_is_in_mempool(peer_rpc, parent_txid).await {
+            return;
+        }
+        let filler_tx =
+            build_and_sign_large_low_feerate_filler_tx(attacker_rpc, filler_feerate_sat_kvb).await;
+        match peer_rpc.send_raw_transaction(&filler_tx).await {
+            Ok(_) => {}
+            Err(err) if err.to_string().contains("mempool min fee not met") => {
+                filler_feerate_sat_kvb = filler_feerate_sat_kvb.saturating_add(1);
+            }
+            Err(err) if err.to_string().contains("mempool full") => {
+                if !tx_is_in_mempool(peer_rpc, parent_txid).await {
+                    return;
+                }
+                panic!(
+                    "peer mempool became full before evicting parent at filler feerate {filler_feerate_sat_kvb} sat/kvb: {err}",
+                );
+            }
+            Err(err) if err.to_string().contains("bad-txns-inputs-missingorspent") => {
+                if !tx_is_in_mempool(peer_rpc, parent_txid).await {
+                    return;
+                }
+            }
+            Err(err) => {
+                panic!(
+                    "failed to broadcast filler tx {sent} to peer while pressuring mempool: {err}"
+                )
+            }
+        }
+    }
+
+    assert!(
+        !tx_is_in_mempool(peer_rpc, parent_txid).await,
+        "parent tx was not evicted from peer mempool under pressure at filler feerate {filler_feerate_sat_kvb} sat/kvb",
+    );
+}
+
 async fn enqueue_parent_and_wait_for_package(
     tx_sender: &TxSender,
     task: &mut TxSenderTaskInternal,
@@ -435,7 +543,10 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
     let rpc_password = config.bitcoin_rpc.password.clone();
 
     let tx_sender = TxSender::new(config).await.unwrap();
-    tx_sender.db.run_migrations().await.unwrap();
+    sqlx::raw_sql(include_str!("../migrations/0001_init.up.sql"))
+        .execute(tx_sender.db.pool())
+        .await
+        .unwrap();
     let mut task = TxSenderTaskInternal::new(tx_sender.clone());
     let peer_node = spawn_peer_node(rpc_user.clone(), rpc_password.clone()).await;
     tx_sender
@@ -483,11 +594,21 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
             .expect("attacker funding tx should be sent");
         attacker_inputs.push(outpoint);
     }
+    for _ in 0..FILLER_UTXO_COUNT {
+        tx_sender
+            .rpc
+            .send_to_address(
+                &attacker_funding_address,
+                Amount::from_sat(FILLER_UTXO_AMOUNT_SAT),
+            )
+            .await
+            .expect("filler funding tx should be sent");
+    }
     tx_sender
         .rpc
         .mine_blocks(1)
         .await
-        .expect("attacker funding txs should confirm");
+        .expect("attacker and filler funding txs should confirm");
 
     let (parent_txid, anchor_vout, anchor_txout) =
         enqueue_parent_and_wait_for_package(&tx_sender, &mut task).await;
@@ -571,12 +692,19 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
             panic!("round {round}: attacker anchorless replacement was not relayed to peer: {err}")
         });
 
+        pressure_peer_until_parent_evicted(&peer_node.rpc, &attacker_rpc, parent_txid).await;
+
         tx_sender
             .rpc
             .mine_blocks(1)
             .await
             .expect("block mining should succeed");
         let _ = wait_for_peer_chain_sync(&tx_sender.rpc, &peer_node.rpc, 120).await;
+
+        assert!(
+            !tx_is_in_mempool(&peer_node.rpc, parent_txid).await,
+            "round {round}: parent tx should be evicted from peer mempool under pressure",
+        );
 
         let mut reentered = false;
         for _ in 0..8 {
