@@ -190,9 +190,11 @@ impl TxSenderConfig {
             ));
         }
 
-        let input_unspent_max_retries = validate_input_unspent_max_retries(
-            env_parse_optional::<u32>("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES")?,
-        )
+        let input_unspent_max_retries = validate_input_unspent_max_retries(env_parse_optional::<
+            u32,
+        >(
+            "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
+        )?)
         .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
 
         let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
