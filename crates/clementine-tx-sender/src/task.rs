@@ -73,6 +73,7 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
 
                 // Standalone deployments own their txsender schema.
                 // In clementine-core deployments, schema/migrations are owned by core.
+                #[cfg(feature = "standalone")]
                 tx_sender.db.run_migrations().await?;
 
                 #[cfg(feature = "json-rpc")]
