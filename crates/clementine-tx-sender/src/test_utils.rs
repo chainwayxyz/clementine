@@ -198,6 +198,7 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
+        "-whitelist=noban@127.0.0.1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),

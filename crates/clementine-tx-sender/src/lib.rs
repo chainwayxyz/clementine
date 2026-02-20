@@ -14,6 +14,8 @@ pub mod db;
 pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
+#[cfg(all(test, feature = "testing"))]
+mod replacement_cycling_tests;
 mod rpc_errors;
 mod signer;
 pub mod task;
@@ -138,6 +140,8 @@ pub struct TxSender {
     mempool_config: MempoolConfig,
     /// Whether to include unsafe UTXOs when funding transactions.
     include_unsafe: bool,
+    /// CPFP change script, initialized once and reused for all CPFP child txs.
+    cpfp_change_script_pubkey: bitcoin::ScriptBuf,
 }
 
 impl std::fmt::Debug for TxSender {
@@ -205,6 +209,11 @@ impl TxSender {
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
+        let cpfp_change_script_pubkey = rpc
+            .get_new_wallet_address()
+            .await
+            .map_err(|e| BridgeError::Eyre(e.into()))?
+            .script_pubkey();
 
         let db = TxSenderDb::connect(&postgres).await?;
         let client = TxSenderClient::new(db.clone());
@@ -223,6 +232,7 @@ impl TxSender {
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
             include_unsafe,
+            cpfp_change_script_pubkey,
         })
     }
 

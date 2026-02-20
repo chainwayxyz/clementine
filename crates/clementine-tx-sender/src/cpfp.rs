@@ -49,7 +49,7 @@ impl TxSender {
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
         fee_payer_utxos: Vec<crate::SpendableUtxo>,
-        change_address: bitcoin::Address,
+        change_script_pubkey: ScriptBuf,
         required_fee: Amount,
     ) -> Result<Transaction> {
         let total_in: Amount = fee_payer_utxos
@@ -85,7 +85,7 @@ impl TxSender {
             input: inputs,
             output: vec![TxOut {
                 value: change_amount,
-                script_pubkey: change_address.script_pubkey(),
+                script_pubkey: change_script_pubkey,
             }],
         };
 
@@ -300,11 +300,7 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        let change_address = self
-            .rpc
-            .get_new_wallet_address()
-            .await
-            .wrap_err("Failed to get new wallet address")?;
+        let change_script_pubkey = self.cpfp_change_script_pubkey.clone();
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -312,8 +308,7 @@ impl TxSender {
             .sum::<Amount>()
             + anchor_sat;
 
-        if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
-        {
+        if change_script_pubkey.minimal_non_dust() + required_fee > total_fee_payer_amount {
             return Err(SendTxError::InsufficientFeePayerAmount);
         }
 
@@ -321,7 +316,7 @@ impl TxSender {
             p2a_anchor,
             anchor_sat,
             fee_payer_utxos,
-            change_address,
+            change_script_pubkey,
             required_fee,
         )
     }
