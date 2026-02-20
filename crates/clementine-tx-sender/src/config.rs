@@ -61,6 +61,13 @@ pub struct TxSenderConfig {
     /// If not provided, defaults to 30 seconds.
     pub poll_delay_ms: u64,
 
+    /// Optional override for the maximum number of consecutive input-unspent
+    /// check failures before timing out a tx.
+    ///
+    /// If `None`, txsender derives it from:
+    /// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
+    pub input_unspent_max_retries: Option<u32>,
+
     /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx with at least one non wallet input, if it belongs to a tx that was rbf replaced.
     pub include_unsafe: bool,
 
@@ -169,6 +176,15 @@ impl TxSenderConfig {
             ));
         }
 
+        let input_unspent_max_retries =
+            env_parse_optional::<u32>("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES")?;
+        if input_unspent_max_retries == Some(0) {
+            return Err(BridgeError::EnvVarMalformed(
+                "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
+                "must be >= 1 when set".to_string(),
+            ));
+        }
+
         let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
 
         if finality_depth < 1 {
@@ -208,6 +224,7 @@ impl TxSenderConfig {
             limits,
             finality_depth,
             poll_delay_ms,
+            input_unspent_max_retries,
             include_unsafe,
             jsonrpc,
         })

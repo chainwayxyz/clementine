@@ -43,7 +43,7 @@ pub use tx_sender_types::ActivatedWithTxid;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
-use clementine_config::tx_sender::TxSenderLimits;
+use clementine_config::tx_sender::{derive_input_unspent_max_retries, TxSenderLimits};
 use clementine_errors::{BridgeError, ResultExt};
 use clementine_primitives::FeeRateKvb;
 
@@ -132,6 +132,7 @@ pub struct TxSender {
     client: TxSenderClient,
     pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
+    input_unspent_max_retries: u32,
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
@@ -149,6 +150,7 @@ impl std::fmt::Debug for TxSender {
             .field("db", &self.db)
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
+            .field("input_unspent_max_retries", &self.input_unspent_max_retries)
             .field("include_unsafe", &self.include_unsafe)
             .finish()
     }
@@ -167,23 +169,47 @@ impl TxSender {
     pub async fn new(
         tx_sender_config: crate::config::TxSenderConfig,
     ) -> std::result::Result<Self, BridgeError> {
-        let secret_key = tx_sender_config.secret_key;
-        let signer = TxSenderSigningKey::new(secret_key, tx_sender_config.network);
+        let crate::config::TxSenderConfig {
+            network,
+            secret_key,
+            private_da_key: _private_da_key,
+            postgres,
+            bitcoin_rpc,
+            mempool,
+            limits,
+            finality_depth,
+            poll_delay_ms,
+            input_unspent_max_retries,
+            include_unsafe,
+            jsonrpc: _,
+        } = tx_sender_config;
+
+        let input_unspent_max_retries = match input_unspent_max_retries {
+            Some(0) => {
+                return Err(BridgeError::ConfigError(
+                    "input_unspent_max_retries must be >= 1 when set".to_string(),
+                ));
+            }
+            Some(retries) => retries,
+            None => derive_input_unspent_max_retries(finality_depth, poll_delay_ms),
+        };
+
+        let signer = TxSenderSigningKey::new(secret_key, network);
         #[cfg(feature = "citrea")]
         let da_signer = {
-            let da_key = tx_sender_config.private_da_key.unwrap_or(secret_key);
-            TxSenderSigningKey::new(da_key, tx_sender_config.network)
+            let da_key = _private_da_key.unwrap_or(secret_key);
+            TxSenderSigningKey::new(da_key, network)
         };
         let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
-            tx_sender_config.bitcoin_rpc.url.clone(),
-            tx_sender_config.bitcoin_rpc.user.clone(),
-            tx_sender_config.bitcoin_rpc.password.clone(),
+            bitcoin_rpc.url.clone(),
+            bitcoin_rpc.user.clone(),
+            bitcoin_rpc.password.clone(),
             None,
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
 
-        let db = TxSenderDb::connect(&tx_sender_config.postgres).await?;
+        let db = TxSenderDb::connect(&postgres).await?;
         let client = TxSenderClient::new(db.clone());
 
         Ok(Self {
@@ -193,12 +219,13 @@ impl TxSender {
             rpc,
             db,
             client,
-            network: tx_sender_config.network,
-            tx_sender_limits: tx_sender_config.limits,
-            finality_depth: tx_sender_config.finality_depth,
+            network,
+            tx_sender_limits: limits,
+            input_unspent_max_retries,
+            finality_depth,
             http_client: reqwest::Client::new(),
-            mempool_config: tx_sender_config.mempool,
-            include_unsafe: tx_sender_config.include_unsafe,
+            mempool_config: mempool,
+            include_unsafe,
         })
     }
 
@@ -434,16 +461,63 @@ impl TxSender {
             };
 
             if !inputs_unspent {
+                let timed_out = match self
+                    .db
+                    .mark_input_unspent_check_failed(
+                        None,
+                        id,
+                        self.input_unspent_max_retries,
+                    )
+                    .await
+                {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log_error_for_tx!(
+                            self.db,
+                            id,
+                            format!("Failed to update input-unspent retry tracking: {}", e)
+                        );
+                        continue;
+                    }
+                };
+
                 tracing::debug!(
                     try_to_send_id = id,
+                    timed_out,
                     "Skipping tx because one or more inputs are already spent"
                 );
 
+                let sending_state = if timed_out {
+                    "inputs_already_spent_timed_out"
+                } else {
+                    "inputs_already_spent_retrying"
+                };
+
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(id, "inputs_already_spent", true)
+                    .update_tx_debug_sending_state(id, sending_state, true)
                     .await;
 
+                if timed_out {
+                    log_error_for_tx!(
+                        self.db,
+                        id,
+                        format!(
+                            "Tx inputs stayed unavailable for {} consecutive checks; marking tx as timed out",
+                            self.input_unspent_max_retries
+                        )
+                    );
+                }
+
+                continue;
+            }
+
+            if let Err(e) = self.db.clear_input_unspent_check_failures(None, id).await {
+                log_error_for_tx!(
+                    self.db,
+                    id,
+                    format!("Failed to clear input-unspent retry tracking: {}", e)
+                );
                 continue;
             }
 

@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS tx_sender_try_to_send_txs (
     -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
     is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     last_bump_block_height INT DEFAULT NULL,
+    -- consecutive checks where tx inputs were unavailable for spending
+    input_unspent_failures INT NOT NULL DEFAULT 0,
+    -- marked true once input_unspent_failures reaches configured retry limit
+    input_unspent_timed_out BOOLEAN NOT NULL DEFAULT FALSE,
     latest_active_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     rbf_signing_info TEXT,

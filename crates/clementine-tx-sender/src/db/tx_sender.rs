@@ -324,6 +324,7 @@ impl TxSenderDb {
                 WHERE
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
                     AND txs.seen_at_height IS NULL
+                    AND txs.input_unspent_timed_out = FALSE
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(
@@ -340,6 +341,56 @@ impl TxSenderDb {
             .wrap_err("Failed to convert id to u32")?;
 
         Ok(txs)
+    }
+
+    /// Increments the consecutive "inputs unavailable" counter for the tx and
+    /// marks it timed out once the configured retry limit is reached.
+    ///
+    /// Returns whether the tx is now timed out.
+    pub async fn mark_input_unspent_check_failed(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+        max_retries: u32,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (bool,)>(
+            r#"
+            UPDATE tx_sender_try_to_send_txs
+            SET
+                input_unspent_failures = input_unspent_failures + 1,
+                input_unspent_timed_out = (
+                    input_unspent_timed_out
+                    OR (input_unspent_failures + 1 >= $2)
+                )
+            WHERE id = $1
+            RETURNING input_unspent_timed_out
+            "#,
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
+        .bind(
+            i32::try_from(max_retries).wrap_err("Failed to convert max_retries to i32")?,
+        );
+
+        let (timed_out,) = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_one)?;
+        Ok(timed_out)
+    }
+
+    /// Resets the consecutive "inputs unavailable" counter after a successful
+    /// input-unspent check.
+    pub async fn clear_input_unspent_check_failures(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE tx_sender_try_to_send_txs
+             SET input_unspent_failures = 0
+             WHERE id = $1 AND input_unspent_timed_out = FALSE AND input_unspent_failures > 0",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn get_effective_fee_rate(
@@ -566,8 +617,8 @@ impl TxSenderDb {
     pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
-        let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
-            "SELECT id, txid, tx_metadata FROM tx_sender_try_to_send_txs WHERE seen_at_height IS NULL",
+        let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>, bool)>(
+            "SELECT id, txid, tx_metadata, input_unspent_timed_out FROM tx_sender_try_to_send_txs WHERE seen_at_height IS NULL",
         )
         .fetch_all(&self.pool)
         .await
@@ -596,7 +647,7 @@ impl TxSenderDb {
             }
         };
 
-        for (tx_id, txid, tx_metadata) in unconfirmed_txs {
+        for (tx_id, txid, tx_metadata, input_unspent_timed_out) in unconfirmed_txs {
             let tx_metadata: Option<TxMetadata> =
                 serde_json::from_str(tx_metadata.as_deref().unwrap_or("null")).ok();
 
@@ -623,6 +674,14 @@ impl TxSenderDb {
                 txid.0,
                 tx_metadata.as_ref().map(|metadata| metadata.tx_type)
             );
+
+            if input_unspent_timed_out {
+                tracing::info!(
+                    "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because input-unspent retries timed out",
+                    id
+                );
+                continue;
+            }
 
             // txid activations
             let txid_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB)>(
@@ -671,6 +730,7 @@ impl TxSenderDb {
             SELECT id, fee_paying_type, txid, seen_at_height
             FROM tx_sender_try_to_send_txs
             WHERE is_finalized = FALSE
+              AND input_unspent_timed_out = FALSE
             "#,
         );
 
