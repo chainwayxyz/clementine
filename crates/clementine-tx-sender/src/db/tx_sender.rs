@@ -367,9 +367,7 @@ impl TxSenderDb {
             "#,
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
-        .bind(
-            i32::try_from(max_retries).wrap_err("Failed to convert max_retries to i32")?,
-        );
+        .bind(i32::try_from(max_retries).wrap_err("Failed to convert max_retries to i32")?);
 
         let (timed_out,) = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_one)?;
         Ok(timed_out)

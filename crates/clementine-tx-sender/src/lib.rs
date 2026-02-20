@@ -463,11 +463,7 @@ impl TxSender {
             if !inputs_unspent {
                 let timed_out = match self
                     .db
-                    .mark_input_unspent_check_failed(
-                        None,
-                        id,
-                        self.input_unspent_max_retries,
-                    )
+                    .mark_input_unspent_check_failed(None, id, self.input_unspent_max_retries)
                     .await
                 {
                     Ok(res) => res,
