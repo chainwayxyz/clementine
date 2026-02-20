@@ -533,7 +533,7 @@ async fn enqueue_parent_and_wait_for_package(
 }
 
 #[tokio::test]
-async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
+async fn cpfp_replacement_cycling_rebroadcasts_package() {
     let (mut config, _db, rpc_env) = create_test_environment(true, true).await;
     let rpc_env = rpc_env.expect("RPC environment must be created");
 
@@ -694,13 +694,6 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
 
         pressure_peer_until_parent_evicted(&peer_node.rpc, &attacker_rpc, parent_txid).await;
 
-        tx_sender
-            .rpc
-            .mine_blocks(1)
-            .await
-            .expect("block mining should succeed");
-        let _ = wait_for_peer_chain_sync(&tx_sender.rpc, &peer_node.rpc, 120).await;
-
         assert!(
             !tx_is_in_mempool(&peer_node.rpc, parent_txid).await,
             "round {round}: parent tx should be evicted from peer mempool under pressure",
@@ -721,7 +714,7 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
 
         assert!(
             reentered,
-            "round {round}: expected parent+child package to re-enter mempool after mining",
+            "round {round}: expected parent+child package to re-enter mempool after run_once without mining",
         );
 
         let reentered_child = get_child_spending_anchor(&tx_sender.rpc, parent_txid, anchor_vout)
@@ -767,6 +760,6 @@ async fn cpfp_replacement_cycling_rebroadcasts_parent_after_periodic_mining() {
 
     assert_eq!(
         rounds_with_parent_inclusion, ATTACK_ROUNDS,
-        "expected parent inclusion (mempool or confirmed) in each replacement-cycling round"
+        "expected parent+child package to re-enter mempool in each replacement-cycling round"
     );
 }

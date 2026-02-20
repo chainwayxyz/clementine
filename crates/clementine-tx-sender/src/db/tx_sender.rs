@@ -325,7 +325,11 @@ impl TxSenderDb {
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
                     AND txs.seen_at_height IS NULL
                     AND txs.input_unspent_timed_out = FALSE
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
+                    AND (
+                        txs.fee_paying_type = 'cpfp'::fee_paying_type
+                        OR txs.effective_fee_rate IS NULL
+                        OR txs.effective_fee_rate < $1
+                    );",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_kvb()).wrap_err("Failed to convert fee rate to i64")?,
