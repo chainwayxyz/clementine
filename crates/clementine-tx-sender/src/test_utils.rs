@@ -32,7 +32,7 @@ pub async fn create_test_environment(
             port: 5432,
             user: "clementine".to_string().into(),
             password: "clementine".to_string().into(),
-            dbname: format!("clementine_tx_sender_{}", get_current_test_name()),
+            dbname: get_current_test_name(),
         },
         bitcoin_rpc: TxSenderBitcoinRpcConfig {
             url: "http://127.0.0.1:18443".to_string(),
