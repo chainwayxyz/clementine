@@ -17,7 +17,7 @@ pub fn derive_input_unspent_max_retries(finality_depth: u32, poll_delay_ms: u64)
         .saturating_mul(INPUT_UNSPENT_TIMEOUT_FINALITY_MULTIPLIER)
         .saturating_mul(BITCOIN_TARGET_BLOCK_TIME_MS);
     let retries = timeout_window_ms.div_ceil(poll_delay_ms).max(1);
-    u32::try_from(retries).unwrap_or(u32::MAX)
+    u32::try_from(retries).unwrap_or(i32::MAX as u32)
 }
 
 /// Transaction sender limits and fee configuration.

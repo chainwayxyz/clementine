@@ -1,8 +1,9 @@
 //! Core-specific txsender queue helpers.
 //!
 //! `clementine-tx-sender` intentionally exposes only a low-level, transactional
-//! `insert_try_to_send` API. The higher-level mapping from `TransactionType`
-//! to cancellation/activation semantics is Clementine-core specific and lives here.
+//! `insert_try_to_send` API. The mapping from [`TransactionType`]
+//! to tx-sender fee strategies ([`FeePayingType`]) is Clementine-core specific
+//! and lives here.
 
 use bitcoin::Transaction;
 use clementine_errors::BridgeError;
@@ -16,8 +17,8 @@ pub trait TxSenderClientQueueExt {
     /// Adds a transaction to the txsender sending queue based on core transaction semantics.
     ///
     /// This function is a core-level wrapper around [`TxSenderClient::insert_try_to_send`].
-    /// It determines the appropriate [`FeePayingType`] and any cancellation/activation
-    /// dependencies based on the [`TransactionType`].
+    /// It determines the appropriate [`FeePayingType`] for the given
+    /// [`TransactionType`].
     ///
     /// IMPORTANT: `insert_try_to_send` is transactional. This helper requires an active
     /// DB transaction and will not partially insert state.

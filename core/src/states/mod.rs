@@ -97,20 +97,18 @@ where
             let block_height = block.cache.block_height;
             let event_count = events.len();
             let mut ctx = block.clone();
-            let initial_state = format!("{:?}", self.state());
             ContextProcessResult::Processing(async move {
                 tracing::trace!(
                     block_height,
-                    initial_state = %initial_state,
+                    initial_state = ?self.state(),
                     event_count,
                     "State machine starting event processing"
                 );
                 for (i, event) in events.iter().enumerate() {
-                    let event_str = format!("{event:?}");
                     tracing::trace!(
                         block_height,
                         event_idx = i,
-                        event = %event_str,
+                        ?event,
                         "State machine processing event"
                     );
                     let start = std::time::Instant::now();
@@ -119,8 +117,8 @@ where
                     tracing::trace!(
                         block_height,
                         event_idx = i,
-                        event = %event_str,
-                        final_state = %format!("{:?}", self.state()),
+                        ?event,
+                        final_state = ?self.state(),
                         elapsed_ms = elapsed.as_millis() as u64,
                         "State machine finished processing event"
                     );

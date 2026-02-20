@@ -185,10 +185,16 @@ impl TxSender {
         } = tx_sender_config;
 
         let input_unspent_max_retries = match input_unspent_max_retries {
-            Some(0) => {
+            Some(retries) if retries == 0 => {
                 return Err(BridgeError::ConfigError(
                     "input_unspent_max_retries must be >= 1 when set".to_string(),
                 ));
+            }
+            Some(retries) if retries > i32::MAX as u32 => {
+                return Err(BridgeError::ConfigError(format!(
+                    "input_unspent_max_retries must be <= {} when set",
+                    i32::MAX
+                )));
             }
             Some(retries) => retries,
             None => derive_input_unspent_max_retries(finality_depth, poll_delay_ms),

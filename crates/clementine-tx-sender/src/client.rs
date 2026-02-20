@@ -28,28 +28,32 @@ impl TxSenderClient {
     /// Saves a transaction to the database queue for sending/fee bumping.
     ///
     /// This function determines the initial parameters for a transaction send attempt,
-    /// including its [`FeePayingType`], associated metadata, and dependencies (cancellations/activations).
-    /// It then persists this information in the database via [`Database::save_tx`] and related functions.
-    /// The actual sending logic (CPFP/RBF) is handled later by the transaction sender's task loop.
+    /// including its [`FeePayingType`], associated metadata, and any txid-based
+    /// activation prerequisites. It then persists this information in the database
+    /// via [`Database::save_tx`] and related functions. The actual sending logic
+    /// (CPFP/RBF) is handled later by the transaction sender's task loop.
     ///
-    /// # Default Activation and Cancellation Conditions
+    /// # Activation Conditions
     ///
-    /// By default, this function automatically adds cancellation conditions for all outpoints
-    /// spent by the `signed_tx` itself. If `signed_tx` confirms, these input outpoints
-    /// are marked as spent/cancelled in the database.
+    /// Activation is modeled purely in terms of txids.
     ///
-    /// There are no default activation conditions added implicitly; all activation prerequisites
-    /// must be explicitly provided via the `activate_txids` and `activate_outpoints` arguments.
+    /// 1. Explicit activations are provided via the `activate_txids` argument.
+    /// 2. Implicit activations are derived from the inputs of `signed_tx`:
+    ///    for each input, the previous-output txid is treated as an activation
+    ///    prerequisite, with an optional relative timelock taken from the input's
+    ///    sequence (if it encodes a relative block height).
+    ///
+    /// For each txid, the maximum relative block height across both explicit
+    /// and implicit activations is stored.
     ///
     /// # Arguments
     /// * `dbtx` - An active database transaction.
     /// * `tx_metadata` - Optional metadata about the transaction's purpose.
     /// * `signed_tx` - The transaction to be potentially sent.
     /// * `fee_paying_type` - Whether to use CPFP or RBF for fee management.
-    /// * `cancel_outpoints` - Outpoints that should be marked invalid if this tx confirms (in addition to the tx's own inputs).
-    /// * `cancel_txids` - Txids that should be marked invalid if this tx confirms.
-    /// * `activate_txids` - Txids that are prerequisites for this tx, potentially with a relative timelock.
-    /// * `activate_outpoints` - Outpoints that are prerequisites for this tx, potentially with a relative timelock.
+    /// * `rbf_signing_info` - Optional RBF signing info used when fee bumping via RBF if the signatures provided already is not a SighashSingle signature.
+    /// * `activate_txids` - Additional txid activation prerequisites for this tx,
+    ///   potentially with a relative timelock.
     ///
     /// # Returns
     ///

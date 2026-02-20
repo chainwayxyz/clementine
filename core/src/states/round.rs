@@ -138,8 +138,7 @@ impl<T: Owner> RoundStateMachine<T> {
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &RoundEvent) {
         context
             .capture_error(async |_context| {
-                let event_str = format!("{event:?}");
-                Err(StateMachineError::UnhandledEvent(event_str))
+                Err(StateMachineError::UnhandledEvent(format!("{event:?}")))
                     .wrap_err(self.round_meta("round unhandled event"))
             })
             .await;

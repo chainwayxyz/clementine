@@ -137,7 +137,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
             tracing::trace!(
                 queue = %self.queue_name,
                 msg_id,
-                event = %format!("{:?}", message),
+                event = ?message,
                 "MessageConsumerTask: read event from queue, starting handle_event"
             );
             let handle_start = std::time::Instant::now();

@@ -28,9 +28,8 @@ impl TxSender {
     /// are still below finality.
     ///
     /// Finality is explicitly tracked via `is_finalized`:
-    /// - For txid-based tables: finalized when RPC reports confirmations >= finality_depth
-    /// - For outpoint-based tables: finalized when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
-    ///   Once finalized, a row is never reprocessed, avoiding incorrect finality assumptions after downtime.
+    /// - For all tables: finalized when RPC reports confirmations >= finality_depth
+    ///   Once finalized, a row is never reprocessed.
     pub async fn sync_transaction_confirmations_via_rpc(
         &self,
         mut dbtx: Option<&mut TxSenderTransaction>,

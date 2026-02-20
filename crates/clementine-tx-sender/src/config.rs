@@ -178,11 +178,19 @@ impl TxSenderConfig {
 
         let input_unspent_max_retries =
             env_parse_optional::<u32>("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES")?;
-        if input_unspent_max_retries == Some(0) {
-            return Err(BridgeError::EnvVarMalformed(
-                "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
-                "must be >= 1 when set".to_string(),
-            ));
+        if let Some(retries) = input_unspent_max_retries {
+            if retries == 0 {
+                return Err(BridgeError::EnvVarMalformed(
+                    "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
+                    "must be >= 1 when set".to_string(),
+                ));
+            }
+            if retries > i32::MAX as u32 {
+                return Err(BridgeError::EnvVarMalformed(
+                    "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
+                    format!("must be <= {} when set", i32::MAX),
+                ));
+            }
         }
 
         let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
