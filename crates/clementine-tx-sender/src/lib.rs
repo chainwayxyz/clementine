@@ -745,3 +745,43 @@ impl TxSender {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::absolute::LockTime;
+    use bitcoin::consensus::Decodable;
+    use bitcoin::transaction::Version;
+    use bitcoin::{ScriptBuf, TxOut};
+
+    #[test]
+    fn serialize_tx_for_fund_raw_roundtrips_empty_input_tx() {
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(500),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+
+        let serialized = serialize_tx_for_fund_raw(&tx);
+        let mut cursor = std::io::Cursor::new(serialized);
+
+        let decoded_version = Version::consensus_decode(&mut cursor).expect("decode version");
+        let decoded_inputs =
+            Vec::<bitcoin::TxIn>::consensus_decode(&mut cursor).expect("decode inputs");
+        let decoded_outputs = Vec::<TxOut>::consensus_decode(&mut cursor).expect("decode outputs");
+        let decoded_lock_time =
+            bitcoin::absolute::LockTime::consensus_decode(&mut cursor).expect("decode locktime");
+
+        assert!(
+            decoded_inputs.is_empty(),
+            "decoded tx should have no inputs"
+        );
+        assert_eq!(decoded_version, tx.version);
+        assert_eq!(decoded_outputs, tx.output);
+        assert_eq!(decoded_lock_time, tx.lock_time);
+    }
+}

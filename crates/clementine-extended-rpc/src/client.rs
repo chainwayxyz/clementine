@@ -33,6 +33,8 @@ pub struct ExtendedBitcoinRpc {
 
     #[cfg(any(test, feature = "test-utils"))]
     cached_mining_address: Arc<RwLock<Option<String>>>,
+    #[cfg(any(test, feature = "test-utils"))]
+    mocked_fee_rate_sat_per_kvb: Arc<RwLock<Option<u64>>>,
 }
 
 impl std::fmt::Debug for ExtendedBitcoinRpc {
@@ -112,6 +114,8 @@ impl ExtendedBitcoinRpc {
                     retry_config,
                     #[cfg(any(test, feature = "test-utils"))]
                     cached_mining_address: Arc::new(RwLock::new(None)),
+                    #[cfg(any(test, feature = "test-utils"))]
+                    mocked_fee_rate_sat_per_kvb: Arc::new(RwLock::new(None)),
                 });
 
                 match &result {
@@ -386,6 +390,11 @@ impl ExtendedBitcoinRpc {
         }
 
         self.try_mine(block_num).await
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn set_mock_fee_rate_sat_per_kvb(&self, fee_rate_sat_per_kvb: Option<u64>) {
+        *self.mocked_fee_rate_sat_per_kvb.write().await = fee_rate_sat_per_kvb;
     }
 
     /// Internal helper that performs the actual block mining logic.
@@ -667,6 +676,8 @@ impl ExtendedBitcoinRpc {
             retry_config: self.retry_config.clone(),
             #[cfg(any(test, feature = "test-utils"))]
             cached_mining_address: self.cached_mining_address.clone(),
+            #[cfg(any(test, feature = "test-utils"))]
+            mocked_fee_rate_sat_per_kvb: self.mocked_fee_rate_sat_per_kvb.clone(),
         })
     }
 
@@ -733,6 +744,11 @@ impl ExtendedBitcoinRpc {
         mempool_fee_rate_offset_sat_kvb: u64,
         fee_rate_hard_cap: u64,
     ) -> Result<u64> {
+        #[cfg(any(test, feature = "test-utils"))]
+        if let Some(mocked_fee_rate_sat_per_kvb) = *self.mocked_fee_rate_sat_per_kvb.read().await {
+            return Ok(mocked_fee_rate_sat_per_kvb);
+        }
+
         match network {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {

@@ -232,7 +232,9 @@ impl TxSenderClient {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "citrea")]
     use super::*;
+    #[cfg(feature = "citrea")]
     use sqlx::Row;
 
     #[cfg(feature = "citrea")]

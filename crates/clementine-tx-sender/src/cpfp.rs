@@ -712,3 +712,205 @@ impl TxSender {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "testing", feature = "standalone"))]
+mod tests {
+    use super::*;
+    use crate::task::TxSenderTaskInternal;
+    use crate::test_utils::create_test_environment;
+    use bitcoin::absolute::LockTime;
+    use bitcoin::consensus::deserialize;
+    use bitcoin::{OutPoint, ScriptBuf, TxOut};
+    use bitcoincore_rpc::json::FundRawTransactionOptions;
+    use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
+    use clementine_primitives::NON_STANDARD_V3;
+
+    async fn create_default_cpfp_parent_tx(tx_sender: &TxSender) -> Transaction {
+        let parent_tx = Transaction {
+            version: NON_STANDARD_V3,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(40_000),
+                    script_pubkey: tx_sender.address().script_pubkey(),
+                },
+                TxOut {
+                    value: NON_EPHEMERAL_ANCHOR_AMOUNT,
+                    script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid anchor script"),
+                },
+            ],
+        };
+
+        let funded = tx_sender
+            .rpc
+            .fund_raw_transaction(
+                &crate::serialize_tx_for_fund_raw(&parent_tx),
+                Some(&FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    include_unsafe: Some(true),
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .expect("fund_raw_transaction should succeed")
+            .hex;
+
+        let signed = tx_sender
+            .rpc
+            .sign_raw_transaction_with_wallet(&funded, None, None)
+            .await
+            .expect("sign_raw_transaction_with_wallet should succeed")
+            .hex;
+
+        deserialize::<Transaction>(&signed).expect("signed tx should deserialize")
+    }
+
+    async fn calculate_package_feerate_sat_per_kvb(
+        tx_sender: &TxSender,
+        parent: &Transaction,
+        child: &Transaction,
+    ) -> u64 {
+        let parent_fee = tx_sender.get_tx_fee(parent).await.unwrap();
+        let child_fee = tx_sender.get_tx_fee(child).await.unwrap();
+        let total_fee_sat = parent_fee.to_sat().saturating_add(child_fee.to_sat());
+        let total_vbytes = (parent.weight() + child.weight()).to_vbytes_ceil();
+        total_fee_sat.saturating_mul(1000).div_ceil(total_vbytes)
+    }
+
+    async fn find_cpfp_child_txid_for_parent(
+        tx_sender: &TxSender,
+        parent_tx: &Transaction,
+    ) -> bitcoin::Txid {
+        let parent_txid = parent_tx.compute_txid();
+        let anchor_vout = tx_sender
+            .find_p2a_vout(parent_tx)
+            .expect("parent should contain p2a anchor") as u32;
+
+        let mempool_txids = tx_sender
+            .rpc
+            .get_raw_mempool()
+            .await
+            .expect("get_raw_mempool should succeed");
+
+        for txid in mempool_txids {
+            if txid == parent_txid {
+                continue;
+            }
+            let tx = tx_sender
+                .rpc
+                .get_tx_of_txid(&txid)
+                .await
+                .expect("mempool tx should be retrievable");
+
+            if tx.input.iter().any(|input| {
+                input.previous_output
+                    == OutPoint {
+                        txid: parent_txid,
+                        vout: anchor_vout,
+                    }
+            }) {
+                return txid;
+            }
+        }
+
+        panic!("could not find cpfp child tx for parent txid {parent_txid}");
+    }
+
+    #[tokio::test]
+    async fn cpfp_dynamic_mock_feerate_increases_effective_package_feerate() {
+        let (config, _db, rpc_env) = create_test_environment(true, true).await;
+        let rpc_env = rpc_env.expect("RPC environment must be created");
+        let tx_sender = TxSender::new(config).await.unwrap();
+        let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+
+        let low_target_feerate = 8_000_u64;
+        let high_target_feerate = 10_000_u64;
+
+        tx_sender
+            .rpc
+            .set_mock_fee_rate_sat_per_kvb(Some(low_target_feerate))
+            .await;
+
+        let parent_tx = create_default_cpfp_parent_tx(&tx_sender).await;
+
+        let mut dbtx = tx_sender.db.begin_transaction().await.unwrap();
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(&mut dbtx, None, &parent_tx, FeePayingType::CPFP, None, &[])
+            .await
+            .expect("insert_try_to_send should succeed");
+        tx_sender.db.commit_transaction(dbtx).await.unwrap();
+
+        // First run creates fee payer UTXO(s) at the low target.
+        task.run_once().await.unwrap();
+
+        let initial_unconfirmed = tx_sender
+            .db
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
+            .await
+            .expect("query should succeed");
+        assert!(
+            !initial_unconfirmed.is_empty(),
+            "expected at least one unconfirmed fee payer after first run"
+        );
+
+        // Confirm fee-payer tx(s) so CPFP package can be submitted.
+        rpc_env.rpc().mine_blocks(1).await.unwrap();
+
+        // First CPFP package submit at low target.
+        task.run_once().await.unwrap();
+
+        let parent_txid = parent_tx.compute_txid();
+        let initial_child_txid = find_cpfp_child_txid_for_parent(&tx_sender, &parent_tx).await;
+        let initial_parent_mempool_tx = tx_sender.rpc.get_tx_of_txid(&parent_txid).await.unwrap();
+        let initial_child_mempool_tx = tx_sender
+            .rpc
+            .get_tx_of_txid(&initial_child_txid)
+            .await
+            .unwrap();
+        let initial_package_feerate = calculate_package_feerate_sat_per_kvb(
+            &tx_sender,
+            &initial_parent_mempool_tx,
+            &initial_child_mempool_tx,
+        )
+        .await;
+
+        assert!(
+            initial_package_feerate >= low_target_feerate,
+            "expected initial package feerate >= {low_target_feerate}, got {initial_package_feerate}"
+        );
+
+        tx_sender
+            .rpc
+            .set_mock_fee_rate_sat_per_kvb(Some(high_target_feerate))
+            .await;
+
+        // No mining between runs: re-run with higher target and verify effective package feerate increases.
+        task.run_once().await.unwrap();
+
+        let bumped_child_txid = find_cpfp_child_txid_for_parent(&tx_sender, &parent_tx).await;
+        let bumped_parent_mempool_tx = tx_sender.rpc.get_tx_of_txid(&parent_txid).await.unwrap();
+        let bumped_child_mempool_tx = tx_sender
+            .rpc
+            .get_tx_of_txid(&bumped_child_txid)
+            .await
+            .unwrap();
+        let bumped_package_feerate = calculate_package_feerate_sat_per_kvb(
+            &tx_sender,
+            &bumped_parent_mempool_tx,
+            &bumped_child_mempool_tx,
+        )
+        .await;
+
+        assert!(
+            bumped_package_feerate >= high_target_feerate,
+            "expected bumped package feerate >= {high_target_feerate}, got {bumped_package_feerate}"
+        );
+        assert!(
+            bumped_package_feerate > initial_package_feerate,
+            "expected bumped package feerate > initial ({initial_package_feerate}), got {bumped_package_feerate}"
+        );
+    }
+}

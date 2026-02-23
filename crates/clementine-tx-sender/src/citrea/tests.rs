@@ -182,6 +182,132 @@ async fn calculate_package_feerate_sat_per_kvb(
 }
 
 #[tokio::test]
+async fn citrea_dynamic_mock_feerate_affects_mined_commit_reveal_txs() {
+    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+
+    let tx_sender = TxSender::new(config).await.unwrap();
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+
+    let low_feerate = 8_000_u64;
+    let high_feerate = 17_000_u64;
+
+    tx_sender
+        .rpc
+        .set_mock_fee_rate_sat_per_kvb(Some(low_feerate))
+        .await;
+
+    let insertion_id = insert_single_citrea_row(&tx_sender, TransactionKind::Complete).await;
+    task.run_once().await.unwrap();
+
+    let (commit_txid, try_to_send_ids) =
+        get_citrea_commit_and_try_to_send_ids(&tx_sender, insertion_id).await;
+    let try_to_send_id = *try_to_send_ids
+        .first()
+        .expect("at least one reveal try_to_send_id must be set");
+
+    let initial_reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, try_to_send_id)
+        .await
+        .unwrap()
+        .expect("initial reveal txid must exist");
+
+    // Verify both initial commit and reveal are in mempool before any mining.
+    tx_sender
+        .rpc
+        .get_mempool_entry(&commit_txid)
+        .await
+        .expect("commit tx should be in mempool");
+    tx_sender
+        .rpc
+        .get_mempool_entry(&initial_reveal_txid)
+        .await
+        .expect("initial reveal tx should be in mempool");
+
+    let initial_commit_tx = tx_sender.rpc.get_tx_of_txid(&commit_txid).await.unwrap();
+    let initial_reveal_tx = tx_sender
+        .rpc
+        .get_tx_of_txid(&initial_reveal_txid)
+        .await
+        .unwrap();
+    let initial_reveal_feerate =
+        calculate_feerate_sat_per_kvb(&tx_sender, &initial_reveal_tx).await;
+    let initial_package_feerate =
+        calculate_package_feerate_sat_per_kvb(&tx_sender, &initial_commit_tx, &initial_reveal_tx)
+            .await;
+
+    assert!(
+        initial_reveal_feerate >= low_feerate,
+        "expected initial reveal feerate >= {low_feerate} sat/kvB, got {initial_reveal_feerate}"
+    );
+    assert!(
+        initial_package_feerate >= low_feerate,
+        "expected initial package feerate >= {low_feerate} sat/kvB, got {initial_package_feerate}"
+    );
+
+    // Increase feerate without mining and trigger another loop iteration.
+    tx_sender
+        .rpc
+        .set_mock_fee_rate_sat_per_kvb(Some(high_feerate))
+        .await;
+    task.run_once().await.unwrap();
+
+    let bumped_reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, try_to_send_id)
+        .await
+        .unwrap()
+        .expect("bumped reveal txid must exist after fee increase");
+
+    let bumped_reveal_tx = tx_sender
+        .rpc
+        .get_tx_of_txid(&bumped_reveal_txid)
+        .await
+        .unwrap();
+    let bumped_reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &bumped_reveal_tx).await;
+    let bumped_package_feerate =
+        calculate_package_feerate_sat_per_kvb(&tx_sender, &initial_commit_tx, &bumped_reveal_tx)
+            .await;
+
+    assert!(
+        bumped_reveal_feerate >= high_feerate,
+        "expected bumped reveal feerate >= {high_feerate} sat/kvB, got {bumped_reveal_feerate}"
+    );
+    assert!(
+        bumped_package_feerate >= high_feerate,
+        "expected bumped package feerate >= {high_feerate} sat/kvB, got {bumped_package_feerate}"
+    );
+    assert!(
+        bumped_reveal_feerate > initial_reveal_feerate,
+        "expected reveal feerate to increase after bump (from {initial_reveal_feerate} to {bumped_reveal_feerate})"
+    );
+
+    // Mine only after the bump was observed.
+    rpc_env.rpc().mine_blocks(1).await.unwrap();
+
+    let commit_confirmations = rpc_env
+        .rpc()
+        .confirmation_blocks(&commit_txid)
+        .await
+        .unwrap();
+    let reveal_confirmations = rpc_env
+        .rpc()
+        .confirmation_blocks(&bumped_reveal_txid)
+        .await
+        .unwrap();
+
+    assert!(
+        commit_confirmations >= 1,
+        "expected commit tx to be confirmed, got {commit_confirmations}"
+    );
+    assert!(
+        reveal_confirmations >= 1,
+        "expected bumped reveal tx to be confirmed, got {reveal_confirmations}"
+    );
+}
+
+#[tokio::test]
 async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
     let (config, _db, rpc_env) = create_test_environment(true, true).await;
     let rpc_env = rpc_env.expect("RPC environment must be created");

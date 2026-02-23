@@ -242,3 +242,185 @@ impl TxSenderConfig {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TxSenderConfig;
+    use clementine_errors::BridgeError;
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    const ENV_KEYS: &[&str] = &[
+        "NETWORK",
+        "SECRET_KEY",
+        "PRIVATE_DA_KEY",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_USER",
+        "DB_PASSWORD",
+        "DB_NAME",
+        "BITCOIN_RPC_URL",
+        "BITCOIN_RPC_USER",
+        "BITCOIN_RPC_PASSWORD",
+        "TX_SENDER_FINALITY_DEPTH",
+        "TX_SENDER_POLL_DELAY_MS",
+        "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
+        "TX_SENDER_INCLUDE_UNSAFE",
+        "MEMPOOL_API_HOST",
+        "MEMPOOL_API_ENDPOINT",
+    ];
+
+    const VALID_SECRET_KEY: &str =
+        "0000000000000000000000000000000000000000000000000000000000000001";
+
+    struct EnvGuard {
+        original: BTreeMap<&'static str, Option<String>>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            let original = ENV_KEYS
+                .iter()
+                .map(|k| (*k, std::env::var(k).ok()))
+                .collect::<BTreeMap<_, _>>();
+            Self { original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in &self.original {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
+    fn set_required_env() {
+        std::env::set_var("NETWORK", "regtest");
+        std::env::set_var("SECRET_KEY", VALID_SECRET_KEY);
+        std::env::remove_var("PRIVATE_DA_KEY");
+        std::env::set_var("DB_HOST", "127.0.0.1");
+        std::env::set_var("DB_PORT", "5432");
+        std::env::set_var("DB_USER", "clementine");
+        std::env::set_var("DB_PASSWORD", "clementine");
+        std::env::set_var("DB_NAME", "clementine_tx_sender_test");
+        std::env::set_var("BITCOIN_RPC_URL", "http://127.0.0.1:18443");
+        std::env::set_var("BITCOIN_RPC_USER", "admin");
+        std::env::set_var("BITCOIN_RPC_PASSWORD", "admin");
+        std::env::set_var("TX_SENDER_FINALITY_DEPTH", "3");
+        std::env::set_var("TX_SENDER_INCLUDE_UNSAFE", "true");
+
+        std::env::remove_var("TX_SENDER_POLL_DELAY_MS");
+        std::env::remove_var("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES");
+        std::env::remove_var("MEMPOOL_API_HOST");
+        std::env::remove_var("MEMPOOL_API_ENDPOINT");
+    }
+
+    #[test]
+    fn from_env_parses_required_fields() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned");
+        let _env_guard = EnvGuard::new();
+
+        set_required_env();
+        std::env::set_var("PRIVATE_DA_KEY", VALID_SECRET_KEY);
+        std::env::set_var("MEMPOOL_API_HOST", "https://mempool.space");
+        std::env::set_var("MEMPOOL_API_ENDPOINT", "/api");
+        std::env::set_var("TX_SENDER_POLL_DELAY_MS", "1000");
+        std::env::set_var("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", "9");
+
+        let config = TxSenderConfig::from_env().expect("config should parse");
+
+        assert_eq!(config.network, bitcoin::Network::Regtest);
+        assert_eq!(config.postgres.host, "127.0.0.1");
+        assert_eq!(config.postgres.port, 5432);
+        assert_eq!(config.postgres.dbname, "clementine_tx_sender_test");
+        assert_eq!(config.bitcoin_rpc.url, "http://127.0.0.1:18443");
+        assert_eq!(config.finality_depth, 3);
+        assert_eq!(config.poll_delay_ms, 1000);
+        assert_eq!(config.input_unspent_max_retries, Some(9));
+        assert!(config.include_unsafe);
+        assert_eq!(
+            config.mempool.host.as_deref(),
+            Some("https://mempool.space")
+        );
+        assert_eq!(config.mempool.endpoint.as_deref(), Some("/api"));
+    }
+
+    #[test]
+    fn from_env_errors_on_missing_required_var() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned");
+        let _env_guard = EnvGuard::new();
+
+        set_required_env();
+        std::env::remove_var("DB_HOST");
+
+        let err = TxSenderConfig::from_env().expect_err("missing DB_HOST should fail");
+        assert!(matches!(err, BridgeError::EnvVarNotSet(_, "DB_HOST")));
+    }
+
+    #[test]
+    fn from_env_errors_on_malformed_var() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned");
+        let _env_guard = EnvGuard::new();
+
+        set_required_env();
+        std::env::set_var("TX_SENDER_INCLUDE_UNSAFE", "not-a-bool");
+
+        let err = TxSenderConfig::from_env().expect_err("malformed bool should fail");
+        assert!(matches!(
+            err,
+            BridgeError::EnvVarMalformed("TX_SENDER_INCLUDE_UNSAFE", _)
+        ));
+    }
+
+    #[test]
+    fn from_env_rejects_zero_poll_delay() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned");
+        let _env_guard = EnvGuard::new();
+
+        set_required_env();
+        std::env::set_var("TX_SENDER_POLL_DELAY_MS", "0");
+
+        let err = TxSenderConfig::from_env().expect_err("zero poll delay should fail");
+        assert!(matches!(
+            err,
+            BridgeError::EnvVarMalformed("TX_SENDER_POLL_DELAY_MS", _)
+        ));
+    }
+
+    #[test]
+    fn from_env_rejects_zero_finality_depth() {
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned");
+        let _env_guard = EnvGuard::new();
+
+        set_required_env();
+        std::env::set_var("TX_SENDER_FINALITY_DEPTH", "0");
+
+        let err = TxSenderConfig::from_env().expect_err("zero finality depth should fail");
+        assert!(matches!(
+            err,
+            BridgeError::EnvVarMalformed("TX_SENDER_FINALITY_DEPTH", _)
+        ));
+    }
+}
