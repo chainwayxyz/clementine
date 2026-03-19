@@ -89,9 +89,12 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
                     })?;
                     let addr = std::net::SocketAddr::new(bind, rpc_cfg.port);
 
-                    let server =
-                        crate::jsonrpc::server::start_jsonrpc_server(tx_sender.client(), addr)
-                            .await?;
+                    let server = crate::jsonrpc::server::start_jsonrpc_server(
+                        tx_sender.client(),
+                        tx_sender.tracker(),
+                        addr,
+                    )
+                    .await?;
                     jsonrpc_handle = Some(server);
                 }
 

@@ -4,6 +4,7 @@ use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;
 use rand::RngCore;
+use tx_sender_types::{ActivationState, TrackRequest, TrackResponse, TrackStatus};
 
 use crate::citrea::{CitreaTxRequest, TransactionKind};
 use crate::task::TxSenderTaskInternal;
@@ -150,6 +151,143 @@ async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> Ci
         body: body.unwrap_or_default(),
         commit_outpoint: commit_outpoint.map(|op| op.0),
         try_to_send_id: try_to_send_id.map(|id| id as u32),
+    }
+}
+
+#[tokio::test]
+async fn citrea_tracking_single_row_lifecycle() {
+    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+    let tx_sender = TxSender::new(config).await.unwrap();
+
+    let insertion_id = insert_single_citrea_row(&tx_sender, TransactionKind::Complete).await;
+
+    match tx_sender
+        .tracker()
+        .track_request(TrackRequest::Citrea { insertion_id })
+        .await
+        .unwrap()
+    {
+        TrackResponse::Citrea(track) => {
+            assert_eq!(track.status, TrackStatus::Pending);
+            assert!(track.commit_tx.is_none());
+            assert!(track.aggregate_commit_tx.is_none());
+            assert_eq!(track.reveals.len(), 1);
+            assert!(track.reveals[0].submission.is_none());
+        }
+        other => panic!("unexpected tracking response: {other:?}"),
+    }
+
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+    task.run_once().await.unwrap();
+
+    match tx_sender
+        .tracker()
+        .track_request(TrackRequest::Citrea { insertion_id })
+        .await
+        .unwrap()
+    {
+        TrackResponse::Citrea(track) => {
+            assert_eq!(track.status, TrackStatus::InProgress);
+            assert!(track.commit_tx.is_some());
+            assert!(track.aggregate_commit_tx.is_none());
+            assert_eq!(track.reveals.len(), 1);
+            assert!(track.reveals[0]
+                .submission
+                .as_ref()
+                .is_some_and(|reveal| reveal.activation == ActivationState::Active));
+            assert!(track.aggregate_reveal_submission.is_none());
+        }
+        other => panic!("unexpected tracking response: {other:?}"),
+    }
+
+    rpc_env
+        .rpc()
+        .mine_blocks(tx_sender.finality_depth.into())
+        .await
+        .unwrap();
+    task.run_once().await.unwrap();
+    task.run_once().await.unwrap();
+
+    match tx_sender
+        .tracker()
+        .track_request(TrackRequest::Citrea { insertion_id })
+        .await
+        .unwrap()
+    {
+        TrackResponse::Citrea(track) => {
+            assert_eq!(track.status, TrackStatus::Finalized);
+            assert!(track.commit_tx.is_some());
+            assert!(track.aggregate_commit_tx.is_none());
+            assert_eq!(track.reveals.len(), 1);
+            assert!(track.reveals[0].submission.as_ref().is_some_and(|reveal| {
+                reveal.status == TrackStatus::Finalized
+                    && reveal.activation == ActivationState::Active
+                    && reveal.tx_info.mined_at_height.is_some()
+            }));
+            assert!(track.aggregate_reveal_submission.is_none());
+        }
+        other => panic!("unexpected tracking response: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn citrea_tracking_chunked_exposes_pre_aggregate_progress() {
+    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+    let tx_sender = TxSender::new(config).await.unwrap();
+
+    let insertion_id = insert_chunked_citrea_rows(&tx_sender).await;
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+    task.run_once().await.unwrap();
+
+    match tx_sender
+        .tracker()
+        .track_request(TrackRequest::Citrea { insertion_id })
+        .await
+        .unwrap()
+    {
+        TrackResponse::Citrea(track) => {
+            assert_eq!(track.status, TrackStatus::InProgress);
+            assert!(track.commit_tx.is_some());
+            assert!(track.aggregate_commit_tx.is_none());
+            assert_eq!(track.reveals.len(), 3);
+            assert!(track.reveals.iter().all(|reveal| reveal
+                .submission
+                .as_ref()
+                .is_some_and(|track| track.activation == ActivationState::Active)));
+            assert!(track.aggregate_reveal_submission.is_none());
+        }
+        other => panic!("unexpected tracking response: {other:?}"),
+    }
+
+    rpc_env
+        .rpc()
+        .mine_blocks(tx_sender.finality_depth.into())
+        .await
+        .unwrap();
+    task.run_once().await.unwrap();
+
+    match tx_sender
+        .tracker()
+        .track_request(TrackRequest::Citrea { insertion_id })
+        .await
+        .unwrap()
+    {
+        TrackResponse::Citrea(track) => {
+            assert_eq!(track.status, TrackStatus::InProgress);
+            assert!(track
+                .commit_tx
+                .as_ref()
+                .is_some_and(|tx| tx.mined_at_height.is_some()));
+            assert!(track.aggregate_commit_tx.is_none());
+            assert!(track.aggregate_reveal_submission.is_none());
+            assert!(track.reveals.iter().all(|reveal| reveal
+                .submission
+                .as_ref()
+                .is_some_and(|track| track.activation == ActivationState::Active)));
+        }
+        other => panic!("unexpected tracking response: {other:?}"),
     }
 }
 

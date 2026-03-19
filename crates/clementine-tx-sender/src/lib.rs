@@ -21,6 +21,7 @@ mod signer;
 pub mod task;
 #[cfg(feature = "testing")]
 pub mod test_utils;
+mod tracking;
 
 // Define a macro for logging errors and saving them to the database
 #[macro_export]
@@ -40,6 +41,7 @@ macro_rules! log_error_for_tx {
 
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
+pub use tracking::TxSenderTracker;
 pub use tx_sender_types::ActivatedWithTxid;
 
 use bitcoin::taproot::TaprootSpendInfo;

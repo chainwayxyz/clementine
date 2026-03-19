@@ -4,6 +4,7 @@
 pub mod citrea;
 #[cfg(feature = "clementine")]
 pub mod clementine;
+pub mod tracking;
 
 #[cfg(feature = "citrea")]
 pub use citrea::CitreaTxRequest;
@@ -12,4 +13,9 @@ pub use citrea::CitreaTxRequest;
 pub use clementine::{
     ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo, RbfSigningSpendPath,
     TxMetadata,
+};
+pub use tracking::{
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
+    CitreaRevealStatus, CitreaStatus, CitreaTxKind, SubmissionStatus, TrackRequest,
+    TrackResponse, TrackStatus,
 };

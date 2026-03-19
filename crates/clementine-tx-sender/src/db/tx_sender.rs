@@ -14,6 +14,32 @@ use std::collections::HashMap;
 
 use crate::ActivatedWithTxid;
 
+#[derive(Debug, Clone)]
+pub struct TryToSendTrackingRow {
+    pub id: u32,
+    pub txid: Txid,
+    pub fee_paying_type: FeePayingType,
+    pub fee_sat_kvb: Option<u64>,
+    pub mined_at_height: Option<u32>,
+    pub is_finalized: bool,
+    pub input_unspent_timed_out: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActivationTrackingRow {
+    pub txid: Txid,
+    pub timelock: u32,
+    pub mined_at_height: Option<u32>,
+    pub in_mempool: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FeePayerTrackingRow {
+    pub txid: Txid,
+    pub mined_at_height: Option<u32>,
+    pub is_finalized: bool,
+}
+
 impl TxSenderDb {
     /// Saves a fee payer transaction to the database.
     #[allow(clippy::too_many_arguments)]
@@ -493,6 +519,180 @@ impl TxSenderDb {
         ))
     }
 
+    pub async fn get_try_to_send_tracking_row(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+    ) -> Result<Option<TryToSendTrackingRow>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, FeePayingType, Option<i64>, Option<i32>, bool, bool)>(
+            "SELECT id, txid, fee_paying_type, effective_fee_rate, seen_at_height, is_finalized, input_unspent_timed_out
+             FROM tx_sender_try_to_send_txs
+             WHERE id = $1
+             LIMIT 1",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        let result = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_optional)?
+            .map(
+                |(
+                    id,
+                    txid,
+                    fee_paying_type,
+                    effective_fee_rate_sat_per_kvb,
+                    mined_at_height,
+                    is_finalized,
+                    input_unspent_timed_out,
+                )| {
+                    Ok::<TryToSendTrackingRow, BridgeError>(TryToSendTrackingRow {
+                        id: u32::try_from(id).wrap_err("Failed to convert id to u32")?,
+                        txid: txid.0,
+                        fee_paying_type,
+                        fee_sat_kvb: effective_fee_rate_sat_per_kvb
+                            .map(u64::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert effective_fee_rate to u64")?,
+                        mined_at_height: mined_at_height
+                            .map(u32::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert seen_at_height to u32")?,
+                        is_finalized,
+                        input_unspent_timed_out,
+                    })
+                },
+            )
+            .transpose()?;
+
+        Ok(result)
+    }
+
+    pub async fn get_try_to_send_tracking_row_by_txid(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        txid: Txid,
+    ) -> Result<Option<TryToSendTrackingRow>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, FeePayingType, Option<i64>, Option<i32>, bool, bool)>(
+            "SELECT id, txid, fee_paying_type, effective_fee_rate, seen_at_height, is_finalized, input_unspent_timed_out
+             FROM tx_sender_try_to_send_txs
+             WHERE txid = $1
+             LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_optional)?
+            .map(
+                |(
+                    id,
+                    txid,
+                    fee_paying_type,
+                    effective_fee_rate_sat_per_kvb,
+                    mined_at_height,
+                    is_finalized,
+                    input_unspent_timed_out,
+                )| {
+                    Ok::<TryToSendTrackingRow, BridgeError>(TryToSendTrackingRow {
+                        id: u32::try_from(id).wrap_err("Failed to convert id to u32")?,
+                        txid: txid.0,
+                        fee_paying_type,
+                        fee_sat_kvb: effective_fee_rate_sat_per_kvb
+                            .map(u64::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert effective_fee_rate to u64")?,
+                        mined_at_height: mined_at_height
+                            .map(u32::try_from)
+                            .transpose()
+                            .wrap_err("Failed to convert seen_at_height to u32")?,
+                        is_finalized,
+                        input_unspent_timed_out,
+                    })
+                },
+            )
+            .transpose()?;
+
+        Ok(result)
+    }
+
+    pub async fn find_try_to_send_id_by_rbf_txid(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        txid: Txid,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT id
+             FROM tx_sender_rbf_txids
+             WHERE txid = $1
+             ORDER BY insertion_order DESC
+             LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_optional)?;
+        result
+            .map(|(id,)| u32::try_from(id).wrap_err("Failed to convert id to u32"))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    pub async fn list_activation_tracking_rows(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        activated_id: u32,
+    ) -> Result<Vec<ActivationTrackingRow>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i64, Option<i32>, bool)>(
+            "SELECT txid, timelock, seen_at_height, in_mempool
+             FROM tx_sender_activate_try_to_send_txids
+             WHERE activated_id = $1
+             ORDER BY txid",
+        )
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated_id to i32")?);
+
+        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(txid, timelock, mined_at_height, in_mempool)| {
+                Ok(ActivationTrackingRow {
+                    txid: txid.0,
+                    timelock: u32::try_from(timelock)
+                        .wrap_err("Failed to convert timelock to u32")?,
+                    mined_at_height: mined_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                    in_mempool,
+                })
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    pub async fn list_fee_payer_tracking_rows(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        bumped_id: u32,
+    ) -> Result<Vec<FeePayerTrackingRow>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, Option<i32>, bool)>(
+            "SELECT fee_payer_txid, seen_at_height, is_finalized
+             FROM tx_sender_fee_payer_utxos
+             WHERE bumped_id = $1
+               AND is_evicted = FALSE
+             ORDER BY id ASC",
+        )
+        .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped_id to i32")?);
+
+        let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+        results
+            .into_iter()
+            .map(|(txid, mined_at_height, is_finalized)| {
+                Ok(FeePayerTrackingRow {
+                    txid: txid.0,
+                    mined_at_height: mined_at_height
+                        .map(u32::try_from)
+                        .transpose()
+                        .wrap_err("Failed to convert seen_at_height to u32")?,
+                    is_finalized,
+                })
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
     pub async fn save_tx_debug_submission_error(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -581,6 +781,26 @@ impl TxSenderDb {
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all).map_err(Into::into)
+    }
+
+    pub async fn get_latest_tx_debug_submission_error(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        tx_id: u32,
+    ) -> Result<Option<String>, BridgeError> {
+        let query = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT error_message
+            FROM tx_sender_debug_submission_errors
+            WHERE tx_id = $1
+            ORDER BY timestamp DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        let result = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_optional)?;
+        Ok(result.map(|(error_message,)| error_message))
     }
 
     pub async fn get_tx_debug_fee_payer_utxos(
