@@ -129,7 +129,7 @@ mod tests {
             TrackResponse::Submission(track) => {
                 assert_eq!(track.status, TrackStatus::InProgress);
             }
-            TrackResponse::Citrea(_) => panic!("expected try_to_send variant"),
+            TrackResponse::Citrea(_) => panic!("expected Submission variant"),
         }
     }
 }
