@@ -276,6 +276,9 @@ mod tests {
         tx_sender_db
             .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_success", true)
             .await?;
+        tx_sender_db
+            .save_tx_debug_submission_error(None, try_to_send_id, "temporary broadcast error")
+            .await?;
         sqlx::query("UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $2 WHERE id = $1")
             .bind(i32::try_from(try_to_send_id).expect("id fits in i32"))
             .bind(2500_i64)
@@ -289,6 +292,7 @@ mod tests {
             TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert_eq!(track.fee_sat_kvb, Some(2500));
+                assert_eq!(track.last_error.as_deref(), Some("temporary broadcast error"));
             }
             other => panic!("unexpected tracking response: {other:?}"),
         }
@@ -318,6 +322,7 @@ mod tests {
             TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Mined);
                 assert_eq!(track.tx_info.mined_at_height, Some(123));
+                assert!(track.last_error.is_none());
             }
             other => panic!("unexpected tracking response: {other:?}"),
         }
@@ -332,6 +337,7 @@ mod tests {
         {
             TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Finalized);
+                assert!(track.last_error.is_none());
             }
             other => panic!("unexpected tracking response: {other:?}"),
         }

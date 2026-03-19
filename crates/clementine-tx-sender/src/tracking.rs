@@ -201,6 +201,13 @@ impl TxSenderTracker {
             TrackStatus::Pending
         };
 
+        // Do not show last error for mined or finalized transactions.
+        let last_error = if matches!(status, TrackStatus::Mined | TrackStatus::Finalized) {
+            None
+        } else {
+            last_error
+        };
+
         Ok(TxStatus {
             status,
             activation,
