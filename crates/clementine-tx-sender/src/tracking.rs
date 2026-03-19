@@ -7,8 +7,8 @@ use clementine_errors::BridgeError;
 use clementine_extended_rpc::ExtendedBitcoinRpc;
 use eyre::eyre;
 use tx_sender_types::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TxStatus,
-    TrackRequest, TrackResponse, TrackStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TrackRequest,
+    TrackResponse, TrackStatus, TxStatus,
 };
 
 #[cfg(feature = "citrea")]
@@ -138,7 +138,8 @@ impl TxSenderTracker {
                 #[cfg(feature = "citrea")]
                 {
                     Ok(TrackResponse::CommitReveal(
-                        self.build_commit_reveal_status(&mut ctx, insertion_id).await?,
+                        self.build_commit_reveal_status(&mut ctx, insertion_id)
+                            .await?,
                     ))
                 }
                 #[cfg(not(feature = "citrea"))]

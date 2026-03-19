@@ -292,7 +292,10 @@ mod tests {
             TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert_eq!(track.fee_sat_kvb, Some(2500));
-                assert_eq!(track.last_error.as_deref(), Some("temporary broadcast error"));
+                assert_eq!(
+                    track.last_error.as_deref(),
+                    Some("temporary broadcast error")
+                );
             }
             other => panic!("unexpected tracking response: {other:?}"),
         }

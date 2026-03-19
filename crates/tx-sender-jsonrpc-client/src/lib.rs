@@ -17,9 +17,8 @@ pub use tx_sender_types::{
     TxMetadata,
 };
 pub use tx_sender_types::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
-    CommitRevealKind, CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus,
-    TxStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, CommitRevealKind,
+    CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus, TxStatus,
 };
 
 #[derive(Debug, Clone)]

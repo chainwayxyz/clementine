@@ -15,7 +15,6 @@ pub use clementine::{
     TxMetadata,
 };
 pub use tracking::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
-    CommitRevealKind, CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus,
-    TxStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, CommitRevealKind,
+    CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus, TxStatus,
 };
