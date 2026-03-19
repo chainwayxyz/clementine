@@ -429,20 +429,26 @@ mod tests {
 
         let tx_sender_db = TxSenderDb::from_pool(db.pool().clone());
         let bumped_txid = bumped_tx.compute_txid();
-        tx_sender_db
-            .save_rbf_txid(None, try_to_send_id, bumped_txid)
-            .await?;
+        let tracked_txid = match tx_sender_db.get_last_rbf_txid(None, try_to_send_id).await? {
+            Some(existing_txid) => existing_txid,
+            None => {
+                tx_sender_db
+                    .save_rbf_txid(None, try_to_send_id, bumped_txid)
+                    .await?;
+                bumped_txid
+            }
+        };
 
         match client
             .track_tx(TrackRequest::ByTxid {
-                txid: bumped_txid.to_string(),
+                txid: tracked_txid.to_string(),
             })
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
             TrackResponse::Transaction(track) => {
-                assert_eq!(track.status, TrackStatus::Pending);
-                assert_eq!(track.tx_info.txid, bumped_txid.to_string());
+                assert_eq!(track.status, TrackStatus::InProgress);
+                assert_eq!(track.tx_info.txid, tracked_txid.to_string());
             }
             other => panic!("unexpected tracking response: {other:?}"),
         }
