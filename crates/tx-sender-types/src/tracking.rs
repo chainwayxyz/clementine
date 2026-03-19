@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum TrackRequest {
     TryToSend { try_to_send_id: u32 },
     ByTxid { txid: String },
-    Citrea { insertion_id: i64 },
+    CommitReveal { insertion_id: i64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,8 +20,8 @@ pub enum TrackStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TrackResponse {
-    Submission(SubmissionStatus),
-    Citrea(CitreaStatus),
+    Transaction(TxStatus),
+    CommitReveal(CommitRevealStatus),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ pub struct BitcoinTxStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmissionStatus {
+pub struct TxStatus {
     pub status: TrackStatus,
     pub activation: ActivationState,
     pub tx_info: BitcoinTxStatus,
@@ -47,26 +47,26 @@ pub struct SubmissionStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CitreaStatus {
+pub struct CommitRevealStatus {
     pub status: TrackStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit_tx: Option<BitcoinTxStatus>,
-    pub reveals: Vec<CitreaRevealStatus>,
+    pub reveals: Vec<RevealStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregate_commit_tx: Option<BitcoinTxStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aggregate_reveal_submission: Option<SubmissionStatus>,
+    pub aggregate_reveal_submission: Option<TxStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CitreaRevealStatus {
-    pub kind: CitreaTxKind,
+pub struct RevealStatus {
+    pub kind: CommitRevealKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub submission: Option<SubmissionStatus>,
+    pub submission: Option<TxStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CitreaTxKind {
+pub enum CommitRevealKind {
     Complete,
     Chunk,
     BatchProofMethodId,
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn track_response_roundtrip() {
-        let value = TrackResponse::Submission(SubmissionStatus {
+        let value = TrackResponse::Transaction(TxStatus {
             status: TrackStatus::InProgress,
             activation: ActivationState::Waiting {
                 blockers: vec![ActivationBlocker {
@@ -126,10 +126,10 @@ mod tests {
             serde_json::from_str(&encoded).expect("tracking response should deserialize");
 
         match decoded {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::InProgress);
             }
-            TrackResponse::Citrea(_) => panic!("expected Submission variant"),
+            TrackResponse::CommitReveal(_) => panic!("expected Transaction variant"),
         }
     }
 }

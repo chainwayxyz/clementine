@@ -266,7 +266,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert!(matches!(track.activation, ActivationState::Waiting { .. }));
             }
@@ -286,7 +286,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert_eq!(track.fee_sat_kvb, Some(2500));
             }
@@ -300,7 +300,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.tx_info.txid, tx.compute_txid().to_string());
                 assert_eq!(track.fee_sat_kvb, Some(2500));
             }
@@ -315,7 +315,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Mined);
                 assert_eq!(track.tx_info.mined_at_height, Some(123));
             }
@@ -330,7 +330,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Finalized);
             }
             other => panic!("unexpected tracking response: {other:?}"),
@@ -372,7 +372,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Cancelled);
             }
             other => panic!("unexpected tracking response: {other:?}"),
@@ -434,7 +434,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert_eq!(track.tx_info.txid, bumped_txid.to_string());
             }
@@ -502,7 +502,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::InProgress);
                 assert_eq!(track.fee_payer_txs.len(), 1);
             }
@@ -525,7 +525,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert!(track.fee_payer_txs.is_empty());
             }
@@ -599,7 +599,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => match track.activation {
+            TrackResponse::Transaction(track) => match track.activation {
                 ActivationState::Waiting { blockers } => {
                     assert_eq!(blockers.len(), 1);
                     assert_eq!(blockers[0].txid, blocker_txid.to_string());
@@ -628,7 +628,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => match track.activation {
+            TrackResponse::Transaction(track) => match track.activation {
                 ActivationState::Waiting { blockers } => {
                     assert_eq!(blockers.len(), 1);
                     assert_eq!(blockers[0].txid, blocker_txid.to_string());
@@ -653,7 +653,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?
         {
-            TrackResponse::Submission(track) => {
+            TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::Pending);
                 assert_eq!(track.activation, ActivationState::Active);
             }

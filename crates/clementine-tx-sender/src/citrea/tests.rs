@@ -164,11 +164,11 @@ async fn citrea_tracking_single_row_lifecycle() {
 
     match tx_sender
         .tracker()
-        .track_request(TrackRequest::Citrea { insertion_id })
+        .track_request(TrackRequest::CommitReveal { insertion_id })
         .await
         .unwrap()
     {
-        TrackResponse::Citrea(track) => {
+        TrackResponse::CommitReveal(track) => {
             assert_eq!(track.status, TrackStatus::Pending);
             assert!(track.commit_tx.is_none());
             assert!(track.aggregate_commit_tx.is_none());
@@ -183,11 +183,11 @@ async fn citrea_tracking_single_row_lifecycle() {
 
     match tx_sender
         .tracker()
-        .track_request(TrackRequest::Citrea { insertion_id })
+        .track_request(TrackRequest::CommitReveal { insertion_id })
         .await
         .unwrap()
     {
-        TrackResponse::Citrea(track) => {
+        TrackResponse::CommitReveal(track) => {
             assert_eq!(track.status, TrackStatus::InProgress);
             assert!(track.commit_tx.is_some());
             assert!(track.aggregate_commit_tx.is_none());
@@ -211,11 +211,11 @@ async fn citrea_tracking_single_row_lifecycle() {
 
     match tx_sender
         .tracker()
-        .track_request(TrackRequest::Citrea { insertion_id })
+        .track_request(TrackRequest::CommitReveal { insertion_id })
         .await
         .unwrap()
     {
-        TrackResponse::Citrea(track) => {
+        TrackResponse::CommitReveal(track) => {
             assert_eq!(track.status, TrackStatus::Finalized);
             assert!(track.commit_tx.is_some());
             assert!(track.aggregate_commit_tx.is_none());
@@ -243,11 +243,11 @@ async fn citrea_tracking_chunked_exposes_pre_aggregate_progress() {
 
     match tx_sender
         .tracker()
-        .track_request(TrackRequest::Citrea { insertion_id })
+        .track_request(TrackRequest::CommitReveal { insertion_id })
         .await
         .unwrap()
     {
-        TrackResponse::Citrea(track) => {
+        TrackResponse::CommitReveal(track) => {
             assert_eq!(track.status, TrackStatus::InProgress);
             assert!(track.commit_tx.is_some());
             assert!(track.aggregate_commit_tx.is_none());
@@ -270,11 +270,11 @@ async fn citrea_tracking_chunked_exposes_pre_aggregate_progress() {
 
     match tx_sender
         .tracker()
-        .track_request(TrackRequest::Citrea { insertion_id })
+        .track_request(TrackRequest::CommitReveal { insertion_id })
         .await
         .unwrap()
     {
-        TrackResponse::Citrea(track) => {
+        TrackResponse::CommitReveal(track) => {
             assert_eq!(track.status, TrackStatus::InProgress);
             assert!(track
                 .commit_tx

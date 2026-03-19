@@ -16,6 +16,6 @@ pub use clementine::{
 };
 pub use tracking::{
     ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
-    CitreaRevealStatus, CitreaStatus, CitreaTxKind, SubmissionStatus, TrackRequest, TrackResponse,
-    TrackStatus,
+    CommitRevealKind, CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus,
+    TxStatus,
 };

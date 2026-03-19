@@ -7,7 +7,7 @@ use clementine_errors::BridgeError;
 use clementine_extended_rpc::ExtendedBitcoinRpc;
 use eyre::eyre;
 use tx_sender_types::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, SubmissionStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TxStatus,
     TrackRequest, TrackResponse, TrackStatus,
 };
 
@@ -17,7 +17,7 @@ use crate::db::tx_sender::TryToSendTrackingRow;
 use crate::rpc_errors::{is_mempool_not_found_error, is_not_found_error};
 use crate::{FeePayingType, TxSender, TxSenderDb};
 #[cfg(feature = "citrea")]
-use tx_sender_types::{CitreaRevealStatus, CitreaStatus, CitreaTxKind};
+use tx_sender_types::{CommitRevealKind, CommitRevealStatus, RevealStatus};
 
 #[derive(Clone, Debug)]
 pub struct TxSenderTracker {
@@ -126,19 +126,19 @@ impl TxSenderTracker {
     pub async fn track_request(&self, request: TrackRequest) -> Result<TrackResponse, BridgeError> {
         let mut ctx = TrackingContext::new(self).await?;
         match request {
-            TrackRequest::TryToSend { try_to_send_id } => Ok(TrackResponse::Submission(
+            TrackRequest::TryToSend { try_to_send_id } => Ok(TrackResponse::Transaction(
                 self.build_submission_status_by_id(&mut ctx, try_to_send_id)
                     .await?,
             )),
-            TrackRequest::ByTxid { txid } => Ok(TrackResponse::Submission(
+            TrackRequest::ByTxid { txid } => Ok(TrackResponse::Transaction(
                 self.build_submission_status_by_txid(&mut ctx, &txid)
                     .await?,
             )),
-            TrackRequest::Citrea { insertion_id } => {
+            TrackRequest::CommitReveal { insertion_id } => {
                 #[cfg(feature = "citrea")]
                 {
-                    Ok(TrackResponse::Citrea(
-                        self.build_citrea_status(&mut ctx, insertion_id).await?,
+                    Ok(TrackResponse::CommitReveal(
+                        self.build_commit_reveal_status(&mut ctx, insertion_id).await?,
                     ))
                 }
                 #[cfg(not(feature = "citrea"))]
@@ -156,7 +156,7 @@ impl TxSenderTracker {
         &self,
         ctx: &mut TrackingContext<'_>,
         row: TryToSendTrackingRow,
-    ) -> Result<SubmissionStatus, BridgeError> {
+    ) -> Result<TxStatus, BridgeError> {
         let try_to_send_id = row.id;
 
         let last_error = self
@@ -201,7 +201,7 @@ impl TxSenderTracker {
             TrackStatus::Pending
         };
 
-        Ok(SubmissionStatus {
+        Ok(TxStatus {
             status,
             activation,
             tx_info,
@@ -215,7 +215,7 @@ impl TxSenderTracker {
         &self,
         ctx: &mut TrackingContext<'_>,
         try_to_send_id: u32,
-    ) -> Result<SubmissionStatus, BridgeError> {
+    ) -> Result<TxStatus, BridgeError> {
         let row = self
             .db
             .get_try_to_send_tracking_row(None, try_to_send_id)
@@ -228,7 +228,7 @@ impl TxSenderTracker {
         &self,
         ctx: &mut TrackingContext<'_>,
         txid: &str,
-    ) -> Result<SubmissionStatus, BridgeError> {
+    ) -> Result<TxStatus, BridgeError> {
         let txid = Txid::from_str(txid)
             .map_err(|e| BridgeError::Eyre(eyre!("Invalid try_to_send txid {txid}: {e}")))?;
         let row = if let Some(row) = self
@@ -377,11 +377,11 @@ impl TxSenderTracker {
     }
 
     #[cfg(feature = "citrea")]
-    async fn build_citrea_status(
+    async fn build_commit_reveal_status(
         &self,
         ctx: &mut TrackingContext<'_>,
         insertion_id: i64,
-    ) -> Result<CitreaStatus, BridgeError> {
+    ) -> Result<CommitRevealStatus, BridgeError> {
         let rows = self
             .db
             .get_citrea_rows_by_insertion_id(None, insertion_id)
@@ -433,8 +433,8 @@ impl TxSenderTracker {
                 None
             };
 
-            reveal_statuses.push(CitreaRevealStatus {
-                kind: map_citrea_row_kind(row.transaction_kind),
+            reveal_statuses.push(RevealStatus {
+                kind: map_commit_reveal_kind(row.transaction_kind),
                 submission,
             });
         }
@@ -464,7 +464,7 @@ impl TxSenderTracker {
             TrackStatus::Pending
         };
 
-        Ok(CitreaStatus {
+        Ok(CommitRevealStatus {
             status,
             commit_tx,
             reveals: reveal_statuses,
@@ -481,13 +481,13 @@ impl TxSender {
 }
 
 #[cfg(feature = "citrea")]
-fn map_citrea_row_kind(kind: TransactionKind) -> CitreaTxKind {
+fn map_commit_reveal_kind(kind: TransactionKind) -> CommitRevealKind {
     match kind {
-        TransactionKind::Complete => CitreaTxKind::Complete,
-        TransactionKind::Aggregate => CitreaTxKind::Aggregate,
-        TransactionKind::Chunks => CitreaTxKind::Chunk,
-        TransactionKind::BatchProofMethodId => CitreaTxKind::BatchProofMethodId,
-        TransactionKind::SequencerCommitment => CitreaTxKind::SequencerCommitment,
-        TransactionKind::Unknown(value) => CitreaTxKind::Unknown(value),
+        TransactionKind::Complete => CommitRevealKind::Complete,
+        TransactionKind::Aggregate => CommitRevealKind::Aggregate,
+        TransactionKind::Chunks => CommitRevealKind::Chunk,
+        TransactionKind::BatchProofMethodId => CommitRevealKind::BatchProofMethodId,
+        TransactionKind::SequencerCommitment => CommitRevealKind::SequencerCommitment,
+        TransactionKind::Unknown(value) => CommitRevealKind::Unknown(value),
     }
 }
