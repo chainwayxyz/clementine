@@ -411,7 +411,6 @@ impl TxSenderTracker {
 
         let mut reveal_statuses = Vec::new();
         let mut aggregate_commit_tx = None;
-        let mut aggregate_reveal_submission = None;
         let mut aggregate_finalized = false;
 
         for row in rows {
@@ -427,7 +426,15 @@ impl TxSenderTracker {
                     if aggregate_finalized {
                         aggregate_submission.status = TrackStatus::Finalized;
                     }
-                    aggregate_reveal_submission = Some(aggregate_submission);
+                    reveal_statuses.push(RevealStatus {
+                        kind: CommitRevealKind::Aggregate,
+                        submission: Some(aggregate_submission),
+                    });
+                } else {
+                    reveal_statuses.push(RevealStatus {
+                        kind: CommitRevealKind::Aggregate,
+                        submission: None,
+                    });
                 }
                 continue;
             }
@@ -449,7 +456,11 @@ impl TxSenderTracker {
 
         let status = if aggregate_finalized {
             TrackStatus::Finalized
-        } else if let Some(aggregate_reveal) = aggregate_reveal_submission.as_ref() {
+        } else if let Some(aggregate_reveal) = reveal_statuses
+            .iter()
+            .find(|reveal| matches!(reveal.kind, CommitRevealKind::Aggregate))
+            .and_then(|reveal| reveal.submission.as_ref())
+        {
             aggregate_reveal.status
         } else if reveal_statuses.len() == 1 {
             reveal_statuses
@@ -463,8 +474,10 @@ impl TxSenderTracker {
                     }
                 })
         } else if commit_tx.is_some()
+            || aggregate_commit_tx.is_some()
             || reveal_statuses
                 .iter()
+                .filter(|reveal| !matches!(reveal.kind, CommitRevealKind::Aggregate))
                 .any(|reveal| reveal.submission.is_some())
         {
             TrackStatus::InProgress
@@ -477,7 +490,6 @@ impl TxSenderTracker {
             commit_tx,
             reveals: reveal_statuses,
             aggregate_commit_tx,
-            aggregate_reveal_submission,
         })
     }
 }

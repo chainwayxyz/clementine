@@ -54,8 +54,6 @@ pub struct CommitRevealStatus {
     pub reveals: Vec<RevealStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregate_commit_tx: Option<BitcoinTxStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aggregate_reveal_submission: Option<TxStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

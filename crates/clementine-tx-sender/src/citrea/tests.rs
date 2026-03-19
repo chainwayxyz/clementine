@@ -4,7 +4,9 @@ use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;
 use rand::RngCore;
-use tx_sender_types::{ActivationState, TrackRequest, TrackResponse, TrackStatus};
+use tx_sender_types::{
+    ActivationState, CommitRevealKind, TrackRequest, TrackResponse, TrackStatus,
+};
 
 use crate::citrea::{CitreaTxRequest, TransactionKind};
 use crate::task::TxSenderTaskInternal;
@@ -196,7 +198,6 @@ async fn citrea_tracking_single_row_lifecycle() {
                 .submission
                 .as_ref()
                 .is_some_and(|reveal| reveal.activation == ActivationState::Active));
-            assert!(track.aggregate_reveal_submission.is_none());
         }
         other => panic!("unexpected tracking response: {other:?}"),
     }
@@ -225,7 +226,6 @@ async fn citrea_tracking_single_row_lifecycle() {
                     && reveal.activation == ActivationState::Active
                     && reveal.tx_info.mined_at_height.is_some()
             }));
-            assert!(track.aggregate_reveal_submission.is_none());
         }
         other => panic!("unexpected tracking response: {other:?}"),
     }
@@ -251,12 +251,21 @@ async fn citrea_tracking_chunked_exposes_pre_aggregate_progress() {
             assert_eq!(track.status, TrackStatus::InProgress);
             assert!(track.commit_tx.is_some());
             assert!(track.aggregate_commit_tx.is_none());
-            assert_eq!(track.reveals.len(), 3);
-            assert!(track.reveals.iter().all(|reveal| reveal
-                .submission
-                .as_ref()
-                .is_some_and(|track| track.activation == ActivationState::Active)));
-            assert!(track.aggregate_reveal_submission.is_none());
+            assert_eq!(track.reveals.len(), 4);
+            let aggregate_reveal = track
+                .reveals
+                .iter()
+                .find(|reveal| reveal.kind == CommitRevealKind::Aggregate)
+                .expect("aggregate reveal entry must exist");
+            assert!(aggregate_reveal.submission.is_none());
+            assert!(track
+                .reveals
+                .iter()
+                .filter(|reveal| reveal.kind != CommitRevealKind::Aggregate)
+                .all(|reveal| reveal
+                    .submission
+                    .as_ref()
+                    .is_some_and(|track| track.activation == ActivationState::Active)));
         }
         other => panic!("unexpected tracking response: {other:?}"),
     }
@@ -281,11 +290,20 @@ async fn citrea_tracking_chunked_exposes_pre_aggregate_progress() {
                 .as_ref()
                 .is_some_and(|tx| tx.mined_at_height.is_some()));
             assert!(track.aggregate_commit_tx.is_none());
-            assert!(track.aggregate_reveal_submission.is_none());
-            assert!(track.reveals.iter().all(|reveal| reveal
-                .submission
-                .as_ref()
-                .is_some_and(|track| track.activation == ActivationState::Active)));
+            let aggregate_reveal = track
+                .reveals
+                .iter()
+                .find(|reveal| reveal.kind == CommitRevealKind::Aggregate)
+                .expect("aggregate reveal entry must exist");
+            assert!(aggregate_reveal.submission.is_none());
+            assert!(track
+                .reveals
+                .iter()
+                .filter(|reveal| reveal.kind != CommitRevealKind::Aggregate)
+                .all(|reveal| reveal
+                    .submission
+                    .as_ref()
+                    .is_some_and(|track| track.activation == ActivationState::Active)));
         }
         other => panic!("unexpected tracking response: {other:?}"),
     }
