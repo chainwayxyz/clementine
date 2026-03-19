@@ -577,13 +577,7 @@ mod tests {
         let start = Instant::now();
         let try_to_send_id = loop {
             match client
-                .insert_try_to_send(
-                    None,
-                    &tx,
-                    FeePayingType::NoFunding,
-                    None,
-                    &[],
-                )
+                .insert_try_to_send(None, &tx, FeePayingType::NoFunding, None, &[])
                 .await
             {
                 Ok(id) => break id,

@@ -18,8 +18,8 @@ pub use tx_sender_types::{
 };
 pub use tx_sender_types::{
     ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
-    CitreaRevealStatus, CitreaStatus, CitreaTxKind, SubmissionStatus, TrackRequest,
-    TrackResponse, TrackStatus,
+    CitreaRevealStatus, CitreaStatus, CitreaTxKind, SubmissionStatus, TrackRequest, TrackResponse,
+    TrackStatus,
 };
 
 #[derive(Debug, Clone)]

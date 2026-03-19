@@ -7,8 +7,8 @@ use clementine_errors::BridgeError;
 use clementine_extended_rpc::ExtendedBitcoinRpc;
 use eyre::eyre;
 use tx_sender_types::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus,
-    SubmissionStatus, TrackRequest, TrackResponse, TrackStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, SubmissionStatus,
+    TrackRequest, TrackResponse, TrackStatus,
 };
 
 #[cfg(feature = "citrea")]
@@ -114,7 +114,9 @@ impl<'a> TrackingContext<'a> {
 
     fn is_mined_height_finalized(&self, mined_at_height: Option<u32>) -> bool {
         mined_at_height.is_some_and(|height| {
-            self.current_tip_height.saturating_add(1).saturating_sub(height)
+            self.current_tip_height
+                .saturating_add(1)
+                .saturating_sub(height)
                 >= self.tracker.finality_depth
         })
     }
@@ -166,11 +168,9 @@ impl TxSenderTracker {
             .select_submission_tx_info(ctx, try_to_send_id, &row)
             .await?;
         let tx_chain_snapshot = ctx
-            .tx_chain_snapshot(
-                Txid::from_str(&tx_info.txid).map_err(|e| {
-                    BridgeError::Eyre(eyre!("Invalid tracked txid {}: {e}", tx_info.txid))
-                })?,
-            )
+            .tx_chain_snapshot(Txid::from_str(&tx_info.txid).map_err(|e| {
+                BridgeError::Eyre(eyre!("Invalid tracked txid {}: {e}", tx_info.txid))
+            })?)
             .await?;
         let fee_payer_rows = self
             .db
@@ -179,8 +179,9 @@ impl TxSenderTracker {
         let mut fee_payer_tx_infos = Vec::new();
         for fee_payer in fee_payer_rows {
             let mut fee_payer_tx_info = ctx.bitcoin_tx_status(fee_payer.txid).await?;
-            fee_payer_tx_info.mined_at_height =
-                fee_payer_tx_info.mined_at_height.or(fee_payer.mined_at_height);
+            fee_payer_tx_info.mined_at_height = fee_payer_tx_info
+                .mined_at_height
+                .or(fee_payer.mined_at_height);
             fee_payer_tx_infos.push(fee_payer_tx_info);
         }
 
@@ -188,7 +189,8 @@ impl TxSenderTracker {
 
         let status = if row.input_unspent_timed_out {
             TrackStatus::Cancelled
-        } else if ctx.is_mined_height_finalized(tx_chain_snapshot.mined_at_height) || row.is_finalized
+        } else if ctx.is_mined_height_finalized(tx_chain_snapshot.mined_at_height)
+            || row.is_finalized
         {
             TrackStatus::Finalized
         } else if tx_info.mined_at_height.is_some() || row.mined_at_height.is_some() {
