@@ -165,14 +165,14 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/tx-sender:${{ github.ref_name }}
-      - name: Build and push
+      - name: Build and push clementine-no-automation
         uses: docker/build-push-action@v5.3.0
         with:
           context: .
           file: ./scripts/docker/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.ref_name }}
-      - name: Build and push
+      - name: Build and push clementine-automation
         uses: docker/build-push-action@v5.3.0
         with:
           context: .
