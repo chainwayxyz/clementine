@@ -138,7 +138,7 @@ jobs:
             - clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
 
   docker_release:
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     steps:
       - uses: actions/checkout@v4
       - name: Docker Setup Buildx
