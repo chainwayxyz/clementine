@@ -793,6 +793,7 @@ pub async fn create_txhandlers(
         .await?
         .clone();
 
+    let payout_tx_blockhash_pk_for_debug = payout_tx_blockhash_pk.clone();
     let additional_disprove_script = replace_placeholders_in_script(
         additional_disprove_script,
         payout_tx_blockhash_pk,
@@ -800,6 +801,20 @@ pub async fn create_txhandlers(
     );
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
+
+    if (round_idx == RoundIndex::Round(0) || round_idx == RoundIndex::Round(1))
+        && kickoff_data.kickoff_idx == 6
+    {
+        println!(
+            "old_debug round={:?} kickoff6 tx_type={:?} payout_tx_blockhash_pk={:?} deposit_constant={} disprove_root={} additional_disprove_script={}",
+            round_idx,
+            transaction_type,
+            payout_tx_blockhash_pk_for_debug,
+            hex::encode(deposit_constant.0),
+            hex::encode(disprove_root_hash),
+            hex::encode(&additional_disprove_script),
+        );
+    }
 
     let disprove_path = if transaction_type == TransactionType::Disprove {
         // no need to use db cache here, this is only called once when creating the disprove tx

@@ -210,8 +210,8 @@ impl TxSender {
                 &fee_payer_bytes,
                 Some(&FundRawTransactionOptions {
                     add_inputs: Some(true),
-                    // for cpfp txs, the speed of tx inclusion is not that important, so we can not use unsafe utxos and wait for them to become safe. Also all cpfp fee payer tx's are safe (all wallet owned inputs), so wallet can already chain them
-                    include_unsafe: Some(self.include_unsafe),
+                    // Always avoid unsafe wallet UTXOs while funding.
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: None,
                     change_type: None,

@@ -385,11 +385,12 @@ mod tests {
         deposit::{Actors, DepositInfo, OperatorData},
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
         rpc::clementine::{
-            clementine_operator_client::ClementineOperatorClient, TransactionRequest,
+            clementine_operator_client::ClementineOperatorClient, tagged_signature,
+            NormalSignatureKind, NumberedSignatureKind, TransactionRequest,
         },
         test::common::{
             citrea::MockCitreaClient, create_actors, create_regtest_rpc,
-            create_test_config_with_thread_name, run_single_deposit,
+            create_test_config_with_thread_name, initialize_database, run_single_deposit,
             tx_utils::get_tx_from_signed_txs_with_type,
         },
     };
@@ -405,6 +406,69 @@ mod tests {
     pub const DEPOSIT_STATE_FILE_PATH_DEBUG: &str = "src/test/data/deposit_state_debug.bincode";
     #[cfg(not(debug_assertions))]
     pub const DEPOSIT_STATE_FILE_PATH_RELEASE: &str = "src/test/data/deposit_state_release.bincode";
+
+    async fn create_isolated_test_config() -> BridgeConfig {
+        let mut config = create_test_config_with_thread_name().await;
+        let unique_suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("System time must be after unix epoch")
+            .as_millis();
+        config.db_name = format!("{}_{}", config.db_name, unique_suffix);
+        initialize_database(&config).await;
+        config
+    }
+
+    fn format_signature_label(
+        signature_id: &crate::rpc::clementine::tagged_signature::SignatureId,
+    ) -> String {
+        match signature_id {
+            tagged_signature::SignatureId::NormalSignature(normal_sig) => {
+                let kind = NormalSignatureKind::try_from(normal_sig.signature_kind)
+                    .map(|kind| kind.as_str_name())
+                    .unwrap_or("UnknownNormalSignatureKind");
+                kind.to_owned()
+            }
+            tagged_signature::SignatureId::NumberedSignature(numbered_sig) => {
+                let kind = NumberedSignatureKind::try_from(numbered_sig.signature_kind)
+                    .map(|kind| kind.as_str_name())
+                    .unwrap_or("UnknownNumberedSignatureKind");
+                format!("{kind}[{}]", numbered_sig.idx)
+            }
+        }
+    }
+
+    fn format_sighash_debug_line(
+        stream_name: &str,
+        sighash: TapSighash,
+        info: SignatureInfo,
+    ) -> String {
+        format!(
+            "{stream_name} tx_type={} operator_idx={} round_idx={:?} kickoff_utxo_idx={} sighash={}",
+            format_signature_label(&info.signature_id),
+            info.operator_idx,
+            info.round_idx,
+            info.kickoff_utxo_idx,
+            hex::encode(sighash.to_byte_array()),
+        )
+    }
+
+    fn print_sighash_debug_lines(stream_name: &str, entries: &[(TapSighash, SignatureInfo)]) {
+        for &(sighash, info) in entries {
+            println!("{}", format_sighash_debug_line(stream_name, sighash, info));
+        }
+    }
+
+    fn print_kickoff_tx_debug_line(
+        operator_idx: usize,
+        round_idx: RoundIndex,
+        kickoff_utxo_idx: usize,
+        kickoff_tx: &bitcoin::Transaction,
+    ) {
+        println!(
+            "kickoff tx_type=Kickoff operator_idx={} round_idx={:?} kickoff_utxo_idx={} tx={kickoff_tx:?}",
+            operator_idx, round_idx, kickoff_utxo_idx,
+        );
+    }
 
     /// State of the chain and the deposit generated in generate_deposit_state() test.
     /// Contains:
@@ -435,7 +499,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Run this to generate fresh deposit state data, in case any breaking change occurs to deposits"]
     async fn generate_deposit_state() {
-        let mut config = create_test_config_with_thread_name().await;
+        let mut config = create_isolated_test_config().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
 
@@ -553,11 +617,12 @@ mod tests {
 
         let mut all_round_txids = Vec::new();
         for i in 0..paramset.num_round_txs {
+            let round_idx = RoundIndex::Round(i);
             let tx_req = TransactionRequestData {
                 deposit_outpoint,
                 kickoff_data: KickoffData {
                     operator_xonly_pk,
-                    round_idx: RoundIndex::Round(i),
+                    round_idx,
                     kickoff_idx: kickoff_utxo as u32,
                 },
             };
@@ -566,6 +631,9 @@ mod tests {
                 .await
                 .unwrap()
                 .into_inner();
+            let kickoff_tx =
+                get_tx_from_signed_txs_with_type(&signed_txs, TransactionType::Kickoff).unwrap();
+            print_kickoff_tx_debug_line(0, round_idx, kickoff_utxo, &kickoff_tx);
             let round_tx =
                 get_tx_from_signed_txs_with_type(&signed_txs, TransactionType::Round).unwrap();
             all_round_txids.push(round_tx.compute_txid());
@@ -604,6 +672,7 @@ mod tests {
         );
 
         let nofn_sighashes: Vec<_> = sighash_stream.try_collect().await.unwrap();
+        print_sighash_debug_lines("nofn", &nofn_sighashes);
         let nofn_sighashes = nofn_sighashes
             .into_iter()
             .map(|(sighash, _info)| sighash.to_byte_array())
@@ -618,6 +687,7 @@ mod tests {
         );
 
         let operator_sighashes: Vec<_> = operator_streams.try_collect().await.unwrap();
+        print_sighash_debug_lines("operator", &operator_sighashes);
         let operator_sighashes = operator_sighashes
             .into_iter()
             .map(|(sighash, _info)| sighash.to_byte_array())
@@ -651,7 +721,7 @@ mod tests {
     #[cfg(feature = "automation")]
     #[tokio::test]
     async fn test_bridge_contract_change() {
-        let mut config = create_test_config_with_thread_name().await;
+        let mut config = create_isolated_test_config().await;
         // only run with one operator
         config.test_params.all_operators_secret_keys.truncate(1);
 

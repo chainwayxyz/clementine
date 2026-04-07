@@ -157,7 +157,7 @@ impl TxSender {
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             add_inputs: Some(true), // Let the wallet add its inputs
-            include_unsafe: Some(self.include_unsafe),
+            include_unsafe: Some(false),
             change_address: None,
             change_position: Some(tx.output.len() as u16), // Add change output at last index (so that SinglePlusAnyoneCanPay signatures stay valid)
             change_type: None,

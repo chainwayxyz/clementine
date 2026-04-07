@@ -105,8 +105,7 @@ impl TxSender {
     /// try_to_send_id is NULL or not seen yet.
     /// If evicted (not in mempool and never seen), clear commit_outpoint and delete
     /// any reveal RBF entries tied to it.
-    /// These check is only required because commit_tx creation uses include_unsafe = true, if some unsafe input is
-    /// spent in another way, commit tx will become invalid.
+    /// This check protects against commit tx eviction scenarios while building reveal flows.
     async fn check_evicted_commit_txs(&self) -> Result<(), eyre::Report> {
         let committed_rows = self.db.get_citrea_txs_with_unseen_try_to_send(None).await?;
 
@@ -383,7 +382,7 @@ impl TxSender {
                 &raw_bytes,
                 Some(&FundRawTransactionOptions {
                     add_inputs: Some(true),
-                    include_unsafe: Some(self.include_unsafe),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(unsigned_commit_tx.output.len() as u32),
                     change_type: None,

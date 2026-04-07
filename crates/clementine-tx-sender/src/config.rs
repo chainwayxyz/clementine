@@ -68,9 +68,6 @@ pub struct TxSenderConfig {
     /// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
     pub input_unspent_max_retries: Option<u32>,
 
-    /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx with at least one non wallet input, if it belongs to a tx that was rbf replaced.
-    pub include_unsafe: bool,
-
     /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
 }
@@ -197,8 +194,6 @@ impl TxSenderConfig {
         )?)
         .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
 
-        let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
-
         if finality_depth < 1 {
             return Err(BridgeError::EnvVarMalformed(
                 "TX_SENDER_FINALITY_DEPTH",
@@ -237,7 +232,6 @@ impl TxSenderConfig {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
-            include_unsafe,
             jsonrpc,
         })
     }

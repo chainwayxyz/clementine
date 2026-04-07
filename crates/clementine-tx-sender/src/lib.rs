@@ -140,8 +140,6 @@ pub struct TxSender {
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
-    /// Whether to include unsafe UTXOs when funding transactions.
-    include_unsafe: bool,
     /// CPFP change script, initialized once and reused for all CPFP child txs.
     cpfp_change_script_pubkey: bitcoin::ScriptBuf,
 }
@@ -157,7 +155,6 @@ impl std::fmt::Debug for TxSender {
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
             .field("input_unspent_max_retries", &self.input_unspent_max_retries)
-            .field("include_unsafe", &self.include_unsafe)
             .finish()
     }
 }
@@ -186,7 +183,6 @@ impl TxSender {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
-            include_unsafe,
             jsonrpc: _,
         } = tx_sender_config;
 
@@ -233,7 +229,6 @@ impl TxSender {
             finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
-            include_unsafe,
             cpfp_change_script_pubkey,
         })
     }
