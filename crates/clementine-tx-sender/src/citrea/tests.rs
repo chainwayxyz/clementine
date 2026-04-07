@@ -1,5 +1,3 @@
-#![cfg(all(feature = "citrea", feature = "testing"))]
-
 use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;

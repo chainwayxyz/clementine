@@ -42,6 +42,7 @@ pub async fn create_test_environment(
         finality_depth: 1,
         poll_delay_ms: 500,
         input_unspent_max_retries: None,
+        nonce_grind_prefix: vec![2],
         jsonrpc: None,
         mempool: MempoolConfig {
             host: None,
@@ -305,4 +306,25 @@ pub fn get_current_test_name() -> String {
     } else {
         test_name
     }
+}
+
+/// Test utility: pick a free localhost port, enable JSON-RPC, and spawn txsender loop.
+///
+/// Returns `(jsonrpc_addr, join_handle)`.
+#[cfg(feature = "json-rpc")]
+pub fn spawn_txsender_loop_with_free_localhost_jsonrpc_port(
+    mut config: TxSenderConfig,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    let port = get_available_port();
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    config.jsonrpc = Some(crate::config::TxSenderJsonRpcConfig {
+        bind: "127.0.0.1".to_string(),
+        port,
+    });
+
+    let handle = crate::task::spawn_txsender_loop(config);
+    (addr, handle)
 }

@@ -14,12 +14,12 @@ pub mod db;
 pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
-#[cfg(all(test, feature = "testing"))]
+#[cfg(test)]
 mod replacement_cycling_tests;
 mod rpc_errors;
 mod signer;
 pub mod task;
-#[cfg(feature = "testing")]
+#[cfg(test)]
 pub mod test_utils;
 mod tracking;
 
@@ -140,6 +140,7 @@ pub struct TxSender {
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
+    nonce_grind_prefix: Vec<u8>,
     /// CPFP change script, initialized once and reused for all CPFP child txs.
     cpfp_change_script_pubkey: bitcoin::ScriptBuf,
 }
@@ -155,6 +156,7 @@ impl std::fmt::Debug for TxSender {
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
             .field("input_unspent_max_retries", &self.input_unspent_max_retries)
+            .field("nonce_grind_prefix", &self.nonce_grind_prefix)
             .finish()
     }
 }
@@ -183,6 +185,7 @@ impl TxSender {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
+            nonce_grind_prefix,
             jsonrpc: _,
         } = tx_sender_config;
 
@@ -229,6 +232,7 @@ impl TxSender {
             finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
+            nonce_grind_prefix,
             cpfp_change_script_pubkey,
         })
     }

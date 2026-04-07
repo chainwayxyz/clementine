@@ -170,7 +170,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::jsonrpc::client::JsonRpcTxSenderClient;
-        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use crate::test_utils::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
 
         let (config, db, rpc) = create_test_environment(true, true).await;
         let rpc = rpc.unwrap();
@@ -226,7 +226,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::jsonrpc::client::JsonRpcTxSenderClient;
-        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use crate::test_utils::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
 
         let (config, db, rpc) = create_test_environment(true, true).await;
         let rpc = rpc.unwrap();
@@ -398,7 +398,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::jsonrpc::client::JsonRpcTxSenderClient;
-        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use crate::test_utils::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
 
         let (config, db, rpc) = create_test_environment(true, true).await;
         let rpc = rpc.unwrap();
@@ -468,7 +468,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::jsonrpc::client::JsonRpcTxSenderClient;
-        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use crate::test_utils::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
 
         let (config, db, rpc) = create_test_environment(true, true).await;
         let rpc = rpc.unwrap();
@@ -558,7 +558,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::jsonrpc::client::JsonRpcTxSenderClient;
-        use crate::task::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
+        use crate::test_utils::spawn_txsender_loop_with_free_localhost_jsonrpc_port;
         let (config, db, rpc) = create_test_environment(true, true).await;
         let rpc = rpc.unwrap();
         let db = db.unwrap();

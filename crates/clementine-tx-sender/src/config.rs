@@ -68,6 +68,11 @@ pub struct TxSenderConfig {
     /// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
     pub input_unspent_max_retries: Option<u32>,
 
+    /// Prefix bytes required by nonce/wtxid grinding for reveal transactions.
+    ///
+    /// Default is `[2,2]`.
+    pub nonce_grind_prefix: Vec<u8>,
+
     /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
 }
@@ -193,6 +198,15 @@ impl TxSenderConfig {
             "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
         )?)
         .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
+        let nonce_grind_prefix = match env_optional("TX_SENDER_NONCE_GRIND_PREFIX") {
+            Some(value) => serde_json::from_str::<Vec<u8>>(&value).map_err(|e| {
+                BridgeError::EnvVarMalformed(
+                    "TX_SENDER_NONCE_GRIND_PREFIX",
+                    format!("expected JSON byte array, e.g. [2] or [2,2]: {e}"),
+                )
+            })?,
+            None => vec![2, 2],
+        };
 
         if finality_depth < 1 {
             return Err(BridgeError::EnvVarMalformed(
@@ -232,6 +246,7 @@ impl TxSenderConfig {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
+            nonce_grind_prefix,
             jsonrpc,
         })
     }

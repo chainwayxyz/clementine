@@ -22,12 +22,6 @@ use std::str::FromStr;
 
 use super::Result;
 
-/// Prefix for the reveal transaction ids for wtxid grinding.
-#[cfg(feature = "testing")]
-pub const REVEAL_TX_PREFIX: &[u8] = &[2];
-#[cfg(not(feature = "testing"))]
-pub const REVEAL_TX_PREFIX: &[u8] = &[2, 2];
-
 impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
     ///
@@ -748,7 +742,7 @@ impl TxSender {
                         .compute_wtxid()
                         .as_raw_hash()
                         .to_byte_array()
-                        .starts_with(REVEAL_TX_PREFIX)
+                        .starts_with(&self.nonce_grind_prefix)
                 {
                     break final_tx;
                 } else {
@@ -1028,7 +1022,7 @@ impl TxSender {
                         .compute_wtxid()
                         .as_raw_hash()
                         .to_byte_array()
-                        .starts_with(REVEAL_TX_PREFIX)
+                        .starts_with(&self.nonce_grind_prefix)
                 {
                     break final_tx;
                 } else {

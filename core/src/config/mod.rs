@@ -373,6 +373,7 @@ impl BridgeConfig {
             // Must match core/src/task/tx_sender.rs POLL_DELAY for retry-time derivations. (max retries derivation depends on this)
             poll_delay_ms: 30_000,
             input_unspent_max_retries: None,
+            nonce_grind_prefix: if cfg!(test) { vec![2] } else { vec![2, 2] },
             jsonrpc: None,
         }
     }

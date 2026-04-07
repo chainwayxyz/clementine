@@ -5,7 +5,7 @@ pub mod data_serialization;
 mod reveal_scripts;
 pub mod sync;
 
-#[cfg(all(test, feature = "standalone"))]
+#[cfg(test)]
 mod tests;
 
 use bitcoin::absolute::LockTime;

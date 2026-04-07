@@ -106,7 +106,6 @@ rand = { workspace = true }
 url = { version = "2.5.4" }
 jsonrpc-async = { version = "2.0.2" }
 wiremock = "0.5"
-clementine-tx-sender = { path = "../crates/clementine-tx-sender", features = ["testing", "json-rpc"] }
 
 [[bin]]
 name = "clementine-cli"
