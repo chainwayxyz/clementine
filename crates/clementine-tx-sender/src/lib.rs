@@ -152,7 +152,7 @@ pub struct TxSender {
     /// rbf's because they are only used to reveal some info, not send funds.
     /// To fix the issue we need to implement bumping manually, not relying on bump rpc of btc core.
     /// So currently:
-    /// - First RBF tx will have only one output, which is change but will be considered as recepient as the change address was created with getnewaddress.
+    /// - First RBF tx will have only one output, which is change but will be considered as recipient as the change address was created with getnewaddress.
     /// - Bumped tx will have two outputs, one for the recipient(change_script_pubkey) and one for the change (new address created automatically by btc core using getrawchangeaddress). Consequently any fee remaining on change_script_pubkey won't be used for bumping.
     ///   Relevant btc core wallet is in: https://github.com/bitcoin/bitcoin/blob/996e4f7edd648a9735486af5d798ec41946042ba/src/wallet/feebumper.cpp#L266-L267
     change_script_pubkey: bitcoin::ScriptBuf,
