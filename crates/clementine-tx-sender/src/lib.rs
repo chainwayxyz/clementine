@@ -141,8 +141,21 @@ pub struct TxSender {
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
     nonce_grind_prefix: Vec<u8>,
-    /// CPFP change script, initialized once and reused for all CPFP child txs.
-    cpfp_change_script_pubkey: bitcoin::ScriptBuf,
+    /// Wallet-owned change script reused across funding flows.
+    ///
+    /// We intentionally use a normal wallet address here instead of
+    /// `getrawchangeaddress`. For the RBF bumping path, using raw change
+    /// addresses caused `psbt_bump_fee` to fail by trying to shrink the existing
+    /// output below the spendable threshold rather than adding a separate change
+    /// output. It doesn't try to add a new input if there is only a single output which is the change output.
+    /// This case only happens if there is no recipient, only a change output, which is the case for tx-sender
+    /// rbf's because they are only used to reveal some info, not send funds.
+    /// To fix the issue we need to implement bumping manually, not relying on bump rpc of btc core.
+    /// So currently:
+    /// - First RBF tx will have only one output, which is change but will be considered as recepient as the change address was created with getnewaddress.
+    /// - Bumped tx will have two outputs, one for the recipient(change_script_pubkey) and one for the change (new address created automatically by btc core using getrawchangeaddress). Consequently any fee remaining on change_script_pubkey won't be used for bumping.
+    ///   Relevant btc core wallet is in: https://github.com/bitcoin/bitcoin/blob/996e4f7edd648a9735486af5d798ec41946042ba/src/wallet/feebumper.cpp#L266-L267
+    change_script_pubkey: bitcoin::ScriptBuf,
 }
 
 impl std::fmt::Debug for TxSender {
@@ -210,7 +223,7 @@ impl TxSender {
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
-        let cpfp_change_script_pubkey = rpc
+        let change_script_pubkey = rpc
             .get_new_wallet_address()
             .await
             .map_err(|e| BridgeError::Eyre(e.into()))?
@@ -233,7 +246,7 @@ impl TxSender {
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
             nonce_grind_prefix,
-            cpfp_change_script_pubkey,
+            change_script_pubkey,
         })
     }
 

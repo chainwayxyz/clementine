@@ -5,13 +5,16 @@ use crate::db::citrea::CitreaRawTxRow;
 use crate::rpc_errors::{is_mempool_not_found_error, is_not_found_error};
 use crate::TxSender;
 use bitcoin::hashes::Hash;
-use bitcoin::{Amount, TapSighashType};
+use bitcoin::{Amount, ScriptBuf, TapSighashType, TxOut, Witness};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::RpcApi;
-use clementine_primitives::FeeRateKvb;
+use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
+use clementine_primitives::{FeeRateKvb, MIN_TAPROOT_AMOUNT};
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
 use std::collections::{BTreeMap, HashMap};
+
+const CITREA_REVEAL_FEE_BUFFER_MULTIPLIER: f64 = 1.0;
 
 impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.
@@ -368,10 +371,16 @@ impl TxSender {
             return Ok(None);
         }
 
-        let recipients: Vec<_> = rows_with_scripts
+        let recipients: Result<Vec<_>, eyre::Report> = rows_with_scripts
             .iter()
-            .map(|(_row, signing_data)| signing_data.commit_address.clone())
+            .map(|(_row, signing_data)| {
+                Ok((
+                    signing_data.commit_address.clone(),
+                    self.estimate_commit_output_amount_for_reveal(fee_rate, signing_data)?,
+                ))
+            })
             .collect();
+        let recipients = recipients?;
 
         let unsigned_commit_tx = crate::citrea::build_commit_transaction(&recipients);
         let raw_bytes = crate::serialize_tx_for_fund_raw(&unsigned_commit_tx);
@@ -443,6 +452,45 @@ impl TxSender {
         }
 
         Ok(Some(commit_txid))
+    }
+
+    fn estimate_commit_output_amount_for_reveal(
+        &self,
+        fee_rate: FeeRateKvb,
+        signing_data: &CitreaSigningData,
+    ) -> Result<Amount, eyre::Report> {
+        let change_value = std::cmp::max(
+            MIN_TAPROOT_AMOUNT,
+            self.change_script_pubkey.minimal_non_dust(),
+        );
+        let mut reveal_tx = crate::citrea::build_reveal_transaction(bitcoin::Txid::all_zeros(), 0);
+        let mut witness = Witness::new();
+        witness.push([0u8; 65]);
+        witness.push(signing_data.reveal_script.clone().into_bytes());
+        witness.push(signing_data.control_block.serialize());
+        reveal_tx.input[0].witness = witness;
+        reveal_tx.output.push(TxOut {
+            value: NON_EPHEMERAL_ANCHOR_AMOUNT,
+            script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid anchor script"),
+        });
+        reveal_tx.output.push(TxOut {
+            value: change_value,
+            script_pubkey: self.change_script_pubkey.clone(),
+        });
+
+        let estimated_fee = fee_rate.fee_wu(reveal_tx.weight()).ok_or_eyre(format!(
+            "Fee overflow while estimating reveal fee at {fee_rate} for insertion output"
+        ))?;
+        let buffered_fee = Amount::from_sat(
+            ((estimated_fee.to_sat() as f64) * CITREA_REVEAL_FEE_BUFFER_MULTIPLIER).ceil() as u64,
+        );
+
+        NON_EPHEMERAL_ANCHOR_AMOUNT
+            .checked_add(change_value)
+            .and_then(|amount| amount.checked_add(buffered_fee))
+            .ok_or_eyre(format!(
+                "Commit output amount overflow while estimating reveal fee: dummy={NON_EPHEMERAL_ANCHOR_AMOUNT}, change={change_value}, fee={buffered_fee}",
+            ))
     }
 
     async fn insert_reveal_try_to_send(

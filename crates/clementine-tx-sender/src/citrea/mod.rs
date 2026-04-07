@@ -11,8 +11,7 @@ mod tests;
 use bitcoin::absolute::LockTime;
 use bitcoin::blockdata::script;
 use bitcoin::secp256k1::{Message, PublicKey, SecretKey};
-use bitcoin::{Address, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
-use clementine_primitives::MIN_TAPROOT_AMOUNT;
+use bitcoin::{Address, Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
 use sha2::{Digest, Sha256};
 
 use crate::signer::SECP;
@@ -80,11 +79,11 @@ impl TransactionKind {
 
 /// Build the commit part of commit-reveal pair
 /// Multiple commits can be in the same tx (if chunks are used, each commit needs a different nonce so that the addresses are different)
-pub(crate) fn build_commit_transaction(recipients: &[Address]) -> Transaction {
+pub(crate) fn build_commit_transaction(recipients: &[(Address, Amount)]) -> Transaction {
     let outputs = recipients
         .iter()
-        .map(|recipient| TxOut {
-            value: MIN_TAPROOT_AMOUNT,
+        .map(|(recipient, value)| TxOut {
+            value: *value,
             script_pubkey: recipient.script_pubkey(),
         })
         .collect();

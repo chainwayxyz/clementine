@@ -121,4 +121,3 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
         }
     })
 }
-

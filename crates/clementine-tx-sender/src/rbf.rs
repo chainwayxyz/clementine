@@ -120,6 +120,40 @@ impl TxSender {
         Ok(())
     }
 
+    fn total_psbt_input_amount(psbt: &Psbt) -> Result<Amount> {
+        psbt.inputs
+            .iter()
+            .enumerate()
+            .try_fold(Amount::from_sat(0), |total, (idx, input)| {
+                let txout = if let Some(witness_utxo) = &input.witness_utxo {
+                    witness_utxo.clone()
+                } else if let Some(non_witness_tx) = &input.non_witness_utxo {
+                    non_witness_tx
+                        .output
+                        .get(
+                            psbt.unsigned_tx
+                                .input
+                                .get(idx)
+                                .ok_or_eyre("PSBT input index out of bounds")?
+                                .previous_output
+                                .vout as usize,
+                        )
+                        .cloned()
+                        .ok_or_eyre("Missing prevout for PSBT non-witness input")?
+                } else {
+                    return Err(eyre!(
+                        "Neither witness_utxo nor non_witness_utxo found for PSBT input"
+                    )
+                    .into());
+                };
+
+                total
+                    .checked_add(txout.value)
+                    .ok_or_eyre("PSBT input amount overflow")
+                    .map_err(Into::into)
+            })
+    }
+
     /// Given a PSBT with inputs, fill in the existing witnesses from the original tx
     /// This allows us to create a finalized PSBT if
     /// the original tx had SinglePlusAnyoneCanPay signatures.  If the original
@@ -157,11 +191,7 @@ impl TxSender {
             include_watching: None,
             lock_unspent: None,
             // Bitcoincore expects BTC/kvbyte for fee_rate
-            fee_rate: Some(
-                fee_rate
-                    .fee_vb(1000)
-                    .ok_or_eyre("Failed to convert fee rate to BTC/kvbyte")?,
-            ),
+            fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
             subtract_fee_from_outputs: vec![],
             replaceable: Some(true), // Mark as RBF enabled
             conf_target: None,
@@ -1007,19 +1037,55 @@ impl TxSender {
 
             let mut funded_psbt = Psbt::from_str(&funded_psbt_str).map_err(|e| eyre!(e))?;
             if added_dummy_output {
-                // we delete the first output which is the dummy output we added earlier
-                // we also adjust the amount of the change output to compensate for removal of the dummy output.
-                let dummy_output_weight = funded_psbt.unsigned_tx.output[0].weight();
-                let dummy_output_value = funded_psbt.unsigned_tx.output[0].value;
-                let needed_fee_for_dummy_output = fee_rate.fee_wu(dummy_output_weight).ok_or_eyre(format!("Fee overflow occurred for dummy output: current fee rate: {fee_rate}, dummy_output_weight: {dummy_output_weight}"))?;
-                funded_psbt.unsigned_tx.output.remove(0);
-                funded_psbt.outputs.remove(0);
-                funded_psbt
-                    .unsigned_tx
-                    .output
-                    .last_mut()
-                    .expect("Change output should exist")
-                    .value += needed_fee_for_dummy_output + dummy_output_value;
+                if funded_psbt.unsigned_tx.output.len() == 1 {
+                    // When the existing non-wallet inputs already cover the tx, Core may keep the
+                    // temporary dummy output and skip creating change. Convert that dummy output
+                    // into the real wallet-owned change output instead of requiring wallet inputs.
+                    let total_input_amount = Self::total_psbt_input_amount(&funded_psbt)?;
+                    let mut self_funded_tx = tx.clone();
+                    self_funded_tx.output = vec![TxOut {
+                        value: Amount::from_sat(0),
+                        script_pubkey: self.change_script_pubkey.clone(),
+                    }];
+                    funded_psbt.unsigned_tx.output[0].script_pubkey =
+                        self.change_script_pubkey.clone();
+                    funded_psbt.unsigned_tx.output[0].value = Amount::from_sat(0);
+
+                    let required_fee = fee_rate
+                        .fee_wu(self_funded_tx.weight())
+                        .ok_or_eyre(format!(
+                            "Fee overflow occurred for self-funded reveal: current fee rate: {fee_rate}",
+                        ))?;
+                    let change_value = total_input_amount
+                        .checked_sub(required_fee)
+                        .ok_or_eyre(format!(
+                            "Self-funded reveal input amount {total_input_amount} is insufficient for required fee {required_fee}",
+                        ))?;
+
+                    if change_value < self.change_script_pubkey.minimal_non_dust() {
+                        return Err(eyre!(
+                            "Self-funded reveal change output {change_value} is below dust threshold {}",
+                            self.change_script_pubkey.minimal_non_dust()
+                        )
+                        .into());
+                    }
+
+                    funded_psbt.unsigned_tx.output[0].value = change_value;
+                } else {
+                    // we delete the first output which is the dummy output we added earlier
+                    // we also adjust the amount of the change output to compensate for removal of the dummy output.
+                    let dummy_output_weight = funded_psbt.unsigned_tx.output[0].weight();
+                    let dummy_output_value = funded_psbt.unsigned_tx.output[0].value;
+                    let needed_fee_for_dummy_output = fee_rate.fee_wu(dummy_output_weight).ok_or_eyre(format!("Fee overflow occurred for dummy output: current fee rate: {fee_rate}, dummy_output_weight: {dummy_output_weight}"))?;
+                    funded_psbt.unsigned_tx.output.remove(0);
+                    funded_psbt.outputs.remove(0);
+                    funded_psbt
+                        .unsigned_tx
+                        .output
+                        .last_mut()
+                        .expect("Change output should exist")
+                        .value += needed_fee_for_dummy_output + dummy_output_value;
+                }
             } else if let Err(err) = self.reorder_psbt_outputs(&mut funded_psbt, &tx) {
                 // fund transaction shouldn't reorder but keep it here in case it does
                 let err_msg = format!("Failed to reorder initial PSBT outputs: {err}");

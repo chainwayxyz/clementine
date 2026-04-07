@@ -300,7 +300,7 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        let change_script_pubkey = self.cpfp_change_script_pubkey.clone();
+        let change_script_pubkey = self.change_script_pubkey.clone();
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
