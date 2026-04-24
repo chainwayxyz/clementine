@@ -348,7 +348,7 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>;
 
     /// Debug method to log information about inactive transactions.
-    async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32);
+    async fn debug_inactive_txs(&self, _fee_rate: FeeRate, _current_tip_height: u32) {}
 
     /// Synchronize transaction confirmations based on canonical block status.
     /// Confirms transactions in canonical blocks and unconfirms transactions in
@@ -756,7 +756,7 @@ where
             .map_err(|e| eyre::eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb.div_ceil(4));
 
         // Minimum bump fee rate required by BIP125
         let min_bump_feerate =

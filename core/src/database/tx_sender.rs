@@ -1095,8 +1095,9 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
         self.get_tx_debug_fee_payer_utxos(tx, tx_id).await
     }
 
+    #[cfg(all(test, feature = "automation"))]
     async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
-        self.debug_inactive_txs(fee_rate, current_tip_height).await
+        Database::debug_inactive_txs(self, fee_rate, current_tip_height).await
     }
 
     async fn sync_transaction_confirmations(

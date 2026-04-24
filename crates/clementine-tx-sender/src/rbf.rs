@@ -472,7 +472,7 @@ where
             .await
             .wrap_err("Failed to get last RBF txid")?;
 
-        if let Some(last_rbf_txid) = last_rbf_txid {
+        let effective_feerate = if let Some(last_rbf_txid) = last_rbf_txid {
             tracing::debug!(
                 ?try_to_send_id,
                 "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
@@ -716,16 +716,7 @@ where
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
 
-            // Save the effective fee rate to the db
-            self.db
-                .update_effective_fee_rate(
-                    Some(&mut dbtx),
-                    try_to_send_id,
-                    effective_feerate,
-                    current_tip_height,
-                )
-                .await
-                .wrap_err("Failed to update effective fee rate")?;
+            effective_feerate
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -900,17 +891,18 @@ where
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
 
-            // Save the effective fee rate to the db
-            self.db
-                .update_effective_fee_rate(
-                    Some(&mut dbtx),
-                    try_to_send_id,
-                    fee_rate,
-                    current_tip_height,
-                )
-                .await
-                .wrap_err("Failed to update effective fee rate")?;
-        }
+            fee_rate
+        };
+
+        self.db
+            .update_effective_fee_rate(
+                Some(&mut dbtx),
+                try_to_send_id,
+                effective_feerate,
+                current_tip_height,
+            )
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
 
         self.db
             .commit_transaction(dbtx)
