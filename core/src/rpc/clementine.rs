@@ -37,8 +37,9 @@ pub struct NumberedSignatureId {
     #[prost(int32, tag = "2")]
     pub idx: i32,
 }
-/// A tagged signature struct that identifies the transaction-input that the signature is for.
-/// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
+/// A tagged signature struct that identifies the transaction-input that the
+/// signature is for. The id is left as NotStored for signatures that are created
+/// on the fly by the operator (they're also not stored).
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TaggedSignature {
     #[prost(bytes = "vec", tag = "3")]
@@ -111,7 +112,8 @@ pub struct Actors {
     #[prost(message, optional, tag = "1")]
     pub verifiers: ::core::option::Option<VerifierPublicKeys>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
-    /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    /// / NOTE: verifiers are automatically considered watchtowers. This field is
+    /// / only for additional watchtowers.
     #[prost(message, optional, tag = "2")]
     pub watchtowers: ::core::option::Option<XOnlyPublicKeys>,
     /// / X-only public keys of operators that will participate in the deposit.
@@ -172,7 +174,8 @@ pub struct TransactionRequest {
     #[prost(message, optional, tag = "2")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
 }
-/// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
+/// Includes the deposit params and the nonce gen initial responses (pubkeys and
+/// their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignSession {
     #[prost(message, optional, tag = "1")]
@@ -244,10 +247,12 @@ pub struct WithdrawParams {
     /// User's UTXO to claim the deposit
     #[prost(message, optional, tag = "3")]
     pub input_outpoint: ::core::option::Option<Outpoint>,
-    /// The withdrawal output's script_pubkey (user's signature is only valid for this pubkey)
+    /// The withdrawal output's script_pubkey (user's signature is only valid for
+    /// this pubkey)
     #[prost(bytes = "vec", tag = "4")]
     pub output_script_pubkey: ::prost::alloc::vec::Vec<u8>,
-    /// The withdrawal output's amount (user's signature is only valid for this amount)
+    /// The withdrawal output's amount (user's signature is only valid for this
+    /// amount)
     #[prost(uint64, tag = "5")]
     pub output_amount: u64,
 }
@@ -320,7 +325,9 @@ pub mod entity_status_with_id {
         Err(super::EntityError),
     }
 }
-/// Parameters related to protocol configuration that can affect contract transactions, Citrea syncing, and version compatibility. This must not include sensitive information.
+/// Parameters related to protocol configuration that can affect contract
+/// transactions, Citrea syncing, and version compatibility. This must not
+/// include sensitive information.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompatibilityParamsRpc {
     /// Protocol paramset in JSON format
@@ -409,8 +416,8 @@ pub struct OptimisticWithdrawParams {
     #[prost(message, optional, tag = "1")]
     pub withdrawal: ::core::option::Option<WithdrawParams>,
     /// An ECDSA signature (of citrea/aggregator) over the withdrawal params
-    /// to authenticate the withdrawal params. This will be signed manually by citrea
-    /// after manual verification of the optimistic payout.
+    /// to authenticate the withdrawal params. This will be signed manually by
+    /// citrea after manual verification of the optimistic payout.
     #[prost(string, optional, tag = "2")]
     pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
 }
@@ -419,16 +426,19 @@ pub struct WithdrawParamsWithSig {
     #[prost(message, optional, tag = "1")]
     pub withdrawal: ::core::option::Option<WithdrawParams>,
     /// An ECDSA signature (of citrea/aggregator) over the withdrawal params
-    /// to authenticate the withdrawal params. This will be signed manually by citrea
-    /// after manual verification of the optimistic payout.
-    /// This message contains same data as the one in Optimistic Payout signature, but with a different message name,
-    /// so that the same signature can't be used for both optimistic payout and normal withdrawal.
+    /// to authenticate the withdrawal params. This will be signed manually by
+    /// citrea after manual verification of the optimistic payout. This message
+    /// contains same data as the one in Optimistic Payout signature, but with a
+    /// different message name, so that the same signature can't be used for both
+    /// optimistic payout and normal withdrawal.
     #[prost(string, optional, tag = "2")]
     pub verification_signature: ::core::option::Option<::prost::alloc::string::String>,
 }
 /// Input of the aggregator's withdraw function.
-/// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
-/// It also contains the operator's xonly public keys that the withdrawal request should be sent to. If the list is empty, the withdrawal will be sent to all operators.
+/// It contains the withdrawal params along with the verification signature that
+/// signs the withdrawal params. It also contains the operator's xonly public
+/// keys that the withdrawal request should be sent to. If the list is empty, the
+/// withdrawal will be sent to all operators.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawalInput {
     #[prost(message, optional, tag = "1")]
@@ -662,8 +672,8 @@ pub struct GetEntityStatusesRequest {
 #[repr(i32)]
 pub enum NormalSignatureKind {
     NormalSignatureUnknown = 0,
-    /// Used for TxHandlers that verifiers don't care. These will have signatures created
-    /// by the operator on the fly.
+    /// Used for TxHandlers that verifiers don't care. These will have signatures
+    /// created by the operator on the fly.
     OperatorSighashDefault = 1,
     Challenge = 2,
     DisproveTimeout2 = 3,
@@ -744,8 +754,8 @@ impl NormalSignatureKind {
 #[repr(i32)]
 pub enum NumberedSignatureKind {
     NumberedSignatureUnknown = 0,
-    /// Used for TxHandlers that verifiers don't care. These will have signatures created
-    /// by the operator on the fly.
+    /// Used for TxHandlers that verifiers don't care. These will have signatures
+    /// created by the operator on the fly.
     NumberedNotStored = 1,
     OperatorChallengeNack1 = 2,
     OperatorChallengeNack2 = 3,
@@ -1117,8 +1127,8 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         pub async fn get_compatibility_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1182,7 +1192,8 @@ pub mod clementine_operator_client {
             self.inner.server_streaming(req, path, codec).await
         }
         /// Returns an operator's deposit keys.
-        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK
+        /// hashes.
         ///
         /// Used by aggregator inside new_deposit
         pub async fn get_deposit_keys(
@@ -1208,7 +1219,8 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the current status of tasks running on the operator and their last synced heights.
+        /// Returns the current status of tasks running on the operator and their last
+        /// synced heights.
         pub async fn get_current_status(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1234,12 +1246,13 @@ pub mod clementine_operator_client {
         }
         /// Sends the given outpoints to the operator's btc wallet.
         /// The transaction will also be broadcasted to the network.
-        /// Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
-        /// The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
-        /// # Parameters
+        /// Each outpoint must pay to the operator's taproot address (xonly key, no
+        /// merkle root). The rpc also checks if any outpoint is the collateral of the
+        /// operator, and rejects the request if so. # Parameters
         /// - outpoints: The outpoints to send to the operator's btc wallet
         /// # Returns
-        /// - Raw signed tx that transfers the given outpoints to the operator's btc wallet address
+        /// - Raw signed tx that transfers the given outpoints to the operator's btc
+        /// wallet address
         pub async fn transfer_to_btc_wallet(
             &mut self,
             request: impl tonic::IntoRequest<super::Outpoints>,
@@ -1327,10 +1340,12 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-        /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and
+        /// registered in Citrea bridge contract. If withdrawal is accepted, the payout
+        /// tx will be added to the TxSender and success is returned, otherwise an
+        /// error is returned. If automation is disabled, the withdrawal will not be
+        /// accepted and an error will be returned. Note: This is intended for
+        /// operator's own use, so it doesn't include a signature from aggregator.
         pub async fn internal_withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParams>,
@@ -1354,10 +1369,13 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
-        /// Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+        /// First, if verification address in operator's config is set, the signature
+        /// in rpc is checked to see if it was signed by the verification address. Then
+        /// prepares a withdrawal if it's profitable and the withdrawal is correct and
+        /// registered in Citrea bridge contract. If withdrawal is accepted, the payout
+        /// tx will be added to the TxSender and success is returned, otherwise an
+        /// error is returned. If automation is disabled, the withdrawal will not be
+        /// accepted and an error will be returned.
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawParamsWithSig>,
@@ -1379,9 +1397,10 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "Withdraw"));
             self.inner.unary(req, path, codec).await
         }
-        /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
-        /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
-        /// without automation.
+        /// For a given deposit outpoint, determines the next step in the kickoff
+        /// process the operator is in, and returns the raw signed txs that the
+        /// operator needs to send next, for enabling reimbursement process without
+        /// automation.
         ///
         /// # Parameters
         /// - deposit_outpoint: Deposit outpoint to create the kickoff for
@@ -1417,9 +1436,11 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        /// Signs all tx's it can according to given transaction type (use it with
+        /// AllNeededForDeposit to get almost all tx's) Creates the transactions
+        /// denoted by the deposit and operator_idx, round_idx, and kickoff_idx. It
+        /// will create the transaction and sign it with the operator's private key
+        /// and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -1427,7 +1448,8 @@ pub mod clementine_operator_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and
+        /// watchtower challenge)
         ///
         /// Only used in tests
         pub async fn internal_create_signed_txs(
@@ -1459,9 +1481,8 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
-        /// in the same order.
-        /// # Parameters
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd),
+        /// signs them, and returns the raw txs in the same order. # Parameters
         /// - deposit_params: User's deposit information
         /// - kickoff_id: Operator's kickoff ID
         /// - commit_data: Commitment data for each MiniAssert tx's
@@ -1662,7 +1683,8 @@ pub mod clementine_verifier_client {
         }
         /// Returns verifiers' metadata. Needs to be called once per setup.
         ///
-        /// Used by aggregator inside setup to let all verifiers know all other verifier pks
+        /// Used by aggregator inside setup to let all verifiers know all other
+        /// verifier pks
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1684,8 +1706,8 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         pub async fn get_compatibility_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1717,7 +1739,8 @@ pub mod clementine_verifier_client {
         }
         /// Saves an operator.
         ///
-        /// Used by aggregator inside setup to let all verifiers know all other operator pks
+        /// Used by aggregator inside setup to let all verifiers know all other
+        /// operator pks
         pub async fn set_operator(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::OperatorParams>,
@@ -1742,7 +1765,8 @@ pub mod clementine_verifier_client {
         /// Sets the operator's winternitz keys and challenge ACK hashes and saves them
         /// into the db.
         ///
-        /// Used by aggregator inside new_deposit to let all verifiers know all other operators' deposit information
+        /// Used by aggregator inside new_deposit to let all verifiers know all other
+        /// operators' deposit information
         pub async fn set_operator_keys(
             &mut self,
             request: impl tonic::IntoRequest<super::OperatorKeysWithDeposit>,
@@ -1934,7 +1958,8 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally only
+        /// in regtest it will send the challenge tx.
         pub async fn internal_handle_kickoff(
             &mut self,
             request: impl tonic::IntoRequest<super::Txid>,
@@ -1961,7 +1986,8 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the current status of tasks running on the verifier and their last synced heights.
+        /// Returns the current status of tasks running on the verifier and their last
+        /// synced heights.
         pub async fn get_current_status(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1985,9 +2011,12 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-        /// 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        /// 1. Signs all tx's it can according to given transaction type (use it with
+        /// AllNeededForDeposit to get almost all tx's)
+        /// 2. Creates the transactions denoted by the deposit and operator_idx,
+        /// round_idx, and kickoff_idx.
+        /// 3. It will create the transaction and sign it with the operator's private
+        /// key and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -1995,7 +2024,8 @@ pub mod clementine_verifier_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and
+        /// watchtower challenge)
         pub async fn internal_create_signed_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
@@ -2226,8 +2256,8 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         pub async fn get_compatibility_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -2322,8 +2352,9 @@ pub mod clementine_aggregator_client {
         }
         /// Call's withdraw on all operators
         /// Used by the clementine-backend service to initiate a withdrawal
-        /// If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
-        /// If not, only the operators in the list will be sent the withdrawal request.
+        /// If the operator's xonly public keys list is empty, the withdrawal will be
+        /// sent to all operators. If not, only the operators in the list will be sent
+        /// the withdrawal request.
         pub async fn withdraw(
             &mut self,
             request: impl tonic::IntoRequest<super::AggregatorWithdrawalInput>,
@@ -2426,7 +2457,8 @@ pub mod clementine_aggregator_client {
             self.inner.unary(req, path, codec).await
         }
         /// Returns the current status of tasks running on the operators/verifiers.
-        /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+        /// If restart_tasks is true, it will restart the tasks on the entities if they
+        /// are stopped.
         pub async fn get_entity_statuses(
             &mut self,
             request: impl tonic::IntoRequest<super::GetEntityStatusesRequest>,
@@ -2531,8 +2563,8 @@ pub mod clementine_operator_server {
             tonic::Response<super::XOnlyPublicKeyRpc>,
             tonic::Status,
         >;
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         async fn get_compatibility_params(
             &self,
             request: tonic::Request<super::Empty>,
@@ -2560,26 +2592,29 @@ pub mod clementine_operator_server {
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
         /// Returns an operator's deposit keys.
-        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK
+        /// hashes.
         ///
         /// Used by aggregator inside new_deposit
         async fn get_deposit_keys(
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
-        /// Returns the current status of tasks running on the operator and their last synced heights.
+        /// Returns the current status of tasks running on the operator and their last
+        /// synced heights.
         async fn get_current_status(
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status>;
         /// Sends the given outpoints to the operator's btc wallet.
         /// The transaction will also be broadcasted to the network.
-        /// Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
-        /// The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
-        /// # Parameters
+        /// Each outpoint must pay to the operator's taproot address (xonly key, no
+        /// merkle root). The rpc also checks if any outpoint is the collateral of the
+        /// operator, and rejects the request if so. # Parameters
         /// - outpoints: The outpoints to send to the operator's btc wallet
         /// # Returns
-        /// - Raw signed tx that transfers the given outpoints to the operator's btc wallet address
+        /// - Raw signed tx that transfers the given outpoints to the operator's btc
+        /// wallet address
         async fn transfer_to_btc_wallet(
             &self,
             request: tonic::Request<super::Outpoints>,
@@ -2612,25 +2647,31 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-        /// Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
+        /// Prepares a withdrawal if it's profitable and the withdrawal is correct and
+        /// registered in Citrea bridge contract. If withdrawal is accepted, the payout
+        /// tx will be added to the TxSender and success is returned, otherwise an
+        /// error is returned. If automation is disabled, the withdrawal will not be
+        /// accepted and an error will be returned. Note: This is intended for
+        /// operator's own use, so it doesn't include a signature from aggregator.
         async fn internal_withdraw(
             &self,
             request: tonic::Request<super::WithdrawParams>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
-        /// First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
-        /// Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-        /// If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-        /// If automation is disabled, the withdrawal will not be accepted and an error will be returned.
+        /// First, if verification address in operator's config is set, the signature
+        /// in rpc is checked to see if it was signed by the verification address. Then
+        /// prepares a withdrawal if it's profitable and the withdrawal is correct and
+        /// registered in Citrea bridge contract. If withdrawal is accepted, the payout
+        /// tx will be added to the TxSender and success is returned, otherwise an
+        /// error is returned. If automation is disabled, the withdrawal will not be
+        /// accepted and an error will be returned.
         async fn withdraw(
             &self,
             request: tonic::Request<super::WithdrawParamsWithSig>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
-        /// For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
-        /// and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
-        /// without automation.
+        /// For a given deposit outpoint, determines the next step in the kickoff
+        /// process the operator is in, and returns the raw signed txs that the
+        /// operator needs to send next, for enabling reimbursement process without
+        /// automation.
         ///
         /// # Parameters
         /// - deposit_outpoint: Deposit outpoint to create the kickoff for
@@ -2644,9 +2685,11 @@ pub mod clementine_operator_server {
             tonic::Response<super::SignedTxsWithType>,
             tonic::Status,
         >;
-        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        /// Signs all tx's it can according to given transaction type (use it with
+        /// AllNeededForDeposit to get almost all tx's) Creates the transactions
+        /// denoted by the deposit and operator_idx, round_idx, and kickoff_idx. It
+        /// will create the transaction and sign it with the operator's private key
+        /// and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -2654,7 +2697,8 @@ pub mod clementine_operator_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and
+        /// watchtower challenge)
         ///
         /// Only used in tests
         async fn internal_create_signed_txs(
@@ -2664,9 +2708,8 @@ pub mod clementine_operator_server {
             tonic::Response<super::SignedTxsWithType>,
             tonic::Status,
         >;
-        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
-        /// in the same order.
-        /// # Parameters
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd),
+        /// signs them, and returns the raw txs in the same order. # Parameters
         /// - deposit_params: User's deposit information
         /// - kickoff_id: Operator's kickoff ID
         /// - commit_data: Commitment data for each MiniAssert tx's
@@ -3584,13 +3627,14 @@ pub mod clementine_verifier_server {
     pub trait ClementineVerifier: std::marker::Send + std::marker::Sync + 'static {
         /// Returns verifiers' metadata. Needs to be called once per setup.
         ///
-        /// Used by aggregator inside setup to let all verifiers know all other verifier pks
+        /// Used by aggregator inside setup to let all verifiers know all other
+        /// verifier pks
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::VerifierParams>, tonic::Status>;
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         async fn get_compatibility_params(
             &self,
             request: tonic::Request<super::Empty>,
@@ -3600,7 +3644,8 @@ pub mod clementine_verifier_server {
         >;
         /// Saves an operator.
         ///
-        /// Used by aggregator inside setup to let all verifiers know all other operator pks
+        /// Used by aggregator inside setup to let all verifiers know all other
+        /// operator pks
         async fn set_operator(
             &self,
             request: tonic::Request<tonic::Streaming<super::OperatorParams>>,
@@ -3608,7 +3653,8 @@ pub mod clementine_verifier_server {
         /// Sets the operator's winternitz keys and challenge ACK hashes and saves them
         /// into the db.
         ///
-        /// Used by aggregator inside new_deposit to let all verifiers know all other operators' deposit information
+        /// Used by aggregator inside new_deposit to let all verifiers know all other
+        /// operators' deposit information
         async fn set_operator_keys(
             &self,
             request: tonic::Request<super::OperatorKeysWithDeposit>,
@@ -3674,19 +3720,24 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally only
+        /// in regtest it will send the challenge tx.
         async fn internal_handle_kickoff(
             &self,
             request: tonic::Request<super::Txid>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Returns the current status of tasks running on the verifier and their last synced heights.
+        /// Returns the current status of tasks running on the verifier and their last
+        /// synced heights.
         async fn get_current_status(
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::EntityStatus>, tonic::Status>;
-        /// 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-        /// 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        /// 1. Signs all tx's it can according to given transaction type (use it with
+        /// AllNeededForDeposit to get almost all tx's)
+        /// 2. Creates the transactions denoted by the deposit and operator_idx,
+        /// round_idx, and kickoff_idx.
+        /// 3. It will create the transaction and sign it with the operator's private
+        /// key and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -3694,7 +3745,8 @@ pub mod clementine_verifier_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and
+        /// watchtower challenge)
         async fn internal_create_signed_txs(
             &self,
             request: tonic::Request<super::TransactionRequest>,
@@ -4564,8 +4616,8 @@ pub mod clementine_aggregator_server {
             tonic::Response<super::EntitiesCompatibilityData>,
             tonic::Status,
         >;
-        /// Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-        /// for checking compatibility
+        /// Returns the protocol params that can affect the transactions in the
+        /// contract, syncing with citrea and version number for checking compatibility
         async fn get_compatibility_params(
             &self,
             request: tonic::Request<super::Empty>,
@@ -4602,8 +4654,9 @@ pub mod clementine_aggregator_server {
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Call's withdraw on all operators
         /// Used by the clementine-backend service to initiate a withdrawal
-        /// If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
-        /// If not, only the operators in the list will be sent the withdrawal request.
+        /// If the operator's xonly public keys list is empty, the withdrawal will be
+        /// sent to all operators. If not, only the operators in the list will be sent
+        /// the withdrawal request.
         async fn withdraw(
             &self,
             request: tonic::Request<super::AggregatorWithdrawalInput>,
@@ -4626,7 +4679,8 @@ pub mod clementine_aggregator_server {
             request: tonic::Request<super::SendMoveTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Returns the current status of tasks running on the operators/verifiers.
-        /// If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+        /// If restart_tasks is true, it will restart the tasks on the entities if they
+        /// are stopped.
         async fn get_entity_statuses(
             &self,
             request: tonic::Request<super::GetEntityStatusesRequest>,
