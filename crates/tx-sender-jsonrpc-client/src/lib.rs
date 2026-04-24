@@ -17,9 +17,11 @@ pub use tx_sender_types::{
     TxMetadata,
 };
 pub use tx_sender_types::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, CommitRevealKind,
-    CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus, TxStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TrackRequest,
+    TrackResponse, TrackStatus, TxStatus,
 };
+#[cfg(feature = "citrea")]
+pub use tx_sender_types::{CommitRevealKind, CommitRevealStatus, RevealStatus};
 
 #[derive(Debug, Clone)]
 pub struct JsonRpcTxSenderClient {

@@ -134,22 +134,11 @@ impl TxSenderTracker {
                 self.build_submission_status_by_txid(&mut ctx, &txid)
                     .await?,
             )),
-            TrackRequest::CommitReveal { insertion_id } => {
-                #[cfg(feature = "citrea")]
-                {
-                    Ok(TrackResponse::CommitReveal(
-                        self.build_commit_reveal_status(&mut ctx, insertion_id)
-                            .await?,
-                    ))
-                }
-                #[cfg(not(feature = "citrea"))]
-                {
-                    let _ = insertion_id;
-                    Err(BridgeError::Eyre(eyre!(
-                        "citrea tracking is not available without the `citrea` feature"
-                    )))
-                }
-            }
+            #[cfg(feature = "citrea")]
+            TrackRequest::CommitReveal { insertion_id } => Ok(TrackResponse::CommitReveal(
+                self.build_commit_reveal_status(&mut ctx, insertion_id)
+                    .await?,
+            )),
         }
     }
 
