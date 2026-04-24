@@ -776,7 +776,8 @@ where
             .map_err(|e| eyre::eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb.div_ceil(4));
+        let incremental_fee_rate =
+            FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb.div_ceil(4));
 
         // Minimum bump fee rate required by BIP125
         let min_bump_feerate =
