@@ -26,7 +26,7 @@ impl Database {
         // Do all confirmation/unconfirmation updates in one round-trip.
         // Postgres writable CTEs are executed in-order, so this preserves the
         // original semantics while avoiding 14 separate UPDATEs.
-        let query = sqlx::query( 
+        let query = sqlx::query(
             r#"
             WITH
             u1 AS (
