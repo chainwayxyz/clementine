@@ -409,8 +409,13 @@ impl TxSenderTracker {
                     aggregate_commit_tx = Some(ctx.bitcoin_tx_status(outpoint.txid).await?);
                 }
                 if let Some(try_to_send_id) = row.try_to_send_id {
+                    let try_to_send_id = u32::try_from(try_to_send_id).map_err(|e| {
+                        BridgeError::Eyre(eyre!(
+                            "Invalid aggregate citrea try_to_send_id {try_to_send_id}: {e}"
+                        ))
+                    })?;
                     let mut aggregate_submission = self
-                        .build_submission_status_by_id(ctx, try_to_send_id as u32)
+                        .build_submission_status_by_id(ctx, try_to_send_id)
                         .await?;
                     if aggregate_finalized {
                         aggregate_submission.status = TrackStatus::Finalized;
@@ -429,8 +434,11 @@ impl TxSenderTracker {
             }
 
             let submission = if let Some(try_to_send_id) = row.try_to_send_id {
+                let try_to_send_id = u32::try_from(try_to_send_id).map_err(|e| {
+                    BridgeError::Eyre(eyre!("Invalid citrea try_to_send_id {try_to_send_id}: {e}"))
+                })?;
                 let submission = self
-                    .build_submission_status_by_id(ctx, try_to_send_id as u32)
+                    .build_submission_status_by_id(ctx, try_to_send_id)
                     .await?;
                 Some(submission)
             } else {
