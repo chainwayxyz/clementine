@@ -577,7 +577,7 @@ impl<H: BlockHandler> Task for FinalizedBlockFetcherTask<H> {
         dbtx.commit().await?;
         // update next height only after db commit is successful so next_height is consistent with state in DB
         self.next_finalized_height = expected_next_finalized;
-        // Return whether we found new blocks
+        // Return whether the btc chain state has changed (either new blocks or reorgs)
         Ok(true)
     }
 }
