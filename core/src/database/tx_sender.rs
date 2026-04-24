@@ -26,7 +26,7 @@ impl Database {
         // Do all confirmation/unconfirmation updates in one round-trip.
         // Postgres writable CTEs are executed in-order, so this preserves the
         // original semantics while avoiding 14 separate UPDATEs.
-        let query = sqlx::query(
+        let query = sqlx::query( 
             r#"
             WITH
             u1 AS (
@@ -37,7 +37,6 @@ impl Database {
                 WHERE tap.txid = bst.txid
                   AND tap.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u2 AS (
                 UPDATE tx_sender_activate_try_to_send_outpoints AS tap
@@ -48,7 +47,6 @@ impl Database {
                   AND tap.vout = bsu.vout
                   AND tap.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u3 AS (
                 UPDATE tx_sender_cancel_try_to_send_txids AS ctt
@@ -58,7 +56,6 @@ impl Database {
                 WHERE ctt.txid = bst.txid
                   AND ctt.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u4 AS (
                 UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
@@ -69,7 +66,6 @@ impl Database {
                   AND cto.vout = bsu.vout
                   AND cto.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u5 AS (
                 UPDATE tx_sender_fee_payer_utxos AS fpu
@@ -79,7 +75,6 @@ impl Database {
                 WHERE fpu.fee_payer_txid = bst.txid
                   AND fpu.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u6 AS (
                 UPDATE tx_sender_try_to_send_txs AS txs
@@ -89,7 +84,6 @@ impl Database {
                 WHERE txs.txid = bst.txid
                   AND txs.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u7 AS (
                 -- Handle RBF confirmations: if any RBF txid is confirmed, mark the parent transaction
@@ -101,7 +95,6 @@ impl Database {
                 WHERE txs.id = rbf.id
                   AND txs.seen_block_id IS NULL
                   AND bs.is_canonical = TRUE
-                RETURNING 1
             ),
             u8 AS (
                 -- Unconfirm all transactions that reference non-canonical blocks
@@ -110,7 +103,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE tap.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u9 AS (
                 UPDATE tx_sender_activate_try_to_send_outpoints AS tap
@@ -118,7 +110,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE tap.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u10 AS (
                 UPDATE tx_sender_cancel_try_to_send_txids AS ctt
@@ -126,7 +117,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE ctt.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u11 AS (
                 UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
@@ -134,7 +124,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE cto.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u12 AS (
                 UPDATE tx_sender_fee_payer_utxos AS fpu
@@ -142,7 +131,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE fpu.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u13 AS (
                 UPDATE tx_sender_try_to_send_txs AS txs
@@ -150,7 +138,6 @@ impl Database {
                 FROM bitcoin_syncer bs
                 WHERE txs.seen_block_id = bs.id
                   AND bs.is_canonical = FALSE
-                RETURNING 1
             ),
             u14 AS (
                 -- Handle RBF unconfirmations: unconfirm the parent transaction if
@@ -169,7 +156,6 @@ impl Database {
                       WHERE rbf.id = txs.id
                         AND bs.is_canonical = TRUE
                   )
-                RETURNING 1
             )
             SELECT 1;
             "#,

@@ -573,19 +573,6 @@ where
             .await
             .wrap_err("Failed to update effective fee rate")?;
 
-        tracing::debug!(
-            try_to_send_id,
-            "Submitting package\n Pkg tx hexs: {:?}",
-            if env::var("DBG_PACKAGE_HEX").is_ok() {
-                package
-                    .iter()
-                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                    .collect::<Vec<_>>()
-            } else {
-                vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
-            }
-        );
-
         // Update sending state to submitting_package
         let _ = self
             .db
