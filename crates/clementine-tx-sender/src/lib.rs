@@ -26,6 +26,7 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
+use clementine_primitives::BitcoinSyncerEvent;
 pub use client::TxSenderClient;
 
 use async_trait::async_trait;
@@ -349,6 +350,13 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
 
     /// Debug method to log information about inactive transactions.
     async fn debug_inactive_txs(&self, _fee_rate: FeeRate, _current_tip_height: u32) {}
+
+    /// Fetch the next event from the Bitcoin syncer.
+    async fn fetch_next_bitcoin_syncer_evt(
+        &self,
+        dbtx: &mut Self::Transaction,
+        consumer_id: &str,
+    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError>;
 
     /// Synchronize transaction confirmations based on canonical block status.
     /// Confirms transactions in canonical blocks and unconfirms transactions in

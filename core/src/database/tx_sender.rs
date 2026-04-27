@@ -1100,6 +1100,15 @@ impl clementine_tx_sender::TxSenderDatabase for Database {
         Database::debug_inactive_txs(self, fee_rate, current_tip_height).await
     }
 
+    async fn fetch_next_bitcoin_syncer_evt(
+        &self,
+        tx: &mut Self::Transaction,
+        consumer_handle: &str,
+    ) -> Result<Option<clementine_primitives::BitcoinSyncerEvent>, BridgeError> {
+        self.fetch_next_bitcoin_syncer_evt(tx, consumer_handle)
+            .await
+    }
+
     async fn sync_transaction_confirmations(
         &self,
         tx: Option<&mut Self::Transaction>,
