@@ -48,6 +48,7 @@ pub fn create_watchtower_challenge_txhandler(
     watchtower_idx: usize,
     commit_data: &[u8],
     paramset: &'static ProtocolParamset,
+    #[cfg(test)] test_params: &crate::config::TestParams,
 ) -> Result<TxHandler, BridgeError> {
     if commit_data.len() != paramset.watchtower_challenge_bytes {
         return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
@@ -72,6 +73,11 @@ pub fn create_watchtower_challenge_txhandler(
         .add_output(UnspentTxOut::from_partial(anchor_output(
             paramset.anchor_amount(),
         )));
+
+    #[cfg(test)]
+    {
+        builder = test_params.maybe_add_large_test_outputs(builder)?;
+    }
 
     Ok(builder.finalize())
 }
