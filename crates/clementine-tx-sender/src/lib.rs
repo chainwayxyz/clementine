@@ -140,7 +140,7 @@ pub struct TxSender {
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
-    nonce_grind_prefix: Vec<u8>,
+    wtxid_grind_prefix: Vec<u8>,
     /// Wallet-owned change script reused across funding flows.
     ///
     /// We intentionally use a normal wallet address here instead of
@@ -169,7 +169,7 @@ impl std::fmt::Debug for TxSender {
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
             .field("input_unspent_max_retries", &self.input_unspent_max_retries)
-            .field("nonce_grind_prefix", &self.nonce_grind_prefix)
+            .field("wtxid_grind_prefix", &self.wtxid_grind_prefix)
             .finish()
     }
 }
@@ -198,7 +198,7 @@ impl TxSender {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
-            test_mode,
+            wtxid_grind_test_mode,
             jsonrpc: _,
         } = tx_sender_config;
 
@@ -245,7 +245,7 @@ impl TxSender {
             finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
-            nonce_grind_prefix: crate::config::nonce_grind_prefix_for_test_mode(test_mode),
+            wtxid_grind_prefix: crate::config::resolve_wtxid_grind_prefix(wtxid_grind_test_mode),
             change_script_pubkey,
         })
     }

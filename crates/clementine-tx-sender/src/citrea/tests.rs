@@ -418,7 +418,7 @@ async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
         "reveal tx must spend the commit tx output"
     );
     assert_reveal_is_self_funded(&commit_tx, &reveal_tx, "single");
-    assert_wtxid_prefix(&reveal_tx, &tx_sender.nonce_grind_prefix, "single reveal");
+    assert_wtxid_prefix(&reveal_tx, &tx_sender.wtxid_grind_prefix, "single reveal");
 
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
@@ -502,7 +502,7 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
             "reveal tx must spend the commit tx output"
         );
         assert_reveal_is_self_funded(&commit_tx, &reveal_tx, "chunk");
-        assert_wtxid_prefix(&reveal_tx, &tx_sender.nonce_grind_prefix, "chunk reveal");
+        assert_wtxid_prefix(&reveal_tx, &tx_sender.wtxid_grind_prefix, "chunk reveal");
 
         let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
         let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
@@ -583,7 +583,7 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
     assert_reveal_is_self_funded(&aggregate_commit_tx, &aggregate_reveal_tx, "aggregate");
     assert_wtxid_prefix(
         &aggregate_reveal_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "aggregate reveal",
     );
 
@@ -653,7 +653,7 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
     );
     assert_wtxid_prefix(
         &aggregate_reveal_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "aggregate reveal after reorg",
     );
 }
@@ -698,7 +698,7 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
     assert_reveal_is_self_funded(&commit_tx, &reveal_tx, "batch-proof-method-id");
     assert_wtxid_prefix(
         &reveal_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "batch-proof-method-id reveal",
     );
 
@@ -777,7 +777,7 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
     assert_reveal_is_self_funded(&commit_tx, &reveal_tx, "sequencer-commitment");
     assert_wtxid_prefix(
         &reveal_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "sequencer-commitment reveal",
     );
 
@@ -852,7 +852,7 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     assert_reveal_is_self_funded(&commit_tx, &original_tx, "original reveal before bump");
     assert_wtxid_prefix(
         &original_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "original reveal before bump",
     );
     let original_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &original_tx).await;
@@ -913,7 +913,7 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     assert_ne!(bumped_txid, original_txid, "expected a new RBF txid");
 
     let bumped_tx = tx_sender.rpc.get_tx_of_txid(&bumped_txid).await.unwrap();
-    assert_wtxid_prefix(&bumped_tx, &tx_sender.nonce_grind_prefix, "bumped reveal");
+    assert_wtxid_prefix(&bumped_tx, &tx_sender.wtxid_grind_prefix, "bumped reveal");
     // bump should also take into account the commit transaction, so we calculate effective feerate of the package (commit+reveal)
     let bumped_feerate =
         calculate_package_feerate_sat_per_kvb(&tx_sender, &commit_tx, &bumped_tx).await;
@@ -986,7 +986,7 @@ async fn citrea_large_body_tx_flow_commits_and_mines_with_min_feerate() {
     assert_reveal_is_self_funded(&commit_tx, &reveal_tx, "large-body");
     assert_wtxid_prefix(
         &reveal_tx,
-        &tx_sender.nonce_grind_prefix,
+        &tx_sender.wtxid_grind_prefix,
         "large-body reveal",
     );
 

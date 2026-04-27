@@ -859,7 +859,7 @@ impl TxSender {
                     .compute_wtxid()
                     .as_raw_hash()
                     .to_byte_array()
-                    .starts_with(&self.nonce_grind_prefix)
+                    .starts_with(&self.wtxid_grind_prefix)
                 {
                     self.update_witness_signature(&mut final_tx, input_index, sighash)?;
                     grind_iterations = grind_iterations.saturating_add(1);
@@ -1180,7 +1180,7 @@ impl TxSender {
                     .compute_wtxid()
                     .as_raw_hash()
                     .to_byte_array()
-                    .starts_with(&self.nonce_grind_prefix)
+                    .starts_with(&self.wtxid_grind_prefix)
                 {
                     self.update_witness_signature(&mut final_tx, input_index, sighash)?;
                     grind_iterations = grind_iterations.saturating_add(1);
