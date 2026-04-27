@@ -78,24 +78,24 @@
 <a href=#78 id=78 data-nosnippet>78</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;u32, BridgeError&gt; {
 <a href=#79 id=79 data-nosnippet>79</a>        <span class="kw">let </span>txid = signed_tx.compute_txid();
 <a href=#80 id=80 data-nosnippet>80</a>
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="macro">tracing::debug!</span>(
-<a href=#82 id=82 data-nosnippet>82</a>            <span class="string">"{} added tx {} with txid {} to the queue"</span>,
-<a href=#83 id=83 data-nosnippet>83</a>            <span class="self">self</span>.tx_sender_consumer_id,
-<a href=#84 id=84 data-nosnippet>84</a>            tx_metadata
-<a href=#85 id=85 data-nosnippet>85</a>                .as_ref()
-<a href=#86 id=86 data-nosnippet>86</a>                .map(|data| <span class="macro">format!</span>(<span class="string">"{:?}"</span>, data.tx_type))
-<a href=#87 id=87 data-nosnippet>87</a>                .unwrap_or(<span class="string">"N/A"</span>.to_string()),
-<a href=#88 id=88 data-nosnippet>88</a>            txid
-<a href=#89 id=89 data-nosnippet>89</a>        );
-<a href=#90 id=90 data-nosnippet>90</a>
-<a href=#91 id=91 data-nosnippet>91</a>        <span class="comment">// do not add duplicate transactions to the txsender
-<a href=#92 id=92 data-nosnippet>92</a>        </span><span class="kw">let </span>tx_exists = <span class="self">self
-<a href=#93 id=93 data-nosnippet>93</a>            </span>.db
-<a href=#94 id=94 data-nosnippet>94</a>            .check_if_tx_exists_on_txsender(dbtx.as_deref_mut(), txid)
-<a href=#95 id=95 data-nosnippet>95</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(try_to_send_id) = tx_exists {
-<a href=#97 id=97 data-nosnippet>97</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(try_to_send_id);
-<a href=#98 id=98 data-nosnippet>98</a>        }
+<a href=#81 id=81 data-nosnippet>81</a>        <span class="comment">// do not add duplicate transactions to the txsender
+<a href=#82 id=82 data-nosnippet>82</a>        </span><span class="kw">let </span>tx_exists = <span class="self">self
+<a href=#83 id=83 data-nosnippet>83</a>            </span>.db
+<a href=#84 id=84 data-nosnippet>84</a>            .check_if_tx_exists_on_txsender(dbtx.as_deref_mut(), txid)
+<a href=#85 id=85 data-nosnippet>85</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(try_to_send_id) = tx_exists {
+<a href=#87 id=87 data-nosnippet>87</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(try_to_send_id);
+<a href=#88 id=88 data-nosnippet>88</a>        }
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a>        <span class="macro">tracing::info!</span>(
+<a href=#91 id=91 data-nosnippet>91</a>            <span class="string">"{} added tx {} with txid {} to the queue"</span>,
+<a href=#92 id=92 data-nosnippet>92</a>            <span class="self">self</span>.tx_sender_consumer_id,
+<a href=#93 id=93 data-nosnippet>93</a>            tx_metadata
+<a href=#94 id=94 data-nosnippet>94</a>                .as_ref()
+<a href=#95 id=95 data-nosnippet>95</a>                .map(|data| <span class="macro">format!</span>(<span class="string">"{:?}"</span>, data.tx_type))
+<a href=#96 id=96 data-nosnippet>96</a>                .unwrap_or(<span class="string">"N/A"</span>.to_string()),
+<a href=#97 id=97 data-nosnippet>97</a>            txid
+<a href=#98 id=98 data-nosnippet>98</a>        );
 <a href=#99 id=99 data-nosnippet>99</a>
 <a href=#100 id=100 data-nosnippet>100</a>        <span class="kw">let </span>try_to_send_id = <span class="self">self
 <a href=#101 id=101 data-nosnippet>101</a>            </span>.db
@@ -276,7 +276,7 @@
 <a href=#276 id=276 data-nosnippet>276</a>                .<span class="kw">await
 <a href=#277 id=277 data-nosnippet>277</a>            </span>}
 <a href=#278 id=278 data-nosnippet>278</a>            TransactionType::WatchtowerChallengeTimeout(<span class="kw">_</span>) =&gt; {
-<a href=#279 id=279 data-nosnippet>279</a>                <span class="comment">// do not send watchtowet timeout if kickoff is already finalized
+<a href=#279 id=279 data-nosnippet>279</a>                <span class="comment">// do not send watchtower timeout if kickoff is already finalized
 <a href=#280 id=280 data-nosnippet>280</a>                // which is done by adding kickoff finalizer utxo to cancel_outpoints
 <a href=#281 id=281 data-nosnippet>281</a>                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
 <a href=#282 id=282 data-nosnippet>282</a>                </span><span class="kw">let </span>kickoff_txid = related_txs
@@ -355,7 +355,7 @@
 <a href=#355 id=355 data-nosnippet>355</a>                .<span class="kw">await
 <a href=#356 id=356 data-nosnippet>356</a>            </span>}
 <a href=#357 id=357 data-nosnippet>357</a>            TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid =&gt; {
-<a href=#358 id=358 data-nosnippet>358</a>                <span class="macro">unreachable!</span>(<span class="string">"Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue"</span>);
+<a href=#358 id=358 data-nosnippet>358</a>                <span class="macro">unreachable!</span>(<span class="string">"Higher level transaction types used for yielding kickoff txid from sighash stream or denoting all txs should not be added to the queue"</span>);
 <a href=#359 id=359 data-nosnippet>359</a>            }
 <a href=#360 id=360 data-nosnippet>360</a>        }
 <a href=#361 id=361 data-nosnippet>361</a>    }
