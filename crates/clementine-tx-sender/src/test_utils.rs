@@ -42,7 +42,7 @@ pub async fn create_test_environment(
         finality_depth: 1,
         poll_delay_ms: 500,
         input_unspent_max_retries: None,
-        nonce_grind_prefix: vec![2],
+        test_mode: true,
         jsonrpc: None,
         mempool: MempoolConfig {
             host: None,

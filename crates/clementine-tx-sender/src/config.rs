@@ -68,10 +68,11 @@ pub struct TxSenderConfig {
     /// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
     pub input_unspent_max_retries: Option<u32>,
 
-    /// Prefix bytes required by nonce/wtxid grinding for reveal transactions.
+    /// Whether tx-sender should use test-mode behavior.
     ///
-    /// Default is `[2,2]`.
-    pub nonce_grind_prefix: Vec<u8>,
+    /// Test mode relaxes nonce/wtxid grinding to prefix `[2]`; otherwise the
+    /// production prefix is `[2, 2]`.
+    pub test_mode: bool,
 
     /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
@@ -104,6 +105,29 @@ where
     v.parse::<T>()
         .map(Some)
         .map_err(|e| BridgeError::EnvVarMalformed(name, format!("{e:?}")))
+}
+
+fn env_parse_bool_optional(name: &'static str) -> Result<Option<bool>, BridgeError> {
+    let Some(v) = env_optional(name) else {
+        return Ok(None);
+    };
+
+    match v.as_str() {
+        "true" | "1" => Ok(Some(true)),
+        "false" | "0" => Ok(Some(false)),
+        _ => Err(BridgeError::EnvVarMalformed(
+            name,
+            "expected true/false or 1/0".to_string(),
+        )),
+    }
+}
+
+pub(crate) fn nonce_grind_prefix_for_test_mode(test_mode: bool) -> Vec<u8> {
+    if test_mode {
+        vec![2]
+    } else {
+        vec![2, 2]
+    }
 }
 
 pub(crate) fn validate_input_unspent_max_retries(
@@ -198,15 +222,7 @@ impl TxSenderConfig {
             "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
         )?)
         .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
-        let nonce_grind_prefix = match env_optional("TX_SENDER_NONCE_GRIND_PREFIX") {
-            Some(value) => serde_json::from_str::<Vec<u8>>(&value).map_err(|e| {
-                BridgeError::EnvVarMalformed(
-                    "TX_SENDER_NONCE_GRIND_PREFIX",
-                    format!("expected JSON byte array, e.g. [2] or [2,2]: {e}"),
-                )
-            })?,
-            None => vec![2, 2],
-        };
+        let test_mode = env_parse_bool_optional("TEST_MODE")?.unwrap_or(false);
 
         if finality_depth < 1 {
             return Err(BridgeError::EnvVarMalformed(
@@ -246,8 +262,19 @@ impl TxSenderConfig {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
-            nonce_grind_prefix,
+            test_mode,
             jsonrpc,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nonce_grind_prefix_for_test_mode;
+
+    #[test]
+    fn nonce_grind_prefix_is_derived_from_test_mode() {
+        assert_eq!(nonce_grind_prefix_for_test_mode(true), vec![2]);
+        assert_eq!(nonce_grind_prefix_for_test_mode(false), vec![2, 2]);
     }
 }

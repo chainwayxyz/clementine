@@ -198,7 +198,7 @@ impl TxSender {
             finality_depth,
             poll_delay_ms,
             input_unspent_max_retries,
-            nonce_grind_prefix,
+            test_mode,
             jsonrpc: _,
         } = tx_sender_config;
 
@@ -245,7 +245,7 @@ impl TxSender {
             finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
-            nonce_grind_prefix,
+            nonce_grind_prefix: crate::config::nonce_grind_prefix_for_test_mode(test_mode),
             change_script_pubkey,
         })
     }
