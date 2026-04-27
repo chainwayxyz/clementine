@@ -1570,11 +1570,6 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
-
         let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
         })
