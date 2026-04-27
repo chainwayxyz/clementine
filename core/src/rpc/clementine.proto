@@ -693,17 +693,24 @@ message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
 }
 
-message RbfSigningInfoRpc {
-  // Key path spend tweak merkle root (optional; empty for script path).
+message RbfSigningKeyPathRpc {
+  // Key path spend tweak merkle root (optional).
   bytes merkle_root = 1;
-  // Output index of the UTXO to be re-signed.
-  uint32 vout = 2;
-  // Script path control block (optional; empty for key path).
-  bytes control_block = 3;
-  // Script path tapscript (optional; empty for key path).
-  bytes script = 4;
+}
+
+message RbfSigningScriptPathRpc {
+  bytes control_block = 1;
+  bytes script = 2;
+}
+
+message RbfSigningInfoRpc {
+  uint32 vout = 1;
+  oneof spend_path {
+    RbfSigningKeyPathRpc key_path = 2;
+    RbfSigningScriptPathRpc script_path = 3;
+  }
   // Taproot sighash type as raw byte.
-  uint32 tap_sighash_type = 5;
+  uint32 tap_sighash_type = 4;
 }
 
 message RawTxWithRbfInfo {

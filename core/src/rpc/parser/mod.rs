@@ -1,6 +1,7 @@
 use super::clementine::{
-    self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
-    TransactionRequest, WinternitzPubkey,
+    self, rbf_signing_info_rpc, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc,
+    RbfSigningKeyPathRpc, RbfSigningScriptPathRpc, SchnorrSig, TransactionRequest,
+    WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
@@ -86,23 +87,25 @@ macro_rules! fetch_next_optional_message_from_stream {
 
 impl From<RbfSigningInfo> for RbfSigningInfoRpc {
     fn from(value: RbfSigningInfo) -> Self {
-        let (merkle_root, control_block, script) = match value.spend_path {
-            RbfSigningSpendPath::KeyPath { tweak_merkle_root } => (
-                tweak_merkle_root.map_or(vec![], |root| root.to_byte_array().to_vec()),
-                Vec::new(),
-                Vec::new(),
-            ),
+        let spend_path = Some(match value.spend_path {
+            RbfSigningSpendPath::KeyPath { tweak_merkle_root } => {
+                rbf_signing_info_rpc::SpendPath::KeyPath(RbfSigningKeyPathRpc {
+                    merkle_root: tweak_merkle_root
+                        .map_or(vec![], |root| root.to_byte_array().to_vec()),
+                })
+            }
             RbfSigningSpendPath::ScriptPath {
                 control_block,
                 script,
-            } => (Vec::new(), control_block, script),
-        };
+            } => rbf_signing_info_rpc::SpendPath::ScriptPath(RbfSigningScriptPathRpc {
+                control_block,
+                script,
+            }),
+        });
 
         RbfSigningInfoRpc {
-            merkle_root,
             vout: value.vout,
-            control_block,
-            script,
+            spend_path,
             tap_sighash_type: value.tap_sighash_type as u32,
         }
     }
@@ -112,25 +115,29 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
     type Error = BridgeError;
 
     fn try_from(value: RbfSigningInfoRpc) -> Result<Self, Self::Error> {
-        let spend_path = if !value.merkle_root.is_empty() {
-            // Key path spend
-            RbfSigningSpendPath::KeyPath {
-                tweak_merkle_root: Some(TapNodeHash::from_slice(&value.merkle_root).wrap_err(
-                    eyre::eyre!("Failed to convert merkle root bytes from rpc to TapNodeHash"),
-                )?),
-            }
-        } else if !value.control_block.is_empty() || !value.script.is_empty() {
-            // Script path spend
-            RbfSigningSpendPath::ScriptPath {
-                control_block: value.control_block,
-                script: value.script,
-            }
-        } else {
-            // Default to key path without tweak
-            RbfSigningSpendPath::KeyPath {
-                tweak_merkle_root: None,
-            }
-        };
+        let spend_path =
+            match value
+                .spend_path
+                .ok_or(BridgeError::Parser(ParserError::RPCRequiredParam(
+                    "rbf_info.spend_path",
+                )))? {
+                rbf_signing_info_rpc::SpendPath::KeyPath(key_path) => {
+                    RbfSigningSpendPath::KeyPath {
+                        tweak_merkle_root: (!key_path.merkle_root.is_empty())
+                            .then(|| TapNodeHash::from_slice(&key_path.merkle_root))
+                            .transpose()
+                            .wrap_err(eyre::eyre!(
+                                "Failed to convert merkle root bytes from rpc to TapNodeHash"
+                            ))?,
+                    }
+                }
+                rbf_signing_info_rpc::SpendPath::ScriptPath(script_path) => {
+                    RbfSigningSpendPath::ScriptPath {
+                        control_block: script_path.control_block,
+                        script: script_path.script,
+                    }
+                }
+            };
 
         Ok(RbfSigningInfo {
             vout: value.vout,

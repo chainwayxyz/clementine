@@ -597,22 +597,37 @@ pub struct SignedTxsWithType {
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RbfSigningInfoRpc {
-    /// Key path spend tweak merkle root (optional; empty for script path).
+pub struct RbfSigningKeyPathRpc {
+    /// Key path spend tweak merkle root (optional).
     #[prost(bytes = "vec", tag = "1")]
     pub merkle_root: ::prost::alloc::vec::Vec<u8>,
-    /// Output index of the UTXO to be re-signed.
-    #[prost(uint32, tag = "2")]
-    pub vout: u32,
-    /// Script path control block (optional; empty for key path).
-    #[prost(bytes = "vec", tag = "3")]
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningScriptPathRpc {
+    #[prost(bytes = "vec", tag = "1")]
     pub control_block: ::prost::alloc::vec::Vec<u8>,
-    /// Script path tapscript (optional; empty for key path).
-    #[prost(bytes = "vec", tag = "4")]
+    #[prost(bytes = "vec", tag = "2")]
     pub script: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningInfoRpc {
+    #[prost(uint32, tag = "1")]
+    pub vout: u32,
     /// Taproot sighash type as raw byte.
-    #[prost(uint32, tag = "5")]
+    #[prost(uint32, tag = "4")]
     pub tap_sighash_type: u32,
+    #[prost(oneof = "rbf_signing_info_rpc::SpendPath", tags = "2, 3")]
+    pub spend_path: ::core::option::Option<rbf_signing_info_rpc::SpendPath>,
+}
+/// Nested message and enum types in `RbfSigningInfoRpc`.
+pub mod rbf_signing_info_rpc {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum SpendPath {
+        #[prost(message, tag = "2")]
+        KeyPath(super::RbfSigningKeyPathRpc),
+        #[prost(message, tag = "3")]
+        ScriptPath(super::RbfSigningScriptPathRpc),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawTxWithRbfInfo {
