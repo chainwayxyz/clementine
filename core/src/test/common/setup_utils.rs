@@ -352,6 +352,42 @@ pub async fn generate_withdrawal_transaction_and_signature(
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, taproot::Signature) {
+    let dust_utxo = generate_withdrawal_utxo(config, rpc).await;
+    let (txout, sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, withdrawal_amount);
+    (dust_utxo, txout, sig)
+}
+
+/// Optimistic payout registration must use the contract-accepted fee amount,
+/// while operator payouts use the configured operator fee.
+pub async fn generate_withdrawal_transaction_and_signatures(
+    config: &BridgeConfig,
+    rpc: &ExtendedBitcoinRpc,
+    withdrawal_address: &bitcoin::Address,
+    operator_amount: bitcoin::Amount,
+    optimistic_amount: bitcoin::Amount,
+) -> (
+    UTXO,
+    bitcoin::TxOut,
+    taproot::Signature,
+    bitcoin::TxOut,
+    taproot::Signature,
+) {
+    let dust_utxo = generate_withdrawal_utxo(config, rpc).await;
+    let (operator_txout, operator_sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, operator_amount);
+    let (optimistic_txout, optimistic_sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, optimistic_amount);
+    (
+        dust_utxo,
+        operator_txout,
+        operator_sig,
+        optimistic_txout,
+        optimistic_sig,
+    )
+}
+
+async fn generate_withdrawal_utxo(config: &BridgeConfig, rpc: &ExtendedBitcoinRpc) -> UTXO {
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
@@ -361,14 +397,22 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .await
         .expect("Failed to send to address");
 
-    let dust_utxo = UTXO {
+    UTXO {
         outpoint: dust_outpoint,
         txout: bitcoin::TxOut {
             value: WITHDRAWAL_EMPTY_UTXO_SATS,
             script_pubkey: signer.address.script_pubkey(),
         },
-    };
+    }
+}
 
+fn sign_withdrawal_output(
+    config: &BridgeConfig,
+    dust_utxo: &UTXO,
+    withdrawal_address: &bitcoin::Address,
+    withdrawal_amount: bitcoin::Amount,
+) -> (bitcoin::TxOut, taproot::Signature) {
+    let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
     let txin = builder::transaction::input::SpendableTxIn::new(
         dust_utxo.outpoint,
         dust_utxo.txout.clone(),
@@ -400,14 +444,12 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
         .expect("Failed to sign");
 
-    (
-        dust_utxo,
-        txout,
-        taproot::Signature {
-            signature: sig,
-            sighash_type: sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        },
-    )
+    let sig = taproot::Signature {
+        signature: sig,
+        sighash_type: sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+
+    (txout, sig)
 }
 
 /// Helper to get a dynamically assigned free port.
