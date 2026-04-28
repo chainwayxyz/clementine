@@ -4,9 +4,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TrackRequest {
-    TryToSend { try_to_send_id: u32 },
-    ByTxid { txid: String },
-    CommitReveal { insertion_id: i64 },
+    TryToSend {
+        try_to_send_id: u32,
+    },
+    ByTxid {
+        txid: String,
+    },
+    #[cfg(feature = "citrea")]
+    CommitReveal {
+        insertion_id: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +28,7 @@ pub enum TrackStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TrackResponse {
     Transaction(TxStatus),
+    #[cfg(feature = "citrea")]
     CommitReveal(CommitRevealStatus),
 }
 
@@ -46,6 +54,7 @@ pub struct TxStatus {
     pub last_error: Option<String>,
 }
 
+#[cfg(feature = "citrea")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitRevealStatus {
     pub status: TrackStatus,
@@ -56,6 +65,7 @@ pub struct CommitRevealStatus {
     pub aggregate_commit_tx: Option<BitcoinTxStatus>,
 }
 
+#[cfg(feature = "citrea")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RevealStatus {
     pub kind: CommitRevealKind,
@@ -63,6 +73,7 @@ pub struct RevealStatus {
     pub submission: Option<TxStatus>,
 }
 
+#[cfg(feature = "citrea")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommitRevealKind {
     Complete,
@@ -127,6 +138,7 @@ mod tests {
             TrackResponse::Transaction(track) => {
                 assert_eq!(track.status, TrackStatus::InProgress);
             }
+            #[cfg(feature = "citrea")]
             TrackResponse::CommitReveal(_) => panic!("expected Transaction variant"),
         }
     }

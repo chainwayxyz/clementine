@@ -1,7 +1,10 @@
+-- Drop legacy tx_sender cancel/activate helper tables.
+DROP TABLE IF EXISTS tx_sender_cancel_try_to_send_txids;
+DROP TABLE IF EXISTS tx_sender_cancel_try_to_send_outpoints;
+DROP TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints;
+
 -- Migrate existing round state machines in round_tx state to include
--- the new possible_kickoffs and kickoff_finalizers_spent fields.
--- These fields are local state parameters added to the round_tx state
--- function for tracking possible kickoffs and their finalizer spend status.
+-- the possible_kickoffs and kickoff_finalizers_spent tracking fields.
 UPDATE state_machines
 SET state_json = (
     jsonb_set(
