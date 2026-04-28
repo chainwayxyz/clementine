@@ -2,7 +2,7 @@ use crate::{
     rpc_errors::is_mempool_not_found_error, rpc_errors::is_not_found_error, FeePayingType,
     TxSender, TxSenderTransaction,
 };
-use bitcoin::{BlockHash, Txid};
+use bitcoin::{BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
 use std::collections::HashMap;
@@ -49,7 +49,7 @@ impl TxSender {
 
         let rbf_ids: Vec<u32> = unfinalized
             .iter()
-            .filter_map(|(id, fee_paying_type, _txid, _seen_at_height)| {
+            .filter_map(|(id, fee_paying_type, _txid, _tx, _seen_at_height)| {
                 matches!(
                     fee_paying_type,
                     FeePayingType::RBF | FeePayingType::RbfWtxidGrind
@@ -69,7 +69,7 @@ impl TxSender {
             }
         }
 
-        for (id, fee_paying_type, txid, seen_at_height) in unfinalized {
+        for (id, fee_paying_type, txid, tx, seen_at_height) in unfinalized {
             let status = match fee_paying_type {
                 FeePayingType::CPFP | FeePayingType::NoFunding => {
                     get_tx_status_cached(
@@ -111,6 +111,24 @@ impl TxSender {
                     }
                 }
             };
+
+            if !matches!(status, TxChainStatus::Confirmed { .. }) {
+                if let Some((outpoint, spending_txid, blockhash)) =
+                    confirmed_input_spender(&self.rpc, &tx).await?
+                {
+                    tracing::warn!(
+                        try_to_send_id = id,
+                        %outpoint,
+                        %spending_txid,
+                        %blockhash,
+                        "Tx input was spent by a confirmed tx; disabling tx-sender row"
+                    );
+                    self.db
+                        .mark_input_spent_by_confirmed_tx(dbtx.as_deref_mut(), id)
+                        .await?;
+                    continue;
+                }
+            }
 
             match (seen_at_height, status) {
                 (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
@@ -344,4 +362,36 @@ async fn get_tx_status_cached(
     };
     tx_cache.insert(txid, status);
     Ok(status)
+}
+
+async fn confirmed_input_spender(
+    rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
+    tx: &Transaction,
+) -> Result<Option<(OutPoint, Txid, BlockHash)>, BridgeError> {
+    let outpoints: Vec<OutPoint> = tx.input.iter().map(|input| input.previous_output).collect();
+    if outpoints.is_empty() {
+        return Ok(None);
+    }
+
+    let spenders = rpc
+        .get_tx_spending_prevouts(&outpoints)
+        .await
+        .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+
+    for spender in spenders {
+        let Some(spending_txid) = spender.spending_txid else {
+            continue;
+        };
+
+        // `gettxspendingprevout` also reports mempool spenders. Only rows with
+        // a blockhash came from `txospenderindex`, so only those are canonical
+        // according to the connected node's active chain.
+        let Some(blockhash) = spender.blockhash else {
+            continue;
+        };
+
+        return Ok(Some((spender.outpoint, spending_txid, blockhash)));
+    }
+
+    Ok(None)
 }

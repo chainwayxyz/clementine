@@ -5,19 +5,16 @@
 UPDATE state_machines
 SET state_json = (
     jsonb_set(
-        state_json::jsonb,
-        '{state,RoundTx}',
-        (state_json::jsonb -> 'state' -> 'RoundTx')
-            || '{"possible_kickoffs": {}, "kickoff_finalizers_spent": []}'::jsonb
+      state_json::jsonb,
+      '{state,RoundTx}',
+      (state_json::jsonb->'state'->'RoundTx') || '{"possible_kickoffs": {}, "kickoff_finalizers_spent": []}'::jsonb
     )
-)::text
+  )::text
 WHERE machine_type = 'round'
-  AND state_json::jsonb -> 'state' ? 'RoundTx';
-
+  AND state_json::jsonb->'state' ? 'RoundTx';
 -- Track repeated "inputs unavailable" checks and stop retrying permanently
 -- stuck transactions after a bounded number of attempts.
 ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
 ADD COLUMN IF NOT EXISTS input_unspent_failures INT NOT NULL DEFAULT 0;
-
 ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
 ADD COLUMN IF NOT EXISTS input_unspent_timed_out BOOLEAN NOT NULL DEFAULT FALSE;

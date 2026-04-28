@@ -1,13 +1,14 @@
 //! Extended Bitcoin RPC client with retry logic.
 
 use async_trait::async_trait;
-use bitcoin::{Address, Amount, Network, OutPoint, TxOut, Txid, Weight};
+use bitcoin::{Address, Amount, BlockHash, Network, OutPoint, TxOut, Txid, Weight};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use clementine_errors::{BitcoinRPCError, FeeErr};
 use clementine_primitives::FeeRateKvb;
 use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
+use serde::Deserialize;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +21,25 @@ pub use crate::retry::{RetryConfig, RetryableError};
 
 /// Result type for RPC operations.
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
+
+const BITCOIN_CORE_V31_VERSION: usize = 310000;
+
+/// Result row returned by `gettxspendingprevout`.
+#[derive(Debug, Clone)]
+pub struct TxSpendingPrevout {
+    pub outpoint: OutPoint,
+    pub spending_txid: Option<Txid>,
+    pub blockhash: Option<BlockHash>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TxSpendingPrevoutRpc {
+    txid: Txid,
+    vout: u32,
+    #[serde(rename = "spendingtxid")]
+    spending_txid: Option<Txid>,
+    blockhash: Option<BlockHash>,
+}
 
 /// Bitcoin RPC wrapper with retry logic.
 ///
@@ -145,6 +165,82 @@ impl ExtendedBitcoinRpc {
     /// Returns a reference to the inner client.
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// Ensures the connected Bitcoin Core node supports the v31 RPC surface.
+    pub async fn ensure_bitcoin_core_v31_or_newer(&self) -> Result<()> {
+        let network_info = self
+            .get_network_info()
+            .await
+            .wrap_err("Failed to get Bitcoin Core network info")?;
+
+        if network_info.version < BITCOIN_CORE_V31_VERSION {
+            return Err(eyre!(
+                "Bitcoin Core v31.0+ is required, connected node reports version {} ({})",
+                network_info.version,
+                network_info.subversion
+            )
+            .into());
+        }
+
+        Ok(())
+    }
+
+    /// Ensures `-txospenderindex=1` is enabled and synced.
+    pub async fn ensure_txospenderindex_synced(&self) -> Result<()> {
+        let index_info: serde_json::Value = self
+            .call("getindexinfo", &[])
+            .await
+            .wrap_err("Failed to call getindexinfo")?;
+
+        let txospenderindex = index_info.get("txospenderindex").ok_or_else(|| {
+            eyre!("Bitcoin Core txospenderindex is unavailable; start bitcoind with -txospenderindex=1")
+        })?;
+
+        match txospenderindex
+            .get("synced")
+            .and_then(serde_json::Value::as_bool)
+        {
+            Some(true) => Ok(()),
+            _ => Err(eyre!("Bitcoin Core txospenderindex is present but not synced").into()),
+        }
+    }
+
+    /// Finds transactions spending the requested prevouts using Bitcoin Core v31.
+    pub async fn get_tx_spending_prevouts(
+        &self,
+        outpoints: &[OutPoint],
+    ) -> Result<Vec<TxSpendingPrevout>> {
+        if outpoints.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let outputs: Vec<serde_json::Value> = outpoints
+            .iter()
+            .map(|outpoint| {
+                serde_json::json!({
+                    "txid": outpoint.txid.to_string(),
+                    "vout": outpoint.vout,
+                })
+            })
+            .collect();
+
+        let rows: Vec<TxSpendingPrevoutRpc> = self
+            .call("gettxspendingprevout", &[serde_json::json!(outputs)])
+            .await
+            .wrap_err("Failed to call gettxspendingprevout")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TxSpendingPrevout {
+                outpoint: OutPoint {
+                    txid: row.txid,
+                    vout: row.vout,
+                },
+                spending_txid: row.spending_txid,
+                blockhash: row.blockhash,
+            })
+            .collect())
     }
 
     /// Generates a new Bitcoin address for the wallet.

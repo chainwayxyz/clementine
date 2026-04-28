@@ -41,6 +41,7 @@ impl TestCase for DisproveTest {
         BitcoinConfig {
             extra_args: vec![
                 "-txindex=1",
+                "-txospenderindex=1",
                 "-fallbackfee=0.000001",
                 "-rpcallowip=0.0.0.0/0",
                 "-limitancestorsize=1010",

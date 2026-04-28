@@ -41,7 +41,6 @@ pub async fn create_test_environment(
         },
         finality_depth: 1,
         poll_delay_ms: 500,
-        input_unspent_max_retries: None,
         wtxid_grind_test_mode: true,
         jsonrpc: None,
         mempool: MempoolConfig {
@@ -198,6 +197,7 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
+        "-txospenderindex=1".to_string(),
         "-whitelist=noban@127.0.0.1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),

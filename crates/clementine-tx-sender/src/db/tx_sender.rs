@@ -373,54 +373,6 @@ impl TxSenderDb {
         Ok(txs)
     }
 
-    /// Increments the consecutive "inputs unavailable" counter for the tx and
-    /// marks it timed out once the configured retry limit is reached.
-    ///
-    /// Returns whether the tx is now timed out.
-    pub async fn mark_input_unspent_check_failed(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        id: u32,
-        max_retries: u32,
-    ) -> Result<bool, BridgeError> {
-        let query = sqlx::query_as::<_, (bool,)>(
-            r#"
-            UPDATE tx_sender_try_to_send_txs
-            SET
-                input_unspent_failures = input_unspent_failures + 1,
-                input_unspent_timed_out = (
-                    input_unspent_timed_out
-                    OR (input_unspent_failures + 1 >= $2)
-                )
-            WHERE id = $1
-            RETURNING input_unspent_timed_out
-            "#,
-        )
-        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
-        .bind(i32::try_from(max_retries).wrap_err("Failed to convert max_retries to i32")?);
-
-        let (timed_out,) = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_one)?;
-        Ok(timed_out)
-    }
-
-    /// Resets the consecutive "inputs unavailable" counter after a successful
-    /// input-unspent check.
-    pub async fn clear_input_unspent_check_failures(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        id: u32,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs
-             SET input_unspent_failures = 0
-             WHERE id = $1 AND input_unspent_timed_out = FALSE AND input_unspent_failures > 0",
-        )
-        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
-
-        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
-        Ok(())
-    }
-
     pub async fn get_effective_fee_rate(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -899,7 +851,7 @@ impl TxSenderDb {
 
             if input_unspent_timed_out {
                 tracing::info!(
-                    "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because input-unspent retries timed out",
+                    "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because an input was spent by a confirmed transaction",
                     id
                 );
                 continue;
@@ -946,10 +898,10 @@ impl TxSenderDb {
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-    ) -> Result<Vec<(u32, FeePayingType, Txid, Option<u32>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, FeePayingType, TxidDB, Option<i32>)>(
+    ) -> Result<Vec<(u32, FeePayingType, Txid, Transaction, Option<u32>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, FeePayingType, TxidDB, Vec<u8>, Option<i32>)>(
             r#"
-            SELECT id, fee_paying_type, txid, seen_at_height
+            SELECT id, fee_paying_type, txid, raw_tx, seen_at_height
             FROM tx_sender_try_to_send_txs
             WHERE is_finalized = FALSE
               AND input_unspent_timed_out = FALSE
@@ -959,11 +911,13 @@ impl TxSenderDb {
         let results = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
         results
             .into_iter()
-            .map(|(id, fee_paying_type, txid, seen_at_height)| {
+            .map(|(id, fee_paying_type, txid, raw_tx, seen_at_height)| {
+                let tx = deserialize(&raw_tx).wrap_err("Failed to deserialize raw tx")?;
                 Ok((
                     u32::try_from(id).wrap_err("Failed to convert id to u32")?,
                     fee_paying_type,
                     txid.0,
+                    tx,
                     seen_at_height
                         .map(u32::try_from)
                         .transpose()
@@ -971,6 +925,26 @@ impl TxSenderDb {
                 ))
             })
             .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Permanently disables a tx because one of its inputs was spent by a confirmed
+    /// transaction while this tx has not confirmed.
+    pub async fn mark_input_spent_by_confirmed_tx(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        id: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            r#"
+            UPDATE tx_sender_try_to_send_txs
+            SET input_unspent_timed_out = TRUE
+            WHERE id = $1
+            "#,
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+
+        txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn list_rbf_txids_for_ids(

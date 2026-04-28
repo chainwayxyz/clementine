@@ -82,6 +82,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> 
     fn bitcoin_config() -> BitcoinConfig {
         let mut extra_args = vec![
             "-txindex=1",
+            "-txospenderindex=1",
             "-fallbackfee=0.000001",
             "-rpcallowip=0.0.0.0/0",
             "-dustrelayfee=0",

@@ -122,6 +122,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
+        "-txospenderindex=1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
