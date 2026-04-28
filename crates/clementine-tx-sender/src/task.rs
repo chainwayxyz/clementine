@@ -121,25 +121,3 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
         }
     })
 }
-
-/// Test utility: pick a free localhost port, enable JSON-RPC, and spawn txsender loop.
-///
-/// Returns `(jsonrpc_addr, join_handle)`.
-#[cfg(all(feature = "testing", feature = "json-rpc"))]
-pub fn spawn_txsender_loop_with_free_localhost_jsonrpc_port(
-    mut config: TxSenderConfig,
-) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    use crate::test_utils::get_available_port;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
-    let port = get_available_port();
-
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    config.jsonrpc = Some(crate::config::TxSenderJsonRpcConfig {
-        bind: "127.0.0.1".to_string(),
-        port,
-    });
-
-    let handle = spawn_txsender_loop(config);
-    (addr, handle)
-}

@@ -149,7 +149,7 @@ impl ExtendedBitcoinRpc {
 
     /// Generates a new Bitcoin address for the wallet.
     pub async fn get_new_wallet_address(&self) -> Result<Address> {
-        self.get_new_address(None, None)
+        self.get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
             .await
             .wrap_err("Failed to get new address")
             .map(|addr| addr.assume_checked())
@@ -608,7 +608,7 @@ impl ExtendedBitcoinRpc {
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
-                        Amount::from_sat(new_fee_rate.to_sat_per_vb_ceil()),
+                        Amount::from_sat(new_fee_rate.to_sat_per_kvb()),
                     )),
                     replaceable: Some(true),
                     ..Default::default()

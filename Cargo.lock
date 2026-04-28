@@ -2355,7 +2355,6 @@ dependencies = [
  "clementine-errors",
  "clementine-extended-rpc",
  "clementine-primitives",
- "clementine-tx-sender",
  "clementine-utils",
  "eyre",
  "hex",

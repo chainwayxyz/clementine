@@ -43,10 +43,8 @@ json-rpc = [
 ]
 standalone = ["json-rpc"]
 citrea = ["dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client/citrea", "dep:borsh"]
-testing = []
 
 [dev-dependencies]
 secrecy = { workspace = true }
 rand = { workspace = true }
 clementine-extended-rpc = { path = "../clementine-extended-rpc", features = ["test-utils"] }
-clementine-tx-sender = { path = ".", features = ["testing"] }

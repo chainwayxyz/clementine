@@ -148,15 +148,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push tx-sender testing
-        uses: docker/build-push-action@v5.3.0
-        with:
-          context: .
-          file: ./crates/clementine-tx-sender/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-args: TX_SENDER_FEATURES=citrea,standalone,json-rpc,testing
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tx-sender-test:${{ github.ref_name }}
       - name: Build and push tx-sender
         uses: docker/build-push-action@v5.3.0
         with:
