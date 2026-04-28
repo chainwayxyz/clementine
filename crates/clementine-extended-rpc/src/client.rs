@@ -186,24 +186,50 @@ impl ExtendedBitcoinRpc {
         Ok(())
     }
 
-    /// Ensures `-txospenderindex=1` is enabled and synced.
-    pub async fn ensure_txospenderindex_synced(&self) -> Result<()> {
-        let index_info: serde_json::Value = self
-            .call("getindexinfo", &[])
+    async fn index_infos(&self) -> Result<serde_json::Value> {
+        self.call("getindexinfo", &[])
             .await
-            .wrap_err("Failed to call getindexinfo")?;
+            .wrap_err("Failed to call getindexinfo")
+            .map_err(Into::into)
+    }
 
-        let txospenderindex = index_info.get("txospenderindex").ok_or_else(|| {
-            eyre!("Bitcoin Core txospenderindex is unavailable; start bitcoind with -txospenderindex=1")
-        })?;
+    /// Ensures all tx-sender-required indexes are enabled.
+    pub async fn ensure_tx_sender_indexes_available(&self) -> Result<()> {
+        let index_info: serde_json::Value = self.index_infos().await?;
+        let missing: Vec<&str> = ["txindex", "txospenderindex"]
+            .into_iter()
+            .filter(|name| index_info.get(*name).is_none())
+            .collect();
 
-        match txospenderindex
-            .get("synced")
-            .and_then(serde_json::Value::as_bool)
-        {
-            Some(true) => Ok(()),
-            _ => Err(eyre!("Bitcoin Core txospenderindex is present but not synced").into()),
+        if !missing.is_empty() {
+            let args = missing
+                .iter()
+                .map(|name| format!("-{name}=1"))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            return Err(
+                eyre!("Bitcoin Core missing required indexes; start bitcoind with {args}").into(),
+            );
         }
+
+        Ok(())
+    }
+
+    /// Returns whether tx-sender-required indexes are fully synced.
+    pub async fn tx_sender_indexes_synced(&self) -> Result<(bool, bool)> {
+        let index_info = self.index_infos().await?;
+        Ok((
+            index_info
+                .get("txindex")
+                .and_then(|index| index.get("synced"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            index_info
+                .get("txospenderindex")
+                .and_then(|index| index.get("synced"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        ))
     }
 
     /// Finds transactions spending the requested prevouts using Bitcoin Core v31.
@@ -226,7 +252,16 @@ impl ExtendedBitcoinRpc {
             .collect();
 
         let rows: Vec<TxSpendingPrevoutRpc> = self
-            .call("gettxspendingprevout", &[serde_json::json!(outputs)])
+            .call(
+                "gettxspendingprevout",
+                &[
+                    serde_json::json!(outputs),
+                    serde_json::json!({
+                        "mempool_only": false,
+                        "return_spending_tx": false,
+                    }),
+                ],
+            )
             .await
             .wrap_err("Failed to call gettxspendingprevout")?;
 

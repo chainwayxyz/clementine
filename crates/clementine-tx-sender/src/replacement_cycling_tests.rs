@@ -141,7 +141,12 @@ async fn wait_for_peering(a: &ExtendedBitcoinRpc, b: &ExtendedBitcoinRpc, tries:
             .await
             .map(|peers| !peers.is_empty())
             .unwrap_or(false);
-        if a_has_peer && b_has_peer {
+        let added_node_connected = a
+            .get_added_node_info(None)
+            .await
+            .is_ok_and(|nodes| nodes.iter().any(|node| node.connected));
+
+        if (a_has_peer && b_has_peer) || added_node_connected {
             return;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;

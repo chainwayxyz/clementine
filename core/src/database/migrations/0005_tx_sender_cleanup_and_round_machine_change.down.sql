@@ -13,10 +13,7 @@ WHERE machine_type = 'round'
   AND state_json::jsonb -> 'state' ? 'RoundTx';
 
 ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
-DROP COLUMN IF EXISTS input_unspent_timed_out;
-
-ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
-DROP COLUMN IF EXISTS input_unspent_failures;
+DROP COLUMN IF EXISTS input_spent_at_height;
 
 -- Recreate legacy tx_sender cancel/activate helper tables.
 CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_outpoints (

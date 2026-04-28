@@ -177,14 +177,18 @@ impl TxSenderTracker {
 
         let activation = self.build_activation_state(ctx, try_to_send_id).await?;
 
-        let status = if ctx.is_mined_height_finalized(tx_chain_snapshot.mined_at_height)
+        let status = if row.input_spent_at_height.is_some() {
+            if row.is_finalized {
+                TrackStatus::Cancelled
+            } else {
+                TrackStatus::InProgress
+            }
+        } else if ctx.is_mined_height_finalized(tx_chain_snapshot.mined_at_height)
             || row.is_finalized
         {
             TrackStatus::Finalized
         } else if tx_info.mined_at_height.is_some() || row.mined_at_height.is_some() {
             TrackStatus::Mined
-        } else if row.input_unspent_timed_out {
-            TrackStatus::Cancelled
         } else if self.is_submission_in_progress(&row, &tx_info, &fee_payer_tx_infos) {
             TrackStatus::InProgress
         } else {

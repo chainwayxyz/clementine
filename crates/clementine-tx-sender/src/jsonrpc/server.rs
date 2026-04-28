@@ -368,7 +368,7 @@ mod tests {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
         sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs SET input_unspent_timed_out = TRUE WHERE id = $1",
+            "UPDATE tx_sender_try_to_send_txs SET input_spent_at_height = 1, is_finalized = TRUE WHERE id = $1",
         )
         .bind(i32::try_from(failed_id).expect("failed_id fits in i32"))
         .execute(db.pool())
@@ -511,6 +511,16 @@ mod tests {
                 None,
             )
             .await?;
+        let (fee_payer_row_id,): (i32,) = sqlx::query_as(
+            "UPDATE tx_sender_fee_payer_utxos
+             SET seen_at_height = 1
+             WHERE bumped_id = $1
+             RETURNING id",
+        )
+        .bind(i32::try_from(try_to_send_id).expect("try_to_send_id fits in i32"))
+        .fetch_one(db.pool())
+        .await?;
+        let fee_payer_row_id = u32::try_from(fee_payer_row_id).expect("fee payer id fits in u32");
 
         match client
             .track_tx(TrackRequest::TryToSend { try_to_send_id })
@@ -524,13 +534,6 @@ mod tests {
             other => panic!("unexpected tracking response: {other:?}"),
         }
 
-        let fee_payer_row_id = tx_sender_db
-            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
-            .await?
-            .into_iter()
-            .next()
-            .expect("saved fee payer tx should exist")
-            .0;
         tx_sender_db
             .mark_fee_payer_utxo_as_evicted(None, fee_payer_row_id)
             .await?;
