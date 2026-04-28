@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     /// This test verifies that the 1p1c TRUC CPFP package is rejected if the fee payer input is unconfirmed.
-    /// If this test faild, depending on the reason it could mean we do not have to wait for fee-payer confirmation anymore.
+    /// If this test failed, depending on the reason it could mean we do not have to wait for fee-payer confirmation anymore.
     #[tokio::test]
     async fn cpfp_package_rejects_unconfirmed_fee_payer_input() {
         let (config, _db, _rpc_env) = create_test_environment(true, true).await;

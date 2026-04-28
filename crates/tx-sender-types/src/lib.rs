@@ -15,6 +15,8 @@ pub use clementine::{
     TxMetadata,
 };
 pub use tracking::{
-    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, CommitRevealKind,
-    CommitRevealStatus, RevealStatus, TrackRequest, TrackResponse, TrackStatus, TxStatus,
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TrackRequest,
+    TrackResponse, TrackStatus, TxStatus,
 };
+#[cfg(feature = "citrea")]
+pub use tracking::{CommitRevealKind, CommitRevealStatus, RevealStatus};
