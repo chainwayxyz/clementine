@@ -608,7 +608,7 @@ impl ExtendedBitcoinRpc {
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
-                        Amount::from_sat(new_fee_rate.to_sat_per_vb_ceil()),
+                        Amount::from_sat(new_fee_rate.to_sat_per_kvb()),
                     )),
                     replaceable: Some(true),
                     ..Default::default()

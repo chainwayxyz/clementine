@@ -12,6 +12,8 @@ use crate::task::TxSenderTaskInternal;
 use crate::test_utils::create_test_environment;
 use crate::TxSender;
 
+const FEE_RATE_TOLERANCE_PERCENT: u64 = 1;
+
 /// Helper to insert a single Citrea raw tx row for the given transaction kind
 /// using `TxSenderClient::send_citrea_tx`, and return its `insertion_id`.
 async fn insert_single_citrea_row_with_body_size(
@@ -336,6 +338,12 @@ async fn calculate_package_feerate_sat_per_kvb(
     total_fee_sat.saturating_mul(1000).div_ceil(total_vbytes)
 }
 
+fn max_feerate_with_tolerance(target_feerate: u64) -> u64 {
+    target_feerate
+        .saturating_mul(100 + FEE_RATE_TOLERANCE_PERCENT)
+        .saturating_div(100)
+}
+
 fn assert_wtxid_prefix(tx: &bitcoin::Transaction, expected_prefix: &[u8], context: &str) {
     let wtxid = tx.compute_wtxid();
     let wtxid_bytes = wtxid.as_raw_hash().to_byte_array();
@@ -423,7 +431,7 @@ async fn citrea_complete_tx_flow_commits_and_mines_with_min_feerate() {
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
     let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
         "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
@@ -506,7 +514,7 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
 
         let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
         let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-        let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+        let max_feerate = max_feerate_with_tolerance(target_feerate);
         assert!(
             reveal_feerate >= target_feerate && reveal_feerate <= max_feerate,
             "expected reveal feerate between {target_feerate} and {max_feerate} sat/kvB, got {reveal_feerate}"
@@ -515,7 +523,7 @@ async fn citrea_chunks_tx_flow_commits_and_mines_with_min_feerate() {
 
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
         "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
@@ -705,7 +713,7 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
     let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
         "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
@@ -784,7 +792,7 @@ async fn citrea_sequencer_commitment_tx_flow_commits_and_mines_with_min_feerate(
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
     let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
         "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB, got {commit_feerate}"
@@ -857,9 +865,7 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
     );
     let original_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &original_tx).await;
     let target_feerate_before_bump = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate_before_bump = target_feerate_before_bump
-        .saturating_mul(101)
-        .saturating_div(100);
+    let max_feerate_before_bump = max_feerate_with_tolerance(target_feerate_before_bump);
     assert!(
         original_feerate >= target_feerate_before_bump
             && original_feerate <= max_feerate_before_bump,
@@ -923,10 +929,10 @@ async fn citrea_reveal_rbf_bumpfee_increases_feerate_and_mines() {
         "expected bumped feerate ({bumped_feerate}) to be greater than original ({original_feerate})"
     );
     let target_feerate = higher_feerate.to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         bumped_feerate <= max_feerate && bumped_feerate >= target_feerate,
-        "expected bumped package feerate (commit+reveal) <= {max_feerate} sat/kvB (1% above target {target_feerate}), got {bumped_feerate}"
+        "expected bumped package feerate (commit+reveal) <= {max_feerate} sat/kvB ({FEE_RATE_TOLERANCE_PERCENT}% above target {target_feerate}), got {bumped_feerate}"
     );
 
     // Mine a block and ensure bumped tx is confirmed.
@@ -994,7 +1000,7 @@ async fn citrea_large_body_tx_flow_commits_and_mines_with_min_feerate() {
     let commit_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &commit_tx).await;
     let reveal_feerate = calculate_feerate_sat_per_kvb(&tx_sender, &reveal_tx).await;
     let target_feerate = tx_sender.get_fee_rate().await.unwrap().to_sat_per_kvb();
-    let max_feerate = target_feerate.saturating_mul(101).saturating_div(100);
+    let max_feerate = max_feerate_with_tolerance(target_feerate);
     assert!(
         commit_feerate >= target_feerate && commit_feerate <= max_feerate,
         "expected commit feerate between {target_feerate} and {max_feerate} sat/kvB for large-body commit tx, got {commit_feerate}"

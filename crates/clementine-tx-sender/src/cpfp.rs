@@ -35,6 +35,8 @@ use eyre::{eyre, Context};
 use std::collections::HashSet;
 use std::env;
 
+const CPFP_FEE_PAYER_FEE_BUFFER_MULTIPLIER: f64 = 2.0;
+
 impl TxSender {
     fn anchor_prevout(anchor_sat: Amount) -> TxOut {
         // P2A anchor script: OP_1 OP_PUSHBYTES_2 0x4e73
@@ -126,6 +128,19 @@ impl TxSender {
         Ok(child_tx)
     }
 
+    fn calculate_fee_payer_total_amount(required_fee: Amount) -> Option<Amount> {
+        let buffered_fee_sat =
+            (required_fee.to_sat() as f64 * CPFP_FEE_PAYER_FEE_BUFFER_MULTIPLIER).ceil();
+        if !buffered_fee_sat.is_finite()
+            || buffered_fee_sat < 0.0
+            || buffered_fee_sat > u64::MAX as f64
+        {
+            return None;
+        }
+
+        Amount::from_sat(buffered_fee_sat as u64).checked_add(MIN_TAPROOT_AMOUNT)
+    }
+
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
     /// transactions.
     ///
@@ -164,13 +179,11 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        // Aggressively add 2x required fee to the total amount to account for sudden spikes
-        // We won't actually use 2x fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
+        // Aggressively buffer the required fee to account for sudden spikes.
+        // We won't actually use the buffered fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
         // if fees increase the utxo should still be sufficient to fund the tx with high probability
         // leftover fees will get sent back to wallet with a change output in fn create_child_tx
-        let new_total_fee_needed = required_fee
-            .checked_mul(2)
-            .and_then(|fee| fee.checked_add(MIN_TAPROOT_AMOUNT));
+        let new_total_fee_needed = Self::calculate_fee_payer_total_amount(required_fee);
         if new_total_fee_needed.is_none() {
             return Err(eyre!("Total fee needed is too large, required fee: {}, total fee payer amount: {}, fee rate: {}", required_fee, total_fee_payer_amount, fee_rate).into());
         }
@@ -435,7 +448,7 @@ impl TxSender {
         let mut not_evicted_ids = HashSet::new();
         let mut all_parent_ids = HashSet::new();
 
-        for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in bumpable_txs {
+        for (id, try_to_send_id, fee_payer_txid, _vout, amount, replacement_of_id) in bumpable_txs {
             tracing::debug!(
                 "Bumping fee for fee payer tx {} for try to send id {} for fee rate {}",
                 fee_payer_txid,
@@ -486,12 +499,30 @@ impl TxSender {
             {
                 Ok(new_txid) => {
                     if new_txid != fee_payer_txid {
+                        let bumped_tx = self
+                            .rpc
+                            .get_tx_of_txid(&new_txid)
+                            .await
+                            .map_err(|e| SendTxError::Other(eyre!(e)))?;
+                        let Some(new_vout) = bumped_tx.output.iter().position(|output| {
+                            output.value == amount
+                                && output.script_pubkey == self.signer.address().script_pubkey()
+                        }) else {
+                            tracing::warn!(
+                                "Bumped fee payer tx {} did not preserve expected output of {} sats for try_to_send_id {}, skipping DB save",
+                                new_txid,
+                                amount,
+                                try_to_send_id
+                            );
+                            continue;
+                        };
+
                         self.db
                             .save_fee_payer_tx(
                                 None,
                                 try_to_send_id,
                                 new_txid,
-                                vout,
+                                new_vout as u32,
                                 amount,
                                 Some(parent_id),
                             )
@@ -705,5 +736,471 @@ impl TxSender {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use bitcoin::absolute::LockTime;
+    use bitcoin::sighash::{Prevouts, SighashCache};
+    use bitcoin::taproot;
+    use bitcoin::{OutPoint, TapSighashType, Txid};
+    use bitcoincore_rpc::RpcApi;
+    use clementine_utils::sign::TapTweakData;
+
+    use crate::test_utils::create_test_environment;
+    use crate::DEFAULT_SEQUENCE;
+
+    const CPFP_TEST_FEE_RATE_SAT_KVB: u64 = 2_500;
+    const CPFP_BUMP_FEE_RATE_SAT_KVB: u64 = 4_000;
+    const FEE_RATE_TOLERANCE_PERCENT: u64 = 1;
+
+    struct QueuedCpfpParent {
+        try_to_send_id: u32,
+        tx: Transaction,
+        txid: Txid,
+        anchor_vout: u32,
+    }
+
+    #[derive(Debug, Clone)]
+    struct FeePayerRow {
+        id: u32,
+        txid: Txid,
+        vout: u32,
+        amount: Amount,
+    }
+
+    fn build_zero_fee_parent_tx(
+        tx_sender: &TxSender,
+        funding_outpoint: OutPoint,
+        funding_txout: TxOut,
+    ) -> Transaction {
+        let anchor = TxSender::anchor_prevout(Amount::ZERO);
+        let change_value = funding_txout
+            .value
+            .checked_sub(anchor.value)
+            .expect("funding amount must cover anchor");
+
+        let mut parent_tx = Transaction {
+            version: NON_STANDARD_V3,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: funding_outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: DEFAULT_SEQUENCE,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut {
+                    value: change_value,
+                    script_pubkey: tx_sender.address().script_pubkey(),
+                },
+                anchor,
+            ],
+        };
+
+        let prevouts = vec![funding_txout];
+        let sighash = SighashCache::new(&parent_tx)
+            .taproot_key_spend_signature_hash(0, &Prevouts::All(&prevouts), TapSighashType::Default)
+            .expect("parent sighash must be computed");
+        let signature = tx_sender
+            .signer
+            .sign_with_tweak_data(sighash, TapTweakData::KeyPath(None))
+            .expect("parent input must be signable");
+        let tr_sig = taproot::Signature {
+            signature,
+            sighash_type: TapSighashType::Default,
+        };
+        parent_tx.input[0].witness = Witness::p2tr_key_spend(&tr_sig);
+
+        parent_tx
+    }
+
+    async fn queue_cpfp_parent(tx_sender: &TxSender) -> QueuedCpfpParent {
+        let funding_outpoint = tx_sender
+            .rpc
+            .send_to_address(tx_sender.address(), Amount::from_sat(400_000))
+            .await
+            .expect("parent funding tx should be sent");
+        tx_sender
+            .rpc
+            .mine_blocks(1)
+            .await
+            .expect("parent funding tx should confirm");
+
+        let funding_txout = tx_sender
+            .rpc
+            .get_txout_from_outpoint(&funding_outpoint)
+            .await
+            .expect("parent funding txout should be available");
+        let parent_tx = build_zero_fee_parent_tx(tx_sender, funding_outpoint, funding_txout);
+        let parent_txid = parent_tx.compute_txid();
+        let anchor_vout = tx_sender.find_p2a_vout(&parent_tx).unwrap() as u32;
+
+        let mut dbtx = tx_sender.db.begin_transaction().await.unwrap();
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(&mut dbtx, None, &parent_tx, FeePayingType::CPFP, None, &[])
+            .await
+            .unwrap();
+        tx_sender.db.commit_transaction(dbtx).await.unwrap();
+        tx_sender
+            .sync_transaction_confirmations_via_rpc(None)
+            .await
+            .unwrap();
+
+        QueuedCpfpParent {
+            try_to_send_id,
+            tx: parent_tx,
+            txid: parent_txid,
+            anchor_vout,
+        }
+    }
+
+    async fn run_txsender_with_fee_rate(tx_sender: &TxSender, fee_rate: FeeRateKvb) {
+        let current_tip_height = tx_sender.rpc.get_current_chain_height().await.unwrap();
+        tx_sender
+            .sync_transaction_confirmations_via_rpc(None)
+            .await
+            .unwrap();
+        tx_sender
+            .try_to_send_unconfirmed_txs(fee_rate, current_tip_height, false)
+            .await
+            .unwrap();
+    }
+
+    async fn latest_unconfirmed_fee_payer(
+        tx_sender: &TxSender,
+        try_to_send_id: u32,
+    ) -> FeePayerRow {
+        let rows = tx_sender
+            .db
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
+            .await
+            .unwrap();
+
+        let (id, txid, vout, amount) = rows
+            .into_iter()
+            .max_by_key(|(id, _, _, _)| *id)
+            .expect("expected an unconfirmed fee payer tx");
+
+        FeePayerRow {
+            id,
+            txid,
+            vout,
+            amount,
+        }
+    }
+
+    async fn tx_is_in_mempool(tx_sender: &TxSender, txid: Txid) -> bool {
+        tx_sender
+            .rpc
+            .get_raw_mempool()
+            .await
+            .expect("getrawmempool must work")
+            .contains(&txid)
+    }
+
+    async fn get_child_spending_anchor(
+        tx_sender: &TxSender,
+        parent_txid: Txid,
+        anchor_vout: u32,
+    ) -> Transaction {
+        let txids = tx_sender
+            .rpc
+            .get_raw_mempool()
+            .await
+            .expect("getrawmempool must work");
+
+        for txid in txids {
+            if txid == parent_txid {
+                continue;
+            }
+
+            let tx = tx_sender
+                .rpc
+                .get_tx_of_txid(&txid)
+                .await
+                .expect("getrawtransaction must work");
+            if tx.input.iter().any(|input| {
+                input.previous_output.txid == parent_txid
+                    && input.previous_output.vout == anchor_vout
+            }) {
+                return tx;
+            }
+        }
+
+        panic!("expected a child tx spending {parent_txid}:{anchor_vout}");
+    }
+
+    async fn calculate_feerate_sat_per_kvb(tx_sender: &TxSender, tx: &Transaction) -> u64 {
+        let fee = tx_sender.get_tx_fee(tx).await.unwrap();
+        fee.to_sat()
+            .saturating_mul(1000)
+            .div_ceil(tx.weight().to_vbytes_ceil())
+    }
+
+    async fn calculate_package_feerate_sat_per_kvb(
+        tx_sender: &TxSender,
+        parent: &Transaction,
+        child: &Transaction,
+    ) -> u64 {
+        let parent_fee = tx_sender.get_tx_fee(parent).await.unwrap();
+        let child_fee = tx_sender.get_tx_fee(child).await.unwrap();
+        let total_fee_sat = parent_fee.to_sat().saturating_add(child_fee.to_sat());
+        let total_vbytes = (parent.weight() + child.weight()).to_vbytes_ceil();
+
+        total_fee_sat.saturating_mul(1000).div_ceil(total_vbytes)
+    }
+
+    fn assert_feerate_near_target(context: &str, actual: u64, target: FeeRateKvb) {
+        let target = target.to_sat_per_kvb();
+        let max = target
+            .saturating_mul(100 + FEE_RATE_TOLERANCE_PERCENT)
+            .saturating_div(100);
+        assert!(
+            actual >= target && actual <= max,
+            "expected {context} feerate between {target} and {max} sat/kvB, got {actual}"
+        );
+    }
+
+    fn expected_child_fee(parent: &Transaction, fee_rate: FeeRateKvb) -> Amount {
+        TxSender::calculate_required_fee(parent.weight(), 1, fee_rate, FeePayingType::CPFP).unwrap()
+    }
+
+    fn expected_fee_payer_amount(parent: &Transaction, fee_rate: FeeRateKvb) -> Amount {
+        TxSender::calculate_fee_payer_total_amount(expected_child_fee(parent, fee_rate)).unwrap()
+    }
+
+    async fn assert_fee_payer_creation_tx(
+        tx_sender: &TxSender,
+        parent: &Transaction,
+        row: &FeePayerRow,
+        fee_rate: FeeRateKvb,
+        context: &str,
+    ) {
+        let fee_payer_tx = tx_sender.rpc.get_tx_of_txid(&row.txid).await.unwrap();
+        assert_eq!(
+            fee_payer_tx.output[row.vout as usize].value, row.amount,
+            "fee payer DB amount should match the created output"
+        );
+        assert_eq!(
+            row.amount,
+            expected_fee_payer_amount(parent, fee_rate),
+            "unexpected fee payer output amount for {context}"
+        );
+
+        let fee_payer_feerate = calculate_feerate_sat_per_kvb(tx_sender, &fee_payer_tx).await;
+        assert_feerate_near_target(context, fee_payer_feerate, fee_rate);
+    }
+
+    async fn assert_cpfp_package_fees(
+        tx_sender: &TxSender,
+        parent: &Transaction,
+        child: &Transaction,
+        fee_rate: FeeRateKvb,
+        context: &str,
+    ) {
+        let parent_fee = tx_sender.get_tx_fee(parent).await.unwrap();
+        let child_fee = tx_sender.get_tx_fee(child).await.unwrap();
+        assert_eq!(
+            parent_fee,
+            Amount::ZERO,
+            "expected zero-fee CPFP parent tx for {context}"
+        );
+        assert_eq!(
+            child_fee,
+            expected_child_fee(parent, fee_rate),
+            "unexpected CPFP child fee for {context}"
+        );
+
+        let package_feerate = calculate_package_feerate_sat_per_kvb(tx_sender, parent, child).await;
+        assert_feerate_near_target(context, package_feerate, fee_rate);
+    }
+
+    #[tokio::test]
+    async fn cpfp_package_and_fee_payer_creation_use_fixed_fee_rate() {
+        let (config, _db, _rpc_env) = create_test_environment(true, true).await;
+        let tx_sender = TxSender::new(config).await.unwrap();
+        let fee_rate = FeeRateKvb::from_sat_per_kvb(CPFP_TEST_FEE_RATE_SAT_KVB);
+
+        let parent = queue_cpfp_parent(&tx_sender).await;
+
+        run_txsender_with_fee_rate(&tx_sender, fee_rate).await;
+        let fee_payer = latest_unconfirmed_fee_payer(&tx_sender, parent.try_to_send_id).await;
+        assert_fee_payer_creation_tx(
+            &tx_sender,
+            &parent.tx,
+            &fee_payer,
+            fee_rate,
+            "initial fee payer creation tx",
+        )
+        .await;
+
+        tx_sender.rpc.mine_blocks(1).await.unwrap();
+        run_txsender_with_fee_rate(&tx_sender, fee_rate).await;
+
+        let child = get_child_spending_anchor(&tx_sender, parent.txid, parent.anchor_vout).await;
+        assert_cpfp_package_fees(
+            &tx_sender,
+            &parent.tx,
+            &child,
+            fee_rate,
+            "initial CPFP package",
+        )
+        .await;
+
+        tx_sender.rpc.mine_blocks(1).await.unwrap();
+        let parent_confirmations = tx_sender
+            .rpc
+            .confirmation_blocks(&parent.txid)
+            .await
+            .unwrap();
+        let child_confirmations = tx_sender
+            .rpc
+            .confirmation_blocks(&child.compute_txid())
+            .await
+            .unwrap();
+        assert!(parent_confirmations >= 1, "expected CPFP parent to confirm");
+        assert!(child_confirmations >= 1, "expected CPFP child to confirm");
+    }
+
+    #[tokio::test]
+    async fn cpfp_fee_bump_updates_fee_payer_and_package_fees() {
+        let (mut config, _db, _rpc_env) = create_test_environment(true, true).await;
+        config.limits.cpfp_fee_payer_bump_wait_time_seconds = 0;
+        config.limits.min_bump_kvb = 300;
+
+        let tx_sender = TxSender::new(config).await.unwrap();
+        let initial_fee_rate = FeeRateKvb::from_sat_per_kvb(CPFP_TEST_FEE_RATE_SAT_KVB);
+        let bumped_fee_rate = FeeRateKvb::from_sat_per_kvb(CPFP_BUMP_FEE_RATE_SAT_KVB);
+
+        let parent = queue_cpfp_parent(&tx_sender).await;
+
+        run_txsender_with_fee_rate(&tx_sender, initial_fee_rate).await;
+        let initial_fee_payer =
+            latest_unconfirmed_fee_payer(&tx_sender, parent.try_to_send_id).await;
+        assert_fee_payer_creation_tx(
+            &tx_sender,
+            &parent.tx,
+            &initial_fee_payer,
+            initial_fee_rate,
+            "initial fee payer creation tx before bump",
+        )
+        .await;
+
+        tx_sender
+            .bump_fees_of_unconfirmed_fee_payer_txs(bumped_fee_rate)
+            .await
+            .unwrap();
+        let bumped_fee_payer =
+            latest_unconfirmed_fee_payer(&tx_sender, parent.try_to_send_id).await;
+        assert_ne!(
+            bumped_fee_payer.txid, initial_fee_payer.txid,
+            "expected fee payer creation tx to be RBF-bumped"
+        );
+        assert!(
+            bumped_fee_payer.id > initial_fee_payer.id,
+            "expected bumped fee payer row to be newer"
+        );
+        let bumped_fee_payer_tx = tx_sender
+            .rpc
+            .get_tx_of_txid(&bumped_fee_payer.txid)
+            .await
+            .unwrap();
+        assert_eq!(
+            bumped_fee_payer.amount,
+            expected_fee_payer_amount(&parent.tx, initial_fee_rate),
+            "fee payer bump should preserve the CPFP funding output amount"
+        );
+        assert_eq!(
+            bumped_fee_payer_tx.output[bumped_fee_payer.vout as usize].value,
+            bumped_fee_payer.amount,
+            "bumped fee payer DB vout should point to the preserved funding output"
+        );
+        assert_eq!(
+            bumped_fee_payer_tx.output[bumped_fee_payer.vout as usize].script_pubkey,
+            tx_sender.address().script_pubkey(),
+            "bumped fee payer DB vout should remain spendable by txsender"
+        );
+        let bumped_fee_payer_feerate =
+            calculate_feerate_sat_per_kvb(&tx_sender, &bumped_fee_payer_tx).await;
+        assert_feerate_near_target(
+            "bumped fee payer creation tx",
+            bumped_fee_payer_feerate,
+            bumped_fee_rate,
+        );
+
+        tx_sender.rpc.mine_blocks(1).await.unwrap();
+        run_txsender_with_fee_rate(&tx_sender, initial_fee_rate).await;
+        let initial_child =
+            get_child_spending_anchor(&tx_sender, parent.txid, parent.anchor_vout).await;
+        let initial_child_txid = initial_child.compute_txid();
+        assert_cpfp_package_fees(
+            &tx_sender,
+            &parent.tx,
+            &initial_child,
+            initial_fee_rate,
+            "initial CPFP package before bump",
+        )
+        .await;
+
+        let below_min_bump = FeeRateKvb::from_sat_per_kvb(
+            initial_fee_rate
+                .to_sat_per_kvb()
+                .saturating_add(tx_sender.tx_sender_limits.min_bump_kvb)
+                .saturating_sub(1),
+        );
+        run_txsender_with_fee_rate(&tx_sender, below_min_bump).await;
+        let not_bumped_child =
+            get_child_spending_anchor(&tx_sender, parent.txid, parent.anchor_vout).await;
+        assert_eq!(
+            not_bumped_child.compute_txid(),
+            initial_child_txid,
+            "expected CPFP package to keep the same child below min_bump_kvb"
+        );
+
+        run_txsender_with_fee_rate(&tx_sender, bumped_fee_rate).await;
+        let bumped_child =
+            get_child_spending_anchor(&tx_sender, parent.txid, parent.anchor_vout).await;
+        assert_ne!(
+            bumped_child.compute_txid(),
+            initial_child_txid,
+            "expected CPFP package bump to create a replacement child"
+        );
+        assert!(
+            !tx_is_in_mempool(&tx_sender, initial_child_txid).await,
+            "expected initial CPFP child to be replaced"
+        );
+        assert_cpfp_package_fees(
+            &tx_sender,
+            &parent.tx,
+            &bumped_child,
+            bumped_fee_rate,
+            "bumped CPFP package",
+        )
+        .await;
+
+        tx_sender.rpc.mine_blocks(1).await.unwrap();
+        let parent_confirmations = tx_sender
+            .rpc
+            .confirmation_blocks(&parent.txid)
+            .await
+            .unwrap();
+        let child_confirmations = tx_sender
+            .rpc
+            .confirmation_blocks(&bumped_child.compute_txid())
+            .await
+            .unwrap();
+        assert!(
+            parent_confirmations >= 1,
+            "expected bumped CPFP parent to confirm"
+        );
+        assert!(
+            child_confirmations >= 1,
+            "expected bumped CPFP child to confirm"
+        );
     }
 }
