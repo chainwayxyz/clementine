@@ -1020,6 +1020,73 @@ mod tests {
         assert_feerate_near_target(context, package_feerate, fee_rate);
     }
 
+    /// This test verifies that the 1p1c TRUC CPFP package is rejected if the fee payer input is unconfirmed.
+    /// If this test faild, depending on the reason it could mean we do not have to wait for fee-payer confirmation anymore.
+    #[tokio::test]
+    async fn cpfp_package_rejects_unconfirmed_fee_payer_input() {
+        let (config, _db, _rpc_env) = create_test_environment(true, true).await;
+        let tx_sender = TxSender::new(config).await.unwrap();
+        let fee_rate = FeeRateKvb::from_sat_per_kvb(CPFP_TEST_FEE_RATE_SAT_KVB);
+        let parent = queue_cpfp_parent(&tx_sender).await;
+        assert_eq!(
+            parent.tx.output[parent.anchor_vout as usize].value,
+            Amount::ZERO
+        );
+
+        run_txsender_with_fee_rate(&tx_sender, fee_rate).await;
+        let fee_payer = latest_unconfirmed_fee_payer(&tx_sender, parent.try_to_send_id).await;
+        assert!(tx_is_in_mempool(&tx_sender, fee_payer.txid).await);
+
+        let fee_payer_tx = tx_sender.rpc.get_tx_of_txid(&fee_payer.txid).await.unwrap();
+        let package = tx_sender
+            .create_package(
+                parent.tx,
+                fee_rate,
+                vec![crate::SpendableUtxo {
+                    outpoint: OutPoint {
+                        txid: fee_payer.txid,
+                        vout: fee_payer.vout,
+                    },
+                    txout: fee_payer_tx.output[fee_payer.vout as usize].clone(),
+                    spend_info: None,
+                }],
+            )
+            .await
+            .unwrap();
+        assert_eq!(package.len(), 2, "expected 1-parent/1-child package");
+        let child_txid = package[1].compute_txid();
+        let package_refs: Vec<&Transaction> = package.iter().collect();
+
+        let submit_result = tx_sender
+            .rpc
+            .submit_package(&package_refs, Some(Amount::ZERO), None)
+            .await
+            .unwrap();
+        assert!(
+            submit_result
+                .tx_results
+                .values()
+                .any(|result| matches!(result, PackageTransactionResult::Failure { .. })),
+            "expected package to be rejected with unconfirmed fee payer input, got {submit_result:?}"
+        );
+        assert!(!tx_is_in_mempool(&tx_sender, child_txid).await);
+
+        tx_sender.rpc.mine_blocks(1).await.unwrap();
+        let submit_result = tx_sender
+            .rpc
+            .submit_package(&package_refs, Some(Amount::ZERO), None)
+            .await
+            .unwrap();
+        assert!(
+            submit_result
+                .tx_results
+                .values()
+                .all(|result| !matches!(result, PackageTransactionResult::Failure { .. })),
+            "expected package to be accepted after fee payer confirms, got {submit_result:?}"
+        );
+        assert!(tx_is_in_mempool(&tx_sender, child_txid).await);
+    }
+
     #[tokio::test]
     async fn cpfp_package_and_fee_payer_creation_use_fixed_fee_rate() {
         let (config, _db, _rpc_env) = create_test_environment(true, true).await;
