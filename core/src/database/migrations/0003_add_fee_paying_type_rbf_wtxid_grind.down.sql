@@ -10,6 +10,6 @@ ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_outpoints DROP COLUMN IF EX
 -- Roll back txid activation mempool tracking.
 ALTER TABLE IF EXISTS tx_sender_activate_try_to_send_txids DROP COLUMN IF EXISTS in_mempool;
 -- Drop unique constraint on txid column in tx_sender_try_to_send_txs table
-ALTER TABLE tx_sender_try_to_send_txs DROP CONSTRAINT uq_tx_sender_txid;
+ALTER TABLE tx_sender_try_to_send_txs DROP CONSTRAINT IF EXISTS uq_tx_sender_txid;
 --  Drop tx_sender_sync_state table
 DROP TABLE IF EXISTS tx_sender_sync_state;
