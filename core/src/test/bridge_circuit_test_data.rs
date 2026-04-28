@@ -27,6 +27,8 @@ use citrea_e2e::{
 pub enum BridgeCircuitTestDataVariant {
     WithAnnex,
     LargeInput,
+    LargeOutput,
+    LargeInputAndOutput,
     InsufficientTotalWork,
     Valid,
     FirstTwoValid,
@@ -114,6 +116,12 @@ impl TestCase for BridgeCircuitTestData {
             }
             BridgeCircuitTestDataVariant::LargeInput => {
                 config.test_params.use_large_annex = true;
+            }
+            BridgeCircuitTestDataVariant::LargeOutput => {
+                config.test_params.use_large_output = true;
+            }
+            BridgeCircuitTestDataVariant::LargeInputAndOutput => {
+                config.test_params.use_large_annex_and_output = true;
             }
             BridgeCircuitTestDataVariant::FirstTwoValid => {
                 config
@@ -231,11 +239,44 @@ async fn challenge_tx_with_annex() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "Only run this test manually, it's for data generation purposes"]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
 async fn challenge_tx_with_large_input() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInput,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
+async fn challenge_tx_with_large_output_large_op_return() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::LargeOutput,
+    };
+    TestCaseRunner::new(watchtower_challenge_tx_variant)
+        .run()
+        .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
+async fn challenge_tx_with_large_input_and_output_large_op_return() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
+        variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,
     };
     TestCaseRunner::new(watchtower_challenge_tx_variant)
         .run()

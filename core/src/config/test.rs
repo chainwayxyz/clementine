@@ -336,35 +336,35 @@ impl TestParams {
         use std::path::PathBuf;
 
         let cases = [
-        (
-            self.use_small_annex,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex.bin",
-        ),
-        (
-            self.use_large_annex,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex.bin",
-        ),
-        (
-            self.use_large_output,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_output.bin",
-        ),
-        (
-            self.use_large_annex_and_output,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin",
-        ),
-        (
-            self.generate_varying_total_works,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
-        ),
-        (
-            self.generate_varying_total_works_insufficient_total_work,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
-        ),
-        (
-            self.generate_varying_total_works_first_two_valid,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
-        ),
-    ];
+            (
+                self.use_small_annex,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex_large_op_return.bin",
+            ),
+            (
+                self.use_large_annex,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_large_op_return.bin",
+            ),
+            (
+                self.use_large_output,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_output_large_op_return.bin",
+            ),
+            (
+                self.use_large_annex_and_output,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_and_output_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works_insufficient_total_work,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works_first_two_valid,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid_large_op_return.bin",
+            ),
+        ];
 
         let active_cases: Vec<_> = cases.iter().filter(|(cond, _)| *cond).collect();
 
@@ -383,6 +383,15 @@ impl TestParams {
                 eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
             })?;
             tracing::info!("Bridge circuit host params written to {:?}", &path);
+            if std::env::var("CLEMENTINE_EXIT_AFTER_BRIDGE_CIRCUIT_PARAMS_DUMP").as_deref()
+                == Ok("1")
+            {
+                tracing::warn!(
+                    "Exiting after writing bridge circuit host params to {:?}",
+                    &path
+                );
+                std::process::exit(0);
+            }
         }
 
         Ok(())
@@ -448,6 +457,13 @@ impl TestParams {
                         .to_vec()[2..34]
                 )
             );
+            if std::env::var("CLEMENTINE_EXIT_AFTER_KICKOFF_AND_WTC_DUMP").as_deref() == Ok("1") {
+                tracing::warn!(
+                    "Exiting after writing kickoff and watchtower challenge tx data to {:?}",
+                    &path
+                );
+                std::process::exit(0);
+            }
         }
         Ok(())
     }

@@ -423,26 +423,7 @@ where
     C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        #[cfg(not(test))]
         let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
-
-        #[cfg(test)]
-        let signer = {
-            let mut signer = Actor::new(config.secret_key, config.protocol_paramset().network);
-            if config.test_params.use_small_annex {
-                signer.annex = Some(vec![80u8; 520]);
-            } else if config.test_params.use_large_annex {
-                signer.annex = Some(vec![80u8; 3990000]);
-            }
-            if config.test_params.use_large_annex || config.test_params.use_small_annex {
-                tracing::warn!(
-                    "Using annex: small: {}, large: {}",
-                    config.test_params.use_small_annex,
-                    config.test_params.use_large_annex
-                );
-            }
-            signer
-        };
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
