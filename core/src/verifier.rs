@@ -1389,6 +1389,8 @@ where
         let mut move_tx_height = None;
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let operators = deposit_data.get_operators();
+        let mut outpoints = Vec::new();
+        let mut expected_spenders = std::collections::HashMap::new();
 
         for (operator_idx, operator_xonly_pk) in operators.into_iter().enumerate() {
             let operator_data = self
@@ -1406,8 +1408,6 @@ where
                 self.config.protocol_paramset().num_round_txs,
             )?;
             let mut prev_ready_to_reimburse: Option<TxHandler> = None;
-            let mut outpoints = Vec::new();
-            let mut expected_spenders = std::collections::HashMap::new();
             for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
             {
                 let txhandlers = create_round_txhandlers(
@@ -1445,26 +1445,19 @@ where
                 }
                 prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
             }
+        }
 
-            if operator_idx == 0 {
-                outpoints.push(deposit_outpoint);
-            }
-            if outpoints.is_empty() {
+        outpoints.push(deposit_outpoint);
+        for (outpoint, (spending_txid, height)) in self.rpc.confirmed_spenders(&outpoints).await? {
+            if outpoint == deposit_outpoint {
+                if spending_txid == move_txid {
+                    move_tx_height = Some(height);
+                }
                 continue;
             }
-            for (outpoint, (spending_txid, height)) in
-                self.rpc.confirmed_spenders(&outpoints).await?
-            {
-                if outpoint == deposit_outpoint {
-                    if spending_txid == move_txid {
-                        move_tx_height = Some(height);
-                    }
-                    continue;
-                }
-                if let Some((expected_txid, _, _, _)) = expected_spenders.get(&outpoint) {
-                    if spending_txid == *expected_txid {
-                        canonical_kickoffs.push((*expected_txid, height));
-                    }
+            if let Some((expected_txid, _, _, _)) = expected_spenders.get(&outpoint) {
+                if spending_txid == *expected_txid {
+                    canonical_kickoffs.push((*expected_txid, height));
                 }
             }
         }
@@ -1536,52 +1529,44 @@ where
 
         #[cfg(feature = "automation")]
         {
-            // Group by block height to minimize block reads
-            let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
-                std::collections::HashMap::new();
-            for (txid, height) in &finalized_txids {
-                txids_by_height.entry(*height).or_default().push(*txid);
-            }
+            for (txid, block_height) in &finalized_txids {
+                let tx = self
+                    .rpc
+                    .get_tx_of_txid(txid)
+                    .await
+                    .wrap_err_with(|| format!("Failed to fetch finalized kickoff tx {txid}"))?;
+                let witness = tx
+                    .input
+                    .first()
+                    .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
+                    .witness
+                    .clone();
+                let (operator_xonly_pk, round_idx, kickoff_idx) = kickoff_metadata
+                    .get(txid)
+                    .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
 
-            // For each block height, get the full block and extract witnesses
-            for (block_height, txids_in_block) in txids_by_height {
-                let block = self
+                StateManager::<Self>::dispatch_new_kickoff_machine(
+                    &self.db,
+                    &mut *dbtx,
+                    KickoffData {
+                        operator_xonly_pk: *operator_xonly_pk,
+                        round_idx: *round_idx,
+                        kickoff_idx: *kickoff_idx as u32,
+                    },
+                    *block_height,
+                    deposit_data.clone(),
+                    witness.clone(),
+                )
+                .await?;
+
+                // send it to operator state manager too, if the state manager queue for the operator exists
+                // if it doesn't exist, it means this verifier does not have an operator with automation enabled
+                if self
                     .db
-                    .get_full_block(Some(&mut *dbtx), block_height)
+                    .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(&mut *dbtx))
                     .await?
-                    .ok_or_else(|| {
-                        eyre::eyre!(
-                        "Block at height {} not found in database despite confirmed RPC tx lookup",
-                        block_height
-                    )
-                    })?;
-
-                for txid in txids_in_block {
-                    // Find the transaction in the block
-                    let tx = block
-                        .txdata
-                        .iter()
-                        .find(|tx| tx.compute_txid() == txid)
-                        .ok_or_else(|| {
-                            eyre::eyre!(
-                                "Transaction {} not found in block at height {}",
-                                txid,
-                                block_height
-                            )
-                        })?;
-
-                    let witness = tx
-                        .input
-                        .first()
-                        .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
-                        .witness
-                        .clone();
-                    let (operator_xonly_pk, round_idx, kickoff_idx) =
-                        kickoff_metadata
-                            .get(&txid)
-                            .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
-
-                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                {
+                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
                         &self.db,
                         &mut *dbtx,
                         KickoffData {
@@ -1589,36 +1574,11 @@ where
                             round_idx: *round_idx,
                             kickoff_idx: *kickoff_idx as u32,
                         },
-                        block_height,
+                        *block_height,
                         deposit_data.clone(),
                         witness.clone(),
                     )
                     .await?;
-
-                    // send it to operator state manager too, if the state manager queue for the operator exists
-                    // if it doesn't exist, it means this verifier does not have an operator with automation enabled
-                    if self
-                        .db
-                        .pgmq_queue_exists(
-                            &StateManager::<Operator<C>>::queue_name(),
-                            Some(&mut *dbtx),
-                        )
-                        .await?
-                    {
-                        StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
-                            &self.db,
-                            &mut *dbtx,
-                            KickoffData {
-                                operator_xonly_pk: *operator_xonly_pk,
-                                round_idx: *round_idx,
-                                kickoff_idx: *kickoff_idx as u32,
-                            },
-                            block_height,
-                            deposit_data.clone(),
-                            witness.clone(),
-                        )
-                        .await?;
-                    }
                 }
             }
         }

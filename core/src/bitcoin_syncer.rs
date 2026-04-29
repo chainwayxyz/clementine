@@ -332,15 +332,6 @@ impl BitcoinSyncer {
                 "bitcoin syncer requires Bitcoin Core txindex and txospenderindex: {e}"
             ))
         })?;
-        let (txindex_synced, txospenderindex_synced) = rpc
-            .required_indexes_synced()
-            .await
-            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
-        if !txindex_synced || !txospenderindex_synced {
-            return Err(BridgeError::ConfigError(format!(
-                "Bitcoin Core indexes are not synced: txindex={txindex_synced}, txospenderindex={txospenderindex_synced}"
-            )));
-        }
 
         // Initialize the database if needed
         set_initial_block_info_if_not_exists(&db, &rpc, paramset).await?;

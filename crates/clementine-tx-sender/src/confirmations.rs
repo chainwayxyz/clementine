@@ -48,7 +48,7 @@ impl TxSender {
         // We cache getrawtransactioninfo and block info results per sync to avoid
         // duplicate RPC calls across tables.
         let mut tx_status_cache: HashMap<Txid, TxChainStatus> = HashMap::new();
-        let mut block_info_cache: HashMap<BlockHash, (u32, u32)> = HashMap::new(); // (height, confirmations)
+        let mut block_info_cache: HashMap<BlockHash, Option<(u32, u32)>> = HashMap::new();
 
         // ---- main try_to_send_txs ----
         let unfinalized = self
@@ -318,7 +318,7 @@ impl TxSender {
 async fn get_tx_status_cached(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
     tx_cache: &mut HashMap<Txid, TxChainStatus>,
-    block_cache: &mut HashMap<BlockHash, (u32, u32)>,
+    block_cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
     txid: Txid,
 ) -> Result<TxChainStatus, BridgeError> {
     if let Some(status) = tx_cache.get(&txid) {
@@ -342,7 +342,7 @@ async fn get_tx_status_cached(
                 ))
             })?;
 
-            match get_active_block_info_cached(rpc, block_cache, blockhash).await? {
+            match rpc.active_block_info_cached(block_cache, blockhash).await? {
                 Some((block_height, confirmations)) => TxChainStatus::Confirmed {
                     block_height,
                     confirmations,
@@ -366,7 +366,7 @@ async fn get_tx_status_cached(
 /// when the queued tx first became unmineable.
 async fn confirmed_input_spender(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
-    block_cache: &mut HashMap<BlockHash, (u32, u32)>,
+    block_cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
     tx: &Transaction,
     original_txid: Txid,
     rbf_txids: &[Txid],
@@ -402,7 +402,7 @@ async fn confirmed_input_spender(
         };
 
         let Some((block_height, confirmations)) =
-            get_active_block_info_cached(rpc, block_cache, blockhash).await?
+            rpc.active_block_info_cached(block_cache, blockhash).await?
         else {
             continue;
         };
@@ -425,34 +425,6 @@ async fn confirmed_input_spender(
 
     Ok(oldest_confirmed_spender)
 }
-
-/// Returns cached active-chain `(height, confirmations)` for `blockhash`.
-/// Blocks with non-positive confirmations are stale/reorged and return `None`.
-async fn get_active_block_info_cached(
-    rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
-    block_cache: &mut HashMap<BlockHash, (u32, u32)>,
-    blockhash: BlockHash,
-) -> Result<Option<(u32, u32)>, BridgeError> {
-    if let Some((_height, confirmations)) = block_cache.get(&blockhash) {
-        return Ok(Some((*_height, *confirmations)));
-    }
-
-    let block_info = rpc
-        .get_block_info(&blockhash)
-        .await
-        .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
-
-    if block_info.confirmations <= 0 {
-        return Ok(None);
-    }
-
-    let height = u32::try_from(block_info.height).map_err(|e| BridgeError::Eyre(e.into()))?;
-    let confirmations =
-        u32::try_from(block_info.confirmations).map_err(|e| BridgeError::Eyre(e.into()))?;
-    block_cache.insert(blockhash, (height, confirmations));
-    Ok(Some((height, confirmations)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

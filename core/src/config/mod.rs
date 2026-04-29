@@ -263,15 +263,6 @@ impl BridgeConfig {
             reasons.push(format!(
                 "Bitcoin Core txindex and txospenderindex are required: {e}"
             ));
-        } else {
-            match rpc.required_indexes_synced().await {
-                Ok((txindex_synced, txospenderindex_synced))
-                    if txindex_synced && txospenderindex_synced => {}
-                Ok((txindex_synced, txospenderindex_synced)) => reasons.push(format!(
-                    "Bitcoin Core indexes are not synced: txindex={txindex_synced}, txospenderindex={txospenderindex_synced}"
-                )),
-                Err(e) => reasons.push(format!("Failed to check Bitcoin Core index sync: {e}")),
-            }
         }
 
         if genesis_chain_state.to_hash() != self.protocol_paramset().genesis_chain_state_hash {

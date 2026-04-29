@@ -222,25 +222,29 @@ impl ExtendedBitcoinRpc {
         ))
     }
 
-    async fn active_block_height_cached(
+    pub async fn active_block_info_cached(
         &self,
-        cache: &mut HashMap<BlockHash, Option<u32>>,
+        cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
         blockhash: BlockHash,
-    ) -> Result<Option<u32>> {
-        if let Some(height) = cache.get(&blockhash) {
-            return Ok(*height);
+    ) -> Result<Option<(u32, u32)>> {
+        if let Some(info) = cache.get(&blockhash) {
+            return Ok(*info);
         }
         let block_info = self
             .get_block_info(&blockhash)
             .await
             .wrap_err("Failed to get block info")?;
-        let height = if block_info.confirmations > 0 {
-            Some(u32::try_from(block_info.height).wrap_err("Failed to convert block height")?)
+        let info = if block_info.confirmations > 0 {
+            Some((
+                u32::try_from(block_info.height).wrap_err("Failed to convert block height")?,
+                u32::try_from(block_info.confirmations)
+                    .wrap_err("Failed to convert block confirmations")?,
+            ))
         } else {
             None
         };
-        cache.insert(blockhash, height);
-        Ok(height)
+        cache.insert(blockhash, info);
+        Ok(info)
     }
 
     pub async fn confirmed_tx_heights(&self, txids: &[Txid]) -> Result<Vec<(Txid, u32)>> {
@@ -262,8 +266,8 @@ impl ExtendedBitcoinRpc {
             if info.confirmations.is_none_or(|c| c == 0) {
                 continue;
             }
-            if let Some(height) = self
-                .active_block_height_cached(&mut block_cache, blockhash)
+            if let Some((height, _)) = self
+                .active_block_info_cached(&mut block_cache, blockhash)
                 .await?
             {
                 heights.push((info.txid, height));
@@ -306,8 +310,8 @@ impl ExtendedBitcoinRpc {
             let Some(blockhash) = spender.blockhash else {
                 continue;
             };
-            if let Some(height) = self
-                .active_block_height_cached(&mut block_cache, blockhash)
+            if let Some((height, _)) = self
+                .active_block_info_cached(&mut block_cache, blockhash)
                 .await?
             {
                 heights.insert(spender.outpoint(), (spending_txid, height));
