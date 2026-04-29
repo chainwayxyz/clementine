@@ -1,13 +1,14 @@
 //! Extended Bitcoin RPC client with retry logic.
 
 use async_trait::async_trait;
-use bitcoin::{Address, Amount, Network, OutPoint, TxOut, Txid, Weight};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoin::{Address, Amount, BlockHash, Network, OutPoint, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::GetTxSpendingPrevoutOptions, Auth, Client, RpcApi};
 use clementine_errors::{BitcoinRPCError, FeeErr};
 use clementine_primitives::FeeRateKvb;
 use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,13 @@ pub use crate::retry::{RetryConfig, RetryableError};
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const BITCOIN_CORE_V31_VERSION: usize = 310000;
+const REQUIRED_INDEXES: [&str; 2] = ["txindex", "txospenderindex"];
+
+fn is_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
+    let s = err.to_string();
+    s.contains("No such mempool or blockchain transaction")
+        || s.contains("No such transaction found in the provided block")
+}
 
 /// Bitcoin RPC wrapper with retry logic.
 ///
@@ -175,10 +183,10 @@ impl ExtendedBitcoinRpc {
             .map_err(Into::into)
     }
 
-    /// Ensures all tx-sender-required indexes are enabled.
-    pub async fn ensure_tx_sender_indexes_available(&self) -> Result<()> {
+    /// Ensures all Clementine-required Bitcoin Core indexes are enabled.
+    pub async fn ensure_required_indexes_available(&self) -> Result<()> {
         let index_info: serde_json::Value = self.index_infos().await?;
-        let missing: Vec<&str> = ["txindex", "txospenderindex"]
+        let missing: Vec<&str> = REQUIRED_INDEXES
             .into_iter()
             .filter(|name| index_info.get(*name).is_none())
             .collect();
@@ -197,8 +205,8 @@ impl ExtendedBitcoinRpc {
         Ok(())
     }
 
-    /// Returns whether tx-sender-required indexes are fully synced.
-    pub async fn tx_sender_indexes_synced(&self) -> Result<(bool, bool)> {
+    /// Returns whether Clementine-required indexes are fully synced.
+    pub async fn required_indexes_synced(&self) -> Result<(bool, bool)> {
         let index_info = self.index_infos().await?;
         Ok((
             index_info
@@ -212,6 +220,88 @@ impl ExtendedBitcoinRpc {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false),
         ))
+    }
+
+    async fn active_block_height_cached(
+        &self,
+        cache: &mut HashMap<BlockHash, Option<u32>>,
+        blockhash: BlockHash,
+    ) -> Result<Option<u32>> {
+        if let Some(height) = cache.get(&blockhash) {
+            return Ok(*height);
+        }
+        let block_info = self
+            .get_block_info(&blockhash)
+            .await
+            .wrap_err("Failed to get block info")?;
+        let height = if block_info.confirmations > 0 {
+            Some(u32::try_from(block_info.height).wrap_err("Failed to convert block height")?)
+        } else {
+            None
+        };
+        cache.insert(blockhash, height);
+        Ok(height)
+    }
+
+    pub async fn confirmed_tx_heights(&self, txids: &[Txid]) -> Result<Vec<(Txid, u32)>> {
+        let mut seen = HashSet::new();
+        let mut block_cache = HashMap::new();
+        let mut heights = Vec::new();
+        for txid in txids {
+            if !seen.insert(*txid) {
+                continue;
+            }
+            let info = match self.get_raw_transaction_info(txid, None).await {
+                Ok(info) => info,
+                Err(e) if is_not_found_error(&e) => continue,
+                Err(e) => return Err(eyre!(e).into()),
+            };
+            let Some(blockhash) = info.blockhash else {
+                continue;
+            };
+            if info.confirmations.is_none_or(|c| c == 0) {
+                continue;
+            }
+            if let Some(height) = self
+                .active_block_height_cached(&mut block_cache, blockhash)
+                .await?
+            {
+                heights.push((info.txid, height));
+            }
+        }
+        Ok(heights)
+    }
+
+    pub async fn confirmed_spending_heights(
+        &self,
+        outpoints: &[OutPoint],
+    ) -> Result<HashMap<OutPoint, u32>> {
+        let options = GetTxSpendingPrevoutOptions {
+            mempool_only: Some(false),
+            return_spending_tx: Some(false),
+        };
+        let spenders = self
+            .get_tx_spending_prevouts(outpoints, Some(&options))
+            .await
+            .wrap_err("Failed to get tx spending prevouts")?;
+
+        let mut block_cache = HashMap::new();
+        let mut heights = HashMap::new();
+        for spender in spenders {
+            let Some(blockhash) = spender.blockhash else {
+                continue;
+            };
+            if spender.spending_txid.is_none() {
+                continue;
+            }
+            if let Some(height) = self
+                .active_block_height_cached(&mut block_cache, blockhash)
+                .await?
+            {
+                heights.insert(spender.outpoint(), height);
+            }
+        }
+        Ok(heights)
     }
 
     /// Generates a new Bitcoin address for the wallet.
@@ -359,12 +449,7 @@ impl ExtendedBitcoinRpc {
     ///
     /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
     pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
-        Ok(self
-            .get_raw_transaction_info(txid, None)
-            .await
-            .ok()
-            .and_then(|s| s.blockhash)
-            .is_some())
+        Ok(!self.confirmed_tx_heights(&[*txid]).await?.is_empty())
     }
 
     /// Checks if a transaction UTXO has expected address and amount.

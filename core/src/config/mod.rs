@@ -256,6 +256,24 @@ impl BridgeConfig {
 
         let mut reasons = Vec::new();
 
+        if let Err(e) = rpc.ensure_bitcoin_core_v31_or_newer().await {
+            reasons.push(format!("Bitcoin Core v31.0+ is required: {e}"));
+        }
+        if let Err(e) = rpc.ensure_required_indexes_available().await {
+            reasons.push(format!(
+                "Bitcoin Core txindex and txospenderindex are required: {e}"
+            ));
+        } else {
+            match rpc.required_indexes_synced().await {
+                Ok((txindex_synced, txospenderindex_synced))
+                    if txindex_synced && txospenderindex_synced => {}
+                Ok((txindex_synced, txospenderindex_synced)) => reasons.push(format!(
+                    "Bitcoin Core indexes are not synced: txindex={txindex_synced}, txospenderindex={txospenderindex_synced}"
+                )),
+                Err(e) => reasons.push(format!("Failed to check Bitcoin Core index sync: {e}")),
+            }
+        }
+
         if genesis_chain_state.to_hash() != self.protocol_paramset().genesis_chain_state_hash {
             reasons.push(format!(
                 "Genesis chain state hash mismatch, state hash generated from Bitcoin RPC ({}) does not match value in config ({})",

@@ -1404,10 +1404,7 @@ where
         let mut txids_to_check = all_kickoff_txids.clone();
         txids_to_check.push(move_txid);
 
-        let canonical_txids_with_heights = self
-            .db
-            .get_canonical_block_heights_for_txids(Some(dbtx), &txids_to_check)
-            .await?;
+        let canonical_txids_with_heights = self.rpc.confirmed_tx_heights(&txids_to_check).await?;
 
         // Check move_txid/kickoffs consistency
         let canonical_txid_set: std::collections::HashSet<Txid> = canonical_txids_with_heights
@@ -1501,15 +1498,15 @@ where
             // For each block height, get the full block and extract witnesses
             for (block_height, txids_in_block) in txids_by_height {
                 let block = self
-                .db
-                .get_full_block(Some(dbtx), block_height)
-                .await?
-                .ok_or_else(|| {
-                    eyre::eyre!(
-                        "Block at height {} not found in database despite being in bitcoin_syncer_txs",
+                    .db
+                    .get_full_block(Some(dbtx), block_height)
+                    .await?
+                    .ok_or_else(|| {
+                        eyre::eyre!(
+                        "Block at height {} not found in database despite confirmed RPC tx lookup",
                         block_height
                     )
-                })?;
+                    })?;
 
                 for txid in txids_in_block {
                     // Find the transaction in the block
@@ -2268,32 +2265,21 @@ where
     async fn update_finalized_payouts(
         &self,
         dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
-        let payout_txids = self
+        let spent_outpoints: Vec<_> = block_cache.spent_utxos.keys().copied().collect();
+        let payout_utxos = self
             .db
-            .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
+            .get_pending_withdrawal_utxos(Some(dbtx), &spent_outpoints)
             .await?;
-
-        let block = &block_cache.block;
-
-        let block_hash = block.block_hash();
+        let block_hash = block_cache.block.block_hash();
 
         let mut payout_txs_and_payer_operator_idx = vec![];
-        for (idx, payout_txid) in payout_txids {
-            let payout_tx_idx = block_cache.txids.get(&payout_txid);
-            if payout_tx_idx.is_none() {
-                tracing::error!(
-                    "Payout tx not found in block cache: {:?} and in block: {:?}",
-                    payout_txid,
-                    block_id
-                );
-                tracing::error!("Block cache: {:?}", block_cache);
-                return Err(eyre::eyre!("Payout tx not found in block cache").into());
-            }
-            let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
-            let payout_tx = &block.txdata[*payout_tx_idx];
+        for (idx, payout_utxo) in payout_utxos {
+            let payout_tx = block_cache
+                .get_tx_of_utxo(&payout_utxo)
+                .expect("DB query only returns outpoints from the block cache");
+            let payout_txid = payout_tx.compute_txid();
             // Find the first output that contains OP_RETURN
             let circuit_payout_tx = CircuitTransaction::from(payout_tx.clone());
             let op_return_output = get_first_op_return_output(&circuit_payout_tx);
@@ -3032,7 +3018,7 @@ where
     pub async fn handle_finalized_block(
         &self,
         mut dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
+        _block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
@@ -3066,8 +3052,7 @@ where
         )
         .await?;
 
-        self.update_finalized_payouts(dbtx, block_id, &block_cache)
-            .await?;
+        self.update_finalized_payouts(dbtx, &block_cache).await?;
 
         #[cfg(feature = "automation")]
         {
@@ -3375,8 +3360,47 @@ mod tests {
     use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
-    use bitcoin::Block;
+    use bitcoin::{Block, ScriptBuf, Sequence, Transaction, TxIn, Witness};
     use std::str::FromStr;
+
+    #[test]
+    fn block_cache_detects_payout_spend() {
+        let withdrawal = OutPoint::from_str(
+            "1111111111111111111111111111111111111111111111111111111111111111:0",
+        )
+        .unwrap();
+        let other = OutPoint::from_str(
+            "2222222222222222222222222222222222222222222222222222222222222222:0",
+        )
+        .unwrap();
+        let payout_tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: withdrawal,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+                witness: Witness::new(),
+            }],
+            output: vec![],
+        };
+        let payout_txid = payout_tx.compute_txid();
+        let block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![payout_tx],
+        };
+        let cache = block_cache::BlockCache::from_block(block, 1);
+
+        assert_eq!(cache.get_txid_of_utxo(&withdrawal), Some(payout_txid));
+        assert_eq!(cache.get_txid_of_utxo(&other), None);
+    }
 
     #[tokio::test]
     #[cfg(feature = "automation")]

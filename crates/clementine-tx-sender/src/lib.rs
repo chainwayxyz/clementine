@@ -218,13 +218,20 @@ impl TxSender {
                 "tx-sender requires a Bitcoin Core v31.0+ RPC node: {e}"
             ))
         })?;
-        rpc.ensure_tx_sender_indexes_available()
+        rpc.ensure_required_indexes_available().await.map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "tx-sender requires Bitcoin Core txindex and txospenderindex: {e}"
+            ))
+        })?;
+        let (txindex_synced, txospenderindex_synced) = rpc
+            .required_indexes_synced()
             .await
-            .map_err(|e| {
-                BridgeError::ConfigError(format!(
-                    "tx-sender requires Bitcoin Core txindex and txospenderindex: {e}"
-                ))
-            })?;
+            .map_err(|e| BridgeError::Eyre(e.into()))?;
+        if !txindex_synced || !txospenderindex_synced {
+            return Err(BridgeError::ConfigError(format!(
+                "Bitcoin Core indexes are not synced: txindex={txindex_synced}, txospenderindex={txospenderindex_synced}"
+            )));
+        }
         let change_script_pubkey = rpc
             .get_new_wallet_address()
             .await

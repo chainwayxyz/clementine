@@ -104,21 +104,6 @@ create table if not exists bitcoin_syncer (
     height int not null,
     is_canonical boolean not null default true
 );
-create table if not exists bitcoin_syncer_txs (
-    block_id int not null references bitcoin_syncer (id),
-    txid bytea not null,
-    primary key (block_id, txid)
-);
--- Index for fast txid lookups in bitcoin_syncer_txs
-CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs(txid);
-create table if not exists bitcoin_syncer_spent_utxos (
-    block_id bigint not null references bitcoin_syncer (id),
-    spending_txid bytea not null,
-    txid bytea not null,
-    vout bigint not null,
-    primary key (block_id, spending_txid, txid, vout),
-    foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
-);
 create table if not exists bitcoin_blocks (
     height int primary key not null,
     block_hash text not null,

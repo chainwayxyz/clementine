@@ -2151,7 +2151,7 @@ where
 
         let mut txs_to_send = Vec::new();
 
-        // to be able to send ready to reimburse tx, we need to make sure, all kickoff utxos are spent, and for all kickoffs, all kickoff finalizers are spent
+        // to be able to send ready to reimburse tx, we need to make sure all current-round kickoff utxos and finalizers are spent
         if !self
             .rpc
             .is_tx_on_chain(&ready_to_reimburse_tx.1.compute_txid())
@@ -2159,8 +2159,8 @@ where
         {
             tracing::info!("Ready to reimburse tx for round {:?} is not on chain, checking prerequisites to see if we are able to send it
             Prerequisites:
-            - all kickoff utxos are spent
-            - for all kickoffs, all kickoff finalizers are spent
+            - all kickoff utxos in this round are spent
+            - all kickoff finalizers in this round are spent
             ", round_idx);
             // get max height saved in bitcoin syncer
             let current_chain_height = self
@@ -2227,14 +2227,15 @@ where
         let mut unspent_kickoff_utxos = Vec::new();
         // a variable to mark if any any kickoff utxo is spent, but still not finalized
         let mut fully_finalized_spent = true;
-        for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
-            let kickoff_utxo = OutPoint {
+        let kickoff_utxos: Vec<_> = (0..self.config.protocol_paramset().num_kickoffs_per_round)
+            .map(|kickoff_idx| OutPoint {
                 txid: round_txid,
                 vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
-            };
-            if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
-                unspent_kickoff_utxos.push(kickoff_idx);
-            } else {
+            })
+            .collect();
+        let spending_heights = self.rpc.confirmed_spending_heights(&kickoff_utxos).await?;
+        for (kickoff_idx, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
+            if let Some(spending_height) = spending_heights.get(kickoff_utxo) {
                 // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                 // mark so that we don't try to use this utxo anymore
                 self.db
@@ -2245,17 +2246,12 @@ where
                         None,
                     )
                     .await?;
-                // check if the tx that spent the kickoff utxo is finalized
-                // use btc syncer for this
                 fully_finalized_spent &= self
-                    .db
-                    .check_if_utxo_spending_tx_is_finalized(
-                        dbtx.as_deref_mut(),
-                        kickoff_utxo,
-                        current_chain_height,
-                        self.config.protocol_paramset(),
-                    )
-                    .await?;
+                    .config
+                    .protocol_paramset()
+                    .is_block_finalized(*spending_height, current_chain_height);
+            } else {
+                unspent_kickoff_utxos.push(kickoff_idx);
             }
         }
         Ok((unspent_kickoff_utxos, fully_finalized_spent))
@@ -2316,7 +2312,7 @@ where
         round_idx: RoundIndex,
         current_chain_height: u32,
     ) -> Result<(), BridgeError> {
-        // we need to check if all finalizers are spent
+        let mut finalizers = Vec::new();
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
             let kickoff_txid = self
                 .db
@@ -2335,32 +2331,60 @@ where
                     txid: kickoff_txid,
                     vout: UtxoVout::KickoffFinalizer.get_vout(),
                 };
-                if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                    return Err(eyre::eyre!(
-                        "For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
+                finalizers.push((
+                    kickoff_idx,
+                    kickoff_txid,
+                    deposit_outpoint,
+                    kickoff_finalizer_utxo,
+                ));
+            }
+        }
+        if finalizers.is_empty() {
+            return Ok(());
+        }
+        let kickoff_txids: Vec<_> = finalizers.iter().map(|(_, txid, _, _)| *txid).collect();
+        let on_chain_txids: Vec<_> = self
+            .rpc
+            .confirmed_tx_heights(&kickoff_txids)
+            .await?
+            .into_iter()
+            .map(|(txid, _)| txid)
+            .collect();
+        let finalizer_utxos: Vec<_> = finalizers.iter().map(|(_, _, _, utxo)| *utxo).collect();
+        let spending_heights = self
+            .rpc
+            .confirmed_spending_heights(&finalizer_utxos)
+            .await?;
+        for (kickoff_idx, kickoff_txid, deposit_outpoint, kickoff_finalizer_utxo) in finalizers {
+            if !on_chain_txids.contains(&kickoff_txid) {
+                return Err(eyre::eyre!(
+                    "For round {:?} and kickoff utxo {:?}, the kickoff tx {:?} is not on chain,
                     reimburse the deposit {:?} corresponding to this kickoff first. ",
-                        round_idx,
-                        kickoff_idx,
-                        kickoff_txid,
-                        deposit_outpoint
-                    )
-                    .into());
-                } else if !self.rpc.is_utxo_spent(&kickoff_finalizer_utxo).await? {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
-                    send the challenge timeout tx for the deposit {:?} first", round_idx, kickoff_idx, kickoff_txid, deposit_outpoint).into());
-                } else if !self
-                    .db
-                    .check_if_utxo_spending_tx_is_finalized(
-                        dbtx.as_deref_mut(),
-                        kickoff_finalizer_utxo,
-                        current_chain_height,
-                        self.config.protocol_paramset(),
-                    )
-                    .await?
-                {
-                    return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer utxo {:?} is spent, but not yet finalized, wait until it is finalized. Finality depth: {}
-                    If the transaction is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.", round_idx, kickoff_idx, kickoff_finalizer_utxo, self.config.protocol_paramset().finality_depth).into());
-                }
+                    round_idx,
+                    kickoff_idx,
+                    kickoff_txid,
+                    deposit_outpoint
+                )
+                .into());
+            }
+            let Some(spending_height) = spending_heights.get(&kickoff_finalizer_utxo) else {
+                return Err(eyre::eyre!(
+                    "For round {:?} and kickoff utxo {:?}, the kickoff finalizer {:?} is not spent,
+                    send the challenge timeout tx for the deposit {:?} first",
+                    round_idx,
+                    kickoff_idx,
+                    kickoff_txid,
+                    deposit_outpoint
+                )
+                .into());
+            };
+            if !self
+                .config
+                .protocol_paramset()
+                .is_block_finalized(*spending_height, current_chain_height)
+            {
+                return Err(eyre::eyre!("For round {:?} and kickoff utxo {:?}, the kickoff finalizer utxo {:?} is spent, but not yet finalized, wait until it is finalized. Finality depth: {}",
+                    round_idx, kickoff_idx, kickoff_finalizer_utxo, self.config.protocol_paramset().finality_depth).into());
             }
         }
         Ok(())
