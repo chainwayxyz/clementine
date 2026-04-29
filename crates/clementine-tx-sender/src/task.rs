@@ -37,14 +37,15 @@ impl TxSenderTaskInternal {
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
         if !txindex_synced || !txospenderindex_synced {
-            // Bitcoin indexes can briefly lag when bitcoind has just accepted a
-            // new block. Skipping may unnecessarily delay this loop, but sending
-            // without complete tx/spender data can waste fee-payer/RBF attempts.
+            // `synced=false` means the index is still doing initial catch-up or
+            // has otherwise not reached usable state. Once synced, Bitcoin Core
+            // keeps this flag true and RPCs wait for block notification backlog
+            // when they need tip-current index data.
             tracing::warn!(
                 current_tip_height = self.current_tip_height,
                 txindex_synced,
                 txospenderindex_synced,
-                "Bitcoin Core indexes are not synced; skipping tx-sender loop"
+                "Bitcoin Core indexes are still catching up; skipping tx-sender loop"
             );
             return Ok(false);
         }
