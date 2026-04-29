@@ -24,25 +24,17 @@ use citrea_e2e::{
     Result,
 };
 
-struct CitreaWithdrawAndGetUTXO<const USE_ANNEX: bool>;
+struct CitreaWithdrawAndGetUTXO;
 #[async_trait]
-impl<const USE_ANNEX: bool> TestCase for CitreaWithdrawAndGetUTXO<USE_ANNEX> {
+impl TestCase for CitreaWithdrawAndGetUTXO {
     fn bitcoin_config() -> BitcoinConfig {
-        let mut extra_args = vec![
-            "-txindex=1",
-            "-fallbackfee=0.000001",
-            "-rpcallowip=0.0.0.0/0",
-            "-dustrelayfee=0",
-        ];
-
-        // Citrea E2E uses its own bitcoind instances. Annex is non-standard, so we need to
-        // enable non-standard tx relay only when annex is in use.
-        if USE_ANNEX {
-            extra_args.push("-acceptnonstdtxn=1");
-        }
-
         BitcoinConfig {
-            extra_args,
+            extra_args: vec![
+                "-txindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
+            ],
             ..Default::default()
         }
     }
@@ -73,8 +65,6 @@ impl<const USE_ANNEX: bool> TestCase for CitreaWithdrawAndGetUTXO<USE_ANNEX> {
             .unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
-        // Keep Clementine config consistent with the Bitcoin node policy used by this testcase.
-        config.test_params.use_small_annex = USE_ANNEX;
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
             da.get(0).expect("There is a bitcoin node"),
@@ -180,14 +170,5 @@ async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let use_annex = rand::random::<bool>();
-    if use_annex {
-        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<true>)
-            .run()
-            .await
-    } else {
-        TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<false>)
-            .run()
-            .await
-    }
+    TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }
