@@ -44,7 +44,7 @@ runs:
     - name: Download Bitcoin
       if: steps.cache-bitcoin.outputs.cache-hit != 'true'
       shell: bash
-      run: wget https://bitcoincore.org/bin/bitcoin-core-30.2/bitcoin-30.2-x86_64-linux-gnu.tar.gz
+      run: wget https://bitcoincore.org/bin/bitcoin-core-31.0/bitcoin-31.0-x86_64-linux-gnu.tar.gz
 
     - name: Unpack Bitcoin
       if: steps.cache-bitcoin.outputs.cache-hit != 'true'
