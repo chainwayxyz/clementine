@@ -285,9 +285,7 @@ impl TestParams {
         &self,
         mut builder: TxHandlerBuilder,
     ) -> eyre::Result<TxHandlerBuilder> {
-        // Returns the modified builder
-        // Check if the large annex and output scenario is enabled
-        if self.use_large_annex_and_output {
+        if self.use_large_annex_and_output || self.use_large_output {
             for i in 0..2300 {
                 let mut test_taproot_address: [u8; 32] = [0; 32];
                 let num_to_use: u32 = 30000 + i;
@@ -305,26 +303,12 @@ impl TestParams {
                 // Reassign the result of add_output back to builder
                 builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
             }
-            tracing::warn!("Using large annex and output");
-        } else if self.use_large_output {
-            for i in 0..2300 {
-                let mut test_taproot_address: [u8; 32] = [0; 32];
-                let num_to_use: u32 = 30000 + i;
-                let num_to_use_bytes = num_to_use.to_le_bytes();
-                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
-                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
-                let mut additional_taproot_script_vec = vec![0x51, 0x20];
-                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
-                let additional_taproot_script =
-                    ScriptBuf::from_bytes(additional_taproot_script_vec);
-                let additional_taproot_txout = TxOut {
-                    value: MIN_TAPROOT_AMOUNT,
-                    script_pubkey: additional_taproot_script,
-                };
-                // Reassign the result of add_output back to builder
-                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+
+            if self.use_large_annex_and_output {
+                tracing::warn!("Using large annex and output");
+            } else {
+                tracing::warn!("Using large output");
             }
-            tracing::warn!("Using large output");
         }
         Ok(builder)
     }
