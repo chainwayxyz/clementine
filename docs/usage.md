@@ -49,7 +49,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v30.0)
+1. Install and configure a Bitcoin node (at least v30.0) with `-txindex=1`. Automation mode additionally requires Bitcoin Core v31+ with `-txospenderindex=1`.
 2. Install and configure PostgreSQL. Using docker:
 
    ```sh
@@ -103,7 +103,6 @@ Before running Clementine:
    ```
 
 8. **For automation mode only**: Install additional dependencies required for automation features:
-
    - **skopeo**: Required for pulling and verifying Docker images
    - **curl**: Required for installing udocker
    - **python3**: Required by udocker
@@ -171,7 +170,6 @@ The `.env.example` file can be taken as a reference for this matter.
 Clementine uses the following logic to determine the configuration source:
 
 1. **Main Configuration**:
-
    - If `READ_CONFIG_FROM_ENV=1` or `READ_CONFIG_FROM_ENV=on`, configuration is read from environment variables
    - If `READ_CONFIG_FROM_ENV=0` or `READ_CONFIG_FROM_ENV=off` or not set, configuration is read from the specified config file
 

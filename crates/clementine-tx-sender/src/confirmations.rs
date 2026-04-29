@@ -81,10 +81,7 @@ impl TxSender {
         }
 
         for (id, fee_paying_type, txid, tx, seen_at_height, input_spent_at_height) in unfinalized {
-            let mut own_spender_txids = vec![txid];
-            if let Some(rbf_txids) = rbf_txids_by_id.get(&id) {
-                own_spender_txids.extend(rbf_txids.iter().copied());
-            }
+            let mut rbf_txids = rbf_txids_by_id.remove(&id).unwrap_or_default();
 
             let status = match fee_paying_type {
                 FeePayingType::CPFP | FeePayingType::NoFunding => {
@@ -97,23 +94,25 @@ impl TxSender {
                     .await?
                 }
                 FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+                    // Add the original txid itself, it should be in rbf_txids already, it might not be if it was already sent externally.
+                    if !rbf_txids.contains(&txid) {
+                        rbf_txids.push(txid);
+                    }
                     let mut first_confirmed_rbf: Option<(u32, u32)> = None; // (confirmations, block_height)
-                    if let Some(rbf_txids) = rbf_txids_by_id.get(&id) {
-                        for rbf_txid in rbf_txids {
-                            if let TxChainStatus::Confirmed {
-                                block_height,
-                                confirmations,
-                            } = get_tx_status_cached(
-                                &self.rpc,
-                                &mut tx_status_cache,
-                                &mut block_info_cache,
-                                *rbf_txid,
-                            )
-                            .await?
-                            {
-                                first_confirmed_rbf = Some((confirmations, block_height));
-                                break;
-                            }
+                    for rbf_txid in &rbf_txids {
+                        if let TxChainStatus::Confirmed {
+                            block_height,
+                            confirmations,
+                        } = get_tx_status_cached(
+                            &self.rpc,
+                            &mut tx_status_cache,
+                            &mut block_info_cache,
+                            *rbf_txid,
+                        )
+                        .await?
+                        {
+                            first_confirmed_rbf = Some((confirmations, block_height));
+                            break;
                         }
                     }
                     match first_confirmed_rbf {
@@ -126,58 +125,53 @@ impl TxSender {
                 }
             };
 
-            if !matches!(status, TxChainStatus::Confirmed { .. }) {
-                if let Some(spender) = confirmed_input_spender(
-                    &self.rpc,
-                    &mut block_info_cache,
-                    &tx,
-                    &own_spender_txids,
-                    finality,
-                )
-                .await?
-                {
-                    if input_spent_at_height != Some(spender.block_height) {
-                        self.db
-                            .set_input_spent_at_height(
-                                dbtx.as_deref_mut(),
-                                id,
-                                Some(spender.block_height),
-                            )
-                            .await?;
-                    }
-                    if seen_at_height.is_some() {
-                        self.db
-                            .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, None)
-                            .await?;
-                    }
-
-                    if spender.confirmations >= finality {
-                        tracing::warn!(
-                            try_to_send_id = id,
-                            outpoint = %spender.outpoint,
-                            spending_txid = %spender.spending_txid,
-                            blockhash = %spender.blockhash,
-                            confirmations = spender.confirmations,
-                            "Tx input was spent by a finalized tx; disabling tx-sender row"
-                        );
-                        self.db
-                            .set_try_to_send_finalized(dbtx.as_deref_mut(), id, true)
-                            .await?;
-                    } else {
-                        tracing::debug!(
-                            try_to_send_id = id,
-                            outpoint = %spender.outpoint,
-                            spending_txid = %spender.spending_txid,
-                            blockhash = %spender.blockhash,
-                            confirmations = spender.confirmations,
-                            "Tx input is spent by a confirmed tx; pausing send until reorg or finality"
-                        );
-                    }
-                    continue;
+            let input_spender = if matches!(status, TxChainStatus::Confirmed { .. }) {
+                None
+            } else {
+                if seen_at_height.is_some() {
+                    self.db
+                        .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, None)
+                        .await?;
                 }
-            }
 
-            if input_spent_at_height.is_some() {
+                confirmed_input_spender(&self.rpc, &mut block_info_cache, &tx, txid, &rbf_txids)
+                    .await?
+            };
+
+            if let Some(spender) = input_spender {
+                if input_spent_at_height != Some(spender.block_height) {
+                    self.db
+                        .set_input_spent_at_height(
+                            dbtx.as_deref_mut(),
+                            id,
+                            Some(spender.block_height),
+                        )
+                        .await?;
+                }
+
+                if spender.confirmations >= finality {
+                    tracing::warn!(
+                        try_to_send_id = id,
+                        outpoint = %spender.outpoint,
+                        spending_txid = %spender.spending_txid,
+                        blockhash = %spender.blockhash,
+                        confirmations = spender.confirmations,
+                        "Tx input was spent by a finalized tx; disabling trying to send it"
+                    );
+                    self.db
+                        .set_try_to_send_finalized(dbtx.as_deref_mut(), id, true)
+                        .await?;
+                } else {
+                    tracing::debug!(
+                        try_to_send_id = id,
+                        outpoint = %spender.outpoint,
+                        spending_txid = %spender.spending_txid,
+                        blockhash = %spender.blockhash,
+                        confirmations = spender.confirmations,
+                        "Tx input is spent by a confirmed tx; pausing send until reorg or finality"
+                    );
+                }
+            } else if input_spent_at_height.is_some() {
                 tracing::debug!(
                     try_to_send_id = id,
                     "Clearing stale confirmed input-spend marker"
@@ -187,37 +181,22 @@ impl TxSender {
                     .await?;
             }
 
-            match (seen_at_height, status) {
-                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
-                    // Reorg before finality
+            if let TxChainStatus::Confirmed {
+                block_height,
+                confirmations,
+            } = status
+            {
+                if seen_at_height != Some(block_height) {
                     self.db
-                        .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, None)
+                        .set_try_to_send_seen_at_height(dbtx.as_deref_mut(), id, Some(block_height))
                         .await?;
                 }
-                (
-                    _,
-                    TxChainStatus::Confirmed {
-                        block_height,
-                        confirmations,
-                    },
-                ) => {
-                    if seen_at_height != Some(block_height) {
-                        self.db
-                            .set_try_to_send_seen_at_height(
-                                dbtx.as_deref_mut(),
-                                id,
-                                Some(block_height),
-                            )
-                            .await?;
-                    }
-                    // Mark as finalized if confirmations >= finality_depth
-                    if confirmations >= finality {
-                        self.db
-                            .set_try_to_send_finalized(dbtx.as_deref_mut(), id, true)
-                            .await?;
-                    }
+                // Mark as finalized if confirmations >= finality_depth
+                if confirmations >= finality {
+                    self.db
+                        .set_try_to_send_finalized(dbtx.as_deref_mut(), id, true)
+                        .await?;
                 }
-                _ => {}
             }
         }
 
@@ -277,63 +256,35 @@ impl TxSender {
                 get_tx_status_cached(&self.rpc, &mut tx_status_cache, &mut block_info_cache, txid)
                     .await?;
 
-            match (seen_at_height, status) {
-                // Reorg before finality: clear seen_at_height when previously set but no longer confirmed.
-                (Some(_), TxChainStatus::InMempool | TxChainStatus::NotPresent) => {
-                    self.db
-                        .set_activate_txid_seen_at_height(
-                            dbtx.as_deref_mut(),
-                            activated_id,
-                            txid,
-                            None,
-                        )
-                        .await?;
-                }
-                // Not yet seen on-chain, but present in mempool: record mempool presence.
-                (None, TxChainStatus::InMempool) => {
-                    if !in_mempool {
-                        self.db
-                            .set_activate_txid_mempool_status(
-                                dbtx.as_deref_mut(),
-                                activated_id,
-                                txid,
-                                true,
-                            )
-                            .await?;
-                    }
-                }
-                // Neither confirmed nor in mempool: ensure mempool flag is cleared.
-                (None, TxChainStatus::NotPresent) => {
-                    if in_mempool {
-                        self.db
-                            .set_activate_txid_mempool_status(
-                                dbtx.as_deref_mut(),
-                                activated_id,
-                                txid,
-                                false,
-                            )
-                            .await?;
-                    }
-                }
-                // Confirmed: ensure mempool flag is cleared, update seen_at_height and possibly finalize.
-                (
-                    _,
-                    TxChainStatus::Confirmed {
-                        block_height,
-                        confirmations,
-                    },
-                ) => {
-                    if in_mempool {
-                        self.db
-                            .set_activate_txid_mempool_status(
-                                dbtx.as_deref_mut(),
-                                activated_id,
-                                txid,
-                                false,
-                            )
-                            .await?;
-                    }
+            let should_be_in_mempool = matches!(status, TxChainStatus::InMempool);
+            if in_mempool != should_be_in_mempool {
+                self.db
+                    .set_activate_txid_mempool_status(
+                        dbtx.as_deref_mut(),
+                        activated_id,
+                        txid,
+                        should_be_in_mempool,
+                    )
+                    .await?;
+            }
 
+            match status {
+                TxChainStatus::InMempool | TxChainStatus::NotPresent => {
+                    if seen_at_height.is_some() {
+                        self.db
+                            .set_activate_txid_seen_at_height(
+                                dbtx.as_deref_mut(),
+                                activated_id,
+                                txid,
+                                None,
+                            )
+                            .await?;
+                    }
+                }
+                TxChainStatus::Confirmed {
+                    block_height,
+                    confirmations,
+                } => {
                     if seen_at_height != Some(block_height) {
                         self.db
                             .set_activate_txid_seen_at_height(
@@ -410,12 +361,15 @@ async fn get_tx_status_cached(
     Ok(status)
 }
 
+/// Returns the oldest external confirmed spender of any input in `tx`, ignoring
+/// the original txid and known RBF txids, so `input_spent_at_height` reflects
+/// when the queued tx first became unmineable.
 async fn confirmed_input_spender(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
     block_cache: &mut HashMap<BlockHash, (u32, u32)>,
     tx: &Transaction,
-    own_spender_txids: &[Txid],
-    finality: u32,
+    original_txid: Txid,
+    rbf_txids: &[Txid],
 ) -> Result<Option<InputSpender>, BridgeError> {
     let outpoints: Vec<OutPoint> = tx.input.iter().map(|input| input.previous_output).collect();
     if outpoints.is_empty() {
@@ -427,12 +381,12 @@ async fn confirmed_input_spender(
         .await
         .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
-    let mut first_confirmed_spender = None;
+    let mut oldest_confirmed_spender: Option<InputSpender> = None;
     for spender in spenders {
         let Some(spending_txid) = spender.spending_txid else {
             continue;
         };
-        if own_spender_txids.contains(&spending_txid) {
+        if spending_txid == original_txid || rbf_txids.contains(&spending_txid) {
             continue;
         }
 
@@ -448,6 +402,7 @@ async fn confirmed_input_spender(
         else {
             continue;
         };
+
         let input_spender = InputSpender {
             outpoint: spender.outpoint,
             spending_txid,
@@ -455,15 +410,20 @@ async fn confirmed_input_spender(
             confirmations,
             block_height,
         };
-        if input_spender.confirmations >= finality {
-            return Ok(Some(input_spender));
+
+        if oldest_confirmed_spender
+            .as_ref()
+            .is_none_or(|oldest| input_spender.block_height < oldest.block_height)
+        {
+            oldest_confirmed_spender = Some(input_spender);
         }
-        first_confirmed_spender.get_or_insert(input_spender);
     }
 
-    Ok(first_confirmed_spender)
+    Ok(oldest_confirmed_spender)
 }
 
+/// Returns cached active-chain `(height, confirmations)` for `blockhash`.
+/// Blocks with non-positive confirmations are stale/reorged and return `None`.
 async fn get_active_block_info_cached(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
     block_cache: &mut HashMap<BlockHash, (u32, u32)>,
@@ -615,13 +575,13 @@ mod tests {
                 &tx_sender.rpc,
                 &mut block_cache,
                 &conflict_tx,
-                &[conflict_txid],
-                tx_sender.finality_depth,
+                conflict_txid,
+                &[],
             )
             .await
             .unwrap()
             .is_none(),
-            "a row's own txid must not be treated as an external conflict"
+            "the original txid must not be treated as an external conflict"
         );
 
         tx_sender
