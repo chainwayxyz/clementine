@@ -280,8 +280,10 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    let num_mine_blocks =
-                        std::cmp::min(MINE_BLOCK_COUNT, reorg_blocks - mined_blocks.len() as u64);
+                    let num_mine_blocks = std::cmp::min(
+                        MINE_BLOCK_COUNT,
+                        reorg_blocks.saturating_sub(mined_blocks.len() as u64),
+                    );
                     da0.generate(num_mine_blocks)
                         .await
                         .wrap_err("Failed to generate blocks")?;
@@ -311,7 +313,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                     }
                     let num_mine_blocks = std::cmp::min(
                         MINE_BLOCK_COUNT,
-                        (reorg_blocks + block_num + 1) - mined_blocks.len() as u64,
+                        (reorg_blocks + block_num + 1).saturating_sub(mined_blocks.len() as u64),
                     );
                     mined_blocks.extend(self.mine_blocks(num_mine_blocks).await?);
                 }
@@ -324,8 +326,10 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    let num_mine_blocks =
-                        std::cmp::min(MINE_BLOCK_COUNT, block_num - mined_blocks.len() as u64);
+                    let num_mine_blocks = std::cmp::min(
+                        MINE_BLOCK_COUNT,
+                        block_num.saturating_sub(mined_blocks.len() as u64),
+                    );
                     let new_blocks = self.mine_blocks(num_mine_blocks).await?;
                     mined_blocks.extend(new_blocks);
                 }

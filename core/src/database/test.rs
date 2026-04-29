@@ -287,10 +287,10 @@ impl Database {
             };
 
             if let Some(rate) = effective_fee_rate {
-                if rate >= fee_rate.to_sat_per_vb_ceil() as i64 {
+                if rate >= fee_rate.to_sat_per_kwu() as i64 {
                     tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/vB) is >= the current fee rate ({} sat/vB)",
-                        id, rate, fee_rate.to_sat_per_vb_ceil()
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kwu) is >= the current fee rate ({} sat/kwu)",
+                        id, rate, fee_rate.to_sat_per_kwu()
                     );
                 }
             }

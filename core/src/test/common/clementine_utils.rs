@@ -312,5 +312,7 @@ pub async fn disprove_tests_common_setup(
         .unwrap();
     }
 
+    tracing::info!("Kickoff started with txid: {kickoff_txid}");
+
     (actors, kickoff_txid, kickoff_tx)
 }

@@ -29,6 +29,7 @@ use clementine_primitives::MIN_TAPROOT_AMOUNT;
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{eyre, Context};
 use std::collections::HashSet;
+use std::env;
 
 impl<S, D, B> TxSender<S, D, B>
 where
@@ -391,6 +392,7 @@ where
         tx: Transaction,
         _tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
+        current_tip_height: u32,
     ) -> Result<()> {
         let unconfirmed = self
             .db
@@ -398,6 +400,13 @@ where
             .await
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
         if !unconfirmed.is_empty() {
+            // Log that we're waiting for unconfirmed UTXOs
+            tracing::debug!(
+                try_to_send_id,
+                "Waiting for {} UTXOs to confirm",
+                unconfirmed.len()
+            );
+
             let _ = self
                 .db
                 .update_tx_debug_sending_state(
@@ -441,12 +450,41 @@ where
         };
 
         let package_refs: Vec<&Transaction> = package.iter().collect();
+
+        // Save the effective fee rate before attempting to send
+        // This ensures that even if the send fails, we track the attempt
+        // so the 10-block stuck logic can trigger a bump
+        self.db
+            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
+
+        tracing::debug!(
+            try_to_send_id,
+            "Submitting package\n Pkg tx hexs: {:?}",
+            if env::var("DBG_PACKAGE_HEX").is_ok() {
+                package
+                    .iter()
+                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                    .collect::<Vec<_>>()
+            } else {
+                vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
+            }
+        );
+
+        // Update sending state to submitting_package
+        let _ = self
+            .db
+            .update_tx_debug_sending_state(try_to_send_id, "submitting_package", true)
+            .await;
+
         let submit_result = self
             .rpc
             .submit_package(&package_refs, Some(Amount::ZERO), None)
             .await
             .wrap_err("Failed to submit package")?;
 
+        // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_result.tx_results.is_empty() {
             return Ok(());
         }
@@ -458,10 +496,6 @@ where
             }
         }
 
-        self.db
-            .update_effective_fee_rate(None, try_to_send_id, fee_rate)
-            .await
-            .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
         Ok(())
     }
 }

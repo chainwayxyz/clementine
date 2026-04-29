@@ -164,6 +164,10 @@ impl<T: Owner> RoundStateMachine<T> {
         match event {
             // If the initial collateral is spent, we can transition to the first round tx.
             RoundEvent::RoundSent { round_idx } => {
+                tracing::info!(
+                    "First round tx detected for {}",
+                    self.operator_data.xonly_pk
+                );
                 Transition(State::round_tx(*round_idx, HashSet::new(), false))
             }
             RoundEvent::SavedToDb => Handled,
@@ -248,6 +252,12 @@ impl<T: Owner> RoundStateMachine<T> {
                 kickoff_idx,
                 kickoff_outpoint,
             } => {
+                tracing::info!(
+                    "Kickoff utxo {} usage detected, operator: {}, round: {}",
+                    kickoff_idx,
+                    self.operator_data.xonly_pk,
+                    round_idx
+                );
                 used_kickoffs.insert(*kickoff_idx);
                 let txid = context
                     .cache
@@ -282,6 +292,11 @@ impl<T: Owner> RoundStateMachine<T> {
             }
             // If the ready to reimburse tx is mined, we transition to the ready to reimburse state.
             RoundEvent::ReadyToReimburseSent { round_idx } => {
+                tracing::info!(
+                    "Ready to reimburse tx sent for operator: {}, round: {}",
+                    self.operator_data.xonly_pk,
+                    round_idx
+                );
                 Transition(State::ready_to_reimburse(*round_idx))
             }
             RoundEvent::SavedToDb => Handled,
