@@ -1,14 +1,13 @@
 //! Extended Bitcoin RPC client with retry logic.
 
 use async_trait::async_trait;
-use bitcoin::{Address, Amount, BlockHash, Network, OutPoint, TxOut, Txid, Weight};
+use bitcoin::{Address, Amount, Network, OutPoint, TxOut, Txid, Weight};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use clementine_errors::{BitcoinRPCError, FeeErr};
 use clementine_primitives::FeeRateKvb;
 use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
-use serde::Deserialize;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,23 +22,6 @@ pub use crate::retry::{RetryConfig, RetryableError};
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const BITCOIN_CORE_V31_VERSION: usize = 310000;
-
-/// Result row returned by `gettxspendingprevout`.
-#[derive(Debug, Clone)]
-pub struct TxSpendingPrevout {
-    pub outpoint: OutPoint,
-    pub spending_txid: Option<Txid>,
-    pub blockhash: Option<BlockHash>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TxSpendingPrevoutRpc {
-    txid: Txid,
-    vout: u32,
-    #[serde(rename = "spendingtxid")]
-    spending_txid: Option<Txid>,
-    blockhash: Option<BlockHash>,
-}
 
 /// Bitcoin RPC wrapper with retry logic.
 ///
@@ -230,52 +212,6 @@ impl ExtendedBitcoinRpc {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false),
         ))
-    }
-
-    /// Finds transactions spending the requested prevouts using Bitcoin Core v31.
-    pub async fn get_tx_spending_prevouts(
-        &self,
-        outpoints: &[OutPoint],
-    ) -> Result<Vec<TxSpendingPrevout>> {
-        if outpoints.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let outputs: Vec<serde_json::Value> = outpoints
-            .iter()
-            .map(|outpoint| {
-                serde_json::json!({
-                    "txid": outpoint.txid.to_string(),
-                    "vout": outpoint.vout,
-                })
-            })
-            .collect();
-
-        let rows: Vec<TxSpendingPrevoutRpc> = self
-            .call(
-                "gettxspendingprevout",
-                &[
-                    serde_json::json!(outputs),
-                    serde_json::json!({
-                        "mempool_only": false,
-                        "return_spending_tx": false,
-                    }),
-                ],
-            )
-            .await
-            .wrap_err("Failed to call gettxspendingprevout")?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| TxSpendingPrevout {
-                outpoint: OutPoint {
-                    txid: row.txid,
-                    vout: row.vout,
-                },
-                spending_txid: row.spending_txid,
-                blockhash: row.blockhash,
-            })
-            .collect())
     }
 
     /// Generates a new Bitcoin address for the wallet.

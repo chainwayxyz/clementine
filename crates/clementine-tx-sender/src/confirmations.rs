@@ -3,7 +3,7 @@ use crate::{
     TxSender, TxSenderTransaction,
 };
 use bitcoin::{BlockHash, OutPoint, Transaction, Txid};
-use bitcoincore_rpc::RpcApi;
+use bitcoincore_rpc::{json::GetTxSpendingPrevoutOptions, RpcApi};
 use clementine_errors::BridgeError;
 use std::collections::HashMap;
 
@@ -376,8 +376,12 @@ async fn confirmed_input_spender(
         return Ok(None);
     }
 
+    let options = GetTxSpendingPrevoutOptions {
+        mempool_only: Some(false),
+        return_spending_tx: Some(false),
+    };
     let spenders = rpc
-        .get_tx_spending_prevouts(&outpoints)
+        .get_tx_spending_prevouts(&outpoints, Some(&options))
         .await
         .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
@@ -404,7 +408,7 @@ async fn confirmed_input_spender(
         };
 
         let input_spender = InputSpender {
-            outpoint: spender.outpoint,
+            outpoint: spender.outpoint(),
             spending_txid,
             blockhash,
             confirmations,

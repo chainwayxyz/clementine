@@ -9,5 +9,4 @@ mod retry;
 pub use clementine_errors::BitcoinRPCError;
 pub use client::{
     get_fee_rate_from_mempool_space, ExtendedBitcoinRpc, RetryConfig, RetryableError,
-    TxSpendingPrevout,
 };
