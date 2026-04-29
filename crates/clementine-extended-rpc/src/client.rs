@@ -276,6 +276,18 @@ impl ExtendedBitcoinRpc {
         &self,
         outpoints: &[OutPoint],
     ) -> Result<HashMap<OutPoint, u32>> {
+        Ok(self
+            .confirmed_spenders(outpoints)
+            .await?
+            .into_iter()
+            .map(|(outpoint, (_, height))| (outpoint, height))
+            .collect())
+    }
+
+    pub async fn confirmed_spenders(
+        &self,
+        outpoints: &[OutPoint],
+    ) -> Result<HashMap<OutPoint, (Txid, u32)>> {
         let options = GetTxSpendingPrevoutOptions {
             mempool_only: Some(false),
             return_spending_tx: Some(false),
@@ -288,17 +300,17 @@ impl ExtendedBitcoinRpc {
         let mut block_cache = HashMap::new();
         let mut heights = HashMap::new();
         for spender in spenders {
+            let Some(spending_txid) = spender.spending_txid else {
+                continue;
+            };
             let Some(blockhash) = spender.blockhash else {
                 continue;
             };
-            if spender.spending_txid.is_none() {
-                continue;
-            }
             if let Some(height) = self
                 .active_block_height_cached(&mut block_cache, blockhash)
                 .await?
             {
-                heights.insert(spender.outpoint(), height);
+                heights.insert(spender.outpoint(), (spending_txid, height));
             }
         }
         Ok(heights)

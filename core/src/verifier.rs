@@ -1374,54 +1374,108 @@ where
         kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
         move_txid: Txid,
     ) -> Result<Vec<(Txid, u32)>, BridgeError> {
-        // Build a mapping from txid -> (operator_xonly_pk, round_idx, kickoff_idx)
+        if !kickoff_txids
+            .iter()
+            .any(|operator| operator.iter().any(|round| !round.is_empty()))
+        {
+            return Ok(Vec::new());
+        }
+
         let mut kickoff_metadata: std::collections::HashMap<
             Txid,
             (XOnlyPublicKey, RoundIndex, usize),
         > = std::collections::HashMap::new();
-        let mut all_kickoff_txids: Vec<Txid> = Vec::new();
+        let mut canonical_kickoffs = Vec::new();
+        let mut move_tx_height = None;
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let operators = deposit_data.get_operators();
 
-        for (operator_idx, operator_xonly_pk) in
-            deposit_data.get_operators().into_iter().enumerate()
-        {
+        for (operator_idx, operator_xonly_pk) in operators.into_iter().enumerate() {
+            let operator_data = self
+                .db
+                .get_operator(Some(&mut *dbtx), operator_xonly_pk)
+                .await?
+                .ok_or_else(|| eyre::eyre!("Operator data not found for {operator_xonly_pk}"))?;
+            let kickoff_winternitz_pks = self
+                .db
+                .get_operator_kickoff_winternitz_public_keys(Some(&mut *dbtx), operator_xonly_pk)
+                .await?;
+            let kickoff_wpks = KickoffWinternitzKeys::new(
+                kickoff_winternitz_pks,
+                self.config.protocol_paramset().num_kickoffs_per_round,
+                self.config.protocol_paramset().num_round_txs,
+            )?;
+            let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+            let mut outpoints = Vec::new();
+            let mut expected_spenders = std::collections::HashMap::new();
             for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
             {
+                let txhandlers = create_round_txhandlers(
+                    self.config.protocol_paramset(),
+                    round_idx,
+                    &operator_data,
+                    &kickoff_wpks,
+                    prev_ready_to_reimburse.as_ref(),
+                )?;
+                let round_txhandler = txhandlers
+                    .iter()
+                    .find(|txhandler| txhandler.get_transaction_type() == TransactionType::Round)
+                    .ok_or_else(|| eyre::eyre!("Round txhandler not found"))?;
+                let ready_to_reimburse_txhandler = txhandlers
+                    .iter()
+                    .find(|txhandler| {
+                        txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
+                    })
+                    .ok_or_else(|| eyre::eyre!("Ready to reimburse txhandler not found"))?;
+                let round_txid = round_txhandler.get_cached_tx().compute_txid();
                 for (kickoff_txid, kickoff_idx) in
                     &kickoff_txids[operator_idx][round_idx.to_index()]
                 {
                     kickoff_metadata
                         .insert(*kickoff_txid, (operator_xonly_pk, round_idx, *kickoff_idx));
-                    all_kickoff_txids.push(*kickoff_txid);
+                    let outpoint = OutPoint {
+                        txid: round_txid,
+                        vout: UtxoVout::Kickoff(*kickoff_idx).get_vout(),
+                    };
+                    expected_spenders.insert(
+                        outpoint,
+                        (*kickoff_txid, operator_xonly_pk, round_idx, *kickoff_idx),
+                    );
+                    outpoints.push(outpoint);
+                }
+                prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
+            }
+
+            if operator_idx == 0 {
+                outpoints.push(deposit_outpoint);
+            }
+            if outpoints.is_empty() {
+                continue;
+            }
+            for (outpoint, (spending_txid, height)) in
+                self.rpc.confirmed_spenders(&outpoints).await?
+            {
+                if outpoint == deposit_outpoint {
+                    if spending_txid == move_txid {
+                        move_tx_height = Some(height);
+                    }
+                    continue;
+                }
+                if let Some((expected_txid, _, _, _)) = expected_spenders.get(&outpoint) {
+                    if spending_txid == *expected_txid {
+                        canonical_kickoffs.push((*expected_txid, height));
+                    }
                 }
             }
         }
 
-        if all_kickoff_txids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Query all txids (move + kickoffs) in one DB call
-        let mut txids_to_check = all_kickoff_txids.clone();
-        txids_to_check.push(move_txid);
-
-        let canonical_txids_with_heights = self.rpc.confirmed_tx_heights(&txids_to_check).await?;
-
-        // Check move_txid/kickoffs consistency
-        let canonical_txid_set: std::collections::HashSet<Txid> = canonical_txids_with_heights
-            .iter()
-            .map(|(txid, _)| *txid)
-            .collect();
-
-        let move_txid_in_chain = canonical_txid_set.contains(&move_txid);
-
         // if move txid is in chain, that means the deposit was already finished before, and current new_deposit call is just to resign,
         // meaning if there are any kickoffs already in chain, it is ok.
-        if !move_txid_in_chain {
+        if move_tx_height.is_none() {
             // Check if any kickoffs are in chain
-            let kickoffs_in_chain: Vec<_> = all_kickoff_txids
+            let kickoffs_in_chain: Vec<_> = canonical_kickoffs
                 .iter()
-                .filter(|txid| canonical_txid_set.contains(*txid))
-                .filter_map(|txid| {
+                .filter_map(|(txid, _)| {
                     kickoff_metadata
                         .get(txid)
                         .map(|(op_pk, round_idx, kickoff_idx)| {
@@ -1451,12 +1505,6 @@ where
             }
         }
 
-        // Filter to only kickoff txids (exclude move_txid) that are canonical
-        let canonical_kickoffs: Vec<(Txid, u32)> = canonical_txids_with_heights
-            .into_iter()
-            .filter(|(txid, _)| *txid != move_txid)
-            .collect();
-
         if canonical_kickoffs.is_empty() {
             return Ok(Vec::new());
         }
@@ -1464,7 +1512,7 @@ where
         // Get the current chain tip height for finalization check
         let current_chain_height = self
             .db
-            .get_max_height(Some(dbtx))
+            .get_max_height(Some(&mut *dbtx))
             .await?
             .ok_or_else(|| eyre::eyre!("No blocks in bitcoin_syncer database"))?;
 
@@ -1499,7 +1547,7 @@ where
             for (block_height, txids_in_block) in txids_by_height {
                 let block = self
                     .db
-                    .get_full_block(Some(dbtx), block_height)
+                    .get_full_block(Some(&mut *dbtx), block_height)
                     .await?
                     .ok_or_else(|| {
                         eyre::eyre!(
@@ -1535,7 +1583,7 @@ where
 
                     StateManager::<Self>::dispatch_new_kickoff_machine(
                         &self.db,
-                        dbtx,
+                        &mut *dbtx,
                         KickoffData {
                             operator_xonly_pk: *operator_xonly_pk,
                             round_idx: *round_idx,
@@ -1551,12 +1599,15 @@ where
                     // if it doesn't exist, it means this verifier does not have an operator with automation enabled
                     if self
                         .db
-                        .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(dbtx))
+                        .pgmq_queue_exists(
+                            &StateManager::<Operator<C>>::queue_name(),
+                            Some(&mut *dbtx),
+                        )
                         .await?
                     {
                         StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
                             &self.db,
-                            dbtx,
+                            &mut *dbtx,
                             KickoffData {
                                 operator_xonly_pk: *operator_xonly_pk,
                                 round_idx: *round_idx,
