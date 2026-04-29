@@ -3,16 +3,17 @@
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::config::BridgeConfig;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
 use crate::musig2::AggregateFromPublicKeys;
-use crate::test::common::generate_withdrawal_transaction_and_signature;
+use crate::test::common::generate_withdrawal_transaction_and_signatures;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::taproot;
-use bitcoin::{Address, Amount, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
+use bitcoin::{taproot, Amount};
+use bitcoin::{Address, Block, OutPoint, Transaction, TxOut, Txid, VarInt, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::{BitcoinNodeCluster, DEFAULT_FINALITY_DEPTH};
 use citrea_e2e::{
@@ -282,13 +283,19 @@ pub struct CitreaE2EData<'a> {
 /// A vector of tuples of:
 ///
 /// - [`OutPoint`]: UTXO for the given withdrawal.
-/// - [`TxOut`]: Output corresponding to the withdrawal.
-/// - [`schnorr::Signature`]: Signature for the withdrawal utxo.
+/// - [`TxOut`], [`schnorr::Signature`]: Operator payout output and signature.
+/// - [`TxOut`], [`schnorr::Signature`]: Optimistic/contract payout output and signature.
 pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
     move_txids: &[Txid],
     e2e: &CitreaE2EData<'_>,
     actors: &TestActors<CitreaClient>,
-) -> Vec<(OutPoint, TxOut, taproot::Signature)> {
+) -> Vec<(
+    OutPoint,
+    TxOut,
+    taproot::Signature,
+    TxOut,
+    taproot::Signature,
+)> {
     let mut results = Vec::with_capacity(move_txids.len());
     let mut pending_withdrawals = Vec::with_capacity(move_txids.len());
 
@@ -353,8 +360,8 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
             None,
             e2e.config.protocol_paramset().network,
         );
-        let (withdrawal_utxo_with_txout, payout_txout, sig) =
-            generate_withdrawal_transaction_and_signature(
+        let (withdrawal_utxo_with_txout, payout_txout, sig, opt_payout_txout, opt_sig) =
+            generate_withdrawal_transaction_and_signatures(
                 &e2e.config,
                 e2e.rpc,
                 &withdrawal_address,
@@ -363,10 +370,17 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
                         .config
                         .operator_withdrawal_fee_sats
                         .unwrap_or(Amount::from_sat(0)),
+                e2e.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
             )
             .await;
 
-        pending_withdrawals.push((withdrawal_utxo_with_txout, payout_txout, sig));
+        pending_withdrawals.push((
+            withdrawal_utxo_with_txout,
+            payout_txout,
+            sig,
+            opt_payout_txout,
+            opt_sig,
+        ));
     }
 
     // Mine once for all pending withdrawals, then wait for LC updates for all of them together.
@@ -376,7 +390,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
             .await
             .unwrap();
 
-        for (withdrawal_utxo_with_txout, _, _) in &pending_withdrawals {
+        for (withdrawal_utxo_with_txout, ..) in &pending_withdrawals {
             wait_until_lc_contract_updated(
                 e2e.sequencer.client.http_client(),
                 e2e,
@@ -398,12 +412,14 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
         .unwrap_or(0);
     tracing::info!("Current nonce: {current_nonce}");
     let mut pending_citrea_txs = Vec::with_capacity(pending_withdrawals.len());
-    for (withdrawal_utxo_with_txout, payout_txout, sig) in pending_withdrawals {
+    for (withdrawal_utxo_with_txout, payout_txout, sig, opt_payout_txout, opt_sig) in
+        pending_withdrawals
+    {
         let params = get_citrea_safe_withdraw_params(
             e2e.rpc,
             withdrawal_utxo_with_txout.clone(),
-            payout_txout.clone(),
-            sig,
+            opt_payout_txout.clone(),
+            opt_sig,
         )
         .await
         .unwrap();
@@ -428,7 +444,13 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
 
         current_nonce += 1;
         pending_citrea_txs.push(citrea_withdrawal_tx);
-        results.push((withdrawal_utxo, payout_txout, sig));
+        results.push((
+            withdrawal_utxo,
+            payout_txout,
+            sig,
+            opt_payout_txout,
+            opt_sig,
+        ));
     }
 
     // Commit once at the end to reduce block usage.

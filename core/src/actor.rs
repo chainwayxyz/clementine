@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
+#[cfg(test)]
+use crate::builder::transaction::deposit_signature_owner::DepositSigKeyOwner;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
@@ -209,6 +211,8 @@ pub struct Actor {
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
+    #[cfg(test)]
+    pub annex: Option<Vec<u8>>,
 }
 
 impl clementine_tx_sender::TxSenderSigner for Actor {
@@ -241,6 +245,8 @@ impl Actor {
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
+            #[cfg(test)]
+            annex: None,
         }
     }
 
@@ -446,6 +452,11 @@ impl Actor {
         txhandler: &mut TxHandler,
         data: impl AsRef<[u8]>,
     ) -> Result<(), BridgeError> {
+        #[cfg(test)]
+        {
+            txhandler.set_test_annex(self.annex.clone());
+        }
+
         let mut signed_preimage = false;
 
         let data = data.as_ref();
@@ -458,6 +469,7 @@ impl Actor {
                 .get_spend_info()
                 .as_ref()
                 .ok_or(TxError::MissingSpendInfo)?;
+            let signature_id = spt.get_signature_id();
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
@@ -465,8 +477,7 @@ impl Actor {
                         .get_scripts()
                         .get(script_idx)
                         .ok_or(TxError::NoScriptAtIndex(script_idx))?;
-                    let sighash_type = spt
-                        .get_signature_id()
+                    let sighash_type = signature_id
                         .get_deposit_sig_owner()
                         .map(|s| s.sighash_type())?
                         .unwrap_or(TapSighashType::Default);
@@ -508,6 +519,19 @@ impl Actor {
                         spendinfo,
                     )?;
 
+                    // BIP341 annex must be the last witness element.
+                    #[cfg(test)]
+                    {
+                        if let Some(ref annex) = self.annex {
+                            if matches!(
+                                signature_id.get_deposit_sig_owner()?,
+                                DepositSigKeyOwner::Own(_)
+                            ) {
+                                witness.push(annex);
+                            }
+                        }
+                    }
+
                     Ok(Some(witness))
                 }
                 SpendPath::KeySpend => Ok(None),
@@ -523,6 +547,11 @@ impl Actor {
         txhandler: &mut TxHandler,
         data: &[(Vec<u8>, WinternitzDerivationPath)],
     ) -> Result<(), BridgeError> {
+        #[cfg(test)]
+        {
+            txhandler.set_test_annex(self.annex.clone());
+        }
+
         let mut signed_winternitz = false;
 
         let signer = move |_: usize,
@@ -534,6 +563,7 @@ impl Actor {
                 .get_spend_info()
                 .as_ref()
                 .ok_or(TxError::MissingSpendInfo)?;
+            let signature_id = spt.get_signature_id();
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
@@ -541,8 +571,7 @@ impl Actor {
                         .get_scripts()
                         .get(script_idx)
                         .ok_or(TxError::NoScriptAtIndex(script_idx))?;
-                    let sighash_type = spt
-                        .get_signature_id()
+                    let sighash_type = signature_id
                         .get_deposit_sig_owner()
                         .map(|s| s.sighash_type())?
                         .unwrap_or(TapSighashType::Default);
@@ -589,6 +618,19 @@ impl Actor {
                         spendinfo,
                     )?;
 
+                    // BIP341 annex must be the last witness element.
+                    #[cfg(test)]
+                    {
+                        if let Some(ref annex) = self.annex {
+                            if matches!(
+                                signature_id.get_deposit_sig_owner()?,
+                                DepositSigKeyOwner::Own(_)
+                            ) {
+                                witness.push(annex);
+                            }
+                        }
+                    }
+
                     Ok(Some(witness))
                 }
                 SpendPath::KeySpend => Ok(None),
@@ -606,6 +648,11 @@ impl Actor {
         signatures: &[TaggedSignature],
         mut tweak_cache: Option<&mut TweakCache>,
     ) -> Result<(), BridgeError> {
+        #[cfg(test)]
+        {
+            txhandler.set_test_annex(self.annex.clone());
+        }
+
         let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
                            spt: &SpentTxIn,
@@ -741,6 +788,20 @@ impl Actor {
                         &script.to_script_buf(),
                         spendinfo,
                     )?;
+
+                    // BIP341 annex must be the last witness element.
+                    #[cfg(test)]
+                    {
+                        if let Some(ref annex) = self.annex {
+                            if matches!(
+                                signature_id.get_deposit_sig_owner()?,
+                                DepositSigKeyOwner::Own(_)
+                            ) {
+                                witness.push(annex);
+                            }
+                        }
+                    }
+
                     Ok(Some(witness))
                 }
                 SpendPath::KeySpend => {
@@ -774,7 +835,24 @@ impl Actor {
                             }
                         }
                     };
-                    Ok(Some(Witness::from_slice(&[&sig.serialize()])))
+                    #[cfg(test)]
+                    {
+                        let mut witness = Witness::from_slice(&[&sig.serialize()]);
+                        if let Some(ref annex) = self.annex {
+                            if matches!(
+                                signature_id.get_deposit_sig_owner()?,
+                                DepositSigKeyOwner::Own(_)
+                            ) {
+                                witness.push(annex);
+                            }
+                        }
+                        Ok(Some(witness))
+                    }
+
+                    #[cfg(not(test))]
+                    {
+                        Ok(Some(Witness::from_slice(&[&sig.serialize()])))
+                    }
                 }
                 SpendPath::Unknown => Err(TxError::SpendPathNotSpecified.into()),
             }

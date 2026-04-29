@@ -2126,7 +2126,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -2136,15 +2136,6 @@ where
                 Some(dbtx),
             )
             .await?;
-
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
 
         #[cfg(feature = "automation")]
         {
@@ -2162,7 +2153,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     self.config.protocol_paramset(),
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 

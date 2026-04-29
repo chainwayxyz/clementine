@@ -210,7 +210,7 @@ pub async fn disprove_tests_common_setup(
             .unwrap();
 
     // generate a withdrawal
-    let (withdrawal_utxo, payout_txout, sig) =
+    let (withdrawal_utxo, payout_txout, sig, _, _) =
         get_new_withdrawal_utxo_and_register_to_citrea(&[move_txid], e2e, &actors)
             .await
             .into_iter()

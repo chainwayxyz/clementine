@@ -1433,9 +1433,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);
@@ -1552,11 +1552,6 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
-
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config
