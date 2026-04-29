@@ -10,28 +10,21 @@
 <a href=#10 id=10 data-nosnippet>10</a>/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
 <a href=#11 id=11 data-nosnippet>11</a>/// - Not needed for CPFP.
 <a href=#12 id=12 data-nosnippet>12</a>/// - Only signs for a keypath spend
-<a href=#13 id=13 data-nosnippet>13</a></span><span class="comment">// Consider adding `#[cfg(any(test, feature = "test-fields"))]` back to
-<a href=#14 id=14 data-nosnippet>14</a>// `annex` and `additional_taproot_output_count` fields to reduce struct size in production.
-<a href=#15 id=15 data-nosnippet>15</a>// These fields are only used for testing large transaction scenarios.
-<a href=#16 id=16 data-nosnippet>16</a></span><span class="attr">#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-<a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">pub struct </span>RbfSigningInfo {
-<a href=#18 id=18 data-nosnippet>18</a>    <span class="doccomment">/// The output index of the UTXO to be re-signed.
-<a href=#19 id=19 data-nosnippet>19</a>    </span><span class="kw">pub </span>vout: u32,
-<a href=#20 id=20 data-nosnippet>20</a>    <span class="doccomment">/// The tweak merkle root for the taproot keyspend.
-<a href=#21 id=21 data-nosnippet>21</a>    </span><span class="kw">pub </span>tweak_merkle_root: <span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;,
-<a href=#22 id=22 data-nosnippet>22</a>    <span class="doccomment">/// Annex data (used for testing large transaction scenarios).
-<a href=#23 id=23 data-nosnippet>23</a>    </span><span class="kw">pub </span>annex: <span class="prelude-ty">Option</span>&lt;Vec&lt;u8&gt;&gt;,
-<a href=#24 id=24 data-nosnippet>24</a>    <span class="doccomment">/// Additional taproot output count (used for testing large transaction scenarios).
-<a href=#25 id=25 data-nosnippet>25</a>    </span><span class="kw">pub </span>additional_taproot_output_count: <span class="prelude-ty">Option</span>&lt;u32&gt;,
-<a href=#26 id=26 data-nosnippet>26</a>}
-<a href=#27 id=27 data-nosnippet>27</a>
-<a href=#28 id=28 data-nosnippet>28</a><span class="doccomment">/// Contains information about the spend path that is needed to sign the utxo.
-<a href=#29 id=29 data-nosnippet>29</a></span><span class="attr">#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-<a href=#30 id=30 data-nosnippet>30</a></span><span class="kw">pub enum </span>TapTweakData {
-<a href=#31 id=31 data-nosnippet>31</a>    <span class="doccomment">/// Key path spend with an optional merkle root for tweaking.
-<a href=#32 id=32 data-nosnippet>32</a>    </span>KeyPath(<span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;),
-<a href=#33 id=33 data-nosnippet>33</a>    <span class="doccomment">/// Script path spend.
-<a href=#34 id=34 data-nosnippet>34</a>    </span>ScriptPath,
-<a href=#35 id=35 data-nosnippet>35</a>    <span class="doccomment">/// Unknown spend path.
-<a href=#36 id=36 data-nosnippet>36</a>    </span>Unknown,
-<a href=#37 id=37 data-nosnippet>37</a>}</code></pre></div></section></main></body></html>
+<a href=#13 id=13 data-nosnippet>13</a></span><span class="attr">#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+<a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">pub struct </span>RbfSigningInfo {
+<a href=#15 id=15 data-nosnippet>15</a>    <span class="doccomment">/// The output index of the UTXO to be re-signed.
+<a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">pub </span>vout: u32,
+<a href=#17 id=17 data-nosnippet>17</a>    <span class="doccomment">/// The tweak merkle root for the taproot keyspend.
+<a href=#18 id=18 data-nosnippet>18</a>    </span><span class="kw">pub </span>tweak_merkle_root: <span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;,
+<a href=#19 id=19 data-nosnippet>19</a>}
+<a href=#20 id=20 data-nosnippet>20</a>
+<a href=#21 id=21 data-nosnippet>21</a><span class="doccomment">/// Contains information about the spend path that is needed to sign the utxo.
+<a href=#22 id=22 data-nosnippet>22</a></span><span class="attr">#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+<a href=#23 id=23 data-nosnippet>23</a></span><span class="kw">pub enum </span>TapTweakData {
+<a href=#24 id=24 data-nosnippet>24</a>    <span class="doccomment">/// Key path spend with an optional merkle root for tweaking.
+<a href=#25 id=25 data-nosnippet>25</a>    </span>KeyPath(<span class="prelude-ty">Option</span>&lt;TapNodeHash&gt;),
+<a href=#26 id=26 data-nosnippet>26</a>    <span class="doccomment">/// Script path spend.
+<a href=#27 id=27 data-nosnippet>27</a>    </span>ScriptPath,
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="doccomment">/// Unknown spend path.
+<a href=#29 id=29 data-nosnippet>29</a>    </span>Unknown,
+<a href=#30 id=30 data-nosnippet>30</a>}</code></pre></div></section></main></body></html>
