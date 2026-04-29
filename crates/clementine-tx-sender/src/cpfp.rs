@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
+use crate::{TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -563,7 +563,7 @@ impl TxSender {
     /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
     /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
-    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    ///     mempool, updates the effective fee rate in the database. If failed, returns an error.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
@@ -683,30 +683,36 @@ impl TxSender {
             return Ok(());
         }
 
-        for (_txid, result) in submit_result.tx_results {
+        let mut package_errors = Vec::new();
+        let mut has_replacement_error = false;
+
+        for result in submit_result.tx_results.into_values() {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 if crate::rpc_errors::is_rejecting_replacement_error(&error) {
-                    tracing::debug!(
-                        try_to_send_id,
-                        "Package tx rejected (tx already in mempool): {error}"
-                    );
-                } else {
-                    tracing::error!(
-                        try_to_send_id,
-                        "Error submitting package: {:?}, package: {:?}",
-                        error,
-                        package_refs
-                            .iter()
-                            .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                            .collect::<Vec<_>>()
-                    );
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Failed to submit package: {error}")
-                    );
+                    has_replacement_error = true;
                 }
+                package_errors.push(error);
             }
+        }
+
+        if has_replacement_error {
+            tracing::debug!(
+                try_to_send_id,
+                "Package tx rejected (tx already in mempool): {:?}",
+                package_errors
+            );
+            return Ok(());
+        }
+
+        if !package_errors.is_empty() {
+            return Err(SendTxError::Other(eyre!(
+                "Failed to submit package: {:?}, package: {:?}",
+                package_errors,
+                package_refs
+                    .iter()
+                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                    .collect::<Vec<_>>()
+            )));
         }
 
         Ok(())
