@@ -14,8 +14,16 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, crane, rust-overlay, flake-utils }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      crane,
+      rust-overlay,
+      flake-utils,
+    }:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
+      system:
       let
         pkgs = import nixpkgs {
           inherit system;
@@ -23,25 +31,36 @@
         };
 
         rustToolchain = pkgs.rust-bin.stable."1.88.0".minimal.override {
-          extensions = [ "rust-src" "clippy" "rustfmt" ];
+          extensions = [
+            "rust-src"
+            "clippy"
+            "rustfmt"
+          ];
         };
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
-          filter = path: type:
+          filter =
+            path: type:
             let
               rel = pkgs.lib.removePrefix "${toString ./.}/" (toString path);
+              isSqlxMigration =
+                pkgs.lib.hasPrefix "core/src/database/migrations/" rel
+                && pkgs.lib.hasSuffix ".sql" rel
+                && !pkgs.lib.hasSuffix ".down.sql" rel;
             in
-              (craneLib.filterCargoSources path type)
-              || pkgs.lib.hasPrefix "circuits-lib/src/bridge_circuit/bin/" rel
-              || pkgs.lib.hasPrefix "core/src/database/migrations/" rel
-              || rel == "core/src/database/schema.sql"
-              || rel == "core/src/database/pgmq.sql"
-              || rel == "core/src/rpc/clementine.proto"
-              || pkgs.lib.hasPrefix "risc0-circuits/elfs/" rel
-              || rel == "scripts/Bridge.json";
+            (craneLib.filterCargoSources path type)
+            || pkgs.lib.hasPrefix "circuits-lib/src/bridge_circuit/bin/" rel
+            # sqlx::migrate! sorts migrations by version only. Including .down.sql
+            # files with the same version makes their embedded order filesystem-dependent.
+            || isSqlxMigration
+            || rel == "core/src/database/schema.sql"
+            || rel == "core/src/database/pgmq.sql"
+            || rel == "core/src/rpc/clementine.proto"
+            || pkgs.lib.hasPrefix "risc0-circuits/elfs/" rel
+            || rel == "scripts/Bridge.json";
         };
 
         recursionZkr = pkgs.fetchurl {
@@ -56,7 +75,7 @@
             let
               cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
             in
-              cargoToml.workspace.package.version;
+            cargoToml.workspace.package.version;
 
           strictDeps = true;
 
@@ -111,16 +130,18 @@
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        clementine = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          doCheck = false;
+        clementine = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            doCheck = false;
 
-          postInstall = ''
-            strip $out/bin/clementine-core
-            strip $out/bin/clementine-cli
-          '';
-
-        });
+            postInstall = ''
+              strip $out/bin/clementine-core
+              strip $out/bin/clementine-cli
+            '';
+          }
+        );
       in
       {
         packages = {
