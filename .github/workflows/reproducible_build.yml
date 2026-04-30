@@ -1,0 +1,45 @@
+name: reproducible-build
+
+on:
+  workflow_dispatch:
+  # Temporary trigger while testing reproducible builds on this branch.
+  push:
+    branches:
+      - oguz/repr-build
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  nix-build:
+    name: ${{ matrix.platform }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubicloud-standard-30
+          - platform: linux-arm64
+            runner: ubicloud-standard-30-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.6/install
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Build
+        run: nix build .#clementine --print-build-logs
+
+      - name: Rebuild to verify reproducibility
+        run: nix build .#clementine --rebuild --print-build-logs
