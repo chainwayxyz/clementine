@@ -48,6 +48,11 @@
               || rel == "scripts/Bridge.json";
         };
 
+        recursionZkr = pkgs.fetchurl {
+          url = "https://risc0-artifacts.s3.us-west-2.amazonaws.com/zkr/744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849.zip";
+          hash = "sha256-dEuZnwo1s8hnUzEcfvsqAFS+IXJwlc8QWvbufT9NiEk=";
+        };
+
         commonArgs = {
           inherit src;
           pname = "clementine";
@@ -81,8 +86,10 @@
           TZ = "UTC";
           ZERO_AR_DATE = "1";
           CARGO_INCREMENTAL = "0";
+          VERGEN_IDEMPOTENT = "1";
           # Avoid host-dependent jemalloc rtree sizing on machines with 5-level paging.
           JEMALLOC_SYS_WITH_LG_VADDR = "48";
+          RECURSION_SRC_PATH = "${recursionZkr}";
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
           # GCC 14 promoted -Wint-conversion to an error by default, which breaks
@@ -131,6 +138,7 @@
             rust-analyzer
           ];
 
+          VERGEN_IDEMPOTENT = "1";
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
         };
       }
