@@ -107,12 +107,6 @@
           RECURSION_SRC_PATH = "${recursionZkr}";
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-          # GCC 14 promoted -Wint-conversion to an error by default, which breaks
-          # the bundled jemalloc in tikv-jemalloc-sys 0.6.0 (its strerror_r call
-          # predates the XSI-compliant prototype). Demote it back to a warning;
-          # doesn't affect codegen, so reproducibility is unchanged.
-          NIX_CFLAGS_COMPILE = "-Wno-int-conversion";
-
           RUSTFLAGS = builtins.concatStringsSep " " [
             "--remap-path-prefix=${src}=/build/source"
             "--remap-path-prefix=/build=/build"
