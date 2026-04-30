@@ -154,7 +154,7 @@ impl TxSenderDb {
             INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
             SELECT $1, $2, NULL, NULL
             WHERE NOT EXISTS (
-                SELECT 1 FROM tx_sender_citrea_raw_tx_queue 
+                SELECT 1 FROM tx_sender_citrea_raw_tx_queue
                 WHERE insertion_id = $1 AND transaction_kind = $2
             )
             "#,

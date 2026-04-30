@@ -175,9 +175,9 @@ impl TxSenderDb {
         id: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos 
-                SET is_evicted = true 
-                WHERE id = $1 
+            "UPDATE tx_sender_fee_payer_utxos
+                SET is_evicted = true
+                WHERE id = $1
                 OR replacement_of_id = $1",
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
@@ -248,11 +248,11 @@ impl TxSenderDb {
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             r#"
-            INSERT INTO tx_sender_try_to_send_txs 
-            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) 
-            VALUES ($1, $2::fee_paying_type, $3, $4, $5) 
-            ON CONFLICT (txid) 
-            DO UPDATE SET txid = EXCLUDED.txid 
+            INSERT INTO tx_sender_try_to_send_txs
+            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info)
+            VALUES ($1, $2::fee_paying_type, $3, $4, $5)
+            ON CONFLICT (txid)
+            DO UPDATE SET txid = EXCLUDED.txid
             RETURNING id
             "#,
         )
@@ -521,8 +521,8 @@ impl TxSenderDb {
         block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs 
-             SET effective_fee_rate = $1, last_bump_block_height = $2 
+            "UPDATE tx_sender_try_to_send_txs
+             SET effective_fee_rate = $1, last_bump_block_height = $2
              WHERE id = $3 AND (effective_fee_rate IS NULL OR effective_fee_rate != $1)",
         )
         .bind(

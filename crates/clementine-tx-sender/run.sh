@@ -169,8 +169,8 @@ PY
     -H 'content-type: application/json' \
     --data "${req}" \
     "${url}" \
-    | python3 -c 'import sys, json; r=json.load(sys.stdin); 
-if "error" in r: 
+    | python3 -c 'import sys, json; r=json.load(sys.stdin);
+if "error" in r:
   raise SystemExit("JSON-RPC error: %s" % r["error"])
 print(r["result"])'
 }
@@ -283,4 +283,3 @@ echo "Checking confirmations..."
 assert_confirmed "${TXID}"
 
 echo "OK: tx ${TXID} confirmed."
-
