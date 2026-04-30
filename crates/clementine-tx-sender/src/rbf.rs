@@ -335,7 +335,6 @@ impl TxSender {
 
         #[cfg(feature = "testing")]
         {
-            // these annex code will be deleted in another PR anyway
             use bitcoin::sighash::Annex;
             // This should provide the Sighash for the key spend
             if let Some(ref annex_bytes) = rbf_signing_info.annex {
@@ -597,7 +596,7 @@ impl TxSender {
             None => None,
         };
 
-        if let Some(bump_from_txid) = bump_from_txid {
+        let effective_feerate = if let Some(bump_from_txid) = bump_from_txid {
             tracing::debug!(
                 ?try_to_send_id,
                 "Attempting to bump fee for txid {bump_from_txid} using psbt_bump_fee"
@@ -618,9 +617,9 @@ impl TxSender {
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
-                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kwu(Amount::from_sat(
-                    effective_feerate.to_sat_per_kwu_ceil(),
-                ))),
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
+                    Amount::from_sat(effective_feerate.to_sat_per_kvb()),
+                )),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
             };
@@ -847,16 +846,7 @@ impl TxSender {
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
 
-            // Save the effective fee rate to the db
-            self.db
-                .update_effective_fee_rate(
-                    None,
-                    try_to_send_id,
-                    effective_feerate,
-                    current_tip_height,
-                )
-                .await
-                .wrap_err("Failed to update effective fee rate")?;
+            effective_feerate
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -1126,12 +1116,13 @@ impl TxSender {
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
 
-            // Save the effective fee rate to the db
-            self.db
-                .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
-                .await
-                .wrap_err("Failed to update effective fee rate")?;
-        }
+            fee_rate
+        };
+
+        self.db
+            .update_effective_fee_rate(None, try_to_send_id, effective_feerate, current_tip_height)
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
 
         Ok(())
     }

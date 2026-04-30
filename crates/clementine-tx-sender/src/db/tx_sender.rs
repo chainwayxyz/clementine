@@ -16,6 +16,13 @@ use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 
 impl TxSenderDb {
     /// Saves a fee payer transaction to the database.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The id of the transaction funded by this fee payer.
+    /// * `fee_payer_txid` - The txid of the fee payer transaction.
+    /// * `vout` - The output index of the fee payer UTXO.
+    /// * `amount` - The amount in satoshis.
+    /// * `replacement_of_id` - The fee payer UTXO this row replaces, if any.
     #[allow(clippy::too_many_arguments)]
     pub async fn save_fee_payer_tx(
         &self,
@@ -45,6 +52,20 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns all unconfirmed fee payer UTXOs.
+    ///
+    /// UTXOs whose replacement chain already has a confirmed member are excluded. If no
+    /// replacement in the chain is confirmed, all unconfirmed replacements are returned.
+    ///
+    /// # Returns
+    ///
+    /// A vector of fee payer UTXO details:
+    /// - [`u32`]: id of the fee payer UTXO row.
+    /// - [`u32`]: id of the bumped transaction.
+    /// - [`Txid`]: txid of the fee payer transaction.
+    /// - [`u32`]: output index of the UTXO.
+    /// - [`Amount`]: amount in satoshis.
+    /// - [`Option<u32>`]: replaced fee payer UTXO id, if this is a replacement.
     pub async fn get_all_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -89,6 +110,21 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Returns unconfirmed fee payer UTXOs for one try-to-send transaction.
+    ///
+    /// UTXOs whose replacement chain already has a confirmed member are excluded. If no
+    /// replacement in the chain is confirmed, all unconfirmed replacements are returned.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The id of the transaction funded by the fee payer UTXOs.
+    ///
+    /// # Returns
+    ///
+    /// A vector of fee payer UTXO details:
+    /// - [`u32`]: id of the fee payer UTXO row.
+    /// - [`Txid`]: txid of the fee payer transaction.
+    /// - [`u32`]: output index of the UTXO.
+    /// - [`Amount`]: amount in satoshis.
     pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -129,6 +165,10 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Marks a fee payer UTXO and all of its replacements as evicted.
+    ///
+    /// Evicted fee payer UTXOs are no longer selected for bumps, because their wallet
+    /// inputs may already have been reused elsewhere.
     pub async fn mark_fee_payer_utxo_as_evicted(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -175,6 +215,9 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Returns the tx-sender row id for `txid` if it already exists.
+    ///
+    /// This is used before inserting to avoid adding duplicate transactions to the queue.
     pub async fn check_if_tx_exists_on_txsender(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -340,6 +383,21 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns unconfirmed try-to-send transactions that satisfy all queue conditions.
+    ///
+    /// A transaction is sendable when:
+    /// - all activation dependencies have been seen and their relative block timelocks passed;
+    /// - zero-timelock txid activations are either seen on-chain or currently in mempool;
+    /// - no cancellation dependency has been seen;
+    /// - the transaction itself has not been seen on-chain;
+    /// - its previous effective fee rate is lower than `fee_rate`, or it has never been sent.
+    ///
+    /// Passing a very high `fee_rate` is used by callers to retrieve all active transactions
+    /// after a new block, even when the market fee did not increase.
+    ///
+    /// # Returns
+    ///
+    /// A vector of tx-sender database ids that are ready to send or bump.
     pub async fn get_sendable_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -422,6 +480,9 @@ impl TxSenderDb {
         Ok(txs)
     }
 
+    /// Returns the effective fee rate and block height from the last actual fee bump.
+    ///
+    /// Returns `(None, None)` if no effective fee rate has been recorded yet.
     pub async fn get_effective_fee_rate(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -445,6 +506,13 @@ impl TxSenderDb {
         }
     }
 
+    /// Updates the effective fee rate and last bump block height for a transaction.
+    ///
+    /// The row is updated only when the fee rate changes, or when the previous fee rate
+    /// is `NULL`. This preserves `last_bump_block_height` across retries at the same
+    /// fee rate, so the stuck-for-N-blocks counter continues from the last real bump.
+    ///
+    /// `effective_fee_rate` is stored in sat/kvB.
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -520,6 +588,7 @@ impl TxSenderDb {
         ))
     }
 
+    /// Saves a transaction submission error to the debug table.
     pub async fn save_tx_debug_submission_error(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -536,6 +605,10 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Updates or inserts the transaction's current debug sending state.
+    ///
+    /// This intentionally does not accept a database transaction. It is debug-only
+    /// metadata and callers should use it after the tx-sender row has been committed.
     pub async fn update_tx_debug_sending_state(
         &self,
         tx_id: u32,
@@ -571,6 +644,7 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns the current debug sending state for a transaction.
     pub async fn get_tx_debug_info(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -592,6 +666,7 @@ impl TxSenderDb {
         }
     }
 
+    /// Returns all recorded submission errors for a transaction, ordered by timestamp.
     pub async fn get_tx_debug_submission_errors(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -610,6 +685,7 @@ impl TxSenderDb {
         txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all).map_err(Into::into)
     }
 
+    /// Returns all fee payer UTXOs for a transaction with their confirmation status.
     pub async fn get_tx_debug_fee_payer_utxos(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -830,6 +906,34 @@ impl TxSenderDb {
                         id,
                         txid.0,
                         vout
+                    );
+                }
+            }
+
+            let effective_fee_rate = match sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT effective_fee_rate FROM tx_sender_try_to_send_txs WHERE id = $1",
+            )
+            .bind(tx_id)
+            .fetch_one(&self.pool)
+            .await
+            {
+                Ok(rate) => rate,
+                Err(e) => {
+                    tracing::error!(
+                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query effective fee rate: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            if let Some(rate) = effective_fee_rate {
+                if rate >= fee_rate.to_sat_per_kvb() as i64 {
+                    tracing::info!(
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kvB) is >= the current fee rate ({} sat/kvB)",
+                        id,
+                        rate,
+                        fee_rate.to_sat_per_kvb()
                     );
                 }
             }

@@ -32,7 +32,7 @@ use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
 #[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::musig2;
 #[cfg(feature = "automation")]
 use crate::operator::Operator;
@@ -359,10 +359,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Verifier<C>>::new(
+                EntityMetricPublisher::<Verifier<C>, C>::new(
                     self.verifier.db.clone(),
                     rpc.clone(),
                     self.verifier.config.clone(),
+                    self.verifier.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -376,26 +377,28 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let l1_sync_status = Verifier::<C>::get_l1_status(
+        let sync_status = Verifier::<C>::get_sync_status(
             &self.verifier.db,
             &self.verifier.rpc,
             &self.verifier.config,
+            &self.verifier.citrea_client,
         )
         .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: l1_sync_status
+            wallet_balance: sync_status
                 .wallet_balance
                 .map(|balance| format!("{} BTC", balance.to_btc())),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
-            finalized_synced_height: l1_sync_status.finalized_synced_height,
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
-            rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height,
-            btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
+            state_manager_next_height: sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
@@ -1921,52 +1924,19 @@ where
         Ok(false)
     }
 
-    /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
-    /// Returns true if the kickoff is malicious.
-    pub async fn handle_kickoff<'a>(
-        &'a self,
-        dbtx: DatabaseTransaction<'a>,
-        kickoff_witness: Witness,
-        mut deposit_data: DepositData,
-        kickoff_data: KickoffData,
-        challenged_before: bool,
-        kickoff_txid: Txid,
-    ) -> Result<bool, BridgeError> {
-        let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
-            .await?;
-
-        if !is_malicious {
-            // do not add anything to the txsender if its not considered malicious
-            return Ok(false);
-        }
-
-        tracing::warn!(
-            "Malicious kickoff {:?} for deposit {:?}",
-            kickoff_data,
-            deposit_data
-        );
-
-        self.queue_relevant_txs_for_new_kickoff(
-            dbtx,
-            kickoff_data,
-            deposit_data,
-            challenged_before,
-            kickoff_txid,
-        )
-        .await?;
-
-        Ok(true)
-    }
-
-    async fn queue_relevant_txs_for_new_kickoff(
+    async fn get_signed_txs_for_kickoff(
         &self,
         dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        challenged_before: bool,
-        kickoff_txid: Txid,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<
+        (
+            Vec<(TransactionType, bitcoin::Transaction)>,
+            TxMetadata,
+            bitcoin::Transaction,
+        ),
+        BridgeError,
+    > {
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let context = ContractContext::new_context_with_signer(
             kickoff_data,
@@ -1979,44 +1949,121 @@ where
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            context.clone(),
+            context,
             None, // No need, verifier will not send kickoff tx
             Some(dbtx),
         )
         .await?;
 
+        let challenge_tx = signed_txs
+            .iter()
+            .find_map(|(tx_type, signed_tx)| {
+                (*tx_type == TransactionType::Challenge).then(|| signed_tx.clone())
+            })
+            .ok_or_else(|| eyre::eyre!("Could not find challenge tx in signed_txs"))?;
+
         let tx_metadata = TxMetadata {
-            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue / insert_try_to_send
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
             round_idx: Some(kickoff_data.round_idx),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         };
 
+        Ok((signed_txs, tx_metadata, challenge_tx))
+    }
+
+    /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
+    /// Returns true if the kickoff is malicious.
+    /// Sends a challenge tx if the kickoff is first malicious one in the current round, and the network is not mainnet or testnet4.
+    pub async fn handle_kickoff<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a>,
+        kickoff_witness: Witness,
+        mut deposit_data: DepositData,
+        kickoff_data: KickoffData,
+        challenged_before: bool,
+    ) -> Result<bool, BridgeError> {
+        let is_malicious = self
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
+            .await?;
+
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+
+        let (_signed_txs, tx_metadata, challenge_tx) = self
+            .get_signed_txs_for_kickoff(dbtx, kickoff_data, deposit_data)
+            .await?;
+
+        if is_malicious {
+            tracing::warn!(
+                "Malicious {} detected. {} Challenge tx: {} for deposit {}",
+                kickoff_data,
+                match challenged_before {
+                    false => "This is the first malicious kickoff in the current round.",
+                    true => "This is not the first malicious kickoff in the current round.",
+                },
+                bitcoin::consensus::encode::serialize_hex(&challenge_tx),
+                deposit_outpoint
+            );
+            // do not automatically send challenge txs on mainnet or testnet4
+            if !challenged_before
+                && !matches!(
+                    self.config.protocol_paramset().network,
+                    bitcoin::Network::Bitcoin | bitcoin::Network::Testnet4
+                )
+            {
+                #[cfg(feature = "automation")]
+                self.tx_sender
+                    .add_tx_to_queue(
+                        dbtx,
+                        TransactionType::Challenge,
+                        &challenge_tx,
+                        &[],
+                        Some(tx_metadata),
+                        self.config.protocol_paramset(),
+                        None,
+                    )
+                    .await?;
+            }
+        } else {
+            tracing::debug!(
+                "Non-malicious {} detected, challenge tx: {}",
+                kickoff_data,
+                bitcoin::consensus::encode::serialize_hex(&challenge_tx)
+            );
+        }
+
+        Ok(is_malicious)
+    }
+
+    #[cfg(feature = "automation")]
+    /// Queues the relevant txs for a kickoff when the kickoff was challenged.
+    /// These are: AssertTimeout, KickoffNotFinalized, LatestBlockhashTimeout, OperatorChallengeNack
+    async fn queue_txs_for_challenged_kickoff(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let (signed_txs, tx_metadata, _challenge_tx) = self
+            .get_signed_txs_for_kickoff(dbtx, kickoff_data, deposit_data)
+            .await?;
+
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
-            if *tx_type == TransactionType::Challenge && challenged_before {
-                // do not send challenge tx if malicious but operator was already challenged in the same round
-                tracing::warn!(
-                    "Operator {:?} was already challenged in the same round, skipping challenge tx",
-                    kickoff_data.operator_xonly_pk
-                );
-                continue;
-            }
             match *tx_type {
-                TransactionType::Challenge
-                | TransactionType::AssertTimeout(_)
+                TransactionType::AssertTimeout(_)
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
                 | TransactionType::OperatorChallengeNack(_) => {
-                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            None,
+                            Some(tx_metadata),
                             self.config.protocol_paramset(),
                             None, // limit
                         )
@@ -2027,7 +2074,6 @@ where
                 // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
                 // to not get disproven
                 TransactionType::WatchtowerChallengeTimeout(idx) => {
-                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .insert_try_to_send(
                             dbtx,
@@ -2125,7 +2171,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -2135,15 +2181,6 @@ where
                 Some(dbtx),
             )
             .await?;
-
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
 
         #[cfg(feature = "automation")]
         {
@@ -2161,7 +2198,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     self.config.protocol_paramset(),
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 
@@ -3171,8 +3208,12 @@ mod states {
 
                     Ok(DutyResult::Handled)
                 }
+                Duty::AddNecessaryTxsForKickoff { .. } => {
+                    // Verifiers do not need to add any transactions for kickoff if it is not challenged
+                    Ok(DutyResult::Handled)
+                }
                 Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
-                Duty::AddRelevantTxsToTxSender {
+                Duty::AddRelevantTxsToTxSenderIfChallenged {
                     kickoff_data,
                     deposit_data,
                 } => {
@@ -3191,11 +3232,10 @@ mod states {
                                 kickoff_data
                             )
                         })?;
-                    self.queue_relevant_txs_for_new_kickoff(
+                    self.queue_txs_for_challenged_kickoff(
                         dbtx,
                         kickoff_data,
                         deposit_data,
-                        true, // do not try to challenge as this duty is only useful during resyncing
                         kickoff_txid,
                     )
                     .await?;
@@ -3361,7 +3401,6 @@ mod states {
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
-                                txid,
                             )
                             .await?;
                         dbtx.commit().await?;

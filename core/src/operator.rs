@@ -24,7 +24,7 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -156,10 +156,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Operator<C>>::new(
+                EntityMetricPublisher::<Operator<C>, C>::new(
                     self.operator.db.clone(),
                     self.operator.rpc.clone(),
                     self.operator.config.clone(),
+                    self.operator.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -192,10 +193,11 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status = Operator::<C>::get_l1_status(
+        let sync_status = Operator::<C>::get_sync_status(
             &self.operator.db,
             &self.operator.rpc,
             &self.operator.config,
+            &self.operator.citrea_client,
         )
         .await?;
 
@@ -212,6 +214,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
@@ -1412,9 +1415,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);
@@ -1531,11 +1534,6 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
-
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config
@@ -2551,7 +2549,20 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
-                Duty::AddRelevantTxsToTxSender {
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    // Why is this needed if these txs are already added when kickoff is created in handle_finalized_payout?
+                    // If it was created when operator had no automation, and now automation is enabled, we need to ensure the necessary txs are queued.
+                    // Or if operator lost db and is resyncing.
+                    tracing::info!("Operator {:?} called add necessary txs for kickoff with kickoff_data: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data);
+                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::AddRelevantTxsToTxSenderIfChallenged {
                     kickoff_data,
                     deposit_data,
                 } => {

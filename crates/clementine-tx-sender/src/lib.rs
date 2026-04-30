@@ -37,6 +37,7 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
+use clementine_primitives::BitcoinSyncerEvent;
 pub use client::TxSenderClient;
 pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 
