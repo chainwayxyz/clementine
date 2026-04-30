@@ -234,7 +234,7 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender = TxSenderClient::new(db.clone());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -1436,9 +1436,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);
@@ -1555,11 +1555,6 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
-
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config
@@ -2534,8 +2529,6 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
-    // operators use their verifier's tx sender
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "operator_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =

@@ -222,7 +222,6 @@ mod tests {
 
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
-        const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
         const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
             "mock_finalized_block_no_automation";
         const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =

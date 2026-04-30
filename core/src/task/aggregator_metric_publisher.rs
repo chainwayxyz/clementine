@@ -91,14 +91,18 @@ impl Task for AggregatorMetricPublisher {
 
         // Process each entity status
         for entity_status_with_id in entity_statuses {
-            let proto_entity_id = entity_status_with_id
-                .entity_id
-                .ok_or_else(|| BridgeError::ConfigError("Missing entity_id".into()))?;
+            let proto_entity_id =
+                entity_status_with_id
+                    .entity_id
+                    .unwrap_or(crate::rpc::clementine::EntityId {
+                        kind: EntityType::EntityUnknown as i32,
+                        id: "Unknown entity".to_string(),
+                    });
 
             let entity_id = match Self::convert_entity_id(&proto_entity_id) {
                 Ok(id) => id,
                 Err(e) => {
-                    tracing::error!("Failed to convert entity_id: {}", e);
+                    tracing::error!("Failed to convert entity_id ({proto_entity_id:?}) to internal EntityId. This can be normal if the entity is unreachable: {e}");
                     continue;
                 }
             };

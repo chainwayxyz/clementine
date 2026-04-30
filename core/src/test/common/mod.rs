@@ -19,7 +19,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, RetryConfig, TestRpcExtensions as _};
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
     SendMoveTxRequest,
@@ -40,6 +40,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use test_actors::TestActors;
+use tokio_retry::Retry;
 use tonic::Request;
 
 pub mod citrea;
@@ -217,7 +218,7 @@ pub async fn mine_once_after_in_mempool(
     tx_name: Option<&str>,
     timeout: Option<u64>,
 ) -> Result<usize, BridgeError> {
-    let timeout = timeout.unwrap_or(60);
+    let timeout = timeout.unwrap_or(90);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
     tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
@@ -229,12 +230,11 @@ pub async fn mine_once_after_in_mempool(
             );
         }
 
-        // if in mempool or already mined, break
-        if rpc.get_mempool_entry(&txid).await.is_ok()
-            || rpc
-                .get_raw_transaction_info(&txid, None)
-                .await
-                .is_ok_and(|tx| tx.blockhash.is_some())
+        // if already mined, break
+        if rpc
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .is_ok_and(|tx| tx.blockhash.is_some())
         {
             break;
         };
@@ -258,8 +258,6 @@ pub async fn mine_once_after_in_mempool(
         );
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-
-    rpc.mine_blocks(1).await?;
 
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .get_raw_transaction_info(&txid, None)
@@ -388,13 +386,21 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
-    let mut aggregator = actors.get_aggregator();
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .wrap_err("Failed to setup aggregator")?
-        .into_inner()
-        .try_into()?;
+    // Matches ExponentialBackoff::from_millis(2).factor(500).take(3): 1s, 2s, 4s.
+    let strategy = RetryConfig::new(1_000, Duration::from_secs(4), 3, 2, false).get_strategy();
+    let verifiers_public_keys: Vec<PublicKey> = Retry::spawn(strategy, || {
+        let mut aggregator = actors.get_aggregator();
+        async move {
+            aggregator
+                .setup(Request::new(Empty {}))
+                .await
+                .map_err(BridgeError::from)?
+                .into_inner()
+                .try_into()
+                .map_err(|e| BridgeError::from(eyre::eyre!("Failed to convert response: {:?}", e)))
+        }
+    })
+    .await?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
@@ -441,6 +447,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     };
 
     let deposit: Deposit = deposit_info.clone().into();
+
+    let mut aggregator = actors.get_aggregator();
 
     let movetx = aggregator
         .new_deposit(deposit)
