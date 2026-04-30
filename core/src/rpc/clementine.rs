@@ -1960,8 +1960,8 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally only
-        /// in regtest it will send the challenge tx.
+        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally, on
+        /// networks other than mainnet and testnet4, it will send the challenge tx.
         pub async fn internal_handle_kickoff(
             &mut self,
             request: impl tonic::IntoRequest<super::Txid>,
@@ -3722,8 +3722,8 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally only
-        /// in regtest it will send the challenge tx.
+        /// Checks if the kickoff tx is malicious, and logs if it is. Additionally, on
+        /// networks other than mainnet and testnet4, it will send the challenge tx.
         async fn internal_handle_kickoff(
             &self,
             request: tonic::Request<super::Txid>,

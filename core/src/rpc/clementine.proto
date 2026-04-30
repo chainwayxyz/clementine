@@ -629,8 +629,8 @@ service ClementineVerifier {
   // Restarts the background tasks for the verifier.
   rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Checks if the kickoff tx is malicious, and logs if it is. Additionally only
-  // in regtest it will send the challenge tx.
+  // Checks if the kickoff tx is malicious, and logs if it is. Additionally, on
+  // networks other than mainnet and testnet4, it will send the challenge tx.
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
 
   // Returns the current status of tasks running on the verifier and their last
