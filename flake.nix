@@ -35,16 +35,12 @@
               rel = pkgs.lib.removePrefix "${toString ./.}/" (toString path);
             in
               (craneLib.filterCargoSources path type)
-              || pkgs.lib.hasPrefix "bridge-circuit-host/bin-files/" rel
               || pkgs.lib.hasPrefix "circuits-lib/src/bridge_circuit/bin/" rel
-              || pkgs.lib.hasPrefix "circuits-lib/test_data/" rel
               || pkgs.lib.hasPrefix "core/src/database/migrations/" rel
               || rel == "core/src/database/schema.sql"
               || rel == "core/src/database/pgmq.sql"
-              || pkgs.lib.hasPrefix "core/src/rpc/" rel
-              || pkgs.lib.hasPrefix "core/src/test/data/" rel
+              || rel == "core/src/rpc/clementine.proto"
               || pkgs.lib.hasPrefix "risc0-circuits/elfs/" rel
-              || rel == "README.md"
               || rel == "scripts/Bridge.json";
         };
 
