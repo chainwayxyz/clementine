@@ -37,7 +37,6 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
-use clementine_primitives::BitcoinSyncerEvent;
 pub use client::TxSenderClient;
 pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 
@@ -595,6 +594,7 @@ impl TxSender {
                         try_to_send_id,
                         "No funding tx rejected (tx already in mempool): {err_str}"
                     );
+                    return Ok(());
                 } else {
                     tracing::error!(
                         "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"

@@ -365,7 +365,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             rpc_tip_height,
             btc_syncer_synced_height,
             hcp_last_proven_height,
-            tx_sender_synced_height: None,
+            tx_sender_synced_height,
             finalized_synced_height,
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,

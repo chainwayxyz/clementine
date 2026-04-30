@@ -612,11 +612,6 @@ impl TxSender {
             .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
             .await;
 
-        let _ = self
-            .db
-            .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
-            .await;
-
         let package = match self
             .create_package(tx.clone(), fee_rate, confirmed.clone())
             .await
