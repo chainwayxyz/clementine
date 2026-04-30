@@ -24,7 +24,7 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -153,10 +153,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Operator<C>>::new(
+                EntityMetricPublisher::<Operator<C>, C>::new(
                     self.operator.db.clone(),
                     self.operator.rpc.clone(),
                     self.operator.config.clone(),
+                    self.operator.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -189,10 +190,11 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status = Operator::<C>::get_l1_status(
+        let sync_status = Operator::<C>::get_sync_status(
             &self.operator.db,
             &self.operator.rpc,
             &self.operator.config,
+            &self.operator.citrea_client,
         )
         .await?;
 
@@ -209,6 +211,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
@@ -231,7 +234,7 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender = TxSenderClient::new(db.clone());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -1433,9 +1436,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);
@@ -1552,11 +1555,6 @@ where
             }
         };
         tracing::info!("Starting proving bridge circuit to send asserts");
-
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
         #[cfg(test)]
         self.config
@@ -2531,8 +2529,6 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
-    // operators use their verifier's tx sender
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "operator_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =

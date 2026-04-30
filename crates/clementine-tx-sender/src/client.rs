@@ -19,18 +19,14 @@ where
     D: TxSenderDatabase,
 {
     pub db: D,
-    pub tx_sender_consumer_id: String,
 }
 
 impl<D> TxSenderClient<D>
 where
     D: TxSenderDatabase,
 {
-    pub fn new(db: D, tx_sender_consumer_id: String) -> Self {
-        Self {
-            db,
-            tx_sender_consumer_id,
-        }
+    pub fn new(db: D) -> Self {
+        Self { db }
     }
 
     /// Saves a transaction to the database queue for sending/fee bumping.
@@ -62,7 +58,7 @@ where
     /// # Returns
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata))]
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
@@ -78,16 +74,6 @@ where
     ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
-        tracing::debug!(
-            "{} added tx {} with txid {} to the queue",
-            self.tx_sender_consumer_id,
-            tx_metadata
-                .as_ref()
-                .map(|data| format!("{:?}", data.tx_type))
-                .unwrap_or("N/A".to_string()),
-            txid
-        );
-
         // do not add duplicate transactions to the txsender
         let tx_exists = self
             .db
@@ -96,6 +82,15 @@ where
         if let Some(try_to_send_id) = tx_exists {
             return Ok(try_to_send_id);
         }
+
+        tracing::info!(
+            "Added tx {} with txid {} to the queue",
+            tx_metadata
+                .as_ref()
+                .map(|data| format!("{:?}", data.tx_type))
+                .unwrap_or("N/A".to_string()),
+            txid
+        );
 
         let try_to_send_id = self
             .db
@@ -244,6 +239,7 @@ where
             | TransactionType::OptimisticPayout
             | TransactionType::ReadyToReimburse
             | TransactionType::ReplacementDeposit
+            | TransactionType::WatchtowerChallenge(_)
             | TransactionType::AssertTimeout(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
@@ -259,9 +255,7 @@ where
                 )
                 .await
             }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Payout => {
+            TransactionType::Challenge | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -276,7 +270,7 @@ where
                 .await
             }
             TransactionType::WatchtowerChallengeTimeout(_) => {
-                // do not send watchtowet timeout if kickoff is already finalized
+                // do not send watchtower timeout if kickoff is already finalized
                 // which is done by adding kickoff finalizer utxo to cancel_outpoints
                 // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
                 let kickoff_txid = related_txs
@@ -355,7 +349,7 @@ where
                 .await
             }
             TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue");
+                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream or denoting all txs should not be added to the queue");
             }
         }
     }

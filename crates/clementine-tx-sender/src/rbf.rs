@@ -53,8 +53,6 @@ where
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
-
         let original_tx_weight = original_tx.weight();
 
         // Original fee rate calculation according to Bitcoin Core
@@ -281,12 +279,28 @@ where
             let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
                 .inputs
                 .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
+                .zip(tx.input.iter())
+                .map(|(psbt_input, tx_input)| {
+                    // Try witness_utxo first (for segwit inputs)
+                    if let Some(witness_utxo) = psbt_input.witness_utxo.clone() {
+                        Ok(witness_utxo)
+                    } else if let Some(ref non_witness_tx) = psbt_input.non_witness_utxo {
+                        // For non-segwit inputs, extract the output from the previous transaction
+                        let vout = tx_input.previous_output.vout as usize;
+                        non_witness_tx
+                            .output
+                            .get(vout)
+                            .cloned()
+                            .ok_or_eyre(format!(
+                                "Output index {vout} out of bounds in previous transaction",
+                            ))
+                            .map_err(SendTxError::Other)
+                    } else {
+                        Err(eyre!(
+                            "Neither witness_utxo nor non_witness_utxo found for input"
+                        ))
                         .map_err(SendTxError::Other)
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
 
@@ -297,27 +311,6 @@ where
                     tap_sighash_type,
                 )
                 .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
-
-            #[cfg(test)]
-            let mut sighash = sighash;
-
-            #[cfg(test)]
-            {
-                use bitcoin::sighash::Annex;
-                // This should provide the Sighash for the key spend
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let annex = Annex::new(annex_bytes).unwrap();
-                    sighash = sighash_cache
-                        .taproot_signature_hash(
-                            input_index,
-                            &Prevouts::All(&prevouts),
-                            Some(annex),
-                            None,
-                            tap_sighash_type,
-                        )
-                        .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
-                }
-            }
 
             // Sign the sighash with our signer
             let signature = self
@@ -337,15 +330,6 @@ where
             decoded_psbt.inputs[input_index].final_script_witness =
                 Some(Witness::from_slice(&[signature.serialize()]));
 
-            #[cfg(test)]
-            {
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let mut witness = Witness::from_slice(&[signature.serialize()]);
-                    witness.push(annex_bytes);
-                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
-                    tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
-                }
-            }
             // Serialize the signed PSBT back to base64
             Ok(decoded_psbt.to_string())
         } else {
@@ -427,7 +411,7 @@ where
     /// * `tx` - The original transaction intended for RBF (used only on the first attempt).
     /// * `tx_metadata` - Optional metadata associated with the transaction.
     /// * `fee_rate` - The target fee rate for the RBF replacement.
-    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    #[tracing::instrument(skip_all, fields(try_to_send_id, tx_meta=?tx_metadata))]
     pub async fn send_rbf_tx(
         &self,
         try_to_send_id: u32,
@@ -435,6 +419,7 @@ where
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
         rbf_signing_info: Option<RbfSigningInfo>,
+        current_tip_height: u32,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -457,7 +442,7 @@ where
             .await
             .wrap_err("Failed to get last RBF txid")?;
 
-        if let Some(last_rbf_txid) = last_rbf_txid {
+        let effective_feerate = if let Some(last_rbf_txid) = last_rbf_txid {
             tracing::debug!(
                 ?try_to_send_id,
                 "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
@@ -490,7 +475,7 @@ where
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
-            let bumped_psbt = match bump_result {
+            let mut bumped_psbt = match bump_result {
                 Err(e) => {
                     // Check for common errors indicating the tx is already confirmed or spent
                     let rpc_error_str = e.to_string();
@@ -540,6 +525,19 @@ where
                     return Err(SendTxError::Other(eyre!("psbt_bump_fee returned no psbt")));
                 }
             };
+
+            self.fill_in_utxo_info(&mut bumped_psbt)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_fill_in_utxo_info_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
 
             let bumped_psbt = self
                 .copy_witnesses(bumped_psbt, &tx)
@@ -687,6 +685,8 @@ where
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
+
+            effective_feerate
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -860,7 +860,19 @@ where
                 .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
-        }
+
+            fee_rate
+        };
+
+        self.db
+            .update_effective_fee_rate(
+                Some(&mut dbtx),
+                try_to_send_id,
+                effective_feerate,
+                current_tip_height,
+            )
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
 
         self.db
             .commit_transaction(dbtx)

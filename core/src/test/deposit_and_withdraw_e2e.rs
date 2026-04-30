@@ -9,6 +9,7 @@ use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
@@ -223,11 +224,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut withdrawal_infos = Vec::new();
 
         tracing::info!("Mining withdrawal utxos");
-        for (withdrawal_utxo, payout_txout, sig) in
+        for (withdrawal_utxo, payout_txout, sig, opt_payout_txout, opt_sig) in
             get_new_withdrawal_utxo_and_register_to_citrea(&move_txids, &citrea_e2e_data, &actors)
                 .await
         {
-            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_infos.push((
+                withdrawal_index,
+                withdrawal_utxo,
+                payout_txout,
+                sig,
+                opt_payout_txout,
+                opt_sig,
+            ));
             withdrawal_index += 1;
         }
 
@@ -279,14 +287,22 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
-        for (withdrawal_utxo, payout_txout, sig) in get_new_withdrawal_utxo_and_register_to_citrea(
-            &new_move_txids,
-            &citrea_e2e_data,
-            &actors,
-        )
-        .await
+        for (withdrawal_utxo, payout_txout, sig, opt_payout_txout, opt_sig) in
+            get_new_withdrawal_utxo_and_register_to_citrea(
+                &new_move_txids,
+                &citrea_e2e_data,
+                &actors,
+            )
+            .await
         {
-            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_infos.push((
+                withdrawal_index,
+                withdrawal_utxo,
+                payout_txout,
+                sig,
+                opt_payout_txout,
+                opt_sig,
+            ));
             withdrawal_index += 1;
         }
 
@@ -318,8 +334,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[1].0,
             &withdrawal_infos[1].1,
-            &withdrawal_infos[1].2,
-            &withdrawal_infos[1].3,
+            &withdrawal_infos[1].4,
+            &withdrawal_infos[1].5,
             &citrea_e2e_data,
             move_txids[1],
         )
@@ -331,8 +347,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[3].0,
             &withdrawal_infos[3].1,
-            &withdrawal_infos[3].2,
-            &withdrawal_infos[3].3,
+            &withdrawal_infos[3].4,
+            &withdrawal_infos[3].5,
             &citrea_e2e_data,
             new_move_txids[1],
         )
@@ -357,8 +373,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[4].0,
             &withdrawal_infos[4].1,
-            &withdrawal_infos[4].2,
-            &withdrawal_infos[4].3,
+            &withdrawal_infos[4].4,
+            &withdrawal_infos[4].5,
             &citrea_e2e_data,
             new_move_txids[2],
         )
@@ -398,8 +414,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &actors,
                 withdrawal_infos[4].0,
                 &withdrawal_infos[4].1,
-                &withdrawal_infos[4].2,
-                &withdrawal_infos[4].3,
+                &withdrawal_infos[4].4,
+                &withdrawal_infos[4].5,
                 &citrea_e2e_data,
                 replacement_move_txid,
             )
@@ -1346,10 +1362,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         &config,
         &rpc,
         &withdrawal_address,
-        config.protocol_paramset().bridge_amount
-            - config
-                .operator_withdrawal_fee_sats
-                .unwrap_or(Amount::from_sat(0)),
+        config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
     )
     .await;
 
@@ -2200,10 +2213,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
             &config,
             &rpc,
             &withdrawal_address,
-            config.protocol_paramset().bridge_amount
-                - config
-                    .operator_withdrawal_fee_sats
-                    .unwrap_or(Amount::from_sat(0)),
+            config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
         )
         .await;
 

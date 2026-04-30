@@ -75,8 +75,8 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
     }
 
     // Initialize color-eyre for better error handling and backtraces
-    let _ = color_eyre::config::HookBuilder::default()
-        .add_frame_filter(Box::new(|frames| {
+    let mut hook_builder =
+        color_eyre::config::HookBuilder::default().add_frame_filter(Box::new(|frames| {
             // Frames with names starting with any of the str's below will be filtered out
             let filters = &[
                 "std::",
@@ -108,8 +108,14 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
                     name.starts_with(f)
                 })
             });
-        }))
-        .install();
+        }));
+
+    // When JSON logs are enabled, use a theme without color codes
+    if is_json_logs() {
+        hook_builder = hook_builder.theme(color_eyre::config::Theme::new());
+    }
+
+    let _ = hook_builder.install();
 
     if is_ci {
         let info_log_file = std::env::var("INFO_LOG_FILE").ok();
