@@ -49,7 +49,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v29.0)
+1. Install and configure a Bitcoin node (at least v30.0)
 2. Install and configure PostgreSQL. Using docker:
 
    ```sh

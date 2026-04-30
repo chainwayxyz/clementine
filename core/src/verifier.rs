@@ -266,7 +266,6 @@ where
                 self.verifier.signer.clone(),
                 rpc.clone(),
                 self.verifier.db.clone(),
-                Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
                 self.verifier.config.protocol_paramset(),
                 Default::default(),
                 self.verifier.config.mempool_config(),
@@ -447,7 +446,7 @@ where
         let all_sessions = AllSessions::new();
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender = TxSenderClient::new(db.clone());
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -2127,7 +2126,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -2137,15 +2136,6 @@ where
                 Some(dbtx),
             )
             .await?;
-
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
 
         #[cfg(feature = "automation")]
         {
@@ -2163,7 +2153,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     self.config.protocol_paramset(),
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 
@@ -3111,7 +3101,6 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "verifier_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =

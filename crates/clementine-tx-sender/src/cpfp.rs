@@ -24,7 +24,7 @@ use bitcoin::transaction::Version;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-use clementine_errors::{BridgeError, ResultExt as _, SendTxError};
+use clementine_errors::{BitcoinRPCError, BridgeError, ResultExt as _, SendTxError};
 use clementine_primitives::MIN_TAPROOT_AMOUNT;
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{eyre, Context};
@@ -193,7 +193,6 @@ where
         self.db
             .save_fee_payer_tx(
                 dbtx,
-                None,
                 bumped_id,
                 signed_fee_payer_tx.compute_txid(),
                 outpoint_vout as u32,
@@ -240,10 +239,9 @@ where
 
         let change_address = self
             .rpc
-            .get_new_address(None, None)
+            .get_new_wallet_address()
             .await
-            .wrap_err("Failed to get new wallet address")?
-            .assume_checked();
+            .wrap_err("Failed to get new wallet address")?;
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -305,6 +303,16 @@ where
         Ok(vec![tx, child_tx])
     }
 
+    /// Retrieves confirmed fee payer UTXOs associated with a specific send attempt.
+    ///
+    /// Queries the database for UTXOs linked to `try_to_send_id` that are marked as confirmed.
+    /// These UTXOs are controlled by the `TxSender`'s `signer` and are intended to be
+    /// spent by a CPFP child transaction.
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<B::SpendableInput>`]: [`B::SpendableInput`]s of the confirmed fee payer
+    ///   UTXOs that are ready to be included as inputs in the CPFP child tx.
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
@@ -317,6 +325,19 @@ where
         Ok(B::utxos_to_spendable_inputs(utxos, self.signer.address()))
     }
 
+    /// Attempts to bump the fees of unconfirmed "fee payer" UTXOs using RBF.
+    ///
+    /// Fee payer UTXOs are created to fund CPFP child transactions. However, these
+    /// fee payer creation transactions might themselves get stuck due to low fees.
+    /// This function identifies such unconfirmed fee payer transactions associated with
+    /// a parent transaction (`bumped_id`) and attempts to RBF them using the provided `fee_rate`.
+    ///
+    /// This ensures the fee payer UTXOs confirm quickly, making them available to be spent
+    /// by the actual CPFP child transaction.
+    ///
+    /// # Arguments
+    /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
+    #[tracing::instrument(skip_all, fields(fee_rate))]
     pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRate) -> Result<()> {
         let bumpable_txs = self
             .db
@@ -326,13 +347,20 @@ where
         let mut not_evicted_ids = HashSet::new();
         let mut all_parent_ids = HashSet::new();
 
-        for (id, try_to_send_id, txid, vout, amount, replacement_of_id) in bumpable_txs {
+        for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in bumpable_txs {
+            tracing::debug!(
+                "Bumping fee for fee payer tx {} for try to send id {} for fee rate {}",
+                fee_payer_txid,
+                try_to_send_id,
+                fee_rate
+            );
             let parent_id = replacement_of_id.unwrap_or(id);
             all_parent_ids.insert(parent_id);
 
-            match self.rpc.get_mempool_entry(&txid).await {
+            match self.rpc.get_mempool_entry(&fee_payer_txid).await {
                 Ok(info) => {
                     not_evicted_ids.insert(parent_id);
+                    // if it has descendants, it cannot be bumped, or if it was bumped recently, we should not bump it again
                     if info.descendant_count > 1
                         || std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -345,10 +373,16 @@ where
                     }
                 }
                 Err(e) => {
+                    // If not in mempool we should ignore, it was either evicted or replaced by a bumped feepayer tx
+                    // give an error if the error is not "Transaction not in mempool"
                     if !e.to_string().contains("Transaction not in mempool") {
-                        return Err(eyre!("Failed to get mempool entry for {txid}: {e}").into());
+                        return Err(
+                            eyre!("Failed to get mempool entry for {fee_payer_txid}: {e}").into(),
+                        );
                     }
-                    if let Ok(tx_info) = self.rpc.get_transaction(&txid, None).await {
+                    // get_transaction only returns if tx is wallet owned, it should not be an issue here as if it is not wallet owned,
+                    // for example if wallet was changed and txsender restarted, it cannot be bumped anyway
+                    if let Ok(tx_info) = self.rpc.get_transaction(&fee_payer_txid, None).await {
                         if tx_info.info.blockhash.is_some() && tx_info.info.confirmations > 0 {
                             not_evicted_ids.insert(parent_id);
                         }
@@ -357,21 +391,56 @@ where
                 }
             }
 
-            if let Ok(new_txid) = self.rpc.bump_fee_with_fee_rate(txid, fee_rate).await {
-                if new_txid != txid {
-                    self.db
-                        .save_fee_payer_tx(
-                            None,
-                            Some(try_to_send_id),
-                            0, /* bumped_id not used here? */
-                            new_txid,
-                            vout,
-                            amount,
-                            Some(parent_id),
-                        )
-                        .await
-                        .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
+            match self
+                .rpc
+                .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
+                .await
+            {
+                Ok(new_txid) => {
+                    if new_txid != fee_payer_txid {
+                        self.db
+                            .save_fee_payer_tx(
+                                None,
+                                try_to_send_id,
+                                new_txid,
+                                vout,
+                                amount,
+                                Some(parent_id),
+                            )
+                            .await
+                            .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
+                    } else {
+                        tracing::trace!(
+                            "Fee payer tx {} has enough fee, no need to bump",
+                            fee_payer_txid
+                        );
+                    }
                 }
+                Err(e) => match e {
+                    BitcoinRPCError::TransactionAlreadyInBlock(block_hash) => {
+                        tracing::debug!(
+                            "Fee payer tx {} is already in block {}, skipping",
+                            fee_payer_txid,
+                            block_hash
+                        );
+                        continue;
+                    }
+                    BitcoinRPCError::BumpFeeUTXOSpent(outpoint) => {
+                        tracing::debug!(
+                            "Fee payer tx {} is already onchain, skipping: {:?}",
+                            fee_payer_txid,
+                            outpoint
+                        );
+                        continue;
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "Failed to bump fee the fee payer tx {} with error {e}, skipping",
+                            fee_payer_txid
+                        );
+                        continue;
+                    }
+                },
             }
         }
 
@@ -386,11 +455,35 @@ where
         Ok(())
     }
 
+    /// Sends a transaction using the Child-Pays-For-Parent (CPFP) strategy.
+    ///
+    /// # Logic:
+    /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
+    ///     for this `try_to_send_id`. If they do, skips this transaction for now
+    ///     as they need to confirm before being spendable by the child.
+    /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
+    /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
+    ///     The `child_tx` spends the parent's anchor output and the fee payer UTXOs, paying
+    ///     a fee calculated for the whole package.
+    /// 4.  **Test Mempool Accept (Not implemented right now as testmempoolaccept didn't support TRUC package submission #1011):**
+    ///     Uses `testmempoolaccept` RPC to check if the package is likely to be accepted by the network before submitting.
+    /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
+    ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
+    /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
+    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `tx` - The parent transaction requiring the fee bump.
+    /// * `tx_metadata` - Optional metadata associated with the transaction.
+    /// * `fee_rate` - The target fee rate for the CPFP package.
+    /// * `current_tip_height` - The current height of the tip of the chain.
+    #[tracing::instrument(skip_all, fields(try_to_send_id, tx_meta=?tx_metadata))]
     pub async fn send_cpfp_tx(
         &self,
         try_to_send_id: u32,
         tx: Transaction,
-        _tx_metadata: Option<TxMetadata>,
+        tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
@@ -421,6 +514,11 @@ where
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.get_prevout().value).sum();
 
+        let _ = self
+            .db
+            .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
+            .await;
+
         let package = match self
             .create_package(tx.clone(), fee_rate, confirmed.clone())
             .await
@@ -446,18 +544,13 @@ where
                     .await;
                 return Ok(());
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                tracing::error!(try_to_send_id, "Failed to create CPFP package: {:?}", e);
+                return Err(e);
+            }
         };
 
         let package_refs: Vec<&Transaction> = package.iter().collect();
-
-        // Save the effective fee rate before attempting to send
-        // This ensures that even if the send fails, we track the attempt
-        // so the 10-block stuck logic can trigger a bump
-        self.db
-            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
-            .await
-            .wrap_err("Failed to update effective fee rate")?;
 
         tracing::debug!(
             try_to_send_id,
@@ -471,6 +564,14 @@ where
                 vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
             }
         );
+
+        // Save the effective fee rate before attempting to send
+        // This ensures that even if the send fails, we track the attempt
+        // so the 10-block stuck logic can trigger a bump
+        self.db
+            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
+            .await
+            .wrap_err("Failed to update effective fee rate")?;
 
         // Update sending state to submitting_package
         let _ = self
@@ -491,8 +592,15 @@ where
 
         for (_txid, result) in submit_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(try_to_send_id, "Error submitting package: {:?}", error);
-                return Ok(());
+                tracing::error!(
+                    try_to_send_id,
+                    "Error submitting package: {:?}, package: {:?}",
+                    error,
+                    package_refs
+                        .iter()
+                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                        .collect::<Vec<_>>()
+                );
             }
         }
 

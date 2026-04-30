@@ -26,6 +26,7 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
+use clementine_primitives::BitcoinSyncerEvent;
 pub use client::TxSenderClient;
 
 use async_trait::async_trait;
@@ -38,7 +39,6 @@ use bitcoincore_rpc::RpcApi;
 use clementine_config::protocol::ProtocolParamset;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
-use clementine_primitives::BitcoinSyncerEvent;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
@@ -246,7 +246,6 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
     async fn save_fee_payer_tx(
         &self,
         dbtx: Option<&mut Self::Transaction>,
-        try_to_send_id: Option<u32>,
         bumped_id: u32,
         fee_payer_txid: Txid,
         vout: u32,
@@ -359,26 +358,19 @@ pub trait TxSenderDatabase: Send + Sync + Clone {
         consumer_id: &str,
     ) -> Result<Option<BitcoinSyncerEvent>, BridgeError>;
 
-    /// Get block hash and height from its ID.
-    async fn get_block_info_from_id(
+    /// Synchronize transaction confirmations based on canonical block status.
+    /// Confirms transactions in canonical blocks and unconfirms transactions in
+    /// non-canonical blocks.
+    async fn sync_transaction_confirmations(
         &self,
         dbtx: Option<&mut Self::Transaction>,
-        block_id: u32,
-    ) -> Result<Option<(bitcoin::BlockHash, u32)>, BridgeError>;
-
-    /// Confirm transactions in a block.
-    async fn confirm_transactions(
-        &self,
-        dbtx: &mut Self::Transaction,
-        block_id: u32,
     ) -> Result<(), BridgeError>;
 
-    /// Unconfirm transactions in a block (due to reorg).
-    async fn unconfirm_transactions(
+    /// Get the maximum height of canonical blocks in the database.
+    async fn get_max_height(
         &self,
-        dbtx: &mut Self::Transaction,
-        block_id: u32,
-    ) -> Result<(), BridgeError>;
+        dbtx: Option<&mut Self::Transaction>,
+    ) -> Result<Option<u32>, BridgeError>;
 
     /// Get the effective fee rate of a transaction and the block height when it was set.
     /// Returns (None, None) if no effective fee rate has been set yet.
@@ -415,7 +407,6 @@ where
     pub signer: S,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
     pub db: D,
-    pub btc_syncer_consumer_id: String,
     pub protocol_paramset: &'static ProtocolParamset,
     pub tx_sender_limits: TxSenderLimits,
     pub http_client: reqwest::Client,
@@ -435,7 +426,6 @@ where
         f.debug_struct("TxSender")
             .field("signer", &self.signer)
             .field("db", &self.db)
-            .field("btc_syncer_consumer_id", &self.btc_syncer_consumer_id)
             .field("protocol_paramset", &self.protocol_paramset)
             .field("tx_sender_limits", &self.tx_sender_limits)
             .finish()
@@ -456,7 +446,6 @@ where
         signer: S,
         rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
         db: D,
-        btc_syncer_consumer_id: String,
         protocol_paramset: &'static ProtocolParamset,
         tx_sender_limits: TxSenderLimits,
         mempool_config: MempoolConfig,
@@ -465,7 +454,6 @@ where
             signer,
             rpc,
             db,
-            btc_syncer_consumer_id,
             protocol_paramset,
             tx_sender_limits,
             http_client: reqwest::Client::new(),
@@ -582,7 +570,7 @@ where
     /// * `new_fee_rate` - The current target fee rate based on network conditions.
     /// * `current_tip_height` - The current blockchain height, used for time-lock checks.
     /// * `is_tip_height_increased` - True if the tip height has increased since the last time we sent unconfirmed transactions.
-    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, new_fee_rate, current_tip_height))]
+    #[tracing::instrument(skip_all, fields(new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,
         new_fee_rate: FeeRate,
@@ -723,7 +711,7 @@ where
         Ok(())
     }
     pub fn client(&self) -> TxSenderClient<D> {
-        TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+        TxSenderClient::new(self.db.clone())
     }
 
     /// Calculates the effective fee rate for a transaction, considering previous effective fee rate
@@ -829,7 +817,7 @@ where
     /// # Returns
     /// * `Ok(())` - If the transaction was successfully broadcast.
     /// * `Err(SendTxError)` - If the broadcast failed.
-    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    #[tracing::instrument(skip_all, fields(try_to_send_id, tx_meta=?tx_metadata))]
     pub async fn send_no_funding_tx(
         &self,
         try_to_send_id: u32,

@@ -142,7 +142,6 @@ async fn get_fee_rate() {
         signer.clone(),
         rpc.clone(),
         db,
-        "tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -280,7 +279,6 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -362,7 +360,6 @@ async fn test_hard_cap() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -454,7 +451,6 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -537,7 +533,6 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -624,7 +619,6 @@ async fn test_get_fee_rate_mempool_space_timeout() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -711,7 +705,6 @@ async fn test_get_fee_rate_rpc_timeout() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -804,7 +797,6 @@ async fn test_rpc_retry_after_failures() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -904,7 +896,6 @@ async fn test_mempool_retry_after_failures() {
         signer,
         mock_rpc,
         db,
-        "test_tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -939,7 +930,6 @@ async fn create_local_tx_sender(
         actor.clone(),
         rpc.clone(),
         db.clone(),
-        "tx_sender".into(),
         config.protocol_paramset(),
         config.tx_sender_limits.clone(),
         config.mempool_config(),
@@ -1141,10 +1131,6 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1166,10 +1152,6 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
         )
@@ -1273,10 +1255,6 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1332,10 +1310,6 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             &[],
             &[],
@@ -1357,10 +1331,6 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
         )
@@ -1498,10 +1468,6 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
         )
@@ -1538,10 +1504,6 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             Some(RbfSigningInfo {
                 vout: 0,
                 tweak_merkle_root: None,
-                #[cfg(test)]
-                annex: None,
-                #[cfg(test)]
-                additional_taproot_output_count: None,
             }),
             current_tip_height,
         )
