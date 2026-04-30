@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{consensus::Encodable, Witness};
+use bitcoin::Witness;
 use eyre::OptionExt;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
@@ -178,49 +178,50 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 // check for duplicates
                 for kickoff_machine in self.kickoff_machines.iter() {
-                    let matches = [
-                        kickoff_machine.kickoff_data == kickoff_data,
-                        kickoff_machine.deposit_data == deposit_data,
-                        kickoff_machine.payout_blockhash == payout_blockhash,
-                        kickoff_machine.kickoff_height == kickoff_height,
-                    ];
-                    let match_count = matches.iter().filter(|&&b| b).count();
-
-                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
-                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
-                    match match_count {
-                        4 => return Ok(()), // exact duplicate, skip
-                        0 => {}             // no match, continue checking other machines
-                        n => {
-                            let mut raw_payout_blockhash = Vec::new();
-                            payout_blockhash
-                                .consensus_encode(&mut raw_payout_blockhash)
-                                .map_err(|e| {
-                                    eyre::eyre!("Error encoding payout blockhash: {}", e)
-                                })?;
-                            let payout_blockhash_hex = hex::encode(raw_payout_blockhash);
-                            let mut raw_existing_payout_blockhash = Vec::new();
-                            kickoff_machine
-                                .payout_blockhash
-                                .consensus_encode(&mut raw_existing_payout_blockhash)
-                                .map_err(|e| {
-                                    eyre::eyre!("Error encoding existing payout blockhash: {}", e)
-                                })?;
-                            let existing_payout_blockhash_hex =
-                                hex::encode(raw_existing_payout_blockhash);
-                            return Err(eyre::eyre!(
-                            "Partial kickoff match detected ({n} of 4 fields match). This indicates data corruption or inconsistency. New kickoff data: {:?}, Existing kickoff data: {:?}, New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
-                            kickoff_data,
-                            kickoff_machine.kickoff_data,
-                            deposit_data,
-                            kickoff_machine.deposit_data,
-                            kickoff_height,
-                            kickoff_machine.kickoff_height,
-                            payout_blockhash_hex,
-                            existing_payout_blockhash_hex,
-                            ).into());
-                        }
+                    // if they do not have the same kickoff data (same operator + kickoff utxo), it's definitely not a duplicate
+                    if kickoff_machine.kickoff_data != kickoff_data {
+                        continue;
                     }
+                    let deposit_data_matches = kickoff_machine.deposit_data == deposit_data;
+                    let payout_blockhash_matches =
+                        kickoff_machine.payout_blockhash == payout_blockhash;
+                    let kickoff_height_matches = kickoff_machine.kickoff_height == kickoff_height;
+
+                    // Same kickoff_data should always imply the same associated fields.
+                    // This catches inconsistent finalized kickoff data, for example after a reorged kickoff was added too early.
+                    if deposit_data_matches && payout_blockhash_matches && kickoff_height_matches {
+                        return Ok(());
+                    }
+
+                    let mut mismatches = Vec::new();
+                    if !deposit_data_matches {
+                        mismatches.push(format!(
+                            "deposit_data: new={:?}, existing={:?}",
+                            deposit_data, kickoff_machine.deposit_data
+                        ));
+                    }
+                    if !payout_blockhash_matches {
+                        let witness_hex =
+                            |witness: &Witness| witness.iter().map(hex::encode).collect::<Vec<_>>();
+                        mismatches.push(format!(
+                            "payout_blockhash_witness: new={:?}, existing={:?}",
+                            witness_hex(&payout_blockhash),
+                            witness_hex(&kickoff_machine.payout_blockhash)
+                        ));
+                    }
+                    if !kickoff_height_matches {
+                        mismatches.push(format!(
+                            "kickoff_height: new={}, existing={}",
+                            kickoff_height, kickoff_machine.kickoff_height
+                        ));
+                    }
+
+                    return Err(eyre::eyre!(
+                        "Conflicting kickoff({:?}) detected: same kickoff_data, mismatches: {}",
+                        kickoff_data,
+                        mismatches.join("; "),
+                    )
+                    .into());
                 }
 
                 // Initialize context using the block just before the kickoff height
@@ -232,19 +233,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 };
 
                 let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
-
-                // Check if the kickoff machine already exists. If so do not add a new one.
-                // This can happen if during block processing an error happens, reverting the state machines
-                // but a new kickoff state was already dispatched during block processing.
-                for kickoff_machine in self.kickoff_machines.iter() {
-                    if kickoff_machine.kickoff_data == kickoff_data
-                        && kickoff_machine.deposit_data == deposit_data
-                        && kickoff_machine.payout_blockhash == payout_blockhash
-                        && kickoff_machine.kickoff_height == kickoff_height
-                    {
-                        return Ok(());
-                    }
-                }
 
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,

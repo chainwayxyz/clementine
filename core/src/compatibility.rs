@@ -26,6 +26,21 @@ pub struct CompatibilityParams {
     pub sha256_bitvm_cache: [u8; 32],
 }
 
+impl std::fmt::Display for CompatibilityParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CompatibilityParams {{\n  protocol_paramset: {:?},\n  security_council: {},\n  citrea_chain_id: {},\n  clementine_version: {},\n  bridge_circuit_constant: {},\n  sha256_bitvm_cache: {}\n}}",
+            self.protocol_paramset,
+            self.security_council,
+            self.citrea_chain_id,
+            self.clementine_version,
+            hex::encode(self.bridge_circuit_constant),
+            hex::encode(self.sha256_bitvm_cache),
+        )
+    }
+}
+
 impl CompatibilityParams {
     /// Returns an error with reason if not compatible, otherwise returns Ok(())
     /// For Protocol paramset, security council and citrea chain ID, we only check if they are different.
