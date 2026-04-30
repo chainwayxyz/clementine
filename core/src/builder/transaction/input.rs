@@ -262,13 +262,3 @@ impl SpentTxIn {
         }
     }
 }
-
-impl clementine_tx_sender::SpendableInputInfo for SpendableTxIn {
-    fn get_prevout(&self) -> &TxOut {
-        &self.prevout
-    }
-
-    fn get_outpoint(&self) -> OutPoint {
-        self.previous_outpoint
-    }
-}

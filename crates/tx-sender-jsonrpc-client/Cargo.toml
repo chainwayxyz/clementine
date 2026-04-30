@@ -1,0 +1,22 @@
+[package]
+name = "tx-sender-jsonrpc-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+# Citrea-only helpers.
+citrea = ["tx-sender-types/citrea"]
+# Clementine tx-sender helpers (insert_try_to_send) and its dependencies.
+clementine = [
+  "dep:bitcoin",
+  "tx-sender-types/clementine",
+]
+
+[dependencies]
+jsonrpsee = { workspace = true, features = ["client", "http-client"] }
+tx-sender-types = { path = "../tx-sender-types", default-features = false }
+bitcoin = { workspace = true, optional = true }

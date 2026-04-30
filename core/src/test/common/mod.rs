@@ -19,10 +19,9 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, RetryConfig, TestRpcExtensions as _};
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
-    SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use bitcoin::secp256k1::rand;
@@ -40,6 +39,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use test_actors::TestActors;
+use tokio_retry::Retry;
 use tonic::Request;
 
 pub mod citrea;
@@ -137,73 +137,68 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Get the minimum next state manager height and lcp synced height (+1 because its not "next" like state manager) from all the state managers
-/// If automation is off for any entity, their state manager is assumed to be synced
-/// (by setting their next height to u32::MAX).
-pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
-    entity_statuses
-        .entity_statuses
-        .into_iter()
-        .map(|entity| {
-            if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
-            {
-                if status.automation {
-                    Ok(status
-                        .state_manager_next_height
-                        .unwrap_or(0)
-                        .min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0)))
-                } else {
-                    // assume synced if automation is off
-                    Ok(u32::MAX)
-                }
-            } else {
-                Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
-                    entity.entity_id,
-                    entity.status_result
-                ))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Calls get_entity_statuses and returns the minimum next state manager height
-pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
+/// Checks if all clementine nodes are synced.
+/// State managers and LCP syncers must be synced to the last finalized height.
+/// Tx senders must be synced to at least current height.
+pub async fn are_all_nodes_synced<C: CitreaClientT>(
+    rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
-) -> eyre::Result<u32> {
+) -> eyre::Result<bool> {
     let mut aggregator = actors.get_aggregator();
-    let l1_sync_status = aggregator
+    let entity_statuses = aggregator
         .get_entity_statuses(Request::new(GetEntityStatusesRequest {
             restart_tasks: false,
         }))
         .await?
         .into_inner();
-    let min_next_sync_height = get_next_sync_heights(l1_sync_status)
-        .await?
-        .into_iter()
-        .min()
-        .ok_or_else(|| eyre::eyre!("No entities found"))?;
-    Ok(min_next_sync_height)
-}
 
-/// Checks if all the state managers are synced to the latest finalized block
-/// Additionally checks if lcp syncer is also synced to latest finalized block
-pub async fn are_all_state_managers_synced<C: CitreaClientT>(
-    rpc: &ExtendedBitcoinRpc,
-    actors: &TestActors<C>,
-) -> eyre::Result<bool> {
-    let min_next_sync_height = get_min_next_state_manager_height(actors).await?;
-    let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
-    // get the current finalized chain height
+    let current_chain_height = rpc.get_current_chain_height().await?;
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
-    // assume synced if state manager is not running
+    let tx_sender_threshold = current_chain_height;
+
+    let mut min_next_sync_height = u32::MAX;
+    let mut all_tx_sender_synced = true;
+
+    for entity in &entity_statuses.entity_statuses {
+        let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
+        else {
+            return Err(eyre::eyre!(
+                "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                entity.entity_id,
+                entity.status_result
+            ));
+        };
+
+        if status.automation {
+            let state_manager_next_height = status.state_manager_next_height.unwrap_or(0);
+            // LCP reports the last processed height, while state manager reports the next height.
+            let lcp_next_height = status
+                .lcp_synced_height
+                .map(|height| height.saturating_add(1))
+                .unwrap_or(0);
+
+            min_next_sync_height = min_next_sync_height
+                .min(state_manager_next_height)
+                .min(lcp_next_height);
+
+            let tx_sender_height = status.tx_sender_synced_height.unwrap_or(0);
+            if tx_sender_height < tx_sender_threshold {
+                all_tx_sender_synced = false;
+            }
+        }
+    }
+
     let state_manager_running = actors
         .aggregator
         .config
         .test_params
         .should_run_state_manager;
-    Ok(!state_manager_running || min_next_sync_height > current_finalized_chain_height)
+
+    Ok(
+        (!state_manager_running || min_next_sync_height > current_finalized_chain_height)
+            && all_tx_sender_synced,
+    )
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
@@ -221,7 +216,7 @@ pub async fn mine_once_after_in_mempool(
     tx_name: Option<&str>,
     timeout: Option<u64>,
 ) -> Result<usize, BridgeError> {
-    let timeout = timeout.unwrap_or(60);
+    let timeout = timeout.unwrap_or(90);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
     tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
@@ -233,12 +228,11 @@ pub async fn mine_once_after_in_mempool(
             );
         }
 
-        // if in mempool or already mined, break
-        if rpc.get_mempool_entry(&txid).await.is_ok()
-            || rpc
-                .get_raw_transaction_info(&txid, None)
-                .await
-                .is_ok_and(|tx| tx.blockhash.is_some())
+        // if already mined, break
+        if rpc
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .is_ok_and(|tx| tx.blockhash.is_some())
         {
             break;
         };
@@ -262,8 +256,6 @@ pub async fn mine_once_after_in_mempool(
         );
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-
-    rpc.mine_blocks(1).await?;
 
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .get_raw_transaction_info(&txid, None)
@@ -392,13 +384,21 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
-    let mut aggregator = actors.get_aggregator();
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await
-        .wrap_err("Failed to setup aggregator")?
-        .into_inner()
-        .try_into()?;
+    // Matches ExponentialBackoff::from_millis(2).factor(500).take(3): 1s, 2s, 4s.
+    let strategy = RetryConfig::new(1_000, Duration::from_secs(4), 3, 2, false).get_strategy();
+    let verifiers_public_keys: Vec<PublicKey> = Retry::spawn(strategy, || {
+        let mut aggregator = actors.get_aggregator();
+        async move {
+            aggregator
+                .setup(Request::new(Empty {}))
+                .await
+                .map_err(BridgeError::from)?
+                .into_inner()
+                .try_into()
+                .map_err(|e| BridgeError::from(eyre::eyre!("Failed to convert response: {:?}", e)))
+        }
+    })
+    .await?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
@@ -445,6 +445,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     };
 
     let deposit: Deposit = deposit_info.clone().into();
+
+    let mut aggregator = actors.get_aggregator();
 
     let movetx = aggregator
         .new_deposit(deposit)
@@ -728,12 +730,12 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
         old_nofn_xonly_pk,
     )?;
 
-    let (tx_sender, _, _, tx_sender_db, _, _) = create_tx_sender(config.clone(), 0).await;
+    let (tx_sender, _, tx_sender_db, _, _) = create_tx_sender(config.clone(), 0).await;
     let mut db_commit = tx_sender_db.begin_transaction().await?;
     tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut db_commit),
+            &mut db_commit,
             None,
             &signed_replacement_deposit_tx,
             FeePayingType::CPFP,

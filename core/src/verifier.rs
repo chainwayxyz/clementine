@@ -30,9 +30,11 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
+#[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::musig2;
+#[cfg(feature = "automation")]
 use crate::operator::Operator;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
@@ -49,6 +51,8 @@ use crate::task::{IntoTask, TaskExt};
 
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
 #[cfg(feature = "automation")]
 use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
@@ -264,15 +268,8 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            let tx_sender = TxSender::<_, _, crate::tx_sender_ext::CoreTxBuilder>::new(
-                self.verifier.signer.clone(),
-                rpc.clone(),
-                self.verifier.db.clone(),
-                Verifier::<C>::TX_SENDER_CONSUMER_ID.to_string(),
-                self.verifier.config.protocol_paramset(),
-                Default::default(),
-                self.verifier.config.mempool_config(),
-            );
+            let tx_sender_cfg = self.verifier.config.tx_sender_config();
+            let tx_sender = TxSender::new(tx_sender_cfg).await?;
 
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
@@ -351,10 +348,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Verifier<C>>::new(
+                EntityMetricPublisher::<Verifier<C>, C>::new(
                     self.verifier.db.clone(),
                     rpc.clone(),
                     self.verifier.config.clone(),
+                    self.verifier.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -368,27 +366,29 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let l1_sync_status = Verifier::<C>::get_l1_status(
+        let sync_status = Verifier::<C>::get_sync_status(
             &self.verifier.db,
             &self.verifier.rpc,
             &self.verifier.config,
+            &self.verifier.citrea_client,
         )
         .await?;
 
         Ok(EntityStatus {
             automation: automation_enabled,
-            wallet_balance: l1_sync_status
+            wallet_balance: sync_status
                 .wallet_balance
                 .map(|balance| format!("{} BTC", balance.to_btc())),
-            tx_sender_synced_height: l1_sync_status.tx_sender_synced_height,
-            finalized_synced_height: l1_sync_status.finalized_synced_height,
-            hcp_last_proven_height: l1_sync_status.hcp_last_proven_height,
-            rpc_tip_height: l1_sync_status.rpc_tip_height,
-            bitcoin_syncer_synced_height: l1_sync_status.btc_syncer_synced_height,
+            tx_sender_synced_height: sync_status.tx_sender_synced_height,
+            finalized_synced_height: sync_status.finalized_synced_height,
+            hcp_last_proven_height: sync_status.hcp_last_proven_height,
+            rpc_tip_height: sync_status.rpc_tip_height,
+            bitcoin_syncer_synced_height: sync_status.btc_syncer_synced_height,
             stopped_tasks: Some(stopped_tasks),
-            state_manager_next_height: l1_sync_status.state_manager_next_height,
-            btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
-            lcp_synced_height: l1_sync_status.lcp_synced_height,
+            state_manager_next_height: sync_status.state_manager_next_height,
+            btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
+            lcp_synced_height: sync_status.lcp_synced_height,
         })
     }
 }
@@ -402,7 +402,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -437,7 +437,8 @@ where
         let all_sessions = AllSessions::new();
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -2004,7 +2005,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         TransactionType::Challenge,
                         &challenge_tx,
                         &[],
@@ -2048,7 +2049,7 @@ where
                 | TransactionType::OperatorChallengeNack(_) => {
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -2065,7 +2066,7 @@ where
                 TransactionType::WatchtowerChallengeTimeout(idx) => {
                     self.tx_sender
                         .insert_try_to_send(
-                            Some(dbtx),
+                            dbtx,
                             Some(TxMetadata {
                                 tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
                                 ..tx_metadata
@@ -2104,7 +2105,8 @@ where
 
         let (work_only_proof, work_output) = self
             .header_chain_prover
-            .prove_work_only(current_tip_hcp.0)?;
+            .prove_work_only(current_tip_hcp.0)
+            .await?;
 
         let g16: [u8; 256] = work_only_proof
             .inner
@@ -2159,7 +2161,7 @@ where
         commit_data: Vec<u8>,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx, rbf_info) = self
+        let (tx_type, challenge_tx) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -2170,20 +2172,11 @@ where
             )
             .await?;
 
-        #[cfg(test)]
-        let challenge_tx = {
-            let mut challenge_tx = challenge_tx;
-            if let Some(annex_bytes) = rbf_info.annex.clone() {
-                challenge_tx.input[0].witness.push(annex_bytes);
-            }
-            challenge_tx
-        };
-
         #[cfg(feature = "automation")]
         {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(dbtx),
+                    dbtx,
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -2195,7 +2188,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     self.config.protocol_paramset(),
-                    Some(rbf_info),
+                    None,
                 )
                 .await?;
 
@@ -2382,7 +2375,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         tx_type,
                         &tx,
                         &[],
@@ -2745,7 +2738,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -3039,7 +3032,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -3120,7 +3113,6 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "verifier_finalized_block_fetcher_automation";
     const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
@@ -3180,6 +3172,10 @@ mod states {
 
                     tracing::info!("Verifier sent watchtower challenge",);
 
+                    Ok(DutyResult::Handled)
+                }
+                Duty::AddNecessaryTxsForKickoff { .. } => {
+                    // Verifiers do not need to add any transactions for kickoff if it is not challenged
                     Ok(DutyResult::Handled)
                 }
                 Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),

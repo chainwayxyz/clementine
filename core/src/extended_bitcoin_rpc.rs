@@ -40,13 +40,13 @@ use crate::test::common::citrea::CitreaE2EData;
 #[cfg(test)]
 use crate::{
     citrea::CitreaClientT,
-    test::common::{are_all_state_managers_synced, test_actors::TestActors},
+    test::common::{are_all_nodes_synced, test_actors::TestActors},
 };
 #[cfg(test)]
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 #[cfg(test)]
-pub const MINE_BLOCK_COUNT: u64 = 3;
+pub const MINE_BLOCK_COUNT: u64 = 1;
 
 /// Extension trait for bridge-specific RPC queries.
 ///
@@ -276,12 +276,14 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
 
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    let num_mine_blocks =
-                        std::cmp::min(MINE_BLOCK_COUNT, reorg_blocks - mined_blocks.len() as u64);
+                    let num_mine_blocks = std::cmp::min(
+                        MINE_BLOCK_COUNT,
+                        reorg_blocks.saturating_sub(mined_blocks.len() as u64),
+                    );
                     da0.generate(num_mine_blocks)
                         .await
                         .wrap_err("Failed to generate blocks")?;
@@ -305,13 +307,13 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
                     let num_mine_blocks = std::cmp::min(
                         MINE_BLOCK_COUNT,
-                        (reorg_blocks + block_num + 1) - mined_blocks.len() as u64,
+                        (reorg_blocks + block_num + 1).saturating_sub(mined_blocks.len() as u64),
                     );
                     mined_blocks.extend(self.mine_blocks(num_mine_blocks).await?);
                 }
@@ -320,12 +322,14 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
             _ => {
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
-                    let num_mine_blocks =
-                        std::cmp::min(MINE_BLOCK_COUNT, block_num - mined_blocks.len() as u64);
+                    let num_mine_blocks = std::cmp::min(
+                        MINE_BLOCK_COUNT,
+                        block_num.saturating_sub(mined_blocks.len() as u64),
+                    );
                     let new_blocks = self.mine_blocks(num_mine_blocks).await?;
                     mined_blocks.extend(new_blocks);
                 }
@@ -347,7 +351,7 @@ mod tests {
         bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
     use bitcoin::Amount;
-    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
     use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
@@ -355,6 +359,7 @@ mod tests {
     use citrea_e2e::test_case::TestCaseRunner;
     use citrea_e2e::Result;
     use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+    use clementine_primitives::FeeRateKvb;
     use tonic::async_trait;
 
     #[tokio::test]
@@ -467,7 +472,7 @@ mod tests {
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
         rpc.mine_blocks(1).await.unwrap();
         assert!(rpc
-            .bump_fee_with_fee_rate(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
+            .bump_fee_with_fee_rate(utxo.txid, FeeRateKvb::from_sat_per_vb(1).unwrap())
             .await
             .inspect_err(|e| {
                 match e {
@@ -477,7 +482,7 @@ mod tests {
             })
             .is_err());
 
-        let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        let current_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(1);
 
         // Trying to bump a transaction with a fee rate that is already enough
         // should return the original txid.
@@ -489,7 +494,7 @@ mod tests {
         assert_eq!(txid, utxo.txid);
 
         // A bigger fee rate should return a different txid.
-        let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+        let new_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(10000);
         let txid = rpc
             .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
             .await
@@ -788,7 +793,7 @@ mod tests {
 
             // Test potentially retryable errors
             let txid = Txid::all_zeros();
-            let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+            let fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(1);
             assert!(BitcoinRPCError::BumpFeeError(txid, fee_rate).is_retryable());
 
             // Test Other error with retryable patterns
@@ -895,7 +900,7 @@ mod tests {
 
             // Create an unconfirmed transaction
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-            let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+            let new_fee_rate = FeeRateKvb::from_sat_per_vb_unchecked(10000);
 
             let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());

@@ -23,10 +23,11 @@ use metrics_derive::Metrics;
 
 const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
+// Metric scope is named l1_sync_status for backward compatibility even if it includes l2 metrics.
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
-/// The L1 sync status metrics for the currently running entity. (operator/verifier)
-pub struct L1SyncStatusMetrics {
+/// The sync status metrics for the currently running entity. (operator/verifier)
+pub struct SyncStatusMetrics {
     #[metric(describe = "The current balance of the wallet in Bitcoin (BTC)")]
     pub wallet_balance_btc: Gauge,
     #[metric(describe = "The block height of the chain as seen by Bitcoin Core RPC")]
@@ -45,18 +46,20 @@ pub struct L1SyncStatusMetrics {
     pub bitcoin_fee_rate_sat_vb: Gauge,
     #[metric(describe = "The last processed Citrea Light Client Proof L1 height for the entity")]
     pub lcp_synced_height: Gauge,
+    #[metric(describe = "The current Citrea L2 block height")]
+    pub citrea_l2_block_height: Gauge,
 }
 
 #[derive(Metrics)]
 #[metrics(dynamic = true)]
-/// The L1 sync status metrics for an entity. This is used by the aggregator to
+/// The sync status metrics for an entity. This is used by the aggregator to
 /// publish external entity metrics.  The scope will be set to the EntityId +
 /// "_l1_sync_status", which will be displayed as
 /// `Operator(abcdef123...)_l1_sync_status` or
 /// `Verifier(abcdef123...)_l1_sync_status` where the XOnlyPublicKey's first 10
 /// characters are displayed, cf. [`crate::aggregator::OperatorId`] and
 /// [`crate::aggregator::VerifierId`].
-pub struct EntityL1SyncStatusMetrics {
+pub struct EntitySyncStatusMetrics {
     #[metric(describe = "The current balance of the wallet of the entity in Bitcoin (BTC)")]
     pub wallet_balance_btc: Gauge,
     #[metric(
@@ -78,6 +81,8 @@ pub struct EntityL1SyncStatusMetrics {
 
     #[metric(describe = "The current Bitcoin fee rate in sat/vB for the entity")]
     pub bitcoin_fee_rate_sat_vb: Gauge,
+    #[metric(describe = "The current Citrea L2 block height for the entity")]
+    pub citrea_l2_block_height: Gauge,
 
     #[metric(describe = "The number of error responses from the entity status endpoint")]
     pub entity_status_error_count: metrics::Counter,
@@ -89,15 +94,15 @@ pub struct EntityL1SyncStatusMetrics {
     pub lcp_synced_height: Gauge,
 }
 
-/// The L1 sync status metrics static for the currently running entity. (operator/verifier)
-pub static L1_SYNC_STATUS: LazyLock<L1SyncStatusMetrics> = LazyLock::new(|| {
-    L1SyncStatusMetrics::describe();
-    L1SyncStatusMetrics::default()
+/// The sync status metrics static for the currently running entity. (operator/verifier)
+pub static ENTITY_SYNC_STATUS: LazyLock<SyncStatusMetrics> = LazyLock::new(|| {
+    SyncStatusMetrics::describe();
+    SyncStatusMetrics::default()
 });
 
 /// A struct containing the current sync status of the entity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct L1SyncStatus {
+pub struct SyncStatus {
     pub wallet_balance: Option<Amount>,
     pub rpc_tip_height: Option<u32>,
     pub btc_syncer_synced_height: Option<u32>,
@@ -107,6 +112,7 @@ pub struct L1SyncStatus {
     pub state_manager_next_height: Option<u32>,
     pub bitcoin_fee_rate_sat_vb: Option<u64>,
     pub lcp_synced_height: Option<u32>,
+    pub citrea_l2_block_height: Option<u32>,
 }
 
 /// Get the current balance of the wallet.
@@ -163,6 +169,20 @@ pub async fn get_hcp_last_proven_height(db: &Database) -> Result<Option<u32>, Br
     Ok(latest_proven_block_height)
 }
 
+/// Get the synced height of the Transaction Sender or None if the
+/// tx_sender_sync_state table is empty or missing.
+pub async fn get_tx_sender_synced_height(db: &Database) -> Result<Option<u32>, BridgeError> {
+    let result: Option<i32> =
+        sqlx::query_scalar("SELECT synced_height FROM tx_sender_sync_state WHERE id = 1")
+            .fetch_optional(&db.get_pool())
+            .await
+            .map_err(BridgeError::DatabaseError)?;
+
+    Ok(result
+        .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
+        .transpose()?)
+}
+
 /// Get the next height of the State Manager or None if the State Manager status
 /// for the owner is missing or the next_height_to_process is NULL.
 pub async fn get_state_manager_next_height(
@@ -189,7 +209,7 @@ pub async fn get_bitcoin_fee_rate(
     config: &crate::config::BridgeConfig,
 ) -> Result<u64, BridgeError> {
     let fee_rate = rpc
-        .get_fee_rate(
+        .get_fee_rate_kvb(
             config.protocol_paramset.network,
             &config.mempool_api_host,
             &config.mempool_api_endpoint,
@@ -204,14 +224,15 @@ pub async fn get_bitcoin_fee_rate(
     Ok(fee_rate.to_sat_per_vb_ceil())
 }
 
+/// Extension trait on named entities to retrieve their sync status (including both L1 and L2 data).  
 #[async_trait]
-/// Extension trait on named entities who synchronize to the L1 data, to retrieve their L1 sync status.
-pub trait L1SyncStatusProvider: NamedEntity {
-    async fn get_l1_status(
+pub trait SyncStatusProvider: NamedEntity {
+    async fn get_sync_status<C: crate::citrea::CitreaClientT>(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
         config: &crate::config::BridgeConfig,
-    ) -> Result<L1SyncStatus, BridgeError>;
+        citrea_client: &C,
+    ) -> Result<SyncStatus, BridgeError>;
 }
 
 #[inline(always)]
@@ -236,12 +257,13 @@ fn log_errs_and_ok<A, T: NamedEntity>(
 }
 
 #[async_trait]
-impl<T: NamedEntity> L1SyncStatusProvider for T {
-    async fn get_l1_status(
+impl<T: NamedEntity> SyncStatusProvider for T {
+    async fn get_sync_status<C: crate::citrea::CitreaClientT>(
         db: &Database,
         rpc: &ExtendedBitcoinRpc,
         config: &crate::config::BridgeConfig,
-    ) -> Result<L1SyncStatus, BridgeError> {
+        citrea_client: &C,
+    ) -> Result<SyncStatus, BridgeError> {
         let wallet_balance = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
@@ -261,17 +283,6 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             .await,
             "getting rpc tip height",
         );
-
-        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_tx_sender_synced_height",
-                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
-            )
-            .await,
-            "getting tx sender synced height",
-        )
-        .flatten();
 
         #[cfg(feature = "automation")]
         let finalized_synced_height = log_errs_and_ok::<_, T>(
@@ -328,6 +339,18 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             "getting hcp last proven height",
         )
         .flatten();
+
+        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_tx_sender_synced_height",
+                get_tx_sender_synced_height(db),
+            )
+            .await,
+            "getting tx sender synced height",
+        )
+        .flatten();
+
         let state_manager_next_height = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
@@ -349,7 +372,17 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             "getting bitcoin fee rate",
         );
 
-        Ok(L1SyncStatus {
+        let citrea_l2_block_height = log_errs_and_ok::<_, T>(
+            timed_request_base(
+                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                "get_citrea_l2_block_height",
+                citrea_client.get_current_l2_block_height(),
+            )
+            .await,
+            "getting citrea L2 block height",
+        );
+
+        Ok(SyncStatus {
             wallet_balance,
             rpc_tip_height,
             btc_syncer_synced_height,
@@ -359,6 +392,7 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,
             lcp_synced_height,
+            citrea_l2_block_height,
         })
     }
 }
@@ -484,6 +518,7 @@ mod tests {
                                 .expect("btc_fee_rate_sat_vb is None")
                                 > 0
                         );
+                        assert!(status.citrea_l2_block_height.is_some());
                     }
                     #[cfg(not(feature = "automation"))]
                     {
@@ -519,6 +554,7 @@ mod tests {
                                 .expect("bitcoin_fee_rate_sat_vb is None")
                                 > 0
                         );
+                        assert!(status.citrea_l2_block_height.is_some());
                     }
                 }
                 crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error) => {
