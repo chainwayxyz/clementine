@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{consensus::Encodable, Witness};
+use bitcoin::Witness;
 use eyre::{Context, OptionExt};
 use pgmq::PGMQueueExt;
 use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt};
