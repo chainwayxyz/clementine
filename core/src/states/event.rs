@@ -201,12 +201,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         ));
                     }
                     if !payout_blockhash_matches {
-                        let witness_hex = |witness: &Witness| {
-                            witness
-                                .iter()
-                                .map(|element| hex::encode(element))
-                                .collect::<Vec<_>>()
-                        };
+                        let witness_hex =
+                            |witness: &Witness| witness.iter().map(hex::encode).collect::<Vec<_>>();
                         mismatches.push(format!(
                             "payout_blockhash_witness: new={:?}, existing={:?}",
                             witness_hex(&payout_blockhash),
