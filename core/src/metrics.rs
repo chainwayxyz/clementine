@@ -457,8 +457,12 @@ mod tests {
                     #[cfg(feature = "automation")]
                     {
                         assert!(status.automation);
-                        // deleted tx sender synced height from metrics for now
-                        assert!(status.tx_sender_synced_height.is_none());
+                        assert!(
+                            status
+                                .tx_sender_synced_height
+                                .expect("tx_sender_synced_height is None")
+                                > 0
+                        );
                         assert!(
                             status
                                 .finalized_synced_height
