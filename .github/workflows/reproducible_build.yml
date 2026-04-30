@@ -43,3 +43,22 @@ jobs:
 
       - name: Rebuild to verify reproducibility
         run: nix build .#clementine --rebuild --print-build-logs
+
+      - name: Hash binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORE_HASH="$(sha256sum ./result/bin/clementine-core | awk '{print $1}')"
+          CLI_HASH="$(sha256sum ./result/bin/clementine-cli | awk '{print $1}')"
+
+          echo "clementine-core ${CORE_HASH}"
+          echo "clementine-cli ${CLI_HASH}"
+
+          {
+            echo "## ${{ matrix.platform }}"
+            echo ""
+            echo "| Binary | SHA-256 |"
+            echo "|--------|---------|"
+            echo "| clementine-core | \`${CORE_HASH}\` |"
+            echo "| clementine-cli | \`${CLI_HASH}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
