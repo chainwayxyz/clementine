@@ -74,6 +74,10 @@ impl TxSenderLimitsExt for TxSenderLimits {
                 "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
             )
             .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
+            fee_bump_after_blocks: read_string_from_env_then_parse::<u32>(
+                "TX_SENDER_FEE_BUMP_AFTER_BLOCKS",
+            )
+            .unwrap_or(defaults.fee_bump_after_blocks),
         })
     }
 }
