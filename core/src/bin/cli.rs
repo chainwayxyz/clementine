@@ -1028,7 +1028,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     state_manager_next_height,
                                     stopped_tasks,
                                     btc_fee_rate_sat_vb,
-                                    lcp_synced_height
+                                    lcp_synced_height,
                                     citrea_l2_block_height,
                                 } = &status;
                                 println!("  Automation: {automation}");
