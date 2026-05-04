@@ -301,9 +301,9 @@ pub struct EntityStatus {
     #[prost(uint64, optional, tag = "10")]
     pub btc_fee_rate_sat_vb: ::core::option::Option<u64>,
     #[prost(uint32, optional, tag = "11")]
-    pub lcp_synced_height: ::core::option::Option<u32>,
-    #[prost(uint32, optional, tag = "12")]
     pub citrea_l2_block_height: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "12")]
+    pub lcp_synced_height: ::core::option::Option<u32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityId {
