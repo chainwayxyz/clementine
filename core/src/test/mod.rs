@@ -47,7 +47,7 @@ mod bitvm_script;
 mod txsender;
 
 pub const CITREA_E2E_DOCKER_IMAGE: &str =
-    "chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6";
+    "chainwayxyz/citrea-test:2d00b9e8fcaa1e20474faa7c29c3420d96c9aeaf";
 
 use ctor::ctor;
 

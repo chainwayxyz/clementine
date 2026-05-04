@@ -59,7 +59,7 @@ pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     #[cfg(feature = "automation")]
-    pub(crate) tx_sender: TxSenderClient<Database>,
+    pub(crate) tx_sender: TxSenderClient,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     verifier_keys: Arc<RwLock<Vec<Option<PublicKey>>>>,
@@ -217,7 +217,8 @@ impl Aggregator {
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         tracing::info!(
             "Aggregator created with {} verifiers and {} operators",

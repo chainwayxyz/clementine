@@ -9,9 +9,10 @@ use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
 use crate::config::BridgeConfig;
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
@@ -29,9 +30,9 @@ use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
-    wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_synced, ensure_tx_onchain,
+    get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent_while_synced, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
@@ -223,11 +224,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let mut withdrawal_infos = Vec::new();
 
         tracing::info!("Mining withdrawal utxos");
-        for (withdrawal_utxo, payout_txout, sig) in
+        for (withdrawal_utxo, payout_txout, sig, opt_payout_txout, opt_sig) in
             get_new_withdrawal_utxo_and_register_to_citrea(&move_txids, &citrea_e2e_data, &actors)
                 .await
         {
-            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_infos.push((
+                withdrawal_index,
+                withdrawal_utxo,
+                payout_txout,
+                sig,
+                opt_payout_txout,
+                opt_sig,
+            ));
             withdrawal_index += 1;
         }
 
@@ -279,14 +287,22 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::info!("3 more deposits done, doing 3 more withdrawals");
         // do 3 more withdrawals
-        for (withdrawal_utxo, payout_txout, sig) in get_new_withdrawal_utxo_and_register_to_citrea(
-            &new_move_txids,
-            &citrea_e2e_data,
-            &actors,
-        )
-        .await
+        for (withdrawal_utxo, payout_txout, sig, opt_payout_txout, opt_sig) in
+            get_new_withdrawal_utxo_and_register_to_citrea(
+                &new_move_txids,
+                &citrea_e2e_data,
+                &actors,
+            )
+            .await
         {
-            withdrawal_infos.push((withdrawal_index, withdrawal_utxo, payout_txout, sig));
+            withdrawal_infos.push((
+                withdrawal_index,
+                withdrawal_utxo,
+                payout_txout,
+                sig,
+                opt_payout_txout,
+                opt_sig,
+            ));
             withdrawal_index += 1;
         }
 
@@ -318,8 +334,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[1].0,
             &withdrawal_infos[1].1,
-            &withdrawal_infos[1].2,
-            &withdrawal_infos[1].3,
+            &withdrawal_infos[1].4,
+            &withdrawal_infos[1].5,
             &citrea_e2e_data,
             move_txids[1],
         )
@@ -331,8 +347,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[3].0,
             &withdrawal_infos[3].1,
-            &withdrawal_infos[3].2,
-            &withdrawal_infos[3].3,
+            &withdrawal_infos[3].4,
+            &withdrawal_infos[3].5,
             &citrea_e2e_data,
             new_move_txids[1],
         )
@@ -357,8 +373,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             &actors,
             withdrawal_infos[4].0,
             &withdrawal_infos[4].1,
-            &withdrawal_infos[4].2,
-            &withdrawal_infos[4].3,
+            &withdrawal_infos[4].4,
+            &withdrawal_infos[4].5,
             &citrea_e2e_data,
             new_move_txids[2],
         )
@@ -398,8 +414,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 &actors,
                 withdrawal_infos[4].0,
                 &withdrawal_infos[4].1,
-                &withdrawal_infos[4].2,
-                &withdrawal_infos[4].3,
+                &withdrawal_infos[4].4,
+                &withdrawal_infos[4].5,
                 &citrea_e2e_data,
                 replacement_move_txid,
             )
@@ -415,7 +431,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
-            ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+            ensure_outpoint_spent_while_synced(
                 &rpc,
                 *reimburse_connector,
                 &actors,
@@ -1005,7 +1021,7 @@ async fn mock_citrea_run_truthful_op_db_reset() {
         .await
         .unwrap();
 
-    tracing::info!("Restarted tasks");
+    tracing::info!("Restarted verifier/operator synced");
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
@@ -1013,9 +1029,10 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     };
 
     tracing::warn!("Waiting for challenge");
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
     tracing::warn!("Challenge spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was spent on timeout -> meaning challenge was not sent
@@ -1346,10 +1363,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
         &config,
         &rpc,
         &withdrawal_address,
-        config.protocol_paramset().bridge_amount
-            - config
-                .operator_withdrawal_fee_sats
-                .unwrap_or(Amount::from_sat(0)),
+        config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
     )
     .await;
 
@@ -1571,19 +1585,26 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    let _kickoff_block_height =
+    let kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
             .unwrap();
+
+    tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: UtxoVout::Challenge.get_vout(),
     };
 
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
@@ -1617,6 +1638,11 @@ async fn mock_citrea_run_malicious() {
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
+
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",
@@ -2200,10 +2226,7 @@ async fn concurrent_deposits_and_optimistic_payouts() {
             &config,
             &rpc,
             &withdrawal_address,
-            config.protocol_paramset().bridge_amount
-                - config
-                    .operator_withdrawal_fee_sats
-                    .unwrap_or(Amount::from_sat(0)),
+            config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT,
         )
         .await;
 

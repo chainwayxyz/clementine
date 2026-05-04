@@ -32,6 +32,8 @@ use crate::rpc::clementine::{
     EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
 use crate::utils::{
     flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
     try_join_all_combine_errors, ScriptBufExt,
@@ -931,7 +933,7 @@ impl Aggregator {
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                &mut dbtx,
                 Some(TxMetadata {
                     deposit_outpoint: None,
                     operator_xonly_pk: None,
@@ -1239,7 +1241,7 @@ impl ClementineAggregator for AggregatorServer {
                 let mut dbtx = self.db.begin_transaction().await?;
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(&mut dbtx),
+                        &mut dbtx,
                         TransactionType::OptimisticPayout,
                         opt_payout_tx,
                         &[],
@@ -1290,7 +1292,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    Some(&mut dbtx),
+                    &mut dbtx,
                     None,
                     &signed_tx,
                     fee_type.try_into()?,
@@ -2073,7 +2075,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    Some(&mut dbtx),
+                    &mut dbtx,
                     Some(TxMetadata {
                         deposit_outpoint: Some(deposit_outpoint),
                         operator_xonly_pk: None,

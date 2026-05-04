@@ -279,10 +279,6 @@ pub fn non_ephemeral_anchor_output() -> TxOut {
 /// # Returns
 ///
 /// A [`TxOut`] with an OP_RETURN script containing the provided data.
-///
-/// # Warning
-///
-/// Does not check if the data is valid for an OP_RETURN script. Data must be at most 80 bytes.
 pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)

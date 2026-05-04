@@ -114,6 +114,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_height: u32,
     /// The witness for the kickoff transactions input which is a winternitz signature that commits the payout blockhash.
     pub(crate) payout_blockhash: Witness,
+    /// Indicates if the kickoff is considered to be malicious. Used so that we can determine that if another kickoff in the same round is malicious, we don't need to send challenge txs for this one.
+    pub(crate) is_malicious: bool,
     /// Marker to indicate if the state machine is in the challenged state.
     challenged: bool,
     /// Set of indices of watchtower UTXOs that have already been spent.
@@ -166,6 +168,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             kickoff_height,
             deposit_data,
             payout_blockhash,
+            is_malicious: false,
             latest_blockhash: Witness::default(),
             matchers: HashMap::new(),
             dirty: true,
@@ -386,9 +389,16 @@ impl<T: Owner> KickoffStateMachine<T> {
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
+                    // Add relevant txs to tx sender if the kickoff is challenged
+                    context
+                        .dispatch_duty(Duty::AddRelevantTxsToTxSenderIfChallenged {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                        })
+                        .await?;
                     Ok::<(), BridgeError>(())
                 }
-                .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
+                .wrap_err(self.kickoff_meta("on_challenged_entry"))
             })
             .await;
         // check if any action is ready to be started as it could already be ready before a challenge arrives
@@ -419,6 +429,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::TimeToSendLatestBlockhash
             | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
+                tracing::debug!(
+                    "Reached time to send watchtower challenge for {}",
+                    self.kickoff_data
+                );
                 self.send_watchtower_challenge(context).await;
                 Handled
             }
@@ -449,6 +463,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .cache
                     .get_tx_of_utxo(challenge_outpoint)
                     .expect("Challenge outpoint that got matched should be in block");
+                tracing::info!(
+                    "Detected watchtower challenge for watchtower {} for {}",
+                    watchtower_idx,
+                    self.kickoff_data,
+                );
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
@@ -469,6 +488,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .cache
                     .get_witness_of_utxo(assert_outpoint)
                     .expect("Assert outpoint that got matched should be in block");
+                tracing::info!(
+                    "Detected assert {} for kickoff {}",
+                    assert_idx,
+                    self.kickoff_data,
+                );
                 // save assert witness
                 self.operator_asserts.insert(*assert_idx, witness);
                 self.disprove_if_ready(context).await;
@@ -489,12 +513,20 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge ack witness
                 self.operator_challenge_acks
                     .insert(*watchtower_idx, witness);
+                tracing::info!(
+                    "Detected challenge ack for watchtower {} for {}",
+                    watchtower_idx,
+                    self.kickoff_data,
+                );
                 self.disprove_if_ready(context).await;
                 Handled
             }
             // When the kickoff finalizer is spent in Bitcoin,
             // the kickoff process is finished and the state machine will transition to the "Closed" state
-            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
+            KickoffEvent::KickoffFinalizerSpent => {
+                tracing::info!("Detected kickoff finalizer spent for {}", self.kickoff_data,);
+                Transition(State::closed())
+            }
             // When the burn connector of the operator is spent in Bitcoin, it means the operator cannot continue with any more kickoffs
             // (unless burn connector is spent by ready to reimburse tx), so the state machine will transition to the "Closed" state
             KickoffEvent::BurnConnectorSpent => {
@@ -508,6 +540,11 @@ impl<T: Owner> KickoffStateMachine<T> {
             // set the watchtower utxo as spent and check if the latest blockhash can be committed
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
+                tracing::info!(
+                    "Detected watchtower challenge timeout for watchtower {} for {}",
+                    watchtower_idx,
+                    self.kickoff_data,
+                );
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
                 self.send_operator_asserts_if_ready(context).await;
@@ -524,6 +561,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .cache
                     .get_witness_of_utxo(latest_blockhash_outpoint)
                     .expect("Latest blockhash outpoint that got matched should be in block");
+                tracing::info!("Detected latest blockhash for {}", self.kickoff_data,);
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
                 // can start sending asserts as latest blockhash is committed and finalized
@@ -533,6 +571,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::TimeToSendLatestBlockhash => {
                 // tell owner to send latest blockhash tx
+                tracing::debug!(
+                    "Reached time to send latest blockhash for {}",
+                    self.kickoff_data
+                );
                 self.send_latest_blockhash(context).await;
                 Handled
             }
@@ -554,7 +596,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     ) -> Response<State> {
         match event {
             KickoffEvent::Challenged => {
-                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_data);
+                tracing::warn!("Warning: Operator challenged: {}", self.kickoff_data);
                 Transition(State::challenged())
             }
             KickoffEvent::WatchtowerChallengeSent { .. }
@@ -753,6 +795,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 {
                     // Add all watchtower challenges and operator asserts to matchers
                     self.add_default_kickoff_matchers(context).await?;
+                    context
+                        .dispatch_duty(Duty::AddNecessaryTxsForKickoff {
+                            kickoff_data: self.kickoff_data,
+                            deposit_data: self.deposit_data.clone(),
+                        })
+                        .await?;
                     Ok::<(), BridgeError>(())
                 }
                 .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
