@@ -69,7 +69,11 @@ where
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(
+        skip_all,
+        fields(optimistic_withdraw_params = ?request.get_ref().opt_withdrawal.as_ref()),
+        err(level = tracing::Level::ERROR)
+    )]
     async fn optimistic_payout_sign(
         &self,
         request: Request<OptimisticPayoutParams>,
