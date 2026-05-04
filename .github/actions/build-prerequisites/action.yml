@@ -7,5 +7,7 @@ runs:
   using: "composite"
 
   steps:
-  - name: Install Protoc
-    uses: arduino/setup-protoc@v3
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ github.token }}

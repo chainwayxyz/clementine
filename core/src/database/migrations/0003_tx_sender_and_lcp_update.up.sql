@@ -24,6 +24,9 @@ ADD COLUMN IF NOT EXISTS is_finalized boolean NOT NULL DEFAULT false;
 -- Add unique constraint to txid column in tx_sender_try_to_send_txs table
 ALTER TABLE tx_sender_try_to_send_txs
 ADD CONSTRAINT uq_tx_sender_txid UNIQUE (txid);
+-- Add last_processed_lcp column to state_manager_status table
+ALTER TABLE state_manager_status
+ADD COLUMN IF NOT EXISTS last_processed_lcp INT DEFAULT NULL;
 -- Add tx_sender_sync_state table to track the synced height of the Transaction Sender.
 CREATE TABLE IF NOT EXISTS tx_sender_sync_state (
     -- Singleton row constraint
