@@ -47,8 +47,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Create test log directories
