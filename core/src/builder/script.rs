@@ -82,7 +82,7 @@ pub fn extract_winternitz_commits(
                 "Winternitz max digit must match digit base: max_digit={max_digit}, digit_base={digit_base}"
             ));
         }
-        
+
         let message_digits =
             (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
         let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
