@@ -49,7 +49,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v29.0)
+1. Install and configure a Bitcoin node (at least v30.0)
 2. Install and configure PostgreSQL. Using docker:
 
    ```sh
@@ -100,6 +100,35 @@ Before running Clementine:
    ```sh
    # On Unix-like systems:
    export RUST_MIN_STACK=33554432
+   ```
+
+8. **For automation mode only**: Install additional dependencies required for automation features:
+
+   - **skopeo**: Required for pulling and verifying Docker images
+   - **curl**: Required for installing udocker
+   - **python3**: Required by udocker
+   - **udocker**: Required for running Docker containers without root privileges
+
+   ```sh
+   # On Debian/Ubuntu:
+   sudo apt-get update
+   sudo apt-get install -y python3 python-is-python3 tar skopeo curl
+
+   # Download and install udocker (instructions by udocker: https://indigo-dc.github.io/udocker/installation_manual.html)
+   wget https://github.com/indigo-dc/udocker/releases/download/1.3.17/udocker-1.3.17.tar.gz
+   tar zxvf udocker-1.3.17.tar.gz
+   export PATH=$(pwd)/udocker-1.3.17/udocker:$PATH
+
+   # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
+   udocker install
+   # If you install as root, use: udocker --allow-root install
+   ```
+
+   To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
+
+   ```sh
+   echo 'export PATH="'$(pwd)'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
+   source ~/.bashrc
    ```
 
 ## Configure Clementine
@@ -249,8 +278,16 @@ A docker image is provided in
 [Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can also be
 locally built with:
 
+**Standard build (without automation):**
+
 ```bash
 docker build -f scripts/docker/Dockerfile -t clementine:latest .
+```
+
+**Automation mode build (with automation features enabled):**
+
+```bash
+docker build -f scripts/docker/Dockerfile.automation -t clementine:latest .
 ```
 
 Also, there are multiple Docker compose files located at [scripts/docker/](../scripts/docker/)

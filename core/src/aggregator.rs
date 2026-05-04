@@ -217,7 +217,7 @@ impl Aggregator {
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
+        let tx_sender = TxSenderClient::new(db.clone());
 
         tracing::info!(
             "Aggregator created with {} verifiers and {} operators",

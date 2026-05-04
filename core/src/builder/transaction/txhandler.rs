@@ -11,6 +11,8 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::rpc::clementine::tagged_signature::SignatureId;
+#[cfg(test)]
+use bitcoin::sighash::Annex;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -34,6 +36,10 @@ pub struct TxHandler<T: State = Unsigned> {
     /// Cached and immutable, same as other fields
     cached_tx: bitcoin::Transaction,
     cached_txid: bitcoin::Txid,
+
+    /// Annex bytes for test-only large tx scenarios.
+    #[cfg(test)]
+    test_annex: Option<Vec<u8>>,
 
     phantom: PhantomData<T>,
 }
@@ -131,6 +137,11 @@ impl<T: State> TxHandler<T> {
         &self.cached_txid
     }
 
+    #[cfg(test)]
+    pub fn set_test_annex(&mut self, annex: Option<Vec<u8>>) {
+        self.test_annex = annex;
+    }
+
     /// Returns a lambda function that calculates the sighash for the specified input, given the sighash type.
     ///
     /// # Arguments
@@ -221,6 +232,32 @@ impl<T: State> TxHandler<T> {
             .taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)
             .wrap_err("Failed to calculate taproot sighash for key spend")?;
 
+        #[cfg(test)]
+        {
+            if let Some(ref annex_bytes) = self.test_annex {
+                if matches!(
+                    self.txins[txin_index]
+                        .get_signature_id()
+                        .get_deposit_sig_owner()?,
+                    DepositSigKeyOwner::Own(_)
+                ) {
+                    let annex =
+                        Annex::new(annex_bytes).map_err(|e| eyre::eyre!("Invalid annex: {e:?}"))?;
+                    return Ok(sighash_cache
+                        .taproot_signature_hash(
+                            txin_index,
+                            &prevouts,
+                            Some(annex),
+                            None,
+                            sighash_type,
+                        )
+                        .wrap_err(
+                            "Failed to calculate taproot sighash for key spend with annex",
+                        )?);
+                }
+            }
+        }
+
         Ok(sig_hash)
     }
 
@@ -275,7 +312,7 @@ impl<T: State> TxHandler<T> {
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
 
-        let prevouts = &match sighash_type {
+        let prevouts = match sighash_type {
             TapSighashType::SinglePlusAnyoneCanPay
             | TapSighashType::AllPlusAnyoneCanPay
             | TapSighashType::NonePlusAnyoneCanPay => {
@@ -285,8 +322,34 @@ impl<T: State> TxHandler<T> {
         };
         let leaf_hash = TapLeafHash::from_script(spend_script, LeafVersion::TapScript);
         let sig_hash = sighash_cache
-            .taproot_script_spend_signature_hash(txin_index, prevouts, leaf_hash, sighash_type)
+            .taproot_script_spend_signature_hash(txin_index, &prevouts, leaf_hash, sighash_type)
             .wrap_err("Failed to calculate taproot sighash for script spend")?;
+
+        #[cfg(test)]
+        {
+            if let Some(ref annex_bytes) = self.test_annex {
+                if matches!(
+                    self.txins[txin_index]
+                        .get_signature_id()
+                        .get_deposit_sig_owner()?,
+                    DepositSigKeyOwner::Own(_)
+                ) {
+                    let annex =
+                        Annex::new(annex_bytes).map_err(|e| eyre::eyre!("Invalid annex: {e:?}"))?;
+                    return Ok(sighash_cache
+                        .taproot_signature_hash(
+                            txin_index,
+                            &prevouts,
+                            Some(annex),
+                            Some((leaf_hash, 0xFFFFFFFF)),
+                            sighash_type,
+                        )
+                        .wrap_err(
+                            "Failed to calculate taproot sighash for script spend with annex",
+                        )?);
+                }
+            }
+        }
 
         Ok(sig_hash)
     }
@@ -378,6 +441,8 @@ impl TxHandler<Unsigned> {
             txouts: self.txouts,
             cached_tx: self.cached_tx,
             cached_txid: self.cached_txid,
+            #[cfg(test)]
+            test_annex: self.test_annex,
             phantom: PhantomData::<Signed>,
         })
     }
@@ -537,6 +602,8 @@ impl TxHandlerBuilder {
             txouts: self.txouts,
             cached_tx: tx,
             cached_txid: txid,
+            #[cfg(test)]
+            test_annex: None,
             phantom: PhantomData,
         }
     }
