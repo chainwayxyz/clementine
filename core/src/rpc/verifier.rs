@@ -714,6 +714,7 @@ where
     ) -> Result<Response<clementine::EntityStatus>, Status> {
         tracing::debug!("Called get_current_status rpc");
         let status = self.get_current_status().await?;
+        tracing::debug!("Get current status rpc completed successfully");
         Ok(Response::new(status))
     }
 }
