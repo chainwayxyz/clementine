@@ -124,6 +124,14 @@ Before running Clementine:
    # If you install as root, use: udocker --allow-root install
    ```
 
+   When proving in automation mode, Clementine also requires an unlimited stack
+   size limit. Configure the host so the hard limit allows an unlimited stack,
+   then set the runtime limit before starting Clementine:
+
+   ```sh
+   ulimit -s unlimited
+   ```
+
    To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
    ```sh
