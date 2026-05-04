@@ -71,11 +71,18 @@ pub fn extract_winternitz_commits(
 
     for wt_path in wt_derive_paths.iter().rev() {
         let wt_params = wt_path.get_params();
-        let max_digit =
-            u8::try_from(wt_params.max_digit()).wrap_err("Failed to convert max digit to u8")?;
         let digit_base = 1u8
             .checked_shl(paramset.winternitz_log_d)
             .ok_or_else(|| eyre::eyre!("Winternitz digit base overflow"))?;
+
+        let max_digit =
+            u8::try_from(wt_params.max_digit()).wrap_err("Failed to convert max digit to u8")?;
+        if max_digit != digit_base - 1 {
+            return Err(eyre::eyre!(
+                "Winternitz max digit must match digit base: max_digit={max_digit}, digit_base={digit_base}"
+            ));
+        }
+        
         let message_digits =
             (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
         let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
