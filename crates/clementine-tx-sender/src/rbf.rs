@@ -368,21 +368,22 @@ impl TxSender {
             .map_err(|e| eyre!("Failed to sign input: {}", e))?;
 
         let mut witness = Witness::new();
+        let taproot_signature = taproot::Signature {
+            signature,
+            sighash_type: tap_sighash_type,
+        };
 
         match &rbf_signing_info.spend_path {
             RbfSigningSpendPath::KeyPath { .. } => {
-                witness.push(signature.serialize());
+                witness.push(taproot_signature.serialize());
                 // Add the signature to the PSBT
-                decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot::Signature {
-                    signature,
-                    sighash_type: tap_sighash_type,
-                });
+                decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot_signature);
             }
             RbfSigningSpendPath::ScriptPath {
                 control_block,
                 script,
             } => {
-                witness.push(signature.serialize());
+                witness.push(taproot_signature.serialize());
                 witness.push(script.clone());
                 witness.push(control_block.clone());
             }
