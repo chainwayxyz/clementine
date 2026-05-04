@@ -295,7 +295,7 @@ where
         }))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_deposit_keys(
         &self,
         request: Request<DepositParams>,
@@ -303,7 +303,7 @@ where
         let start = std::time::Instant::now();
         let deposit_params = request.into_inner();
         let deposit_data: DepositData = deposit_params.try_into()?;
-        tracing::warn!(
+        tracing::info!(
             "Called get_deposit_keys with deposit data: {:?}",
             deposit_data
         );
@@ -327,7 +327,7 @@ where
         }))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_create_signed_txs(
         &self,
         request: tonic::Request<super::TransactionRequest>,
@@ -487,7 +487,7 @@ where
         Ok(Response::new(txs.into()))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn transfer_to_btc_wallet(
         &self,
         request: Request<clementine::Outpoints>,

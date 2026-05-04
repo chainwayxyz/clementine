@@ -252,7 +252,6 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// A vector of transactions that created the inputs of the given transaction.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_prevout_txs(
         &self,
         tx: &bitcoin::Transaction,

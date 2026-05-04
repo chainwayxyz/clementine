@@ -1840,7 +1840,7 @@ impl ClementineAggregator for AggregatorServer {
             })
             .collect::<Result<Vec<_>, Status>>()?;
 
-        tracing::warn!(
+        tracing::info!(
             "Parsed withdraw rpc params, withdrawal params: {:?}, operator xonly pks: {:?}",
             withdraw_params,
             operator_xonly_pks_from_rpc
@@ -1887,7 +1887,7 @@ impl ClementineAggregator for AggregatorServer {
 
         // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
-        tracing::warn!(
+        tracing::info!(
             "Withdraw rpc completed successfully for withdrawal id: {}, operator xonly pks: {:?}, responses: {:?}",
             withdrawal_id,
             operator_xonly_pks_from_rpc
