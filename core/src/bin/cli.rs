@@ -1101,10 +1101,16 @@ async fn handle_print_addresses() {
         }
     };
 
-    // Get network from environment or default to regtest
+    // Get network from environment or default to bitcoin
     let network = match std::env::var("NETWORK") {
-        Ok(network) => Network::from_str(&network).unwrap_or(Network::Regtest),
-        Err(_) => Network::Regtest,
+        Ok(network) => match Network::from_str(&network) {
+            Ok(network) => network,
+            Err(error) => {
+                println!("Error: Failed to parse NETWORK environment variable: {error}");
+                return;
+            }
+        },
+        Err(_) => Network::Bitcoin,
     };
 
     let actor = Actor::new(secret_key, network);
