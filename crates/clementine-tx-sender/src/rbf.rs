@@ -487,6 +487,28 @@ impl TxSender {
         Ok(())
     }
 
+    fn extract_final_tx_from_psbt(psbt: &str) -> Result<Transaction> {
+        let psbt = Psbt::from_str(psbt).map_err(|e| eyre!(e))?;
+        if psbt.inputs.len() != psbt.unsigned_tx.input.len() {
+            return Err(eyre!("PSBT input count mismatch").into());
+        }
+
+        let mut tx = psbt.unsigned_tx.clone();
+        for (idx, input) in tx.input.iter_mut().enumerate() {
+            let psbt_input = &psbt.inputs[idx];
+            if psbt_input.final_script_witness.is_none() && psbt_input.final_script_sig.is_none() {
+                return Err(eyre!("PSBT input {idx} is not finalized").into());
+            }
+            if let Some(witness) = psbt_input.final_script_witness.clone() {
+                input.witness = witness;
+            }
+            if let Some(sig) = psbt_input.final_script_sig.clone() {
+                input.script_sig = sig;
+            }
+        }
+        Ok(tx)
+    }
+
     pub async fn get_tx_fee(&self, tx: &Transaction) -> Result<Amount> {
         let inputs = {
             let mut inputs = Amount::ZERO;
@@ -749,33 +771,7 @@ impl TxSender {
                     }
                 };
 
-                let final_tx = {
-                    // Extract tx
-                    let psbt = Psbt::from_str(&processed_psbt)
-                        .map_err(|e| eyre!(e))
-                        .map_err(|err| {
-                            let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
-                            self.handle_err(
-                                format!("{err:?}"),
-                                "rbf_psbt_deserialize_failed",
-                                try_to_send_id,
-                            );
-                            err
-                        })?;
-
-                    let mut tx = psbt.unsigned_tx.clone();
-
-                    for (idx, input) in tx.input.iter_mut().enumerate() {
-                        if let Some(witness) = psbt.inputs[idx].final_script_witness.clone() {
-                            input.witness = witness;
-                        }
-                        if let Some(sig) = psbt.inputs[idx].final_script_sig.clone() {
-                            input.script_sig = sig;
-                        }
-                    }
-
-                    tx
-                };
+                let final_tx = Self::extract_final_tx_from_psbt(&processed_psbt)?;
                 if !needs_wtxid_grind
                     || final_tx
                         .compute_wtxid()
@@ -1020,31 +1016,7 @@ impl TxSender {
 
                 tracing::debug!(try_to_send_id, "Successfully processed initial RBF PSBT");
 
-                let final_tx = {
-                    // Extract tx
-                    let psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e)).map_err(|err| {
-                        let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
-                        self.handle_err(
-                            format!("{err:?}"),
-                            "rbf_psbt_deserialize_failed",
-                            try_to_send_id,
-                        );
-                        err
-                    })?;
-
-                    let mut tx = psbt.unsigned_tx.clone();
-
-                    for (idx, input) in tx.input.iter_mut().enumerate() {
-                        if let Some(witness) = psbt.inputs[idx].final_script_witness.clone() {
-                            input.witness = witness;
-                        }
-                        if let Some(sig) = psbt.inputs[idx].final_script_sig.clone() {
-                            input.script_sig = sig;
-                        }
-                    }
-
-                    tx
-                };
+                let final_tx = Self::extract_final_tx_from_psbt(&psbt)?;
                 // check if wtxid prefix is correct if grinding is needed
                 if !needs_wtxid_grind
                     || final_tx
