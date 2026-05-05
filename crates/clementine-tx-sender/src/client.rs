@@ -181,8 +181,7 @@ impl TxSenderClient {
     #[cfg(feature = "citrea")]
     pub async fn send_citrea_tx(&self, request: CitreaTxRequest) -> Result<i64, eyre::Report> {
         use crate::citrea::data_serialization::DataOnDa;
-
-        const MAX_CHUNK_SIZE: u32 = 397_000;
+        use crate::citrea::MAX_CHUNK_SIZE;
 
         let mut dbtx = self.db.begin_transaction().await?;
 

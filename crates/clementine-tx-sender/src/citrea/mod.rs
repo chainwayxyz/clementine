@@ -18,6 +18,14 @@ use sha2::{Digest, Sha256};
 use crate::signer::SECP;
 pub use tx_sender_types::CitreaTxRequest;
 
+/// Maximum raw BatchProof chunk size.
+///
+/// This is intentionally below the 400,000 WU standard transaction limit. The
+/// raw chunk is Borsh-wrapped and then pushed into a tapscript in 520-byte
+/// pieces, so the final reveal transaction is larger than the raw chunk bytes.
+/// see test `max_chunk_reveal_transaction_stays_under_standard_weight`
+pub(crate) const MAX_CHUNK_SIZE: u32 = 390_000;
+
 /// Type represents a typed enum for transaction kind
 /// Conversion to u16 (to_bytes) should be same as used in citrea repo.
 /// citrea/crates/bitcoin-da/src/helpers/mod.rs

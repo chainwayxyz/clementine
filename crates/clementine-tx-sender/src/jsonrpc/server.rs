@@ -14,6 +14,7 @@ use tx_sender_types::clementine::InsertTryToSendParams;
 use tx_sender_types::citrea::InsertCitreaRawTxParams;
 
 const JSONRPC_INTERNAL_ERROR_CODE: i32 = -32_000;
+const MAX_JSONRPC_REQUEST_BODY_SIZE: u32 = 50 * 1024 * 1024;
 
 fn jsonrpc_err(message: impl ToString) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(JSONRPC_INTERNAL_ERROR_CODE, message.to_string(), None::<()>)
@@ -43,7 +44,7 @@ pub async fn start_jsonrpc_server(
     bind_addr: SocketAddr,
 ) -> Result<TxSenderJsonRpcServer, BridgeError> {
     let server: Server = ServerBuilder::default()
-        .max_request_body_size(10 * 1024 * 1024) // 10 MB
+        .max_request_body_size(MAX_JSONRPC_REQUEST_BODY_SIZE)
         .build(bind_addr)
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
