@@ -117,7 +117,9 @@ CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sen
 -- there is a single row. For chunked payloads, multiple chunk rows plus a
 -- single aggregate row share the same `insertion_id`.
 --
--- `body_hash` is globally unique (when non-NULL) to avoid queuing duplicate blobs.
+-- `body_hash` is globally unique (when non-NULL) to avoid queuing duplicate
+-- logical payloads. For chunked BatchProof requests, the aggregate row stores
+-- the hash of the original full proof and chunk rows leave this NULL.
 CREATE SEQUENCE IF NOT EXISTS tx_sender_citrea_raw_tx_insertion_id_seq;
 CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
     id BIGSERIAL PRIMARY KEY,
@@ -129,7 +131,8 @@ CREATE TABLE IF NOT EXISTS tx_sender_citrea_raw_tx_queue (
     -- Raw body bytes. Non-NULL for all non-aggregate rows; NULL for the
     -- aggregate placeholder row.
     body BYTEA,
-    -- Optional hash of body used for deduplication (e.g. SHA-256).
+    -- Optional hash used for deduplication. Usually hashes `body`; for chunked
+    -- BatchProof aggregate rows it hashes the original full proof body.
     body_hash BYTEA,
     -- Optional commit outpoint once known (format: "txid:vout").
     commit_outpoint TEXT,

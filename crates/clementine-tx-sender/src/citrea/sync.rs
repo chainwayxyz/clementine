@@ -313,7 +313,7 @@ impl TxSender {
 
             if !body_matches {
                 self.db
-                    .update_citrea_body_and_reset(None, aggregate_row.id, &aggregate_body)
+                    .update_citrea_aggregate_body_and_reset(None, aggregate_row.id, &aggregate_body)
                     .await?;
             } else if let Some(existing_try_to_send_id) = try_to_send_id {
                 // if body matches, and the tx we try to send is already finalized, we can mark aggregate as finalized too so we don't check it anymore
