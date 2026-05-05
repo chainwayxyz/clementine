@@ -44,6 +44,13 @@ pub enum RoundEvent {
     SavedToDb,
 }
 
+fn round_event_block_priority(event: &RoundEvent) -> u8 {
+    match event {
+        RoundEvent::KickoffUtxoUsed { .. } => 0,
+        _ => 1,
+    }
+}
+
 /// State machine for the round state.
 /// It has following states:
 ///     - `initial_collateral`: The initial collateral state, when the operator didn't create the first round tx yet.
@@ -83,7 +90,12 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
             .filter_map(|(matcher, round_event)| {
                 matcher.matches(block).map(|ord| (ord, round_event))
             })
-            .min()
+            .min_by(|(ord_a, event_a), (ord_b, event_b)| {
+                round_event_block_priority(event_a)
+                    .cmp(&round_event_block_priority(event_b))
+                    .then_with(|| ord_a.cmp(ord_b))
+                    .then_with(|| event_a.cmp(event_b))
+            })
             .map(|(_, round_event)| round_event)
             .into_iter()
             .cloned()
@@ -101,6 +113,7 @@ impl<T: Owner> RoundStateMachine<T> {
         }
     }
 }
+
 use eyre::Context;
 
 #[state_machine(
@@ -552,5 +565,104 @@ impl<T: Owner> RoundStateMachine<T> {
                 .wrap_err(self.round_meta("on_ready_to_reimburse_entry"))
             })
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::common::MockOwner;
+    use bitcoin::hashes::Hash;
+    use bitcoin::secp256k1::{Keypair, Secp256k1, SecretKey};
+    use bitcoin::{block, Address, Block, BlockHash, CompactTarget, Network, TxMerkleNode, Txid};
+
+    fn txid(byte: u8) -> Txid {
+        Txid::from_byte_array([byte; 32])
+    }
+
+    fn outpoint(byte: u8, vout: u32) -> OutPoint {
+        OutPoint::new(txid(byte), vout)
+    }
+
+    fn empty_block() -> Block {
+        Block {
+            header: block::Header {
+                version: block::Version::TWO,
+                prev_blockhash: BlockHash::from_byte_array([0x11; 32]),
+                merkle_root: TxMerkleNode::from_byte_array([0x22; 32]),
+                time: 1,
+                bits: CompactTarget::from_consensus(0),
+                nonce: 0,
+            },
+            txdata: vec![],
+        }
+    }
+
+    fn test_operator_data() -> OperatorData {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1; 32]).expect("valid secret key");
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let xonly_pk = keypair.x_only_public_key().0;
+
+        OperatorData {
+            xonly_pk,
+            reimburse_addr: Address::p2tr(&secp, xonly_pk, None, Network::Regtest),
+            collateral_funding_outpoint: outpoint(0xaa, 0),
+        }
+    }
+
+    #[test]
+    fn round_match_block_prioritizes_kickoff_spends_before_ready_to_reimburse() {
+        let ready_to_reimburse_txid = txid(0x01);
+        let kickoff_outpoint_0 = outpoint(0x02, 0);
+        let kickoff_outpoint_1 = outpoint(0x03, 0);
+        let block = BlockCache {
+            txids: HashMap::from([(ready_to_reimburse_txid, 0)]),
+            spent_utxos: HashMap::from([(kickoff_outpoint_1, 1), (kickoff_outpoint_0, 2)]),
+            block_height: 42,
+            block: empty_block(),
+        };
+
+        let mut machine = RoundStateMachine::<MockOwner>::new(test_operator_data());
+        machine.matchers.insert(
+            matcher::Matcher::SentTx(ready_to_reimburse_txid),
+            RoundEvent::ReadyToReimburseSent {
+                round_idx: RoundIndex::Round(0),
+            },
+        );
+        machine.matchers.insert(
+            matcher::Matcher::SpentUtxo(kickoff_outpoint_0),
+            RoundEvent::KickoffUtxoUsed {
+                kickoff_idx: 0,
+                kickoff_outpoint: kickoff_outpoint_0,
+            },
+        );
+        machine.matchers.insert(
+            matcher::Matcher::SpentUtxo(kickoff_outpoint_1),
+            RoundEvent::KickoffUtxoUsed {
+                kickoff_idx: 1,
+                kickoff_outpoint: kickoff_outpoint_1,
+            },
+        );
+
+        let first_event = RoundEvent::KickoffUtxoUsed {
+            kickoff_idx: 1,
+            kickoff_outpoint: kickoff_outpoint_1,
+        };
+        let second_event = RoundEvent::KickoffUtxoUsed {
+            kickoff_idx: 0,
+            kickoff_outpoint: kickoff_outpoint_0,
+        };
+        let ready_event = RoundEvent::ReadyToReimburseSent {
+            round_idx: RoundIndex::Round(0),
+        };
+
+        assert_eq!(machine.match_block(&block), vec![first_event.clone()]);
+        machine.matchers.retain(|_, event| event != &first_event);
+
+        assert_eq!(machine.match_block(&block), vec![second_event.clone()]);
+        machine.matchers.retain(|_, event| event != &second_event);
+
+        assert_eq!(machine.match_block(&block), vec![ready_event]);
     }
 }
