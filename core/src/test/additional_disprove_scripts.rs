@@ -230,10 +230,13 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedLatestBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(AdditionalDisproveTest {
+            variant: TestVariant::CorruptedLatestBlockHash,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
@@ -256,10 +259,13 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPayoutTxBlockHash,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(AdditionalDisproveTest {
+            variant: TestVariant::CorruptedPayoutTxBlockHash,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
@@ -282,10 +288,13 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedChallengeSendingWatchtowers,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(AdditionalDisproveTest {
+            variant: TestVariant::CorruptedChallengeSendingWatchtowers,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
@@ -308,10 +317,13 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::OperatorForgotWatchtowerChallenge,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(AdditionalDisproveTest {
+            variant: TestVariant::OperatorForgotWatchtowerChallenge,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the public input is intentionally corrupted.
@@ -334,8 +346,11 @@ async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> 
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = AdditionalDisproveTest {
-        variant: TestVariant::CorruptedPublicInput,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(AdditionalDisproveTest {
+            variant: TestVariant::CorruptedPublicInput,
+        })
+        .run()
+    })
+    .await
 }
