@@ -422,14 +422,14 @@ impl TxSender {
             // Missing/stale commit state is recreated after a body/order reset.
             if commit_outpoint.is_none() {
                 let rows_with_scripts = vec![(aggregate_row.clone(), signing_data.clone())];
-                let commit_txid = self
+                let Some(commit_txid) = self
                     .create_commit_outpoints_for_rows(fee_rate, insertion_id, rows_with_scripts)
-                    .await?;
-                if commit_txid.is_none() {
+                    .await?
+                else {
                     continue;
-                }
+                };
                 commit_outpoint = Some(bitcoin::OutPoint {
-                    txid: commit_txid.expect("checked above"),
+                    txid: commit_txid,
                     vout: 0,
                 });
             }

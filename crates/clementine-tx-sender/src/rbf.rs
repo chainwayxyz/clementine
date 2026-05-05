@@ -954,12 +954,11 @@ impl TxSender {
                 let needed_fee_for_dummy_output = fee_rate.fee_wu(dummy_output_weight).ok_or_eyre(format!("Fee overflow occurred for dummy output: current fee rate: {fee_rate}, dummy_output_weight: {dummy_output_weight}"))?;
                 funded_psbt.unsigned_tx.output.remove(0);
                 funded_psbt.outputs.remove(0);
-                funded_psbt
-                    .unsigned_tx
-                    .output
-                    .last_mut()
-                    .expect("Change output should exist")
-                    .value += needed_fee_for_dummy_output + dummy_output_value;
+                let Some(change_output) = funded_psbt.unsigned_tx.output.last_mut() else {
+                    let err_msg = "Failed to remove dummy output: funded no-output RBF transaction has no change output";
+                    return Err(SendTxError::Other(eyre!(err_msg)));
+                };
+                change_output.value += needed_fee_for_dummy_output + dummy_output_value;
             } else if let Err(err) = self.reorder_psbt_outputs(&mut funded_psbt, &tx) {
                 // fund transaction shouldn't reorder but keep it here in case it does
                 let err_msg = format!("Failed to reorder initial PSBT outputs: {err}");
