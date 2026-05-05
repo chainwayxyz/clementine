@@ -44,10 +44,18 @@ pub enum RoundEvent {
     SavedToDb,
 }
 
-fn round_event_block_priority(event: &RoundEvent) -> u8 {
-    match event {
-        RoundEvent::KickoffUtxoUsed { .. } => 0,
-        _ => 1,
+fn compare_matched_round_events(
+    candidate_1: &(matcher::MatcherOrd, &RoundEvent),
+    candidate_2: &(matcher::MatcherOrd, &RoundEvent),
+) -> std::cmp::Ordering {
+    match (candidate_1.1, candidate_2.1) {
+        (RoundEvent::KickoffUtxoUsed { .. }, RoundEvent::ReadyToReimburseSent { .. }) => {
+            std::cmp::Ordering::Less
+        }
+        (RoundEvent::ReadyToReimburseSent { .. }, RoundEvent::KickoffUtxoUsed { .. }) => {
+            std::cmp::Ordering::Greater
+        }
+        _ => candidate_1.cmp(candidate_2),
     }
 }
 
@@ -90,12 +98,7 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
             .filter_map(|(matcher, round_event)| {
                 matcher.matches(block).map(|ord| (ord, round_event))
             })
-            .min_by(|(ord_a, event_a), (ord_b, event_b)| {
-                round_event_block_priority(event_a)
-                    .cmp(&round_event_block_priority(event_b))
-                    .then_with(|| ord_a.cmp(ord_b))
-                    .then_with(|| event_a.cmp(event_b))
-            })
+            .min_by(compare_matched_round_events)
             .map(|(_, round_event)| round_event)
             .into_iter()
             .cloned()
