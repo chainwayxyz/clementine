@@ -240,7 +240,7 @@ enum BitcoinCommands {
         #[arg(long)]
         fee_payer_address: Option<String>,
         #[arg(long)]
-        fee_rate: Option<f64>,
+        fee_rate: f64,
         #[arg(long)]
         bitcoin_rpc_user: String,
         #[arg(long)]
@@ -1196,7 +1196,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             .expect("Failed to parse fee payer address")
             .assume_checked();
 
-            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+            let fee_rate_sat_vb = fee_rate as u64;
 
             // Calculate package fee requirements
             let parent_weight = tx.weight();
