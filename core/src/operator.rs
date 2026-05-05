@@ -262,7 +262,7 @@ where
             None => {
                 if config.protocol_paramset().network == bitcoin::Network::Bitcoin
                     && (config.operator_reimbursement_address.is_none()
-                        || config.operator_reimbursement_address.is_none())
+                        || config.operator_collateral_funding_outpoint.is_none())
                 {
                     let wallet_address = rpc.get_new_wallet_address().await?;
                     return Err(eyre::eyre!(
