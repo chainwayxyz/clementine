@@ -545,16 +545,14 @@ impl TxSender {
                 None,
                 &reveal_tx,
                 clementine_utils::FeePayingType::RbfWtxidGrind,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    spend_path: clementine_utils::RbfSigningSpendPath::ScriptPath {
+                Some(RbfSigningInfo::new(
+                    0,
+                    clementine_utils::RbfSigningSpendPath::ScriptPath {
                         control_block: signing_data.control_block.serialize(),
                         script: signing_data.reveal_script.into_bytes(),
                     },
-                    tap_sighash_type: TapSighashType::Default,
-                    annex: None,
-                    additional_taproot_output_count: None,
-                }),
+                    TapSighashType::Default,
+                )),
                 &[],
                 &[],
                 &[],

@@ -42,7 +42,7 @@ json-rpc = [
 	"tx-sender-jsonrpc-client/clementine",
 ]
 citrea = ["dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client/citrea", "dep:borsh"]
-testing = []
+testing = ["clementine-utils/test-fields", "tx-sender-types/test-fields"]
 
 [dev-dependencies]
 secrecy = { workspace = true }

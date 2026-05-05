@@ -7,7 +7,7 @@ license.workspace = true
 [features]
 default = []
 # Include test-only fields in structs for use in integration tests
-test-fields = []
+test-fields = ["tx-sender-types/test-fields"]
 
 [dependencies]
 clementine-primitives = { path = "../clementine-primitives" }
