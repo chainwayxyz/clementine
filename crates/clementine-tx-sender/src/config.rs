@@ -97,6 +97,16 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(name, format!("{e:?}")))
 }
 
+fn env_parse_optional_or<T: std::str::FromStr>(
+    name: &'static str,
+    default: T,
+) -> Result<T, BridgeError>
+where
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    Ok(env_parse_optional::<T>(name)?.unwrap_or(default))
+}
+
 impl TxSenderConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
         let network_str = env_required("NETWORK")?;
@@ -135,27 +145,33 @@ impl TxSenderConfig {
         };
 
         // Keep limits in sync with existing `TX_SENDER_*` env vars used by core.
-        // This mirrors the logic currently in `core/src/config/env.rs`.
+        // Missing values use defaults; malformed values fail standalone startup.
         let defaults = TxSenderLimits::default();
         let limits = TxSenderLimits {
-            fee_rate_hard_cap: env_parse_required::<u64>("TX_SENDER_FEE_RATE_HARD_CAP")
-                .unwrap_or(defaults.fee_rate_hard_cap),
-            mempool_fee_rate_multiplier: env_parse_required::<u64>(
+            fee_rate_hard_cap: env_parse_optional_or::<u64>(
+                "TX_SENDER_FEE_RATE_HARD_CAP",
+                defaults.fee_rate_hard_cap,
+            )?,
+            mempool_fee_rate_multiplier: env_parse_optional_or::<u64>(
                 "TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER",
-            )
-            .unwrap_or(defaults.mempool_fee_rate_multiplier),
-            mempool_fee_rate_offset_sat_kvb: env_parse_required::<u64>(
+                defaults.mempool_fee_rate_multiplier,
+            )?,
+            mempool_fee_rate_offset_sat_kvb: env_parse_optional_or::<u64>(
                 "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
-            )
-            .unwrap_or(defaults.mempool_fee_rate_offset_sat_kvb),
-            cpfp_fee_payer_bump_wait_time_seconds: env_parse_required::<u64>(
+                defaults.mempool_fee_rate_offset_sat_kvb,
+            )?,
+            cpfp_fee_payer_bump_wait_time_seconds: env_parse_optional_or::<u64>(
                 "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
-            )
-            .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
-            fee_bump_after_blocks: env_parse_required::<u32>("TX_SENDER_FEE_BUMP_AFTER_BLOCKS")
-                .unwrap_or(defaults.fee_bump_after_blocks),
-            min_bump_kvb: env_parse_required::<u64>("TX_SENDER_MIN_BUMP_KVB")
-                .unwrap_or(defaults.min_bump_kvb),
+                defaults.cpfp_fee_payer_bump_wait_time_seconds,
+            )?,
+            fee_bump_after_blocks: env_parse_optional_or::<u32>(
+                "TX_SENDER_FEE_BUMP_AFTER_BLOCKS",
+                defaults.fee_bump_after_blocks,
+            )?,
+            min_bump_kvb: env_parse_optional_or::<u64>(
+                "TX_SENDER_MIN_BUMP_KVB",
+                defaults.min_bump_kvb,
+            )?,
         };
 
         let finality_depth = env_parse_required::<u32>("TX_SENDER_FINALITY_DEPTH")?;

@@ -255,9 +255,9 @@ impl TxSenderDb {
         Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
-    /// Returns non-aggregate citrea transactions with commit_outpoint where
-    /// try_to_send_id is NULL or the try_to_send tx has not been seen yet.
-    pub async fn get_citrea_txs_with_unseen_try_to_send(
+    /// Returns Citrea transactions with commit_outpoint where try_to_send_id is
+    /// NULL or the try-to-send tx has not been seen yet.
+    pub async fn get_citrea_txs_with_commit_outpoint_unseen_try_to_send(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
@@ -277,42 +277,25 @@ impl TxSenderDb {
         Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
-    /// Clears commit_outpoint and try_to_send_id for all citrea rows in an insertion group.
-    pub async fn clear_citrea_commit_and_try_to_send_by_insertion_id(
+    /// Clears commit_outpoint and try_to_send_id for specific Citrea rows.
+    pub async fn clear_citrea_commit_and_try_to_send_by_ids(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        insertion_id: i64,
+        ids: &[i64],
     ) -> Result<(), BridgeError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+
         let query = sqlx::query(
             "UPDATE tx_sender_citrea_raw_tx_queue
              SET commit_outpoint = NULL, try_to_send_id = NULL
-             WHERE insertion_id = $1",
+             WHERE id = ANY($1)",
         )
-        .bind(insertion_id);
+        .bind(ids);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
-    }
-
-    /// Lists distinct try_to_send_ids for an insertion group.
-    pub async fn list_citrea_try_to_send_ids_by_insertion_id(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        insertion_id: i64,
-    ) -> Result<Vec<u32>, BridgeError> {
-        let query = sqlx::query_scalar::<_, i32>(
-            "SELECT DISTINCT try_to_send_id
-             FROM tx_sender_citrea_raw_tx_queue
-             WHERE insertion_id = $1
-               AND try_to_send_id IS NOT NULL",
-        )
-        .bind(insertion_id);
-
-        let results: Vec<i32> = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
-        results
-            .into_iter()
-            .map(|id| u32::try_from(id).map_err(|_| BridgeError::IntConversionError))
-            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     /// Sets the try_to_send_id for a specific Citrea raw tx row.

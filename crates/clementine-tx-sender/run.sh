@@ -210,14 +210,14 @@ ensure_wallet_funded() {
   bal="$(bitcoin_cli getbalance \
     | python3 -c 'import sys; print(float(sys.stdin.read().strip() or "0"))')"
 
-  python3 - <<PY
+  if python3 - <<PY
 import sys
 bal = float("${bal}")
 need = float("${min_required_btc}")
 if bal + 1e-12 < need:
   sys.exit(1)
 PY
-  if [[ $? -eq 0 ]]; then
+  then
     echo "Wallet already funded (balance=${bal} BTC). Skipping mining."
     return 0
   fi

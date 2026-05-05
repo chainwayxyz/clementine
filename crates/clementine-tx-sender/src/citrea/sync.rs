@@ -11,7 +11,7 @@ use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 type BlockTxPositionCache = HashMap<bitcoin::BlockHash, (u32, Vec<bitcoin::Txid>)>;
 
@@ -151,26 +151,32 @@ impl TxSender {
     /// These check is only required because commit_tx creation uses include_unsafe = true, if some unsafe input is
     /// spent in another way, commit tx will become invalid.
     async fn check_evicted_commit_txs(&self) -> Result<(), eyre::Report> {
-        let committed_rows = self.db.get_citrea_txs_with_unseen_try_to_send(None).await?;
+        let committed_rows = self
+            .db
+            .get_citrea_txs_with_commit_outpoint_unseen_try_to_send(None)
+            .await?;
 
-        let mut committed_by_insertion_id: BTreeMap<i64, Vec<CitreaRawTxRow>> = BTreeMap::new();
+        let mut committed_by_commit_txid: BTreeMap<bitcoin::Txid, Vec<CitreaRawTxRow>> =
+            BTreeMap::new();
         for row in committed_rows {
-            committed_by_insertion_id
-                .entry(row.insertion_id)
+            let commit_txid = row
+                .commit_outpoint
+                .ok_or_eyre("Expected commit_outpoint to be present")?
+                .txid;
+            committed_by_commit_txid
+                .entry(commit_txid)
                 .or_default()
                 .push(row);
         }
 
-        for (insertion_id, rows) in committed_by_insertion_id {
-            let commit_outpoint = rows
-                .first()
-                .and_then(|row| row.commit_outpoint)
-                .ok_or_eyre("Expected commit_outpoint to be present")?;
+        for (commit_txid, rows) in committed_by_commit_txid {
+            let insertion_ids = rows
+                .iter()
+                .map(|row| row.insertion_id)
+                .collect::<BTreeSet<_>>();
 
-            let Some((in_mempool, seen_at_height)) = self
-                .db
-                .get_activate_txid_status(None, commit_outpoint.txid)
-                .await?
+            let Some((in_mempool, seen_at_height)) =
+                self.db.get_activate_txid_status(None, commit_txid).await?
             else {
                 continue;
             };
@@ -181,22 +187,18 @@ impl TxSender {
             // We don't want to mark commit tx as evicted if it is present in rpc (mempool or confirmed).
             // To be sure if it shows as evicted in db check rpc for it too.
 
-            let rpc_present = match self
-                .rpc
-                .get_raw_transaction_info(&commit_outpoint.txid, None)
-                .await
-            {
+            let rpc_present = match self.rpc.get_raw_transaction_info(&commit_txid, None).await {
                 Ok(info) => {
                     if info.confirmations.unwrap_or(0) > 0 {
                         true
                     } else {
-                        match self.rpc.get_mempool_entry(&commit_outpoint.txid).await {
+                        match self.rpc.get_mempool_entry(&commit_txid).await {
                             Ok(_) => true,
                             Err(e) if is_mempool_not_found_error(&e) => false,
                             Err(e) => {
                                 tracing::warn!(
-                                    insertion_id,
-                                    commit_txid = %commit_outpoint.txid,
+                                    ?insertion_ids,
+                                    %commit_txid,
                                     error = %e,
                                     "RPC mempool check failed; skipping eviction"
                                 );
@@ -208,8 +210,8 @@ impl TxSender {
                 Err(e) if is_not_found_error(&e) => false,
                 Err(e) => {
                     tracing::warn!(
-                        insertion_id,
-                        commit_txid = %commit_outpoint.txid,
+                        ?insertion_ids,
+                        %commit_txid,
                         error = %e,
                         "RPC tx lookup failed; skipping eviction"
                     );
@@ -219,27 +221,30 @@ impl TxSender {
 
             if rpc_present {
                 tracing::debug!(
-                    insertion_id,
-                    commit_txid = %commit_outpoint.txid,
+                    ?insertion_ids,
+                    %commit_txid,
                     "Commit tx present according to RPC; skipping eviction"
                 );
                 continue;
             }
             tracing::warn!(
-                insertion_id,
-                commit_txid = %commit_outpoint.txid,
+                ?insertion_ids,
+                %commit_txid,
                 "Commit tx evicted; clearing commit_outpoint and deleting reveal RBF entries"
             );
 
             let mut dbtx = self.db.begin_transaction().await?;
 
-            let try_to_send_ids = self
-                .db
-                .list_citrea_try_to_send_ids_by_insertion_id(Some(&mut dbtx), insertion_id)
-                .await?;
+            let row_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+            let try_to_send_ids = rows
+                .iter()
+                .filter_map(|row| row.try_to_send_id)
+                .map(u32::try_from)
+                .collect::<Result<BTreeSet<_>, _>>()
+                .wrap_err("Failed to convert citrea try_to_send_id to u32")?;
 
             self.db
-                .clear_citrea_commit_and_try_to_send_by_insertion_id(Some(&mut dbtx), insertion_id)
+                .clear_citrea_commit_and_try_to_send_by_ids(Some(&mut dbtx), &row_ids)
                 .await?;
 
             for try_to_send_id in try_to_send_ids {
