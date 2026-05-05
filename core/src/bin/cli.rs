@@ -163,13 +163,13 @@ enum AggregatorCommands {
     /// Get deposit address
     GetDepositAddress {
         #[arg(long)]
-        evm_address: Option<String>,
+        evm_address: String,
         #[arg(long)]
-        recovery_taproot_address: Option<String>,
-        #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        user_takes_after: Option<u64>,
+        recovery_taproot_address: String,
+        #[arg(long, default_value = "bitcoin")]
+        network: Network,
+        #[arg(long, default_value_t = 200)]
+        user_takes_after: u16,
     },
     GetReplacementDepositAddress {
         #[arg(long)]
@@ -761,36 +761,18 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .expect("Failed to parse xonly_pk");
 
-            let recovery_taproot_address = match recovery_taproot_address {
-                Some(address) => bitcoin::Address::from_str(&address)
-                    .expect("Failed to parse recovery taproot address"),
-                None => bitcoin::Address::from_str(
-                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
-                )
-                .expect("Failed to parse recovery taproot address"),
-            };
+            let recovery_taproot_address = bitcoin::Address::from_str(&recovery_taproot_address)
+                .unwrap_or_else(|error| {
+                    eprintln!("Failed to parse --recovery-taproot-address: {error}");
+                    std::process::exit(1);
+                });
 
-            let evm_address = match evm_address {
-                Some(address) => EVMAddress(
-                    hex::decode(address)
-                        .expect("Failed to decode evm address")
-                        .try_into()
-                        .expect("Failed to convert evm address to array"),
-                ),
-                None => EVMAddress([1; 20]),
-            };
-
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
-
-            let user_takes_after = match user_takes_after {
-                Some(amount) => amount as u16,
-                None => 200,
-            };
+            let evm_address = alloy::primitives::Address::from_str(&evm_address)
+                .map(|address| EVMAddress(address.into_array()))
+                .unwrap_or_else(|error| {
+                    eprintln!("Failed to parse --evm-address: {error}");
+                    std::process::exit(1);
+                });
 
             let deposit_address = clementine_core::builder::address::generate_deposit_address(
                 xonly_pk,
