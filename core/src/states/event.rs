@@ -390,8 +390,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
             }
-            _ => {
-                unreachable!("Expected CheckIfKickoffMalicious result");
+            other => {
+                return Err(eyre::eyre!(
+                    "Expected CheckIfKickoffMalicious duty result, got {other:?}"
+                )
+                .into());
             }
         }
 

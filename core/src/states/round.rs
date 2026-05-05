@@ -282,7 +282,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         {
                             // acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize
                             let _guard = CHECK_KICKOFF_LOCK.write().await;
-                            let duty_result = context
+                            context
                                 .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
                                     block_height: context.cache.block_height,
