@@ -766,6 +766,13 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     eprintln!("Failed to parse --recovery-taproot-address: {error}");
                     std::process::exit(1);
                 });
+            recovery_taproot_address
+                .clone()
+                .require_network(network)
+                .unwrap_or_else(|error| {
+                    eprintln!("--recovery-taproot-address does not match --network: {error}");
+                    std::process::exit(1);
+                });
 
             let evm_address = alloy::primitives::Address::from_str(&evm_address)
                 .map(|address| EVMAddress(address.into_array()))
