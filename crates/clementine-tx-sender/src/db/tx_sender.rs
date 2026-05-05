@@ -79,7 +79,8 @@ impl TxSenderDb {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE COALESCE(x.replacement_of_id, x.id)
+                        = COALESCE(fpu.replacement_of_id, fpu.id)
                     AND x.seen_at_height IS NOT NULL
               )
             ",
@@ -140,7 +141,8 @@ impl TxSenderDb {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE COALESCE(x.replacement_of_id, x.id)
+                        = COALESCE(fpu.replacement_of_id, fpu.id)
                     AND x.seen_at_height IS NOT NULL
               )
             ",
@@ -1562,5 +1564,124 @@ impl TxSenderDb {
         Ok(result
             .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
             .transpose()?)
+    }
+}
+
+#[cfg(all(test, feature = "testing", feature = "standalone"))]
+mod tests {
+    use super::*;
+    use crate::test_utils::create_test_environment;
+    use bitcoin::hashes::Hash as _;
+    use bitcoin::transaction::Version;
+    use bitcoin::{absolute, Transaction, Txid};
+
+    fn txid(byte: u8) -> Txid {
+        Txid::from_byte_array([byte; 32])
+    }
+
+    fn empty_tx() -> Transaction {
+        Transaction {
+            version: Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        }
+    }
+
+    async fn save_fee_payer_chain(db: &TxSenderDb, txid_prefix: u8) -> (u32, u32, u32) {
+        let mut dbtx = db.begin_transaction().await.unwrap();
+        let bumped_id = db
+            .save_tx(
+                &mut dbtx,
+                None,
+                &empty_tx(),
+                FeePayingType::CPFP,
+                txid(txid_prefix),
+                None,
+            )
+            .await
+            .unwrap();
+        db.commit_transaction(dbtx).await.unwrap();
+
+        let root_txid = txid(txid_prefix + 1);
+        db.save_fee_payer_tx(
+            None,
+            bumped_id,
+            root_txid,
+            0,
+            Amount::from_sat(10_000),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let initial: Vec<(u32, u32, Txid, u32, Amount, Option<u32>)> =
+            db.get_all_unconfirmed_fee_payer_txs(None).await.unwrap();
+        let root_id = initial
+            .iter()
+            .find_map(|(id, chain_bumped_id, txid, _, _, _)| {
+                (*chain_bumped_id == bumped_id && *txid == root_txid).then_some(*id)
+            })
+            .unwrap();
+
+        let replacement_txid = txid(txid_prefix + 2);
+        db.save_fee_payer_tx(
+            None,
+            bumped_id,
+            replacement_txid,
+            0,
+            Amount::from_sat(10_000),
+            Some(root_id),
+        )
+        .await
+        .unwrap();
+
+        let replacement_id: i32 = sqlx::query_scalar(
+            "SELECT id FROM tx_sender_fee_payer_utxos WHERE fee_payer_txid = $1",
+        )
+        .bind(TxidDB(replacement_txid))
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        let unconfirmed = db
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
+            .await
+            .unwrap();
+        assert_eq!(unconfirmed.len(), 2);
+
+        (bumped_id, root_id, replacement_id as u32)
+    }
+
+    async fn assert_no_unconfirmed_fee_payers(db: &TxSenderDb, bumped_id: u32) {
+        assert!(db
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn confirmed_fee_payer_chain_has_no_unconfirmed_txs() {
+        let db = create_test_environment(true, false).await.1.unwrap();
+
+        let (root_confirmed_bumped_id, root_id, _) = save_fee_payer_chain(&db, 10).await;
+        db.set_fee_payer_seen_at_height(None, root_id, Some(100))
+            .await
+            .unwrap();
+        assert_no_unconfirmed_fee_payers(&db, root_confirmed_bumped_id).await;
+
+        let (replacement_confirmed_bumped_id, _, replacement_id) =
+            save_fee_payer_chain(&db, 20).await;
+        db.set_fee_payer_seen_at_height(None, replacement_id, Some(101))
+            .await
+            .unwrap();
+        assert_no_unconfirmed_fee_payers(&db, replacement_confirmed_bumped_id).await;
+
+        assert!(db
+            .get_all_unconfirmed_fee_payer_txs(None)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }
