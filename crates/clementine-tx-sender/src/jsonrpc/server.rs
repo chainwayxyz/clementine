@@ -133,7 +133,7 @@ mod tests {
         let db = db.unwrap();
         rpc.rpc().mine_blocks(1).await.unwrap();
 
-        // Start standalone txsender with JSON-RPC enabled on a free port.
+        // Start txsender with JSON-RPC enabled on a free port.
         let tx_sender_cfg = config.clone();
         let (addr, handle) = spawn_txsender_loop_with_free_localhost_jsonrpc_port(tx_sender_cfg);
         let url = format!("http://{addr}");

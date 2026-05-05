@@ -31,7 +31,7 @@ export BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://127.0.0.1:18443}"
 export BITCOIN_RPC_USER="${BITCOIN_RPC_USER:-admin}"
 export BITCOIN_RPC_PASSWORD="${BITCOIN_RPC_PASSWORD:-admin}"
 
-# Enable JSON-RPC server (required by standalone main).
+# Enable JSON-RPC server.
 export TX_SENDER_JSONRPC_BIND="${TX_SENDER_JSONRPC_BIND:-127.0.0.1}"
 export TX_SENDER_JSONRPC_PORT="${TX_SENDER_JSONRPC_PORT:-3030}"
 export TX_SENDER_POLL_DELAY_MS="${TX_SENDER_POLL_DELAY_MS:-500}"
@@ -263,7 +263,7 @@ echo "Checking tx is mempool-acceptable (sufficient fees)..."
 ensure_mempool_accepts "${RAW_TX_HEX}"
 
 echo "Starting standalone txsender (JSON-RPC on ${TX_SENDER_JSONRPC_BIND}:${TX_SENDER_JSONRPC_PORT})..."
-cargo run -p clementine-tx-sender --features standalone &
+cargo run -p clementine-tx-sender --features json-rpc &
 TXSENDER_PID="$!"
 trap 'echo "Stopping txsender (pid=${TXSENDER_PID})"; kill "${TXSENDER_PID}" >/dev/null 2>&1 || true' EXIT
 

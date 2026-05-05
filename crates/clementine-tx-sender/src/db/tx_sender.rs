@@ -1567,7 +1567,7 @@ impl TxSenderDb {
     }
 }
 
-#[cfg(all(test, feature = "testing", feature = "standalone"))]
+#[cfg(all(test, feature = "testing"))]
 mod tests {
     use super::*;
     use crate::test_utils::create_test_environment;
