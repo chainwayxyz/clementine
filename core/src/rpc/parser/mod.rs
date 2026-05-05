@@ -139,25 +139,24 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
                 }
             };
 
-        Ok(RbfSigningInfo {
-            vout: value.vout,
-            spend_path,
-            tap_sighash_type: TapSighashType::from_consensus_u8(
-                u8::try_from(value.tap_sighash_type).map_err(|e| {
-                    BridgeError::Parser(ParserError::RPCParamMalformed(format!(
-                        "invalid tap_sighash_type: {e}"
-                    )))
-                })?,
-            )
-            .map_err(|e| {
+        let tap_sighash_type = TapSighashType::from_consensus_u8(
+            u8::try_from(value.tap_sighash_type).map_err(|e| {
                 BridgeError::Parser(ParserError::RPCParamMalformed(format!(
                     "invalid tap_sighash_type: {e}"
                 )))
             })?,
-            // Always None when deserializing from RPC - these fields are only used in tests
-            annex: None,
-            additional_taproot_output_count: None,
-        })
+        )
+        .map_err(|e| {
+            BridgeError::Parser(ParserError::RPCParamMalformed(format!(
+                "invalid tap_sighash_type: {e}"
+            )))
+        })?;
+
+        Ok(RbfSigningInfo::new(
+            value.vout,
+            spend_path,
+            tap_sighash_type,
+        ))
     }
 }
 

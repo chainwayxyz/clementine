@@ -327,16 +327,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    async fn get_round_machine(
+    fn get_round_machine(
         &mut self,
         operator_xonly_pk: &bitcoin::XOnlyPublicKey,
     ) -> Option<&mut InitializedStateMachine<RoundStateMachine<T>>> {
-        for machine in self.round_machines.iter_mut() {
-            if &machine.operator_data.xonly_pk == operator_xonly_pk {
-                return Some(machine);
-            }
-        }
-        None
+        self.round_machines
+            .iter_mut()
+            .find(|machine| &machine.operator_data.xonly_pk == operator_xonly_pk)
     }
 
     async fn check_if_kickoff_malicious(
@@ -351,10 +348,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let was_challenged_before = {
             let round_machine = self
                 .get_round_machine(&kickoff_data.operator_xonly_pk)
-                .await
-                .ok_or_eyre(
-                    format!("Round machine not found for operator {} while checking if kickoff is malicious", kickoff_data.operator_xonly_pk),
-                )?;
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Round machine not found for operator {} while checking if kickoff is malicious",
+                        kickoff_data.operator_xonly_pk
+                    )
+                })?;
 
             round_machine
                 .challenged_rounds
@@ -377,9 +376,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             DutyResult::CheckIfKickoffMalicious { challenged } => {
                 if challenged && !was_challenged_before {
                     // Reacquire the round machine mutably to update the challenged flag
-                    if let Some(round_machine) = self
-                        .get_round_machine(&kickoff_data.operator_xonly_pk)
-                        .await
+                    if let Some(round_machine) =
+                        self.get_round_machine(&kickoff_data.operator_xonly_pk)
                     {
                         round_machine
                             .handle_with_context(
@@ -392,8 +390,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
             }
-            _ => {
-                unreachable!("Expected CheckIfKickoffMalicious result");
+            other => {
+                return Err(eyre::eyre!(
+                    "Expected CheckIfKickoffMalicious duty result, got {other:?}"
+                )
+                .into());
             }
         }
 

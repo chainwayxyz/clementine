@@ -271,10 +271,13 @@ async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = DisproveTest {
-        variant: DisproveTestVariant::HealthyState,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(DisproveTest {
+            variant: DisproveTestVariant::HealthyState,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism in the presence of a corrupted assert commitment.
@@ -297,8 +300,11 @@ async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = DisproveTest {
-        variant: DisproveTestVariant::CorruptedAssert,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(DisproveTest {
+            variant: DisproveTestVariant::CorruptedAssert,
+        })
+        .run()
+    })
+    .await
 }

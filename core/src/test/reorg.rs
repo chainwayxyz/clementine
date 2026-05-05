@@ -268,7 +268,10 @@ impl TestCase for TxSenderReorgBehavior {
 
 #[tokio::test]
 async fn reorg_on_cpfp_tx() -> Result<()> {
-    TestCaseRunner::new(TxSenderReorgBehavior).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(TxSenderReorgBehavior).run()
+    })
+    .await
 }
 
 struct ReorgOnDeposit;
@@ -469,5 +472,8 @@ impl TestCase for ReorgOnDeposit {
 
 #[tokio::test]
 async fn reorg_on_deposit() -> Result<()> {
-    TestCaseRunner::new(ReorgOnDeposit).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(ReorgOnDeposit).run()
+    })
+    .await
 }

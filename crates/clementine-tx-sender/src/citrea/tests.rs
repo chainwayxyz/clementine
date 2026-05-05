@@ -125,6 +125,7 @@ struct CitreaAggregateRow {
     body: Vec<u8>,
     commit_outpoint: Option<bitcoin::OutPoint>,
     try_to_send_id: Option<u32>,
+    aggregate_finalized: bool,
 }
 
 async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> CitreaAggregateRow {
@@ -132,7 +133,7 @@ async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> Ci
     use sqlx::Row;
 
     let row = sqlx::query(
-        "SELECT body, commit_outpoint, try_to_send_id \
+        "SELECT body, commit_outpoint, try_to_send_id, aggregate_finalized \
          FROM tx_sender_citrea_raw_tx_queue \
          WHERE insertion_id = $1 AND transaction_kind = 1 \
          LIMIT 1",
@@ -145,12 +146,24 @@ async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> Ci
     let body: Option<Vec<u8>> = row.get("body");
     let commit_outpoint: Option<OutPointDB> = row.get("commit_outpoint");
     let try_to_send_id: Option<i32> = row.get("try_to_send_id");
+    let aggregate_finalized: bool = row.get("aggregate_finalized");
 
     CitreaAggregateRow {
         body: body.unwrap_or_default(),
         commit_outpoint: commit_outpoint.map(|op| op.0),
         try_to_send_id: try_to_send_id.map(|id| id as u32),
+        aggregate_finalized,
     }
+}
+
+async fn try_to_send_exists(tx_sender: &TxSender, try_to_send_id: u32) -> bool {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tx_sender_try_to_send_txs WHERE id = $1")
+            .bind(i32::try_from(try_to_send_id).unwrap())
+            .fetch_one(tx_sender.db.pool())
+            .await
+            .unwrap();
+    count > 0
 }
 
 /// Calculates the fee rate of a transaction in sat/kvB (satoshis per kilovbyte).
@@ -502,6 +515,115 @@ async fn citrea_batch_proof_method_id_tx_flow_commits_and_mines_with_min_feerate
     assert!(
         reveal_confirmations >= 1,
         "expected reveal tx to be confirmed, got {reveal_confirmations} confirmations"
+    );
+}
+
+#[tokio::test]
+async fn citrea_aggregate_body_mismatch_deletes_old_try_to_send() {
+    let (config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+
+    let tx_sender = TxSender::new(config).await.unwrap();
+    let insertion_id = insert_chunked_citrea_rows(&tx_sender).await;
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+
+    task.run_once().await.unwrap();
+    rpc_env.rpc().mine_blocks(1).await.unwrap();
+    task.run_once().await.unwrap();
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    let old_try_to_send_id = aggregate_row
+        .try_to_send_id
+        .expect("aggregate try_to_send_id must be set before mismatch");
+    assert!(try_to_send_exists(&tx_sender, old_try_to_send_id).await);
+
+    sqlx::query(
+        "UPDATE tx_sender_citrea_raw_tx_queue
+         SET body = $2
+         WHERE insertion_id = $1 AND transaction_kind = 1",
+    )
+    .bind(insertion_id)
+    .bind(vec![1u8, 2, 3])
+    .execute(tx_sender.db.pool())
+    .await
+    .unwrap();
+
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    let new_try_to_send_id = aggregate_row
+        .try_to_send_id
+        .expect("aggregate try_to_send_id must be recreated after mismatch");
+    assert_ne!(
+        old_try_to_send_id, new_try_to_send_id,
+        "body mismatch should create a fresh aggregate reveal try_to_send row"
+    );
+    assert!(
+        !try_to_send_exists(&tx_sender, old_try_to_send_id).await,
+        "body mismatch should delete the stale aggregate reveal try_to_send row"
+    );
+}
+
+#[tokio::test]
+async fn citrea_aggregate_not_finalized_before_chunks_are_finalized() {
+    let (mut config, _db, rpc_env) = create_test_environment(true, true).await;
+    let rpc_env = rpc_env.expect("RPC environment must be created");
+    config.finality_depth = 2;
+
+    let tx_sender = TxSender::new(config).await.unwrap();
+    let insertion_id = insert_chunked_citrea_rows(&tx_sender).await;
+    let mut task = TxSenderTaskInternal::new(tx_sender.clone());
+
+    task.run_once().await.unwrap();
+    rpc_env.rpc().mine_blocks(1).await.unwrap();
+    task.run_once().await.unwrap();
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    let aggregate_try_to_send_id = aggregate_row
+        .try_to_send_id
+        .expect("aggregate try_to_send_id must be set");
+    let aggregate_reveal_txid = tx_sender
+        .db
+        .get_last_rbf_txid(None, aggregate_try_to_send_id)
+        .await
+        .unwrap()
+        .expect("aggregate reveal RBF txid must exist");
+
+    rpc_env.rpc().mine_blocks(1).await.unwrap();
+    let aggregate_tx_info = tx_sender
+        .rpc
+        .get_raw_transaction_info(&aggregate_reveal_txid, None)
+        .await
+        .unwrap();
+    let aggregate_blockhash = aggregate_tx_info
+        .blockhash
+        .expect("aggregate reveal must be confirmed");
+    let aggregate_height = tx_sender
+        .rpc
+        .get_block_info(&aggregate_blockhash)
+        .await
+        .unwrap()
+        .height;
+
+    sqlx::query(
+        "UPDATE tx_sender_try_to_send_txs
+         SET seen_at_height = $2, is_finalized = TRUE
+         WHERE id = $1",
+    )
+    .bind(i32::try_from(aggregate_try_to_send_id).unwrap())
+    .bind(i32::try_from(aggregate_height).unwrap())
+    .execute(tx_sender.db.pool())
+    .await
+    .unwrap();
+
+    task.run_once().await.unwrap();
+
+    let aggregate_row = get_citrea_aggregate_row(&tx_sender, insertion_id).await;
+    assert!(
+        !aggregate_row.aggregate_finalized,
+        "aggregate row must not finalize while chunk rows are not finalized in txsender state"
     );
 }
 

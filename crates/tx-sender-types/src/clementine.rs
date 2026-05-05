@@ -74,9 +74,6 @@ pub enum RbfSigningSpendPath {
 /// - Not needed for SinglePlusAnyoneCanPay RBF txs.
 /// - Not needed for CPFP.
 ///
-/// Consider adding `#[cfg(any(test, feature = "test-fields"))]` back to
-/// `annex` and `additional_taproot_output_count` fields to reduce struct size in production.
-/// These fields are only used for testing large transaction scenarios.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RbfSigningInfo {
     /// The output index of the UTXO to be re-signed.
@@ -86,9 +83,41 @@ pub struct RbfSigningInfo {
     /// Taproot sighash type to use when signing.
     pub tap_sighash_type: TapSighashType,
     /// Annex data (used for testing large transaction scenarios).
+    #[cfg(feature = "test-fields")]
     pub annex: Option<Vec<u8>>,
     /// Additional taproot output count (used for testing large transaction scenarios).
+    #[cfg(feature = "test-fields")]
     pub additional_taproot_output_count: Option<u32>,
+}
+
+impl RbfSigningInfo {
+    pub fn new(
+        vout: u32,
+        spend_path: RbfSigningSpendPath,
+        tap_sighash_type: TapSighashType,
+    ) -> Self {
+        Self {
+            vout,
+            spend_path,
+            tap_sighash_type,
+            #[cfg(feature = "test-fields")]
+            annex: None,
+            #[cfg(feature = "test-fields")]
+            additional_taproot_output_count: None,
+        }
+    }
+
+    #[cfg(feature = "test-fields")]
+    pub fn with_annex(mut self, annex: Option<Vec<u8>>) -> Self {
+        self.annex = annex;
+        self
+    }
+
+    #[cfg(feature = "test-fields")]
+    pub fn with_additional_taproot_output_count(mut self, count: Option<u32>) -> Self {
+        self.additional_taproot_output_count = count;
+        self
+    }
 }
 
 /// Metadata about a transaction.

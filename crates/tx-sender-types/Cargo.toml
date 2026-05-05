@@ -14,6 +14,8 @@ citrea = []
 clementine = ["dep:bitcoin", "dep:clementine-primitives", "dep:sqlx", "sqlx"]
 # Enable sqlx derive support for DB-mapped types.
 sqlx = ["dep:sqlx"]
+# Include test-only fields in Clementine RBF signing types.
+test-fields = []
 
 [dependencies]
 serde = { workspace = true }

@@ -7,7 +7,7 @@ license.workspace = true
 [features]
 default = []
 # Include test-only fields in structs for use in integration tests
-test-fields = []
+test-fields = ["tx-sender-types/test-fields"]
 
 [dependencies]
 clementine-primitives = { path = "../clementine-primitives" }
@@ -19,5 +19,5 @@ sqlx = { workspace = true }
 eyre = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 color-eyre = { workspace = true }
