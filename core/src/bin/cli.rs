@@ -174,10 +174,10 @@ enum AggregatorCommands {
     GetReplacementDepositAddress {
         #[arg(long)]
         move_txid: String,
+        #[arg(long, default_value = "bitcoin")]
+        network: Network,
         #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        security_council: Option<SecurityCouncil>,
+        security_council: SecurityCouncil,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -841,19 +841,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                     .expect("Failed to parse xonly_pk");
 
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
-
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    security_council.expect("Security council is required"),
+                    security_council,
                 )
                 .expect("Failed to generate replacement deposit address");
 
