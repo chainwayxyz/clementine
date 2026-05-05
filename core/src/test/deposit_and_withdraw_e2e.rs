@@ -541,10 +541,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(CitreaDepositAndWithdrawE2E {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -552,10 +555,13 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(CitreaDepositAndWithdrawE2E {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.

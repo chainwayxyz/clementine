@@ -984,15 +984,13 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1010,15 +1008,13 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             current_tip_height,
             false,
         )
@@ -1117,15 +1113,13 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1178,15 +1172,13 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1204,15 +1196,13 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             current_tip_height,
             false,
         )
@@ -1344,15 +1334,13 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             current_tip_height,
             false,
         )
@@ -1386,15 +1374,13 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             higher_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                spend_path: RbfSigningSpendPath::KeyPath {
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
                     tweak_merkle_root: None,
                 },
-                tap_sighash_type: TapSighashType::Default,
-                annex: None,
-                additional_taproot_output_count: None,
-            }),
+                TapSighashType::Default,
+            )),
             current_tip_height,
             false,
         )

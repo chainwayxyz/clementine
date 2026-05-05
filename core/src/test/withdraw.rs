@@ -170,5 +170,8 @@ async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run()
+    })
+    .await
 }

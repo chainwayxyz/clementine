@@ -34,6 +34,7 @@ use clementine_errors::BridgeError;
 use clementine_primitives::EVMAddress;
 use eyre::Context;
 pub use setup_utils::*;
+use std::future::Future;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
@@ -53,6 +54,44 @@ pub mod tx_utils;
 use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
+
+const CITREA_E2E_DOCKER_PORT_BIND_RETRIES: usize = 5;
+
+/// Retries citrea-e2e startup when Docker fails to start due to conflicting port bindings.
+pub async fn run_citrea_e2e_with_docker_port_retry<F, Fut>(mut run: F) -> citrea_e2e::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = citrea_e2e::Result<()>>,
+{
+    for attempt in 1..=CITREA_E2E_DOCKER_PORT_BIND_RETRIES {
+        let result = run().await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err)
+                if attempt < CITREA_E2E_DOCKER_PORT_BIND_RETRIES
+                    && is_docker_host_port_bind_error(&err) =>
+            {
+                tracing::warn!(
+                    attempt,
+                    max_attempts = CITREA_E2E_DOCKER_PORT_BIND_RETRIES,
+                    error = %err,
+                    "Retrying citrea-e2e test after Docker host port bind failure"
+                );
+                tokio::time::sleep(Duration::from_millis(250 * attempt as u64)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(())
+}
+
+fn is_docker_host_port_bind_error(err: &impl std::fmt::Display) -> bool {
+    let error_chain = format!("{err:#}");
+    error_chain.contains("Failed to start Docker container")
+        && error_chain.contains("failed to bind host port")
+        && error_chain.contains("address already in use")
+}
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {

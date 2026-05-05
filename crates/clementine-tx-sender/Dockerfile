@@ -1,7 +1,7 @@
 FROM rust:1.88.0 as builder
 WORKDIR /clementine
 COPY . .
-RUN cargo build --release --package clementine-tx-sender --bin clementine-tx-sender --features "citrea standalone json-rpc"
+RUN cargo build --release --package clementine-tx-sender --bin clementine-tx-sender --features "citrea json-rpc"
 
 FROM debian:trixie-slim
 
