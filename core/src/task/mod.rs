@@ -23,10 +23,8 @@ pub mod tx_sender;
 pub enum TaskVariant {
     PayoutChecker,
     StateManager,
-    FinalizedBlockFetcher,
     LcpSyncer,
     TxSender,
-    BitcoinSyncer,
     TaskStatusMonitor,
     #[cfg(test)]
     Counter,

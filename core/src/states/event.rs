@@ -24,9 +24,8 @@ use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, State
 #[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum SystemEvent {
-    /// An event for a new finalized block
-    /// So that state manager can update the states of all current state machines
-    NewFinalizedBlock { block: bitcoin::Block, height: u32 },
+    #[serde(rename = "NewFinalizedBlock")]
+    DeprecatedNewFinalizedBlock {},
     /// An event for when a new operator is set in clementine
     /// So that the state machine can create a new round state machine to track the operator
     NewOperator { operator_data: OperatorData },
@@ -109,23 +108,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), BridgeError> {
         let event_start = std::time::Instant::now();
         match event {
-            // Received when a block is finalized in Bitcoin
-            SystemEvent::NewFinalizedBlock { block, height } => {
-                tracing::trace!(height, "handle_event: NewFinalizedBlock starting");
-                if self.next_height_to_process != height {
-                    return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
-                }
-
-                let mut context = self.new_context(dbtx.clone(), &block, height)?;
-
-                self.process_block_parallel(&mut context).await?;
-
-                self.last_finalized_block = Some(context.cache.clone());
-                tracing::trace!(
-                    height,
-                    elapsed_ms = event_start.elapsed().as_millis() as u64,
-                    "handle_event: NewFinalizedBlock completed process_block_parallel"
-                );
+            SystemEvent::DeprecatedNewFinalizedBlock {} => {
+                tracing::warn!("Ignoring deprecated NewFinalizedBlock event from state queue");
+                return Ok(());
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -141,10 +126,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 // Initialize context using the block just before the start height
                 // so subsequent processing can begin from start_height
                 let prev_height = self.config.protocol_paramset.start_height.saturating_sub(1);
-                let init_block = {
-                    let mut guard = dbtx.lock().await;
-                    self.get_block(Some(&mut *guard), prev_height).await?
-                };
+                let init_block = self.get_block(prev_height).await?;
 
                 let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
 
@@ -195,8 +177,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     ];
                     let match_count = matches.iter().filter(|&&b| b).count();
 
-                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
-                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
+                    // sanity check, should never be a partial match. This makes sure we only add finalized kickoffs to the state manager.
+                    // If RPC-backed finality is inconsistent or a finalized block is reorged, there can be a mismatch here.
                     match match_count {
                         3 => return Ok(()), // exact duplicate, skip
                         n => {
@@ -233,10 +215,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 // Initialize context using the block just before the kickoff height
                 // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
-                let init_block = {
-                    let mut guard = dbtx.lock().await;
-                    self.get_block(Some(&mut *guard), prev_height).await?
-                };
+                let init_block = self.get_block(prev_height).await?;
 
                 let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
 
@@ -425,5 +404,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_deprecated_new_finalized_block_event() {
+        let event: SystemEvent = serde_json::from_value(serde_json::json!({
+            "NewFinalizedBlock": {
+                "height": 1,
+                "block": { "legacy": "payload is intentionally ignored" }
+            }
+        }))
+        .unwrap();
+
+        assert!(matches!(event, SystemEvent::DeprecatedNewFinalizedBlock {}));
     }
 }

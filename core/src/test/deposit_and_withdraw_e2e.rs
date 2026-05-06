@@ -31,12 +31,13 @@ use crate::test::common::clementine_utils::{
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_synced, ensure_tx_onchain,
     get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
-    get_txid_where_utxo_is_spent_while_synced, wait_for_fee_payer_utxos_to_be_in_mempool,
+    get_txid_where_utxo_is_spent_while_synced, mine_fee_payers_then_tx,
+    wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
     get_deposit_address, initialize_database, mine_once_after_in_mempool, poll_get,
-    poll_until_condition, run_single_deposit,
+    poll_until_condition, run_single_deposit, wait_for_tx_in_mempool_or_onchain,
 };
 use crate::test::common::{
     create_test_config_with_thread_name, run_multiple_deposits, run_single_replacement_deposit,
@@ -674,7 +675,7 @@ async fn mock_citrea_run_truthful() {
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine some blocks so that block syncer counts it as finalized
+    // Mine enough blocks for RPC-backed finality checks.
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
@@ -763,10 +764,15 @@ async fn mock_citrea_run_truthful() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
-            .await
-            .unwrap();
+    let _kickoff_block_height = mine_fee_payers_then_tx(
+        &rpc,
+        db.clone(),
+        kickoff_txid,
+        Some("Kickoff tx"),
+        Some(300),
+    )
+    .await
+    .unwrap();
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
@@ -884,7 +890,7 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine some blocks so that block syncer counts it as finalized
+    // Mine enough blocks for RPC-backed finality checks.
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
@@ -968,10 +974,15 @@ async fn mock_citrea_run_truthful_op_db_reset() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
-            .await
-            .unwrap();
+    let _kickoff_block_height = mine_fee_payers_then_tx(
+        &rpc,
+        db.clone(),
+        kickoff_txid,
+        Some("Kickoff tx"),
+        Some(300),
+    )
+    .await
+    .unwrap();
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
@@ -1434,7 +1445,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine some blocks so that block syncer counts it as finalized
+    // Mine enough blocks for RPC-backed finality checks.
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     tracing::info!("Withdrawal tx sent");
@@ -1578,7 +1589,7 @@ async fn mock_citrea_run_malicious() {
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
 
-    // Mine some blocks so that block syncer counts it as finalized
+    // Mine enough blocks for RPC-backed finality checks.
     rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
         .await
         .unwrap();
@@ -1599,10 +1610,15 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    let kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
-            .await
-            .unwrap();
+    let kickoff_block_height = mine_fee_payers_then_tx(
+        &rpc,
+        db.clone(),
+        kickoff_txid,
+        Some("Kickoff tx"),
+        Some(1800),
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
 
@@ -1645,12 +1661,8 @@ async fn mock_citrea_run_malicious() {
         .try_into()
         .unwrap();
 
-    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, db, kickoff_txid_2)
-        .await
-        .unwrap();
-    rpc.mine_blocks(1).await.unwrap();
     let _kickoff_block_height2 =
-        mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
+        mine_fee_payers_then_tx(&rpc, db, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
 
@@ -1781,7 +1793,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
 
-    // Mine some blocks so that block syncer counts it as finalized
+    // Mine enough blocks for RPC-backed finality checks.
     rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
         .await
         .unwrap();
@@ -1817,7 +1829,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         })
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let round_txid = round_tx.compute_txid();
     ensure_tx_onchain(&rpc, round_txid).await.unwrap();
     tracing::warn!("Round tx sent");
@@ -1858,12 +1869,20 @@ async fn mock_citrea_run_malicious_after_exit() {
     rpc.send_raw_transaction(&spend_tx).await.unwrap();
 
     // mine 1 block to make sure collateral burn tx lands onchain
-    rpc.mine_blocks(1).await.unwrap();
+    mine_once_after_in_mempool(
+        &rpc,
+        spend_tx.compute_txid(),
+        Some("Collateral burn tx"),
+        Some(300),
+    )
+    .await
+    .unwrap();
     let deposit: Deposit = deposit_info.clone().into();
 
     // because operator collaterl was spent outside of the protocol, new deposit with this operator should be rejected
     assert!(aggregator.new_deposit(deposit).await.is_err());
 
+    let (operator_db, _) = actors.get_operator_db_and_xonly_pk_by_index(0).await;
     let kickoff_txid: bitcoin::Txid = operator0
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
@@ -1875,10 +1894,15 @@ async fn mock_citrea_run_malicious_after_exit() {
         .try_into()
         .unwrap();
 
-    let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
-            .await
-            .unwrap();
+    let _kickoff_block_height = mine_fee_payers_then_tx(
+        &rpc,
+        operator_db,
+        kickoff_txid,
+        Some("Kickoff tx"),
+        Some(1800),
+    )
+    .await
+    .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
@@ -1965,26 +1989,25 @@ pub async fn make_concurrent_deposits(
         .collect::<Vec<_>>();
     tracing::debug!("Move txids: {:?}", move_txids);
 
-    sleep(Duration::from_secs(5)).await;
-    rpc.mine_blocks(1).await.unwrap();
+    let aggregator_db = Database::new(config).await?;
+    for txid in &move_txids {
+        wait_for_fee_payer_utxos_to_be_in_mempool(rpc, aggregator_db.clone(), *txid).await?;
+    }
+    rpc.mine_blocks(1).await?;
 
-    for txid in move_txids.iter() {
-        let rpc = rpc.clone();
-        let txid = *txid;
-        poll_until_condition(
-            async move || {
-                let entry = rpc.get_mempool_entry(&txid).await;
-                tracing::debug!("Mempool entry for txid {:?}: {:?}", txid, entry);
-                Ok(entry.is_ok())
-            },
-            Some(Duration::from_secs(120)),
-            None,
-        )
-        .await
-        .unwrap();
+    let mut all_move_txs_onchain = true;
+    for txid in &move_txids {
+        all_move_txs_onchain &=
+            wait_for_tx_in_mempool_or_onchain(rpc, *txid, Some("Move tx"), Some(180)).await?;
+    }
+    if !all_move_txs_onchain {
+        rpc.mine_blocks(1).await?;
     }
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    let finality_blocks = DEFAULT_FINALITY_DEPTH.saturating_sub(1);
+    if finality_blocks > 0 {
+        rpc.mine_blocks(finality_blocks).await?;
+    }
 
     for txid in move_txids.iter() {
         let rpc = rpc.clone();

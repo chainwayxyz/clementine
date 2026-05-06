@@ -20,7 +20,7 @@
 
 pub use crate::builder::block_cache;
 use crate::config::BridgeConfig;
-use crate::database::{Database, DatabaseTransaction};
+use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::states::block_cache::BlockCache;
 use clementine_errors::BridgeError;
@@ -230,15 +230,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(mgr)
     }
 
-    async fn get_block(
-        &self,
-        dbtx: Option<DatabaseTransaction<'_>>,
-        height: u32,
-    ) -> Result<bitcoin::Block, BridgeError> {
-        match self.db.get_full_block(dbtx, height).await? {
-            Some(block) => Ok(block),
-            None => Ok(self.rpc.get_block_by_height(height.into()).await?),
-        }
+    async fn get_block(&self, height: u32) -> Result<bitcoin::Block, BridgeError> {
+        Ok(self.rpc.get_block_by_height(height.into()).await?)
     }
 
     /// Loads the state manager and its state machines from the database.
@@ -283,10 +276,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let last_height = self.next_height_to_process.saturating_sub(1);
 
         self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
-            match self.db.get_full_block(None, last_height).await? {
-                Some(block) => block,
-                None => self.rpc.get_block_by_height(last_height.into()).await?,
-            },
+            self.rpc.get_block_by_height(last_height.into()).await?,
             last_height,
         )));
 
@@ -562,7 +552,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         for block_height in start_height..temporary_manager.next_height_to_process {
             let block = temporary_manager
-                .get_block(Some(&mut *dbtx.lock().await), block_height)
+                .get_block(block_height)
                 .await
                 .wrap_err_with(|| {
                     format!(

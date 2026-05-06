@@ -1,75 +1,77 @@
 use std::sync::Arc;
 
-use crate::bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask};
 use crate::builder::block_cache::BlockCache;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
-use crate::database::{Database, DatabaseTransaction};
+use crate::database::Database;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::finalized_block_fetcher::FinalizedBlockCursor;
 use crate::task::{RecoverableTask, Task, TaskVariant};
 use crate::verifier::Verifier;
 use clementine_errors::BridgeError;
 use tonic::async_trait;
 
 #[derive(Debug)]
-pub struct LcpSyncerTask<H: BlockHandler>(FinalizedBlockFetcherTask<H>);
+pub struct LcpSyncerTask<C: CitreaClientT> {
+    db: Database,
+    cursor: FinalizedBlockCursor,
+    verifier: Verifier<C>,
+}
 
-impl<H: BlockHandler> LcpSyncerTask<H> {
+impl<C: CitreaClientT> LcpSyncerTask<C> {
     pub async fn new(
         db: Database,
-        btc_syncer_consumer_id: String,
+        rpc: ExtendedBitcoinRpc,
+        consumer_handle: String,
         paramset: &'static ProtocolParamset,
-        handler: H,
+        initial_last_processed_height: Option<u32>,
+        verifier: Verifier<C>,
     ) -> Result<Self, BridgeError> {
-        let next_height = db
-            .get_next_finalized_block_height_for_consumer(None, &btc_syncer_consumer_id, paramset)
-            .await?;
-
-        Ok(Self(FinalizedBlockFetcherTask::new(
-            db,
-            btc_syncer_consumer_id,
+        let cursor = FinalizedBlockCursor::new(
+            db.clone(),
+            rpc,
+            consumer_handle,
             paramset,
-            next_height,
-            handler,
-        )))
+            initial_last_processed_height,
+        )
+        .await?;
+
+        Ok(Self {
+            db,
+            cursor,
+            verifier,
+        })
     }
 }
 
 #[async_trait]
-impl<H: BlockHandler> Task for LcpSyncerTask<H> {
+impl<C: CitreaClientT> Task for LcpSyncerTask<C> {
     type Output = bool;
     const VARIANT: TaskVariant = TaskVariant::LcpSyncer;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        self.0.run_once().await
+        let Some((height, block)) = self.cursor.next_finalized_block().await? else {
+            return Ok(false);
+        };
+
+        let block_hash = block.block_hash();
+        let block_cache = Arc::new(BlockCache::from_block(block, height));
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        self.verifier
+            .handle_finalized_block(&mut dbtx, height, block_cache, None)
+            .await?;
+        self.cursor.save_progress(&mut dbtx, height).await?;
+        dbtx.commit().await?;
+        self.cursor.record_processed(height, block_hash);
+
+        Ok(true)
     }
 }
 
 #[async_trait]
-impl<H: BlockHandler> RecoverableTask for LcpSyncerTask<H> {
-    async fn recover_from_error(&mut self, error: &BridgeError) -> Result<(), BridgeError> {
-        self.0.recover_from_error(error).await
-    }
-}
-
-#[async_trait::async_trait]
-impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
-where
-    C: CitreaClientT,
-{
-    async fn handle_new_block(
-        &mut self,
-        dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
-        block: bitcoin::Block,
-        height: u32,
-    ) -> Result<(), BridgeError> {
-        self.handle_finalized_block(
-            dbtx,
-            block_id,
-            height,
-            Arc::new(BlockCache::from_block(block, height)),
-            None,
-        )
-        .await
+impl<C: CitreaClientT> RecoverableTask for LcpSyncerTask<C> {
+    async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
+        self.cursor.recover_from_db().await
     }
 }

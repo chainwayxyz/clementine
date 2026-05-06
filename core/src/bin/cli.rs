@@ -1051,9 +1051,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                 let rpc_tip_height = rpc_tip_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  RPC tip height: {rpc_tip_height}");
-                                let bitcoin_syncer_height = bitcoin_syncer_synced_height
+                                let rpc_tip_alias_height = bitcoin_syncer_synced_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
-                                println!("  Bitcoin syncer synced height: {bitcoin_syncer_height}");
+                                println!("  RPC tip height compatibility alias: {rpc_tip_alias_height}");
                                 let state_manager_height = state_manager_next_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  State manager next height: {state_manager_height}");

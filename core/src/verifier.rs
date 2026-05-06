@@ -1,5 +1,4 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
@@ -30,6 +29,7 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
+use crate::finalized_block_fetcher::FINALIZED_BLOCK_CURSOR_POLL_DELAY;
 #[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::SyncStatusProvider;
@@ -311,37 +311,37 @@ where
                     dbtx.commit().await?;
                 }
                 self.background_tasks
-                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
-                    .await;
-                self.background_tasks
                     .ensure_task_looping(state_manager.into_task())
                     .await;
             }
         }
 
+        #[cfg(feature = "automation")]
+        let initial_lcp_progress = self
+            .verifier
+            .db
+            .get_last_processed_lcp(None, Verifier::<C>::ENTITY_NAME)
+            .await?
+            .map(u32::try_from)
+            .transpose()
+            .wrap_err("Failed to convert verifier last_processed_lcp to u32")?;
+        #[cfg(not(feature = "automation"))]
+        let initial_lcp_progress = None;
+
         self.background_tasks
             .ensure_task_looping(
                 LcpSyncerTask::new(
                     self.verifier.db.clone(),
+                    rpc.clone(),
                     Verifier::<C>::LCP_SYNCER_CONSUMER_ID.to_string(),
                     self.verifier.config.protocol_paramset(),
+                    initial_lcp_progress,
                     self.verifier.clone(),
                 )
                 .await?
                 .into_buffered_errors(20, 3, Duration::from_secs(10))
-                .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
+                .with_delay(FINALIZED_BLOCK_CURSOR_POLL_DELAY),
             )
-            .await;
-
-        let syncer = BitcoinSyncer::new(
-            self.verifier.db.clone(),
-            rpc.clone(),
-            self.verifier.config.protocol_paramset(),
-        )
-        .await?;
-
-        self.background_tasks
-            .ensure_task_looping(syncer.into_task())
             .await;
 
         self.background_tasks
@@ -1502,12 +1502,8 @@ where
             return Ok(Vec::new());
         }
 
-        // Get the current chain tip height for finalization check
-        let current_chain_height = self
-            .db
-            .get_max_height(Some(&mut *dbtx))
-            .await?
-            .ok_or_else(|| eyre::eyre!("No blocks in bitcoin_syncer database"))?;
+        // Get the current chain tip height for finalization check.
+        let current_chain_height = self.rpc.get_current_chain_height().await?;
 
         // Filter for finalized blocks
         let finalized_txids: Vec<(Txid, u32)> = canonical_kickoffs
@@ -3029,7 +3025,6 @@ where
     pub async fn handle_finalized_block(
         &self,
         mut dbtx: DatabaseTransaction<'_>,
-        _block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,

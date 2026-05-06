@@ -1,4 +1,3 @@
-use eyre::OptionExt;
 use tokio::time::Duration;
 use tonic::async_trait;
 
@@ -79,12 +78,10 @@ where
             .await?;
 
         // fetch and save the LCP for if we get challenged and need to provide proof of payout later
-        let (_, payout_block_height) = self
+        let payout_block_height = self
             .operator
-            .db
-            .get_block_info_from_hash(Some(&mut dbtx), payout_tx_blockhash)
-            .await?
-            .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
+            .get_canonical_rpc_block_height(payout_tx_blockhash)
+            .await?;
 
         let _ = self
             .operator

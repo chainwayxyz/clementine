@@ -36,6 +36,17 @@ impl WithProcessCleanup {
     }
 }
 
+pub fn set_test_protocol_paramset(
+    config: &mut BridgeConfig,
+    start_height: u32,
+    finality_depth: u32,
+) {
+    let mut paramset = config.protocol_paramset().clone();
+    paramset.start_height = start_height;
+    paramset.finality_depth = finality_depth;
+    config.protocol_paramset = Box::leak(Box::new(paramset));
+}
+
 impl Drop for WithProcessCleanup {
     fn drop(&mut self) {
         tracing::info!(

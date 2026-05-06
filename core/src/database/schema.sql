@@ -6,12 +6,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
@@ -129,6 +123,13 @@ create table if not exists bitcoin_syncer_event_handlers (
     last_processed_event_id int not null,
     created_at timestamp not null default now(),
     primary key (consumer_handle)
+);
+create table if not exists finalized_block_fetcher_progress (
+    consumer_handle text primary key,
+    last_processed_height int not null,
+    last_processed_block_hash text,
+    created_at timestamp not null default now(),
+    updated_at timestamp not null default now()
 );
 /*******************************************************************************
  *                                 TX SENDER

@@ -51,7 +51,7 @@ pub mod test_actors;
 pub mod tx_utils;
 
 #[cfg(feature = "automation")]
-use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
+use crate::test::common::tx_utils::mine_fee_payers_then_tx;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
 
@@ -210,51 +210,51 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
 /// - `txid`: The txid to wait for.
 /// - `tx_name`: The name of the transaction to wait for.
 /// - `timeout`: The timeout in seconds.
+pub async fn wait_for_tx_in_mempool_or_onchain(
+    rpc: &ExtendedBitcoinRpc,
+    txid: Txid,
+    tx_name: Option<&str>,
+    timeout: Option<u64>,
+) -> Result<bool, BridgeError> {
+    let timeout = timeout.unwrap_or(90);
+    let tx_name = tx_name.unwrap_or("Unnamed tx");
+    tracing::info!("Waiting for {} txid {:?} in mempool", tx_name, txid);
+
+    Ok(poll_get(
+        async || {
+            let tx_info = rpc.get_raw_transaction_info(&txid, None).await;
+            if tx_info.as_ref().is_ok_and(|tx| tx.blockhash.is_some()) {
+                return Ok(Some(true));
+            }
+            if rpc.get_mempool_entry(&txid).await.is_ok() {
+                return Ok(Some(false));
+            }
+            tracing::info!(
+                "{} is not in mempool, mempool size: {}",
+                tx_name,
+                rpc.mempool_size().await?
+            );
+            tracing::info!("Rpc info about tx {}: {:?}", tx_name, tx_info);
+            Ok(None)
+        },
+        Some(Duration::from_secs(timeout)),
+        Some(Duration::from_millis(500)),
+    )
+    .await
+    .wrap_err_with(|| format!("{tx_name} didn't hit mempool within {timeout} seconds"))?)
+}
+
 pub async fn mine_once_after_in_mempool(
     rpc: &ExtendedBitcoinRpc,
     txid: Txid,
     tx_name: Option<&str>,
     timeout: Option<u64>,
 ) -> Result<usize, BridgeError> {
-    let timeout = timeout.unwrap_or(90);
-    let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
     tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
 
-    loop {
-        if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            return Err(
-                eyre::eyre!("{} didn't hit mempool within {} seconds", tx_name, timeout).into(),
-            );
-        }
-
-        // if already mined, break
-        if rpc
-            .get_raw_transaction_info(&txid, None)
-            .await
-            .is_ok_and(|tx| tx.blockhash.is_some())
-        {
-            break;
-        };
-
-        tracing::info!(
-            "{} is not in mempool, mempool size: {}",
-            tx_name,
-            rpc.mempool_size().await?
-        );
-
-        // mine if there are some txs in mempool
-        if rpc.mempool_size().await? > 0 {
-            rpc.mine_blocks(1).await?;
-        }
-
-        tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
-        tracing::info!(
-            "Rpc info about tx {}: {:?}",
-            tx_name,
-            rpc.get_raw_transaction_info(&txid, None).await
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    if !wait_for_tx_in_mempool_or_onchain(rpc, txid, Some(tx_name), timeout).await? {
+        rpc.mine_blocks(1).await?;
     }
 
     let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
@@ -297,6 +297,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     let mut move_txids = Vec::new();
     let mut deposit_blockhashes = Vec::new();
     let mut deposit_infos = Vec::new();
+    #[cfg(feature = "automation")]
+    let aggregator_db = Database::new(&actors.aggregator.config).await?;
 
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
@@ -333,7 +335,21 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .try_into()?;
 
         if !rpc.is_tx_on_chain(&move_txid).await? {
-            mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+            #[cfg(feature = "automation")]
+            {
+                mine_fee_payers_then_tx(
+                    &rpc,
+                    aggregator_db.clone(),
+                    move_txid,
+                    Some("Move tx"),
+                    Some(180),
+                )
+                .await?;
+            }
+            #[cfg(not(feature = "automation"))]
+            {
+                mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+            }
         }
 
         let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
@@ -478,10 +494,14 @@ pub async fn run_single_deposit<C: CitreaClientT>(
                             )
                             .into());
                     }
-                    wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db, move_txid)
-                        .await?;
-                    rpc.mine_blocks_while_synced(1, actors, None).await?;
-                    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
+                    mine_fee_payers_then_tx(
+                        &rpc,
+                        aggregator_db,
+                        move_txid,
+                        Some("Move tx"),
+                        Some(180),
+                    )
+                    .await?;
                 }
             }
             bitcoin::Network::Testnet4 => {
@@ -543,10 +563,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
             .await
             .wrap_err("Failed to send movetx")?;
 
-        while !rpc.is_tx_on_chain(&move_txid).await? {
-            rpc.mine_blocks(1).await?;
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
     Ok((
@@ -640,9 +657,7 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
         .try_into()?;
 
     if !rpc.is_tx_on_chain(&move_txid).await? {
-        wait_for_fee_payer_utxos_to_be_in_mempool(rpc, aggregator_db, move_txid).await?;
-        rpc.mine_blocks_while_synced(1, actors, None).await?;
-        mine_once_after_in_mempool(rpc, move_txid, Some("Move tx"), Some(180)).await?;
+        mine_fee_payers_then_tx(rpc, aggregator_db, move_txid, Some("Move tx"), Some(180)).await?;
     }
 
     Ok((deposit_info, move_txid, deposit_blockhash))
@@ -747,10 +762,9 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
 
     let replacement_deposit_txid = signed_replacement_deposit_tx.compute_txid();
 
-    wait_for_fee_payer_utxos_to_be_in_mempool(rpc, tx_sender_db, replacement_deposit_txid).await?;
-
-    mine_once_after_in_mempool(
+    mine_fee_payers_then_tx(
         rpc,
+        tx_sender_db,
         replacement_deposit_txid,
         Some("Replacement deposit"),
         Some(180),

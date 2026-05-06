@@ -538,11 +538,14 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
     rpc: &ExtendedBitcoinRpc,
     db: Database,
     txid: Txid,
-) -> Result<(), eyre::Error> {
+) -> Result<(), BridgeError> {
     let rpc_clone = rpc.clone();
     poll_until_condition(
         async move || {
-            let tx_id = db.get_id_from_txid(None, txid).await?.unwrap();
+            let Some(tx_id) = db.get_id_from_txid(None, txid).await? else {
+                tracing::debug!("Waiting for txid {} to be inserted into db", txid);
+                return Ok(false);
+            };
             tracing::debug!("Waiting for fee payer utxos for tx_id: {:?}", tx_id);
             let fee_payer_utxos = db.get_fee_payer_utxos_for_tx(None, tx_id).await?;
             tracing::debug!(
@@ -578,7 +581,18 @@ pub async fn wait_for_fee_payer_utxos_to_be_in_mempool(
         None,
         None,
     )
-    .await?;
+    .await
+}
 
-    Ok(())
+#[cfg(feature = "automation")]
+pub async fn mine_fee_payers_then_tx(
+    rpc: &ExtendedBitcoinRpc,
+    db: Database,
+    txid: Txid,
+    tx_name: Option<&str>,
+    timeout: Option<u64>,
+) -> Result<usize, BridgeError> {
+    wait_for_fee_payer_utxos_to_be_in_mempool(rpc, db, txid).await?;
+    rpc.mine_blocks(1).await?;
+    mine_once_after_in_mempool(rpc, txid, tx_name, timeout).await
 }

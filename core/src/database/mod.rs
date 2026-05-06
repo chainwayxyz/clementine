@@ -18,7 +18,7 @@ use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
 
 mod aggregator;
-mod bitcoin_syncer;
+mod finalized_block_fetcher;
 mod header_chain_prover;
 mod operator;
 #[cfg(feature = "automation")]
@@ -28,6 +28,7 @@ mod test;
 mod verifier;
 mod wrapper;
 
+pub use finalized_block_fetcher::FinalizedBlockProgress;
 #[cfg(test)]
 pub use wrapper::*;
 

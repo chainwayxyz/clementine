@@ -138,9 +138,6 @@ where
 
             if should_run_state_mgr {
                 self.background_tasks
-                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
-                    .await;
-                self.background_tasks
                     .ensure_task_looping(state_manager.into_task())
                     .await;
             }
@@ -382,6 +379,27 @@ where
             header_chain_prover,
             reimburse_addr,
         })
+    }
+
+    pub(crate) async fn get_canonical_rpc_block_height(
+        &self,
+        block_hash: BlockHash,
+    ) -> Result<u32, BridgeError> {
+        let block_info = self
+            .rpc
+            .get_block_info(&block_hash)
+            .await
+            .wrap_err_with(|| format!("Failed to get block info for {block_hash}"))?;
+
+        if block_info.confirmations <= 0 {
+            return Err(eyre::eyre!(
+                "Block {block_hash} is not on the canonical chain, confirmations: {}",
+                block_info.confirmations
+            )
+            .into());
+        }
+
+        Ok(u32::try_from(block_info.height).wrap_err("Failed to convert block height to u32")?)
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -1249,13 +1267,14 @@ where
             .into());
         }
 
-        let (payout_block_height, payout_block) = self
-            .db
-            .get_full_block_from_hash(Some(&mut dbtx), payout_block_hash)
-            .await?
-            .ok_or_eyre(format!(
-                "Payout block {payout_op_xonly_pk:?} {payout_block_hash:?} not found in db",
-            ))?;
+        let payout_block_height = self
+            .get_canonical_rpc_block_height(payout_block_hash)
+            .await?;
+        let payout_block = self
+            .rpc
+            .get_block(&payout_block_hash)
+            .await
+            .wrap_err_with(|| format!("Failed to get payout block {payout_block_hash}"))?;
 
         let payout_tx_index = payout_block
             .txdata
@@ -1765,11 +1784,9 @@ where
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
 
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
-                    let (_, payout_block_height) = self
-                        .db
-                        .get_block_info_from_hash(dbtx.as_deref_mut(), payout_blockhash)
-                        .await?
-                        .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
+                    let payout_block_height = self
+                        .get_canonical_rpc_block_height(payout_blockhash)
+                        .await?;
 
                     let move_txid = deposit_data.get_move_txid(self.config.protocol_paramset())?;
 
@@ -2162,12 +2179,7 @@ where
             - all kickoff utxos in this round are spent
             - all kickoff finalizers in this round are spent
             ", round_idx);
-            // get max height saved in bitcoin syncer
-            let current_chain_height = self
-                .db
-                .get_max_height(dbtx.as_deref_mut())
-                .await?
-                .ok_or_eyre("Max block height is not found in the btc syncer database")?;
+            let current_chain_height = self.rpc.get_current_chain_height().await?;
 
             let round_txid = round_tx.1.compute_txid();
             let (unspent_kickoff_utxos, are_all_utxos_spent_finalized) = self
@@ -2188,7 +2200,7 @@ where
                 // if some utxos are not spent, we need to wait until they are spent
                 return Err(eyre::eyre!(format!(
                     "The transactions that spend the kickoff utxos are not yet finalized, wait until they are finalized. Finality depth: {}
-                    If they are actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.",
+                    If they are actually finalized, the Bitcoin RPC backend has not reported enough confirmations yet.",
                     self.config.protocol_paramset().finality_depth
                 ))
                 .into());
