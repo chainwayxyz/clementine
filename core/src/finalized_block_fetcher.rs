@@ -1,6 +1,6 @@
 use crate::{
     config::protocol::ProtocolParamset,
-    database::{Database, DatabaseTransaction, FinalizedBlockProgress},
+    database::{Database, DatabaseTransaction},
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
 };
 use bitcoin::{Block, BlockHash};
@@ -33,25 +33,15 @@ pub struct FinalizedBlockCursor {
 impl FinalizedBlockCursor {
     /// Loads persisted progress for a consumer and returns a cursor positioned at
     /// the next finalized block to process.
-    ///
-    /// If no progress exists, `initial_last_processed_height` initializes
-    /// hash-backed progress from a caller that has already processed blocks
-    /// through that height.
     pub async fn new(
         db: Database,
         rpc: ExtendedBitcoinRpc,
         consumer_handle: String,
         paramset: &'static ProtocolParamset,
-        initial_last_processed_height: Option<u32>,
     ) -> Result<Self, BridgeError> {
-        let progress = load_or_initialize_progress(
-            &db,
-            &rpc,
-            &consumer_handle,
-            paramset,
-            initial_last_processed_height,
-        )
-        .await?;
+        let progress = db
+            .get_finalized_block_progress(None, &consumer_handle)
+            .await?;
 
         let next_finalized_height = next_height_after_processed(
             paramset,
@@ -74,8 +64,7 @@ impl FinalizedBlockCursor {
     /// I/O.
     ///
     /// This constructor is intentionally synchronous. The first async poll will
-    /// load or initialize the corresponding persisted progress before checking
-    /// the stored hash.
+    /// load the corresponding persisted progress before checking the stored hash.
     pub fn from_last_processed_height(
         db: Database,
         rpc: ExtendedBitcoinRpc,
@@ -181,41 +170,41 @@ impl FinalizedBlockCursor {
         &mut self,
     ) -> Result<(), BridgeError> {
         if self.last_processed.is_none() {
-            let progress = load_or_initialize_progress(
-                &self.db,
-                &self.rpc,
-                &self.consumer_handle,
-                self.paramset,
-                self.next_finalized_height.checked_sub(1),
-            )
-            .await?;
-
-            if let Some(progress) = progress {
-                let progress_next = next_height_after_processed(
-                    self.paramset,
-                    Some(progress.last_processed_height),
-                );
-                if progress_next != self.next_finalized_height {
-                    return Err(eyre::eyre!(
-                        "Finalized block cursor progress mismatch for consumer {}: cursor next height {}, persisted next height {}",
-                        self.consumer_handle,
-                        self.next_finalized_height,
-                        progress_next
-                    )
-                    .into());
+            let Some(progress) = self
+                .db
+                .get_finalized_block_progress(None, &self.consumer_handle)
+                .await?
+            else {
+                if self.next_finalized_height == self.paramset.start_height {
+                    return Ok(());
                 }
+                return Err(eyre::eyre!(
+                    "Missing finalized block cursor progress for consumer {}",
+                    self.consumer_handle
+                )
+                .into());
+            };
 
-                self.last_processed = Some((
-                    progress.last_processed_height,
-                    progress.last_processed_block_hash,
-                ));
+            let progress_next =
+                next_height_after_processed(self.paramset, Some(progress.last_processed_height));
+            if progress_next != self.next_finalized_height {
+                return Err(eyre::eyre!(
+                    "Finalized block cursor progress mismatch for consumer {}: cursor next height {}, persisted next height {}",
+                    self.consumer_handle,
+                    self.next_finalized_height,
+                    progress_next
+                )
+                .into());
             }
+
+            self.last_processed = Some((
+                progress.last_processed_height,
+                progress.last_processed_block_hash,
+            ));
         }
 
-        let Some((last_processed_height, last_processed_hash)) = self.last_processed else {
-            return Ok(());
-        };
-
+        let (last_processed_height, last_processed_hash) =
+            self.last_processed.expect("checked above");
         let current_hash = progress_block_hash(&self.rpc, last_processed_height).await?;
 
         if current_hash != last_processed_hash {
@@ -231,38 +220,6 @@ impl FinalizedBlockCursor {
 
         Ok(())
     }
-}
-
-/// Loads persisted progress for a consumer, or initializes it from a known
-/// already-processed height when no row exists.
-async fn load_or_initialize_progress(
-    db: &Database,
-    rpc: &ExtendedBitcoinRpc,
-    consumer_handle: &str,
-    paramset: &ProtocolParamset,
-    initial_last_processed_height: Option<u32>,
-) -> Result<Option<FinalizedBlockProgress>, BridgeError> {
-    let progress = db
-        .get_finalized_block_progress(None, consumer_handle)
-        .await?;
-
-    if progress.is_some() {
-        return Ok(progress);
-    }
-
-    let Some(height) =
-        initial_last_processed_height.filter(|height| *height >= paramset.start_height)
-    else {
-        return Ok(None);
-    };
-
-    let block_hash = progress_block_hash(rpc, height).await?;
-    db.upsert_finalized_block_progress(None, consumer_handle, height, block_hash)
-        .await?;
-    Ok(Some(FinalizedBlockProgress {
-        last_processed_height: height,
-        last_processed_block_hash: block_hash,
-    }))
 }
 
 /// Fetches the canonical block hash used for progress persistence and reorg
@@ -333,17 +290,12 @@ mod tests {
             }
         }
 
-        async fn cursor(
-            &self,
-            consumer_handle: &str,
-            initial_last_processed_height: Option<u32>,
-        ) -> FinalizedBlockCursor {
+        async fn cursor(&self, consumer_handle: &str) -> FinalizedBlockCursor {
             FinalizedBlockCursor::new(
                 self.db.clone(),
                 self.regtest.rpc().clone(),
                 consumer_handle.to_string(),
                 self.config.protocol_paramset(),
-                initial_last_processed_height,
             )
             .await
             .unwrap()
@@ -352,14 +304,6 @@ mod tests {
         async fn progress(&self, consumer_handle: &str) -> Option<FinalizedBlockProgress> {
             self.db
                 .get_finalized_block_progress(None, consumer_handle)
-                .await
-                .unwrap()
-        }
-
-        async fn block_hash(&self, height: u32) -> BlockHash {
-            self.regtest
-                .rpc()
-                .get_block_hash(height.into())
                 .await
                 .unwrap()
         }
@@ -403,7 +347,7 @@ mod tests {
     async fn cursor_no_work_before_finality() {
         let test = CursorTest::new(1_000, 2).await;
         assert!(test
-            .cursor("test_no_work", None)
+            .cursor("test_no_work")
             .await
             .next_finalized_block()
             .await
@@ -414,7 +358,7 @@ mod tests {
     #[tokio::test]
     async fn cursor_processes_one_block_and_resumes() {
         let test = CursorTest::new(1, 2).await;
-        let mut cursor = test.cursor("test_resume", None).await;
+        let mut cursor = test.cursor("test_resume").await;
         let (height, block) = next_block(&mut cursor).await;
 
         assert_eq!(height, 1);
@@ -427,35 +371,15 @@ mod tests {
             1
         );
 
-        let mut resumed_cursor = test.cursor("test_resume", None).await;
+        let mut resumed_cursor = test.cursor("test_resume").await;
         let (height, _) = next_block(&mut resumed_cursor).await;
         assert_eq!(height, 2);
     }
 
     #[tokio::test]
-    async fn cursor_initializes_progress_from_initial_height() {
-        let test = CursorTest::new(1, 2).await;
-        let initial_height = 5;
-        let mut cursor = test
-            .cursor("test_initial_progress", Some(initial_height))
-            .await;
-
-        assert_eq!(
-            test.progress("test_initial_progress").await,
-            Some(FinalizedBlockProgress {
-                last_processed_height: initial_height,
-                last_processed_block_hash: test.block_hash(initial_height).await,
-            })
-        );
-
-        let (height, _) = next_block(&mut cursor).await;
-        assert_eq!(height, initial_height + 1);
-    }
-
-    #[tokio::test]
     async fn cursor_does_not_persist_progress_until_saved() {
         let test = CursorTest::new(1, 2).await;
-        let mut cursor = test.cursor("test_no_persist_before_save", None).await;
+        let mut cursor = test.cursor("test_no_persist_before_save").await;
         let (height, block) = next_block(&mut cursor).await;
 
         assert!(test.progress("test_no_persist_before_save").await.is_none());
@@ -473,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn cursor_errors_on_in_memory_finalized_reorg_mismatch() {
         let test = CursorTest::new(1, 1).await;
-        let mut cursor = test.cursor("test_reorg", None).await;
+        let mut cursor = test.cursor("test_reorg").await;
         cursor.next_finalized_height = 2;
         cursor.last_processed = Some((1, BlockHash::all_zeros()));
         assert_reorg_error(&mut cursor).await;
@@ -484,7 +408,7 @@ mod tests {
         let test = CursorTest::new(1, 1).await;
         test.save_progress("test_persisted_reorg", 1, BlockHash::all_zeros())
             .await;
-        assert_reorg_error(&mut test.cursor("test_persisted_reorg", None).await).await;
+        assert_reorg_error(&mut test.cursor("test_persisted_reorg").await).await;
     }
 
     #[tokio::test]
@@ -514,11 +438,6 @@ mod tests {
             BlockHash::all_zeros(),
         )
         .await;
-        assert_reorg_error(
-            &mut test
-                .cursor("test_persisted_reorg_before_finality", None)
-                .await,
-        )
-        .await;
+        assert_reorg_error(&mut test.cursor("test_persisted_reorg_before_finality").await).await;
     }
 }

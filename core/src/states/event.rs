@@ -123,12 +123,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-                // Initialize context using the block just before the start height
-                // so subsequent processing can begin from start_height
                 let prev_height = self.config.protocol_paramset.start_height.saturating_sub(1);
-                let init_block = self.get_block(prev_height).await?;
-
-                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
+                let mut context = self.new_context_without_block(dbtx.clone(), prev_height);
 
                 let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
@@ -212,12 +208,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-                // Initialize context using the block just before the kickoff height
-                // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
-                let init_block = self.get_block(prev_height).await?;
-
-                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
+                let mut context = self.new_context_without_block(dbtx.clone(), prev_height);
 
                 // Check if the kickoff machine already exists. If so do not add a new one.
                 // This can happen if during block processing an error happens, reverting the state machines
@@ -258,17 +250,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 )
                 .await?;
 
-                // check if malicious if lcp is already processed for the kickoff height
-                if let Some(last_lcp_height) = self.last_processed_lcp {
-                    if last_lcp_height >= kickoff_height {
-                        self.check_if_kickoff_malicious(
-                            &payout_blockhash,
-                            &kickoff_data,
-                            &deposit_data,
-                            &mut context,
-                        )
-                        .await?;
-                    }
+                let lcp_synced_height = self.lcp_synced_height(dbtx.clone()).await?;
+                if lcp_synced_height.is_some_and(|height| height >= kickoff_height) {
+                    self.check_if_kickoff_malicious(
+                        &payout_blockhash,
+                        &kickoff_data,
+                        &deposit_data,
+                        &mut context,
+                    )
+                    .await?;
                 }
             }
             // Received when a the LCP for an L1 block height is processed
@@ -288,12 +278,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 if !kickoffs_to_check.is_empty() {
                     // create a dummy context for duty processing, a block is not needed for LCPProcessed
-                    let mut dummy_context = self.new_context_with_block_cache(
-                        dbtx.clone(),
-                        self.last_finalized_block.clone().ok_or_eyre(
-                            "Last finalized block not found, should always be Some after initialization",
-                        )?,
-                    )?;
+                    let mut dummy_context =
+                        self.new_context_without_block(dbtx.clone(), self.context_height());
 
                     for (payout_blockhash, kickoff_data, deposit_data) in kickoffs_to_check {
                         self.check_if_kickoff_malicious(
@@ -307,17 +293,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 }
 
                 tracing::info!("LCP processed for height: {}", height);
-
-                self.last_processed_lcp = Some(height);
             }
         };
 
-        let mut context = self.new_context_with_block_cache(
-            dbtx,
-            self.last_finalized_block.clone().ok_or_eyre(
-                "Last finalized block not found, should always be Some after initialization",
-            )?,
-        )?;
+        let mut context = self.new_context_without_block(dbtx, self.context_height());
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
@@ -331,6 +310,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         );
 
         Ok(())
+    }
+
+    fn context_height(&self) -> u32 {
+        self.last_finalized_height
+            .unwrap_or_else(|| self.config.protocol_paramset.start_height.saturating_sub(1))
+    }
+
+    async fn lcp_synced_height(
+        &self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let mut dbtx = dbtx.lock().await;
+        Ok(self
+            .db
+            .get_finalized_block_progress(Some(&mut dbtx), T::LCP_SYNCER_CONSUMER_ID)
+            .await?
+            .map(|progress| progress.last_processed_height))
     }
 
     async fn get_round_machine(
@@ -398,8 +394,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
             }
-            _ => {
-                unreachable!("Expected CheckIfKickoffMalicious result");
+            DutyResult::Handled => {}
+            DutyResult::CheckIfKickoff { .. } => {
+                return Err(eyre::eyre!("Expected CheckIfKickoffMalicious result").into());
             }
         }
 

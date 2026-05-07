@@ -316,18 +316,6 @@ where
             }
         }
 
-        #[cfg(feature = "automation")]
-        let initial_lcp_progress = self
-            .verifier
-            .db
-            .get_last_processed_lcp(None, Verifier::<C>::ENTITY_NAME)
-            .await?
-            .map(u32::try_from)
-            .transpose()
-            .wrap_err("Failed to convert verifier last_processed_lcp to u32")?;
-        #[cfg(not(feature = "automation"))]
-        let initial_lcp_progress = None;
-
         self.background_tasks
             .ensure_task_looping(
                 LcpSyncerTask::new(
@@ -335,7 +323,6 @@ where
                     rpc.clone(),
                     Verifier::<C>::LCP_SYNCER_CONSUMER_ID.to_string(),
                     self.verifier.config.protocol_paramset(),
-                    initial_lcp_progress,
                     self.verifier.clone(),
                 )
                 .await?
@@ -3083,7 +3070,7 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const STATE_MANAGER_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher_automation";
+    const STATE_MANAGER_CONSUMER_ID: &'static str = "verifier_state_manager";
     const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 

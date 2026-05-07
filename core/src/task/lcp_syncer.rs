@@ -24,17 +24,9 @@ impl<C: CitreaClientT> LcpSyncerTask<C> {
         rpc: ExtendedBitcoinRpc,
         consumer_handle: String,
         paramset: &'static ProtocolParamset,
-        initial_last_processed_height: Option<u32>,
         verifier: Verifier<C>,
     ) -> Result<Self, BridgeError> {
-        let cursor = FinalizedBlockCursor::new(
-            db.clone(),
-            rpc,
-            consumer_handle,
-            paramset,
-            initial_last_processed_height,
-        )
-        .await?;
+        let cursor = FinalizedBlockCursor::new(db.clone(), rpc, consumer_handle, paramset).await?;
 
         Ok(Self {
             db,

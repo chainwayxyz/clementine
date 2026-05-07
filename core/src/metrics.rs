@@ -168,26 +168,6 @@ pub async fn get_tx_sender_synced_height(db: &Database) -> Result<Option<u32>, B
         .transpose()?)
 }
 
-/// Get the next height of the State Manager or None if the State Manager status
-/// for the owner is missing or the next_height_to_process is NULL.
-pub async fn get_state_manager_next_height(
-    db: &Database,
-    owner_type: &str,
-) -> Result<Option<u32>, BridgeError> {
-    #[cfg(feature = "automation")]
-    {
-        let next_height = db
-            .get_next_height_to_process(None, owner_type)
-            .await?
-            .map(|x| x as u32);
-        Ok(next_height)
-    }
-    #[cfg(not(feature = "automation"))]
-    {
-        Ok(None)
-    }
-}
-
 /// Get the current Bitcoin fee rate in sat/vB.
 pub async fn get_bitcoin_fee_rate(
     rpc: &ExtendedBitcoinRpc,
@@ -285,7 +265,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         .flatten();
 
         #[cfg(not(feature = "automation"))]
-        let finalized_synced_height = None;
+        let finalized_synced_height: Option<u32> = None;
 
         let lcp_synced_height = log_errs_and_ok::<_, T>(
             timed_request_base(
@@ -326,16 +306,8 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         )
         .flatten();
 
-        let state_manager_next_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_state_manager_next_height",
-                get_state_manager_next_height(db, T::ENTITY_NAME),
-            )
-            .await,
-            "getting state manager next height",
-        )
-        .flatten();
+        let state_manager_next_height =
+            finalized_synced_height.map(|height| height.saturating_add(1));
 
         let bitcoin_fee_rate_sat_vb = log_errs_and_ok::<_, T>(
             timed_request_base(

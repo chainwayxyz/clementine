@@ -162,13 +162,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let event_start = std::time::Instant::now();
         tracing::trace!(height, "handle_finalized_block: starting");
 
-        if self.get_next_height_to_process() != height {
-            return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.get_next_height_to_process(), height).into());
+        if self.next_finalized_height_to_process() != height {
+            return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_finalized_height_to_process(), height).into());
         }
 
-        let mut context = self.new_context(dbtx, &block, height)?;
+        let mut context = self.new_context(dbtx, &block, height);
         self.process_block_parallel(&mut context).await?;
-        self.last_finalized_block = Some(context.cache.clone());
 
         tracing::trace!(
             height,
@@ -192,7 +191,7 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             self.rpc.clone(),
             T::STATE_MANAGER_CONSUMER_ID.to_string(),
             self.config.protocol_paramset,
-            self.get_next_height_to_process().checked_sub(1),
+            self.next_finalized_height_to_process().checked_sub(1),
         );
 
         MessageConsumerTask {
@@ -342,12 +341,6 @@ mod tests {
 
         task.run_once().await.unwrap();
 
-        assert_eq!(
-            db.get_next_height_to_process(None, MockHandler::ENTITY_NAME)
-                .await
-                .unwrap(),
-            Some(2)
-        );
         assert_eq!(
             db.get_finalized_block_progress(None, MockHandler::STATE_MANAGER_CONSUMER_ID)
                 .await

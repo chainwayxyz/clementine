@@ -92,7 +92,7 @@ create table if not exists operators_challenge_ack_hashes (
  *                               BITCOIN SYNCER
  ******************************************************************************/
 -- Legacy Bitcoin Syncer table kept so older migrations can run after schema.sql bootstrap.
--- 0002 reads bitcoin_syncer for seen_block_id backfills, and 0004 joins it for old LCP handler progress.
+-- 0002 reads bitcoin_syncer for seen_block_id backfills, and migrations 0004/0006 join it for old LCP progress.
 create table if not exists bitcoin_syncer (
     id serial primary key,
     blockhash text not null unique,
@@ -108,14 +108,14 @@ DO $$ BEGIN IF NOT EXISTS (
 ) THEN CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
 END IF;
 END $$;
--- Legacy Bitcoin Syncer event table kept so migration 0004 can read old events.
+-- Legacy Bitcoin Syncer event table kept so migrations 0004/0006 can read old events.
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
     block_id int not null references bitcoin_syncer (id),
     event_type bitcoin_syncer_event_type not null,
     created_at timestamp not null default now()
 );
--- Legacy Bitcoin Syncer handler table kept so migration 0004 can migrate old handler progress.
+-- Legacy Bitcoin Syncer handler table kept so migration 0006 can migrate old handler progress.
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
     last_processed_event_id int not null,
@@ -283,7 +283,9 @@ CREATE TABLE IF NOT EXISTS state_machines (
     -- For kickoff machines
     UNIQUE(machine_type, operator_xonly_pk, owner_type) -- For round machines
 );
--- Status table to track the last processed block
+-- Legacy state manager status kept so older migrations can run after
+-- schema.sql bootstrap; migration 0006 moves this progress to finalized block
+-- cursor progress while keeping this table for rollback compatibility.
 CREATE TABLE IF NOT EXISTS state_manager_status (
     owner_type VARCHAR(100) PRIMARY KEY,
     next_height_to_process INT NOT NULL,
