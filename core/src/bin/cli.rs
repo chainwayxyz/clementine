@@ -42,6 +42,22 @@ struct RpcArgs {
     node_url: String,
 }
 
+#[derive(Args)]
+struct WithdrawalArgs {
+    #[arg(long)]
+    withdrawal_id: u32,
+    #[arg(long)]
+    input_signature: String,
+    #[arg(long)]
+    input_outpoint_txid: Txid,
+    #[arg(long)]
+    input_outpoint_vout: u32,
+    #[arg(long, value_parser = parse_script_buf)]
+    output_script_pubkey: ScriptBuf,
+    #[arg(long)]
+    output_amount: u64,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Operator service commands
@@ -92,19 +108,8 @@ enum OperatorCommands {
     GetParams,
     /// Withdraw funds
     Withdraw {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: Txid,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        #[arg(long, value_parser = parse_script_buf)]
-        output_script_pubkey: ScriptBuf,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
     },
     /// Get vergen build information
     Vergen,
@@ -160,7 +165,6 @@ enum AggregatorCommands {
         deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
-        #[arg(long)]
         #[arg(long, value_parser = parse_evm_address)]
         evm_address: EVMAddress,
         #[arg(long)]
@@ -198,38 +202,16 @@ enum AggregatorCommands {
     },
     /// Process a new withdrawal
     NewWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: Txid,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        #[arg(long, value_parser = parse_script_buf)]
-        output_script_pubkey: ScriptBuf,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
         #[arg(long)]
         operator_xonly_pks: Option<Vec<XOnlyPublicKey>>,
     },
     NewOptimisticWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: Txid,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        #[arg(long, value_parser = parse_script_buf)]
-        output_script_pubkey: ScriptBuf,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
     },
@@ -311,6 +293,22 @@ fn parse_evm_address(address: &str) -> std::result::Result<EVMAddress, String> {
         .map_err(|error| error.to_string())
 }
 
+fn withdrawal_params_from_args(
+    withdrawal: WithdrawalArgs,
+) -> Result<clementine_core::rpc::clementine::WithdrawParams> {
+    Ok(clementine_core::rpc::clementine::WithdrawParams {
+        withdrawal_id: withdrawal.withdrawal_id,
+        input_signature: hex::decode(withdrawal.input_signature)
+            .wrap_err("Failed to decode input signature")?,
+        input_outpoint: Some(Outpoint {
+            txid: Some(withdrawal.input_outpoint_txid.into()),
+            vout: withdrawal.input_outpoint_vout,
+        }),
+        output_script_pubkey: withdrawal.output_script_pubkey.into_bytes(),
+        output_amount: withdrawal.output_amount,
+    })
+}
+
 async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<()> {
     let config = create_minimal_config();
     let mut operator = clementine_core::rpc::get_clients(
@@ -373,27 +371,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<
                 .wrap_err("Failed to make get_params request to operator")?;
             println!("Operator params: {params:?}");
         }
-        OperatorCommands::Withdraw {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
-        } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+        OperatorCommands::Withdraw { withdrawal } => {
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: hex::decode(input_signature)
-                    .wrap_err("Failed to decode input signature")?,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(input_outpoint_txid.into()),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey.into_bytes(),
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
             operator
                 .internal_withdraw(Request::new(params))
                 .await
@@ -689,29 +670,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             println!("Move txid: {txid}");
         }
         AggregatorCommands::NewOptimisticWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let input_signature_bytes =
-                hex::decode(input_signature).wrap_err("Failed to decode input signature")?;
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(input_outpoint_txid.into()),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey.into_bytes(),
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::OptimisticWithdrawParams {
@@ -851,30 +815,13 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             println!("Move txid: {txid}");
         }
         AggregatorCommands::NewWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
             operator_xonly_pks,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let input_signature_bytes =
-                hex::decode(input_signature).wrap_err("Failed to decode input signature")?;
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(input_outpoint_txid.into()),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey.into_bytes(),
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::WithdrawParamsWithSig {
