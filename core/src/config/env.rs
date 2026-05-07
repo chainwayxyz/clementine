@@ -78,6 +78,8 @@ impl TxSenderLimitsExt for TxSenderLimits {
                 "TX_SENDER_FEE_BUMP_AFTER_BLOCKS",
             )
             .unwrap_or(defaults.fee_bump_after_blocks),
+            min_bump_kvb: read_string_from_env_then_parse::<u64>("TX_SENDER_MIN_BUMP_KVB")
+                .unwrap_or(defaults.min_bump_kvb),
         })
     }
 }
@@ -203,7 +205,7 @@ impl BridgeConfig {
             mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
             mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
             db_host: read_string_from_env("DB_HOST")?,
-            db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
+            db_port: read_string_from_env_then_parse::<u16>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),
             db_password: read_string_from_env("DB_PASSWORD")?.into(),
             db_name: read_string_from_env("DB_NAME")?,

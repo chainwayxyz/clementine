@@ -139,6 +139,8 @@ pub mod states;
 pub use clementine_tx_sender as tx_sender;
 #[cfg(feature = "automation")]
 pub mod tx_sender_ext;
+#[cfg(feature = "automation")]
+pub mod tx_sender_queue;
 
 #[cfg(test)]
 pub mod test;

@@ -30,9 +30,11 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
+#[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::SyncStatusProvider;
 use crate::musig2;
+#[cfg(feature = "automation")]
 use crate::operator::Operator;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
@@ -47,6 +49,8 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
 #[cfg(feature = "automation")]
 use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
@@ -262,14 +266,8 @@ where
         // initialize and run automation features
         #[cfg(feature = "automation")]
         {
-            let tx_sender = TxSender::<_, _, crate::tx_sender_ext::CoreTxBuilder>::new(
-                self.verifier.signer.clone(),
-                rpc.clone(),
-                self.verifier.db.clone(),
-                self.verifier.config.protocol_paramset(),
-                Default::default(),
-                self.verifier.config.mempool_config(),
-            );
+            let tx_sender_cfg = self.verifier.config.tx_sender_config();
+            let tx_sender = TxSender::new(tx_sender_cfg).await?;
 
             self.background_tasks
                 .ensure_task_looping(tx_sender.into_task())
@@ -414,7 +412,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -449,7 +447,8 @@ where
         let all_sessions = AllSessions::new();
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         #[cfg(feature = "automation")]
         let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
@@ -2016,7 +2015,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         TransactionType::Challenge,
                         &challenge_tx,
                         &[],
@@ -2060,7 +2059,7 @@ where
                 | TransactionType::OperatorChallengeNack(_) => {
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -2077,7 +2076,7 @@ where
                 TransactionType::WatchtowerChallengeTimeout(idx) => {
                     self.tx_sender
                         .insert_try_to_send(
-                            Some(dbtx),
+                            dbtx,
                             Some(TxMetadata {
                                 tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
                                 ..tx_metadata
@@ -2187,7 +2186,7 @@ where
         {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(dbtx),
+                    dbtx,
                     tx_type,
                     &challenge_tx,
                     &[],
@@ -2386,7 +2385,7 @@ where
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(dbtx),
+                        dbtx,
                         tx_type,
                         &tx,
                         &[],
@@ -2749,7 +2748,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],
@@ -3043,7 +3042,7 @@ where
 
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
                 &[],

@@ -13,7 +13,7 @@ use crate::rpc::clementine::{
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::CitreaE2EData;
 use crate::test::common::mine_once_after_in_mempool;
-use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
+use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
@@ -22,8 +22,7 @@ use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_synced, mine_once_after_outpoint_spent_in_mempool,
 };
 
 /// Sends a payout tx with given operator for the given withdrawal, starts a kickoff then returns
@@ -82,14 +81,10 @@ pub async fn payout_and_start_kickoff(
             .unwrap();
     }
 
-    let payout_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
-        e2e.rpc,
-        *withdrawal_utxo,
-        actors,
-        Some(e2e),
-    )
-    .await
-    .unwrap();
+    let payout_txid =
+        get_txid_where_utxo_is_spent_while_synced(e2e.rpc, *withdrawal_utxo, actors, Some(e2e))
+            .await
+            .unwrap();
 
     e2e.rpc
         .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
@@ -175,7 +170,7 @@ pub async fn reimburse_with_optimistic_payout(
         .await?;
 
     // ensure the btc in vault is spent
-    ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+    ensure_outpoint_spent_while_synced(
         e2e.rpc,
         OutPoint {
             txid: move_txid,
@@ -269,12 +264,12 @@ pub async fn disprove_tests_common_setup(
     )
     .unwrap();
 
-    let (tx_sender, _, _, tx_sender_db, _, _) = create_tx_sender(config, 0).await;
+    let (tx_sender, _, tx_sender_db, _, _) = create_tx_sender(config, 0).await;
     let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
     tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut db_commit),
+            &mut db_commit,
             None,
             &challenge_tx,
             FeePayingType::RBF,
@@ -299,7 +294,7 @@ pub async fn disprove_tests_common_setup(
 
     // wait until all asserts are mined
     for i in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
-        ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+        ensure_outpoint_spent_while_synced(
             e2e.rpc,
             OutPoint {
                 txid: kickoff_txid,

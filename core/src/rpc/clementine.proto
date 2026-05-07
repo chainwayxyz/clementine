@@ -135,6 +135,7 @@ enum FeeType {
   CPFP = 1;
   RBF = 2;
   NO_FUNDING = 3;
+  RBF_WTXID_GRIND = 4;
 }
 
 enum NormalTransactionId {
@@ -680,9 +681,24 @@ message SignedTxWithType {
 
 message SignedTxsWithType { repeated SignedTxWithType signed_txs = 1; }
 
-message RbfSigningInfoRpc {
+message RbfSigningKeyPathRpc {
+  // Key path spend tweak merkle root (optional).
   bytes merkle_root = 1;
-  uint32 vout = 2;
+}
+
+message RbfSigningScriptPathRpc {
+  bytes control_block = 1;
+  bytes script = 2;
+}
+
+message RbfSigningInfoRpc {
+  uint32 vout = 1;
+  oneof spend_path {
+    RbfSigningKeyPathRpc key_path = 2;
+    RbfSigningScriptPathRpc script_path = 3;
+  }
+  // Taproot sighash type as raw byte.
+  uint32 tap_sighash_type = 4;
 }
 
 message RawTxWithRbfInfo {

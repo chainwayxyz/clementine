@@ -18,25 +18,114 @@
 //! send.
 
 use super::Result;
-use crate::{SpendableInputInfo, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
+use bitcoin::sighash::{Prevouts, SighashCache};
+use bitcoin::taproot;
 use bitcoin::transaction::Version;
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+use bitcoin::{Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Weight};
+use bitcoin::{TapSighashType, Witness};
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use clementine_errors::{BitcoinRPCError, BridgeError, ResultExt as _, SendTxError};
-use clementine_primitives::MIN_TAPROOT_AMOUNT;
+use clementine_primitives::FeeRateKvb;
+use clementine_primitives::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{eyre, Context};
 use std::collections::HashSet;
 use std::env;
 
-impl<S, D, B> TxSender<S, D, B>
-where
-    S: TxSenderSigner,
-    D: TxSenderDatabase,
-    B: TxSenderTxBuilder,
-{
+impl TxSender {
+    fn anchor_prevout(anchor_sat: Amount) -> TxOut {
+        // P2A anchor script: OP_1 OP_PUSHBYTES_2 0x4e73
+        TxOut {
+            value: anchor_sat,
+            script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid anchor script"),
+        }
+    }
+
+    fn build_and_sign_child_tx(
+        &self,
+        p2a_anchor: OutPoint,
+        anchor_sat: Amount,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
+        change_address: bitcoin::Address,
+        required_fee: Amount,
+    ) -> Result<Transaction> {
+        let total_in: Amount = fee_payer_utxos
+            .iter()
+            .map(|u| u.txout.value)
+            .sum::<Amount>()
+            + anchor_sat;
+
+        let change_amount = total_in
+            .checked_sub(required_fee)
+            .ok_or_else(|| SendTxError::Other(eyre!("required_fee > total_in")))?;
+
+        let mut inputs: Vec<TxIn> = Vec::with_capacity(1 + fee_payer_utxos.len());
+        inputs.push(TxIn {
+            previous_output: p2a_anchor,
+            script_sig: ScriptBuf::new(),
+            sequence: crate::DEFAULT_SEQUENCE,
+            witness: Witness::new(),
+        });
+
+        for utxo in &fee_payer_utxos {
+            inputs.push(TxIn {
+                previous_output: utxo.outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: crate::DEFAULT_SEQUENCE,
+                witness: Witness::new(),
+            });
+        }
+
+        let mut child_tx = Transaction {
+            version: NON_STANDARD_V3,
+            lock_time: LockTime::ZERO,
+            input: inputs,
+            output: vec![TxOut {
+                value: change_amount,
+                script_pubkey: change_address.script_pubkey(),
+            }],
+        };
+
+        // Prevouts must match the tx input order (anchor first).
+        let mut prevouts: Vec<TxOut> = Vec::with_capacity(child_tx.input.len());
+        prevouts.push(Self::anchor_prevout(anchor_sat));
+        prevouts.extend(fee_payer_utxos.into_iter().map(|u| u.txout));
+
+        // Compute witnesses without mutating tx while the sighash cache borrows it.
+        let mut cache = SighashCache::new(&child_tx);
+        let mut signed_witnesses: Vec<(usize, Witness)> = Vec::new();
+
+        for input_index in 1..child_tx.input.len() {
+            let sighash = cache
+                .taproot_key_spend_signature_hash(
+                    input_index,
+                    &Prevouts::All(&prevouts),
+                    TapSighashType::Default,
+                )
+                .map_err(|e| SendTxError::Other(eyre!("failed to compute sighash: {e}")))?;
+
+            let signature = self
+                .signer
+                .sign_with_tweak_data(sighash, clementine_utils::sign::TapTweakData::KeyPath(None))
+                .map_err(|e| SendTxError::Other(e.into()))?;
+
+            let tr_sig = taproot::Signature {
+                signature,
+                sighash_type: TapSighashType::Default,
+            };
+            signed_witnesses.push((input_index, Witness::p2tr_key_spend(&tr_sig)));
+        }
+
+        for (idx, witness) in signed_witnesses {
+            child_tx.input[idx].witness = witness;
+        }
+
+        Ok(child_tx)
+    }
+
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
     /// transactions.
     ///
@@ -57,9 +146,9 @@ where
     async fn create_fee_payer_utxo(
         &self,
         bumped_id: u32,
-        dbtx: Option<&mut D::Transaction>,
+        dbtx: Option<&mut TxSenderTransaction>,
         tx: &Transaction,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
@@ -98,7 +187,7 @@ where
         };
 
         tracing::debug!(
-            "Creating fee payer UTXO with amount {} ({} sat/vb)",
+            "Creating fee payer UTXO with amount {} ({} sat/kvB)",
             new_fee_payer_amount,
             fee_rate
         );
@@ -113,35 +202,7 @@ where
             }],
         };
 
-        // Manually serialize in legacy format for 0-input transactions
-        // Because fund_raw_transaction RPC gives deserialization error for 0-input transactions with segwit flag
-        // but in the end fund_raw_transaction returns a segwit transaction after adding inputs
-        let fee_payer_bytes = if fee_payer_tx.input.is_empty() {
-            use bitcoin::consensus::Encodable;
-            let mut buf = Vec::new();
-            // Serialize version
-            fee_payer_tx
-                .version
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize version");
-            fee_payer_tx
-                .input
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize inputs");
-            fee_payer_tx
-                .output
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize outputs");
-            // Serialize locktime
-            fee_payer_tx
-                .lock_time
-                .consensus_encode(&mut buf)
-                .expect("Failed to serialize locktime");
-
-            buf
-        } else {
-            bitcoin::consensus::encode::serialize(&fee_payer_tx)
-        };
+        let fee_payer_bytes = crate::serialize_tx_for_fund_raw(&fee_payer_tx);
 
         let funded_fee_payer_tx = self
             .rpc
@@ -149,12 +210,14 @@ where
                 &fee_payer_bytes,
                 Some(&FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    // for cpfp txs, the speed of tx inclusion is not that important, so we can not use unsafe utxos and wait for them to become safe. Also all cpfp fee payer tx's are safe (all wallet owned inputs), so wallet can already chain them
+                    include_unsafe: Some(self.include_unsafe),
                     change_address: None,
                     change_position: None,
                     change_type: None,
                     include_watching: None,
                     lock_unspents: None,
-                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                     subtract_fee_from_outputs: None,
                     replaceable: Some(true),
                     conf_target: None,
@@ -226,9 +289,9 @@ where
         &self,
         p2a_anchor: OutPoint,
         anchor_sat: Amount,
-        fee_payer_utxos: Vec<B::SpendableInput>,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
         parent_tx_size: Weight,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
     ) -> Result<Transaction> {
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
@@ -245,7 +308,7 @@ where
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
-            .map(|utxo| utxo.get_prevout().value)
+            .map(|utxo| utxo.txout.value)
             .sum::<Amount>()
             + anchor_sat;
 
@@ -254,16 +317,13 @@ where
             return Err(SendTxError::InsufficientFeePayerAmount);
         }
 
-        // Delegate to the TxBuilder's static method
-        B::build_child_tx(
+        self.build_and_sign_child_tx(
             p2a_anchor,
             anchor_sat,
             fee_payer_utxos,
             change_address,
             required_fee,
-            &self.signer,
         )
-        .map_err(|e| SendTxError::Other(e.into()))
     }
 
     /// Creates a transaction package for CPFP submission.
@@ -278,8 +338,8 @@ where
     async fn create_package(
         &self,
         tx: Transaction,
-        fee_rate: FeeRate,
-        fee_payer_utxos: Vec<B::SpendableInput>,
+        fee_rate: FeeRateKvb,
+        fee_payer_utxos: Vec<crate::SpendableUtxo>,
     ) -> Result<Vec<Transaction>> {
         let txid = tx.compute_txid();
         let p2a_vout = self
@@ -316,13 +376,46 @@ where
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
-    ) -> Result<Vec<B::SpendableInput>> {
+    ) -> Result<Vec<crate::SpendableUtxo>> {
         let utxos = self
             .db
             .get_confirmed_fee_payer_utxos(None, try_to_send_id)
             .await
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
-        Ok(B::utxos_to_spendable_inputs(utxos, self.signer.address()))
+
+        let mut spendables = Vec::with_capacity(utxos.len());
+
+        for (txid, vout, _db_amount) in utxos {
+            let utxo = self
+                .rpc
+                .get_tx_out(&txid, vout, Some(false))
+                .await
+                .wrap_err("Failed to gettxout for fee payer utxo")?;
+
+            let Some(utxo) = utxo else {
+                // We expected this to be a confirmed, spendable fee payer UTXO, but it is no
+                // longer unspent (spent/reorg/evicted). Do not mutate DB here; bubble up.
+                return Err(SendTxError::Other(eyre!(
+                    "Confirmed fee payer UTXO missing from gettxout: {txid}:{vout}"
+                )));
+            };
+
+            let script_pubkey = utxo
+                .script_pub_key
+                .script()
+                .wrap_err("Failed to parse script pubkey from gettxout")?;
+
+            spendables.push(crate::SpendableUtxo {
+                outpoint: OutPoint { txid, vout },
+                txout: TxOut {
+                    value: utxo.value,
+                    script_pubkey,
+                },
+                spend_info: None,
+            });
+        }
+
+        Ok(spendables)
     }
 
     /// Attempts to bump the fees of unconfirmed "fee payer" UTXOs using RBF.
@@ -338,7 +431,7 @@ where
     /// # Arguments
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(fee_rate))]
-    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRate) -> Result<()> {
+    pub async fn bump_fees_of_unconfirmed_fee_payer_txs(&self, fee_rate: FeeRateKvb) -> Result<()> {
         let bumpable_txs = self
             .db
             .get_all_unconfirmed_fee_payer_txs(None)
@@ -470,7 +563,7 @@ where
     /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
     /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
-    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    ///     mempool, updates the effective fee rate in the database. If failed, returns an error.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
@@ -484,7 +577,7 @@ where
         try_to_send_id: u32,
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         current_tip_height: u32,
     ) -> Result<()> {
         let unconfirmed = self
@@ -512,7 +605,7 @@ where
         }
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
-        let total_amount: Amount = confirmed.iter().map(|u| u.get_prevout().value).sum();
+        let total_amount: Amount = confirmed.iter().map(|u| u.txout.value).sum();
 
         let _ = self
             .db
@@ -590,18 +683,36 @@ where
             return Ok(());
         }
 
-        for (_txid, result) in submit_result.tx_results {
+        let mut package_errors = Vec::new();
+        let mut has_replacement_error = false;
+
+        for result in submit_result.tx_results.into_values() {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(
-                    try_to_send_id,
-                    "Error submitting package: {:?}, package: {:?}",
-                    error,
-                    package_refs
-                        .iter()
-                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                        .collect::<Vec<_>>()
-                );
+                if crate::rpc_errors::is_rejecting_replacement_error(&error) {
+                    has_replacement_error = true;
+                }
+                package_errors.push(error);
             }
+        }
+
+        if has_replacement_error {
+            tracing::debug!(
+                try_to_send_id,
+                "Package tx rejected (tx already in mempool): {:?}",
+                package_errors
+            );
+            return Ok(());
+        }
+
+        if !package_errors.is_empty() {
+            return Err(SendTxError::Other(eyre!(
+                "Failed to submit package: {:?}, package: {:?}",
+                package_errors,
+                package_refs
+                    .iter()
+                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                    .collect::<Vec<_>>()
+            )));
         }
 
         Ok(())

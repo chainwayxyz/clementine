@@ -609,11 +609,37 @@ pub struct SignedTxsWithType {
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RbfSigningInfoRpc {
+pub struct RbfSigningKeyPathRpc {
+    /// Key path spend tweak merkle root (optional).
     #[prost(bytes = "vec", tag = "1")]
     pub merkle_root: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint32, tag = "2")]
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningScriptPathRpc {
+    #[prost(bytes = "vec", tag = "1")]
+    pub control_block: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub script: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningInfoRpc {
+    #[prost(uint32, tag = "1")]
     pub vout: u32,
+    /// Taproot sighash type as raw byte.
+    #[prost(uint32, tag = "4")]
+    pub tap_sighash_type: u32,
+    #[prost(oneof = "rbf_signing_info_rpc::SpendPath", tags = "2, 3")]
+    pub spend_path: ::core::option::Option<rbf_signing_info_rpc::SpendPath>,
+}
+/// Nested message and enum types in `RbfSigningInfoRpc`.
+pub mod rbf_signing_info_rpc {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum SpendPath {
+        #[prost(message, tag = "2")]
+        KeyPath(super::RbfSigningKeyPathRpc),
+        #[prost(message, tag = "3")]
+        ScriptPath(super::RbfSigningScriptPathRpc),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawTxWithRbfInfo {
@@ -820,6 +846,7 @@ pub enum FeeType {
     Cpfp = 1,
     Rbf = 2,
     NoFunding = 3,
+    RbfWtxidGrind = 4,
 }
 impl FeeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -832,6 +859,7 @@ impl FeeType {
             Self::Cpfp => "CPFP",
             Self::Rbf => "RBF",
             Self::NoFunding => "NO_FUNDING",
+            Self::RbfWtxidGrind => "RBF_WTXID_GRIND",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -841,6 +869,7 @@ impl FeeType {
             "CPFP" => Some(Self::Cpfp),
             "RBF" => Some(Self::Rbf),
             "NO_FUNDING" => Some(Self::NoFunding),
+            "RBF_WTXID_GRIND" => Some(Self::RbfWtxidGrind),
             _ => None,
         }
     }

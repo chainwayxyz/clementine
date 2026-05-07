@@ -215,24 +215,6 @@ pub struct Actor {
     pub annex: Option<Vec<u8>>,
 }
 
-impl clementine_tx_sender::TxSenderSigner for Actor {
-    fn address(&self) -> &Address {
-        &self.address
-    }
-
-    fn xonly_public_key(&self) -> XOnlyPublicKey {
-        self.xonly_public_key
-    }
-
-    fn sign_with_tweak_data(
-        &self,
-        sighash: bitcoin::TapSighash,
-        tweak_data: TapTweakData,
-    ) -> Result<schnorr::Signature, clementine_errors::BridgeError> {
-        self.sign_with_tweak_data(sighash, tweak_data, None)
-    }
-}
-
 impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {

@@ -1,11 +1,12 @@
 //! TxSender integration tests restored from main branch
-//! Adapted to work with TxSenderTxBuilder trait
+//! Adapted to work with tx-sender crate (no core builder coupling)
 
 use bitcoin::hashes::Hash;
 use bitcoin::transaction::Version;
-use bitcoin::{Amount, FeeRate, TxOut};
+use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::json::GetRawTransactionResult;
 use bitcoincore_rpc::RpcApi;
+use clementine_tx_sender::TxSenderDb;
 use std::ops::Mul;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +16,6 @@ use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::actor::{Actor, TweakCache};
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::SECP;
 use crate::builder;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -24,6 +24,7 @@ use crate::builder::transaction::op_return_txout;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::config::protocol::ProtocolParamset;
+use crate::config::BridgeConfig;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -35,13 +36,15 @@ use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, poll_until_condition,
 };
 use crate::tx_sender::TxSender;
-use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
-use crate::utils::RbfSigningInfo;
+use crate::tx_sender_ext::TxSenderClientExt;
+use crate::utils::{RbfSigningInfo, RbfSigningSpendPath};
+use bitcoin::TapSighashType;
 use clementine_errors::BridgeError;
+use clementine_primitives::FeeRateKvb;
 use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
 
-type TxSenderWithCore = TxSender<Actor, Database, CoreTxBuilder>;
+type TxSenderWithCore = TxSender;
 
 #[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
@@ -61,7 +64,7 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     let mut dbtx = db.begin_transaction().await.unwrap();
     let tx_id1 = client
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::CPFP,
@@ -75,7 +78,7 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
         .unwrap();
     let tx_id2 = client
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::CPFP,
@@ -109,12 +112,14 @@ async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     .await
     .expect("Tx was not confirmed in time");
 
+    let tx_sender_db = TxSenderDb::from_pool(db.get_pool());
+
     poll_until_condition(
         async || {
             let (_, _, _, tx_id1_seen_block_id, _) =
-                db.get_try_to_send_tx(None, tx_id1).await.unwrap();
+                tx_sender_db.get_try_to_send_tx(None, tx_id1).await.unwrap();
             let (_, _, _, tx_id2_seen_block_id, _) =
-                db.get_try_to_send_tx(None, tx_id2).await.unwrap();
+                tx_sender_db.get_try_to_send_tx(None, tx_id2).await.unwrap();
 
             Ok(tx_id2_seen_block_id.is_some() && tx_id1_seen_block_id.is_some())
         },
@@ -132,20 +137,14 @@ async fn get_fee_rate() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let db = Database::new(&config).await.unwrap();
 
     let amount = Amount::from_sat(100_000);
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
-    let tx_sender = TxSenderWithCore::new(
-        signer.clone(),
-        rpc.clone(),
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
     let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
@@ -203,7 +202,7 @@ async fn get_fee_rate() {
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     tracing::info!("Fee rate: {:?}", fee_rate);
-    assert!(fee_rate.to_sat_per_kwu() > 0);
+    assert!(fee_rate.to_sat_per_kvb() > 0);
 }
 
 #[tokio::test]
@@ -250,15 +249,6 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -268,24 +258,19 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(500));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(2000));
 }
 
 #[tokio::test]
@@ -331,15 +316,6 @@ async fn test_hard_cap() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -349,32 +325,21 @@ async fn test_hard_cap() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
     assert_eq!(
         fee_rate,
-        FeeRate::from_sat_per_kwu(
-            config
-                .tx_sender_limits
-                .fee_rate_hard_cap
-                .mul(1000)
-                .div_ceil(4)
-        )
+        FeeRateKvb::from_sat_per_kvb(config.tx_sender_limits.fee_rate_hard_cap.mul(1000))
     );
 }
 
@@ -422,15 +387,6 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -440,24 +396,19 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1000));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(4000));
 }
 
 #[tokio::test]
@@ -504,15 +455,6 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -522,24 +464,19 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2500));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(10000));
 }
 
 #[tokio::test]
@@ -590,15 +527,6 @@ async fn test_get_fee_rate_mempool_space_timeout() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -608,24 +536,19 @@ async fn test_get_fee_rate_mempool_space_timeout() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(8000));
 }
 
 #[tokio::test]
@@ -676,15 +599,6 @@ async fn test_get_fee_rate_rpc_timeout() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -694,24 +608,19 @@ async fn test_get_fee_rate_rpc_timeout() {
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
 
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(2000));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(8000));
 }
 
 #[tokio::test]
@@ -769,15 +678,6 @@ async fn test_rpc_retry_after_failures() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
@@ -786,24 +686,19 @@ async fn test_rpc_retry_after_failures() {
     };
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(750));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(3000));
 }
 
 #[tokio::test]
@@ -868,83 +763,47 @@ async fn test_mempool_retry_after_failures() {
         .mount(&mock_mempool_server)
         .await;
 
-    let mock_rpc = ExtendedBitcoinRpc::connect(
-        mock_rpc_server.uri(),
-        secrecy::SecretString::new("test_user".into()),
-        secrecy::SecretString::new("test_password".into()),
-        None,
-    )
-    .await
-    .unwrap();
-
     let mut config = create_test_config_with_thread_name().await;
     let network = bitcoin::Network::Bitcoin;
     let paramset = ProtocolParamset {
         network,
         ..ProtocolParamset::default()
     };
+    config.bitcoin_rpc_url = mock_rpc_server.uri();
+    config.bitcoin_rpc_user = secrecy::SecretString::new("test_user".into());
+    config.bitcoin_rpc_password = secrecy::SecretString::new("test_password".into());
 
     let mempool_space_uri = mock_mempool_server.uri() + "/";
     config.protocol_paramset = Box::leak(Box::new(paramset));
     config.mempool_api_host = Some(mempool_space_uri);
     config.mempool_api_endpoint = Some("api/v1/fees/recommended".into());
 
-    let db = Database::new(&config).await.unwrap();
-    let signer = Actor::new(config.secret_key, config.protocol_paramset.network);
-
-    let tx_sender = TxSenderWithCore::new(
-        signer,
-        mock_rpc,
-        db,
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
     let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-    assert_eq!(fee_rate, FeeRate::from_sat_per_kwu(1500));
+    assert_eq!(fee_rate, FeeRateKvb::from_sat_per_kvb(6000));
 }
 
 // ====== RBF Tests (restored from main:core/src/tx_sender/rbf.rs) ======
 
 async fn create_local_tx_sender(
-    rpc: ExtendedBitcoinRpc,
-) -> (
-    TxSenderWithCore,
-    BitcoinSyncer,
-    ExtendedBitcoinRpc,
-    Database,
-    Actor,
-    bitcoin::Network,
-) {
+    config: &mut BridgeConfig,
+) -> (TxSenderWithCore, Database, Actor, bitcoin::Network) {
     use bitcoin::secp256k1::SecretKey;
     let sk = SecretKey::new(&mut rand::thread_rng());
     let network = bitcoin::Network::Regtest;
     let actor = Actor::new(sk, network);
+    config.secret_key = sk;
 
-    let config = create_test_config_with_thread_name().await;
+    let db = Database::new(config).await.unwrap();
 
-    let db = Database::new(&config).await.unwrap();
+    let tx_sender = TxSenderWithCore::new(config.tx_sender_config())
+        .await
+        .unwrap();
 
-    let tx_sender = TxSenderWithCore::new(
-        actor.clone(),
-        rpc.clone(),
-        db.clone(),
-        config.protocol_paramset(),
-        config.tx_sender_limits.clone(),
-        config.mempool_config(),
-    );
-
-    (
-        tx_sender,
-        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset)
-            .await
-            .unwrap(),
-        rpc,
-        db,
-        actor,
-        network,
-    )
+    (tx_sender, db, actor, network)
 }
 
 pub async fn create_rbf_tx(
@@ -1052,12 +911,10 @@ async fn create_challenge_tx(
 #[tokio::test]
 async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_challenge_tx(&rpc, &signer, network).await?;
 
@@ -1065,7 +922,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1089,6 +946,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
             current_fee_rate,
             None,
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1111,12 +969,10 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1124,14 +980,17 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1149,11 +1008,15 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1176,12 +1039,10 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
 
@@ -1189,7 +1050,7 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::NoFunding,
@@ -1235,27 +1096,30 @@ async fn test_send_no_funding_tx() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_bg_send_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
     rpc.mine_blocks(1).await.unwrap();
 
-    let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
-        create_bg_tx_sender(config).await;
+    let (tx_sender, _db, signer, network) = create_local_tx_sender(&mut config).await;
 
     let tx = create_rbf_tx(&rpc, &signer, network, false).await.unwrap();
 
-    let mut dbtx = db.begin_transaction().await.unwrap();
-    client
+    let mut dbtx = tx_sender.db.begin_transaction().await.unwrap();
+    tx_sender
+        .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1264,6 +1128,9 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
         .await
         .unwrap();
     dbtx.commit().await.unwrap();
+
+    let sender_task = tx_sender.clone().into_task().cancelable_loop();
+    sender_task.0.into_bg();
 
     poll_until_condition(
         async || {
@@ -1288,12 +1155,10 @@ async fn test_bg_send_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction that requires initial funding
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1303,14 +1168,17 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             &[],
             &[],
             &[],
@@ -1328,11 +1196,15 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1363,12 +1235,10 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     // This is the case with no initial funding required, corresponding to the Challenge transaction.
 
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
@@ -1378,7 +1248,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1403,6 +1273,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
             current_fee_rate,
             None,
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1427,12 +1298,10 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, btc_sender, rpc, db, signer, network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
-    let pair = btc_sender.into_task().cancelable_loop();
-    pair.0.into_bg();
+    let (tx_sender, db, signer, network) = create_local_tx_sender(&mut config).await;
 
     // Create a bumpable transaction
     let tx = create_rbf_tx(&rpc, &signer, network, true).await?;
@@ -1442,7 +1311,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
     let try_to_send_id = tx_sender
         .client()
         .insert_try_to_send(
-            Some(&mut dbtx),
+            &mut dbtx,
             None,
             &tx,
             FeePayingType::RBF,
@@ -1465,11 +1334,15 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             current_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1501,11 +1374,15 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             tx.clone(),
             None,
             higher_fee_rate,
-            Some(RbfSigningInfo {
-                vout: 0,
-                tweak_merkle_root: None,
-            }),
+            Some(RbfSigningInfo::new(
+                0,
+                RbfSigningSpendPath::KeyPath {
+                    tweak_merkle_root: None,
+                },
+                TapSighashType::Default,
+            )),
             current_tip_height,
+            false,
         )
         .await
         .expect("RBF should succeed");
@@ -1538,17 +1415,19 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_calculate_target_fee_rate_incremental_bump() {
     let mut config = create_test_config_with_thread_name().await;
-    let rpc = create_regtest_rpc(&mut config).await;
+    let rpc_cleanup = create_regtest_rpc(&mut config).await;
+    let rpc = rpc_cleanup.rpc().clone();
 
-    let (tx_sender, _btc_sender, rpc, _db, _signer, _network) =
-        create_local_tx_sender(rpc.rpc().clone()).await;
+    config.tx_sender_limits.min_bump_kvb = 0;
 
-    // Get incremental fee rate from node (typically 1000 sat/kvB = 250 sat/kwu on regtest)
+    let (tx_sender, _db, _signer, _network) = create_local_tx_sender(&mut config).await;
+
+    // Get incremental fee rate from node (1 sat/kvB on regtest)
     let incremental_fee_btc_per_kvb = rpc.get_network_info().await.unwrap().incremental_fee;
-    let incremental_fee_sat_per_kwu = incremental_fee_btc_per_kvb.to_sat() / 4;
+    let incremental_fee_sat_per_kvb = incremental_fee_btc_per_kvb.to_sat();
 
     // Test 1: No previous fee rate - should return new_fee_rate
-    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let new_fee_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
     let result = tx_sender
         .calculate_target_fee_rate(None, new_fee_rate, None, 100)
         .await
@@ -1560,12 +1439,12 @@ async fn test_calculate_target_fee_rate_incremental_bump() {
 
     // Test 2: New fee rate higher than previous but LOWER than previous + incremental
     // This tests BIP125 compliance: the result should be previous + incremental, NOT new_fee_rate
-    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap(); // 2500 sat/kwu
-                                                               // Add only 0.5 sat/kwu (less than incremental fee which is typically 250 sat/kwu)
+    let previous_rate = FeeRateKvb::from_sat_per_vb(10).unwrap(); // 10000 sat/kvB
+                                                                  // Add only 1 sat/kvB (less than incremental fee)
     let new_fee_rate_slightly_higher =
-        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + 1);
+        FeeRateKvb::from_sat_per_kvb(previous_rate.to_sat_per_kvb() + 1);
     let expected_min_bump =
-        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+        FeeRateKvb::from_sat_per_kvb(previous_rate.to_sat_per_kvb() + incremental_fee_sat_per_kvb);
 
     let result = tx_sender
         .calculate_target_fee_rate(
@@ -1580,22 +1459,22 @@ async fn test_calculate_target_fee_rate_incremental_bump() {
     // Result should be previous + incremental, NOT the new_fee_rate
     assert_eq!(
         result, expected_min_bump,
-        "When new_fee_rate ({} sat/kwu) is higher than previous ({} sat/kwu) but lower than \
-            previous + incremental ({} sat/kwu), result should be previous + incremental, not new_fee_rate",
-        new_fee_rate_slightly_higher.to_sat_per_kwu(),
-        previous_rate.to_sat_per_kwu(),
-        expected_min_bump.to_sat_per_kwu()
+        "When new_fee_rate ({} sat/kvB) is higher than previous ({} sat/kvB) but lower than \
+            previous + incremental ({} sat/kvB), result should be previous + incremental, not new_fee_rate",
+        new_fee_rate_slightly_higher.to_sat_per_kvb(),
+        previous_rate.to_sat_per_kvb(),
+        expected_min_bump.to_sat_per_kvb()
     );
     assert!(
-        result.to_sat_per_kwu() > new_fee_rate_slightly_higher.to_sat_per_kwu(),
-        "Result ({} sat/kwu) should be greater than new_fee_rate ({} sat/kwu) due to BIP125 min increment",
-        result.to_sat_per_kwu(),
-        new_fee_rate_slightly_higher.to_sat_per_kwu()
+        result.to_sat_per_kvb() > new_fee_rate_slightly_higher.to_sat_per_kvb(),
+        "Result ({} sat/kvB) should be greater than new_fee_rate ({} sat/kvB) due to BIP125 min increment",
+        result.to_sat_per_kvb(),
+        new_fee_rate_slightly_higher.to_sat_per_kvb()
     );
 
     // Test 3: New fee rate higher than previous + incremental - should use new_fee_rate
-    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
-    let new_fee_rate_much_higher = FeeRate::from_sat_per_vb(20).unwrap(); // Much higher than previous + incremental
+    let previous_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
+    let new_fee_rate_much_higher = FeeRateKvb::from_sat_per_vb(20).unwrap(); // Much higher than previous + incremental
     let result = tx_sender
         .calculate_target_fee_rate(
             Some(previous_rate),
@@ -1611,8 +1490,8 @@ async fn test_calculate_target_fee_rate_incremental_bump() {
     );
 
     // Test 4: Same fee rate, not stuck - should return previous rate
-    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
-    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let previous_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
+    let new_fee_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
     let result = tx_sender
         .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(95), 100) // Only 5 blocks
         .await
@@ -1623,27 +1502,27 @@ async fn test_calculate_target_fee_rate_incremental_bump() {
     );
 
     // Test 5: Same fee rate but stuck for 10+ blocks - should bump
-    let previous_rate = FeeRate::from_sat_per_vb(10).unwrap();
-    let new_fee_rate = FeeRate::from_sat_per_vb(10).unwrap();
+    let previous_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
+    let new_fee_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
     let result = tx_sender
         .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100) // 10 blocks stuck
         .await
         .unwrap();
     let expected_stuck_bump =
-        FeeRate::from_sat_per_kwu(previous_rate.to_sat_per_kwu() + incremental_fee_sat_per_kwu);
+        FeeRateKvb::from_sat_per_kvb(previous_rate.to_sat_per_kvb() + incremental_fee_sat_per_kvb);
     assert_eq!(
         result, expected_stuck_bump,
         "When stuck for 10+ blocks, should bump to previous + incremental"
     );
 
     // Test 6: Hard cap is respected
-    let previous_rate = FeeRate::from_sat_per_vb(90).unwrap();
-    let new_fee_rate = FeeRate::from_sat_per_vb(200).unwrap(); // Way above hard cap (default 100)
+    let previous_rate = FeeRateKvb::from_sat_per_vb(90).unwrap();
+    let new_fee_rate = FeeRateKvb::from_sat_per_vb(200).unwrap(); // Way above hard cap (default 100)
     let result = tx_sender
         .calculate_target_fee_rate(Some(previous_rate), new_fee_rate, Some(90), 100)
         .await
         .unwrap();
-    let hard_cap = FeeRate::from_sat_per_vb(config.tx_sender_limits.fee_rate_hard_cap).unwrap();
+    let hard_cap = FeeRateKvb::from_sat_per_vb(config.tx_sender_limits.fee_rate_hard_cap).unwrap();
     assert!(
         result <= hard_cap,
         "Result {} should be <= hard cap {}",

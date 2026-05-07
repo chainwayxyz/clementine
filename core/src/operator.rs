@@ -74,6 +74,9 @@ use {
     circuits_lib::bridge_circuit::structs::LightClientProof,
 };
 
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
+
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
     background_tasks: BackgroundTaskManager,
@@ -88,7 +91,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -234,7 +237,8 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -365,32 +369,6 @@ where
             header_chain_prover,
             reimburse_addr,
         })
-    }
-
-    #[cfg(feature = "automation")]
-    pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                Some(&mut dbtx),
-                Some(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: None,
-                    round_idx: Some(RoundIndex::Round(0)),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                round_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
-        dbtx.commit().await?;
-        Ok(())
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -657,9 +635,9 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
-        let fee_rate_result = self
+        let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset.network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -667,15 +645,7 @@ where
                 self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
                 self.config.tx_sender_limits.fee_rate_hard_cap,
             )
-            .await;
-
-        let fee_rate_option = match fee_rate_result {
-            Ok(fee_rate) => Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
-            Err(e) => {
-                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:?}");
-                None
-            }
-        };
+            .await?;
 
         // send payout tx using RBF
         let funded_tx = self
@@ -684,12 +654,13 @@ where
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
                     lock_unspents: Some(false),
-                    fee_rate: fee_rate_option,
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                     subtract_fee_from_outputs: None,
                     replaceable: None,
                     conf_target: None,
@@ -888,6 +859,11 @@ where
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
+        tracing::info!(
+            "Operator: Current round index: {}, round idx for kickoff: {}",
+            current_round_index,
+            round_idx
+        );
         #[cfg(feature = "automation")]
         if current_round_index != round_idx {
             // we currently have no free kickoff connectors in the current round, so we need to end round first
@@ -899,6 +875,9 @@ where
                     current_round_index, round_idx, deposit_outpoint
                 ).into());
             }
+            tracing::info!(
+                "Operator: Starting next round to be able to get reimbursement for the payout"
+            );
             // start the next round to be able to get reimbursement for the payout
             self.end_round(dbtx).await?;
         }
@@ -954,7 +933,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -992,7 +971,7 @@ where
     #[cfg(feature = "automation")]
     async fn start_first_round(
         &self,
-        mut dbtx: DatabaseTransaction<'_>,
+        dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
         // try to send the first round tx
@@ -1011,7 +990,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -1169,7 +1148,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1190,7 +1169,7 @@ where
         // send ready to reimburse tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1211,7 +1190,7 @@ where
         // send next round tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1633,7 +1612,7 @@ where
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(&mut dbtx),
+                    dbtx,
                     tx_type,
                     &tx,
                     &[],
@@ -1685,7 +1664,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -1985,7 +1964,7 @@ where
 
         let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset().network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -2000,9 +1979,10 @@ where
         self.signer
             .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
 
-        let tx_weight_wu = txhandler.get_cached_tx().weight().to_wu();
-        let fee_sat = (fee_rate.to_sat_per_kwu() * tx_weight_wu).div_ceil(1000);
-        let fee = Amount::from_sat(fee_sat);
+        let tx_weight = txhandler.get_cached_tx().weight();
+        let fee = fee_rate.fee_wu(tx_weight).ok_or_eyre(format!(
+            "Fee calculation overflow in transfer to wallet, current feerate: {fee_rate}"
+        ))?;
 
         output_txout.value = output_txout
             .value
@@ -2507,7 +2487,7 @@ where
                 | TransactionType::Reimburse => {
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
