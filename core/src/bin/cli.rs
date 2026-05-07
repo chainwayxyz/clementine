@@ -6,7 +6,7 @@ use std::str::FromStr;
 use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use bridge_circuit_host::docker::pull_or_load_all_images;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
     compatibility::CompatibilityParams,
@@ -28,34 +28,45 @@ use tonic::Request;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// The URL of the service
-    #[arg(short, long)]
-    node_url: Option<String>,
-
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Args)]
+struct RpcArgs {
+    /// The URL of the service
+    #[arg(short, long)]
+    node_url: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Operator service commands
     Operator {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: OperatorCommands,
     },
     /// Verifier service commands
     Verifier {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: VerifierCommands,
     },
     /// Aggregator service commands
     Aggregator {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: AggregatorCommands,
     },
     /// Commands for interacting with Bitcoin only
     /// Give Bitcoin RPC URL as node-url
     Bitcoin {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: BitcoinCommands,
     },
@@ -1270,28 +1281,24 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) -> Result<()
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let Cli { node_url, command } = Cli::parse();
+    let Cli { command } = Cli::parse();
 
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| eyre::eyre!("Failed to install rustls crypto provider"))?;
 
     match command {
-        Commands::Operator { command } => {
-            let node_url = node_url.ok_or_eyre("Provide operator URL with --node-url")?;
-            handle_operator_call(node_url, command).await?;
+        Commands::Operator { rpc, command } => {
+            handle_operator_call(rpc.node_url, command).await?;
         }
-        Commands::Verifier { command } => {
-            let node_url = node_url.ok_or_eyre("Provide verifier URL with --node-url")?;
-            handle_verifier_call(node_url, command).await?;
+        Commands::Verifier { rpc, command } => {
+            handle_verifier_call(rpc.node_url, command).await?;
         }
-        Commands::Aggregator { command } => {
-            let node_url = node_url.ok_or_eyre("Provide aggregator URL with --node-url")?;
-            handle_aggregator_call(node_url, command).await?;
+        Commands::Aggregator { rpc, command } => {
+            handle_aggregator_call(rpc.node_url, command).await?;
         }
-        Commands::Bitcoin { command } => {
-            let node_url = node_url.ok_or_eyre("Provide bitcoin RPC URL with --node-url")?;
-            handle_bitcoin_call(node_url, command).await?;
+        Commands::Bitcoin { rpc, command } => {
+            handle_bitcoin_call(rpc.node_url, command).await?;
         }
         Commands::PrintAddresses => {
             handle_print_addresses().await?;
