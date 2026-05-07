@@ -455,6 +455,7 @@ impl TestCase for ReorgOnDeposit {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn reorg_on_deposit() -> Result<()> {
     crate::test::configure_citrea_e2e_citrea_image();
     TestCaseRunner::new(ReorgOnDeposit).run().await
