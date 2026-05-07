@@ -597,16 +597,13 @@ mod tests {
     #[async_trait]
     impl TestCase for ReorgChecks {
         fn bitcoin_config() -> BitcoinConfig {
-            BitcoinConfig {
-                extra_args: vec![
-                    "-txindex=1",
-                    "-txospenderindex=1",
-                    "-fallbackfee=0.000001",
-                    "-rpcallowip=0.0.0.0/0",
-                    "-dustrelayfee=0",
-                ],
-                ..Default::default()
-            }
+            crate::test::e2e_bitcoin_config(vec![
+                "-txindex=1",
+                "-txospenderindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+                "-dustrelayfee=0",
+            ])
         }
 
         fn test_config() -> TestCaseConfig {
@@ -692,6 +689,7 @@ mod tests {
 
     #[tokio::test]
     async fn reorg_checks() -> Result<()> {
+        crate::test::configure_citrea_e2e_citrea_image();
         TestCaseRunner::new(ReorgChecks).run().await
     }
 

@@ -42,15 +42,12 @@ struct TxSenderReorgBehavior;
 #[async_trait]
 impl TestCase for TxSenderReorgBehavior {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-txospenderindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![
+            "-txindex=1",
+            "-txospenderindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+        ])
     }
 
     fn test_config() -> TestCaseConfig {
@@ -236,7 +233,7 @@ impl TestCase for TxSenderReorgBehavior {
             .blockhash
             .is_some());
 
-        // with bitcoin v30, the feepayer + cpfp 1p1c package can both be in the mempool together
+        // With Bitcoin v31, the feepayer + cpfp 1p1c package can both be in the mempool together
         // so they will get mined together in the same block
         assert!(rpc
             .get_raw_transaction_info(&txid, None)
@@ -251,6 +248,7 @@ impl TestCase for TxSenderReorgBehavior {
 
 #[tokio::test]
 async fn reorg_on_cpfp_tx() -> Result<()> {
+    crate::test::configure_citrea_e2e_citrea_image();
     TestCaseRunner::new(TxSenderReorgBehavior).run().await
 }
 
@@ -258,15 +256,12 @@ struct ReorgOnDeposit;
 #[async_trait]
 impl TestCase for ReorgOnDeposit {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-txospenderindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![
+            "-txindex=1",
+            "-txospenderindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+        ])
     }
 
     fn test_config() -> TestCaseConfig {
@@ -452,6 +447,8 @@ impl TestCase for ReorgOnDeposit {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn reorg_on_deposit() -> Result<()> {
+    crate::test::configure_citrea_e2e_citrea_image();
     TestCaseRunner::new(ReorgOnDeposit).run().await
 }
