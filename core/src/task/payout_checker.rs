@@ -46,6 +46,7 @@ where
             .await?;
 
         if unhandled_payout.is_none() {
+            dbtx.commit().await?;
             return Ok(false);
         }
 

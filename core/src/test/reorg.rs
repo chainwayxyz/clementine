@@ -98,13 +98,6 @@ impl TestCase for TxSenderReorgBehavior {
         let actor = Actor::new(config.secret_key, config.protocol_paramset.network);
         let db = Database::new(&config).await.unwrap();
 
-        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
-            .await
-            .unwrap()
-            .into_task()
-            .cancelable_loop();
-        btc_syncer.0.into_bg();
-
         let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
         let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();

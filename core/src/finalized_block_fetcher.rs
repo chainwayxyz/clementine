@@ -15,6 +15,11 @@ pub const FINALIZED_BLOCK_CURSOR_POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_secs(30)
 };
 
+/// Stateful finalized-block reader for one logical consumer.
+///
+/// The cursor owns progress persistence and hash checks so callers only need to
+/// process a returned block, save progress in their transaction, and then record
+/// the committed height in memory.
 #[derive(Debug, Clone)]
 pub struct FinalizedBlockCursor {
     db: Database,
@@ -29,8 +34,9 @@ impl FinalizedBlockCursor {
     /// Loads persisted progress for a consumer and returns a cursor positioned at
     /// the next finalized block to process.
     ///
-    /// If no progress exists, `initial_last_processed_height` can initialize progress
-    /// from the state manager's already-processed height.
+    /// If no progress exists, `initial_last_processed_height` initializes
+    /// hash-backed progress from a caller that has already processed blocks
+    /// through that height.
     pub async fn new(
         db: Database,
         rpc: ExtendedBitcoinRpc,
@@ -38,37 +44,38 @@ impl FinalizedBlockCursor {
         paramset: &'static ProtocolParamset,
         initial_last_processed_height: Option<u32>,
     ) -> Result<Self, BridgeError> {
-        let mut progress = db
-            .get_finalized_block_progress(None, &consumer_handle)
-            .await?;
+        let progress = load_or_initialize_progress(
+            &db,
+            &rpc,
+            &consumer_handle,
+            paramset,
+            initial_last_processed_height,
+        )
+        .await?;
 
-        if progress.is_none() {
-            if let Some(height) =
-                initial_last_processed_height.filter(|height| *height >= paramset.start_height)
-            {
-                let block_hash = rpc.get_block_hash(height.into()).await.wrap_err_with(|| {
-                    format!("Failed to fetch block hash at finalized progress height {height}")
-                })?;
-                db.upsert_finalized_block_progress(None, &consumer_handle, height, block_hash)
-                    .await?;
-                progress = Some(FinalizedBlockProgress {
-                    last_processed_height: height,
-                    last_processed_block_hash: block_hash,
-                });
-            }
-        }
+        let next_finalized_height = next_height_after_processed(
+            paramset,
+            progress.as_ref().map(|p| p.last_processed_height),
+        );
+        let last_processed =
+            progress.map(|p| (p.last_processed_height, p.last_processed_block_hash));
 
-        Ok(Self::from_progress(
+        Ok(Self::from_parts(
             db,
             rpc,
             consumer_handle,
             paramset,
-            progress,
+            next_finalized_height,
+            last_processed,
         ))
     }
 
-    /// Builds an in-memory cursor from a known last processed height without DB
+    /// Builds a cursor from an already-known last processed height without DB
     /// I/O.
+    ///
+    /// This constructor is intentionally synchronous. The first async poll will
+    /// load or initialize the corresponding persisted progress before checking
+    /// the stored hash.
     pub fn from_last_processed_height(
         db: Database,
         rpc: ExtendedBitcoinRpc,
@@ -86,31 +93,8 @@ impl FinalizedBlockCursor {
         )
     }
 
-    /// Creates cursor state from an optional progress snapshot.
-    fn from_progress(
-        db: Database,
-        rpc: ExtendedBitcoinRpc,
-        consumer_handle: String,
-        paramset: &'static ProtocolParamset,
-        progress: Option<FinalizedBlockProgress>,
-    ) -> Self {
-        let next_finalized_height = next_height_after_processed(
-            paramset,
-            progress.as_ref().map(|p| p.last_processed_height),
-        );
-        let last_processed =
-            progress.map(|p| (p.last_processed_height, p.last_processed_block_hash));
-
-        Self::from_parts(
-            db,
-            rpc,
-            consumer_handle,
-            paramset,
-            next_finalized_height,
-            last_processed,
-        )
-    }
-
+    /// Creates the cursor after callers have resolved the next height and any
+    /// available hash-backed progress.
     fn from_parts(
         db: Database,
         rpc: ExtendedBitcoinRpc,
@@ -189,17 +173,50 @@ impl FinalizedBlockCursor {
         self.next_finalized_height = block_height.saturating_add(1);
     }
 
-    /// Verifies that the last processed finalized block is still canonical.
+    /// Verifies that the latest processed finalized block is still canonical.
     ///
-    /// A mismatch is treated as unrecoverable.
+    /// Cursors created without DB I/O hydrate progress here before polling.
+    /// A hash mismatch is treated as unrecoverable.
     async fn ensure_latest_processed_block_is_still_canonical(
         &mut self,
     ) -> Result<(), BridgeError> {
+        if self.last_processed.is_none() {
+            let progress = load_or_initialize_progress(
+                &self.db,
+                &self.rpc,
+                &self.consumer_handle,
+                self.paramset,
+                self.next_finalized_height.checked_sub(1),
+            )
+            .await?;
+
+            if let Some(progress) = progress {
+                let progress_next = next_height_after_processed(
+                    self.paramset,
+                    Some(progress.last_processed_height),
+                );
+                if progress_next != self.next_finalized_height {
+                    return Err(eyre::eyre!(
+                        "Finalized block cursor progress mismatch for consumer {}: cursor next height {}, persisted next height {}",
+                        self.consumer_handle,
+                        self.next_finalized_height,
+                        progress_next
+                    )
+                    .into());
+                }
+
+                self.last_processed = Some((
+                    progress.last_processed_height,
+                    progress.last_processed_block_hash,
+                ));
+            }
+        }
+
         let Some((last_processed_height, last_processed_hash)) = self.last_processed else {
             return Ok(());
         };
 
-        let current_hash = self.hash_at_progress_height(last_processed_height).await?;
+        let current_hash = progress_block_hash(&self.rpc, last_processed_height).await?;
 
         if current_hash != last_processed_hash {
             let error = format!(
@@ -214,19 +231,56 @@ impl FinalizedBlockCursor {
 
         Ok(())
     }
-
-    /// Fetches the block hash used for progress persistence and reorg checks.
-    async fn hash_at_progress_height(&self, height: u32) -> Result<BlockHash, BridgeError> {
-        self.rpc
-            .get_block_hash(height.into())
-            .await
-            .wrap_err_with(|| {
-                format!("Failed to fetch block hash at finalized progress height {height}")
-            })
-            .map_err(Into::into)
-    }
 }
 
+/// Loads persisted progress for a consumer, or initializes it from a known
+/// already-processed height when no row exists.
+async fn load_or_initialize_progress(
+    db: &Database,
+    rpc: &ExtendedBitcoinRpc,
+    consumer_handle: &str,
+    paramset: &ProtocolParamset,
+    initial_last_processed_height: Option<u32>,
+) -> Result<Option<FinalizedBlockProgress>, BridgeError> {
+    let progress = db
+        .get_finalized_block_progress(None, consumer_handle)
+        .await?;
+
+    if progress.is_some() {
+        return Ok(progress);
+    }
+
+    let Some(height) =
+        initial_last_processed_height.filter(|height| *height >= paramset.start_height)
+    else {
+        return Ok(None);
+    };
+
+    let block_hash = progress_block_hash(rpc, height).await?;
+    db.upsert_finalized_block_progress(None, consumer_handle, height, block_hash)
+        .await?;
+    Ok(Some(FinalizedBlockProgress {
+        last_processed_height: height,
+        last_processed_block_hash: block_hash,
+    }))
+}
+
+/// Fetches the canonical block hash used for progress persistence and reorg
+/// checks.
+async fn progress_block_hash(
+    rpc: &ExtendedBitcoinRpc,
+    height: u32,
+) -> Result<BlockHash, BridgeError> {
+    rpc.get_block_hash(height.into())
+        .await
+        .wrap_err_with(|| {
+            format!("Failed to fetch block hash at finalized progress height {height}")
+        })
+        .map_err(Into::into)
+}
+
+/// Returns the first height that still needs to be processed, clamped to the
+/// configured protocol start height.
 fn next_height_after_processed(
     paramset: &ProtocolParamset,
     last_processed_height: Option<u32>,
@@ -431,6 +485,24 @@ mod tests {
         test.save_progress("test_persisted_reorg", 1, BlockHash::all_zeros())
             .await;
         assert_reorg_error(&mut test.cursor("test_persisted_reorg", None).await).await;
+    }
+
+    #[tokio::test]
+    async fn cursor_from_last_processed_height_checks_persisted_hash() {
+        let test = CursorTest::new(1, 1).await;
+        let consumer_handle = "test_sync_cursor_reorg";
+        test.save_progress(consumer_handle, 1, BlockHash::all_zeros())
+            .await;
+
+        let mut cursor = FinalizedBlockCursor::from_last_processed_height(
+            test.db.clone(),
+            test.regtest.rpc().clone(),
+            consumer_handle.to_string(),
+            test.config.protocol_paramset(),
+            Some(1),
+        );
+
+        assert_reorg_error(&mut cursor).await;
     }
 
     #[tokio::test]
