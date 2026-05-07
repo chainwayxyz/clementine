@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{
+    address::NetworkUnchecked, hashes::Hash, secp256k1::SecretKey, Address as BitcoinAddress,
+    Network, ScriptBuf, Txid, XOnlyPublicKey,
+};
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use bridge_circuit_host::docker::pull_or_load_all_images;
 use clap::{Args, Parser, Subcommand};
@@ -81,7 +84,7 @@ enum OperatorCommands {
     /// Get deposit keys
     GetDepositKeys {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
@@ -94,11 +97,12 @@ enum OperatorCommands {
         #[arg(long)]
         input_signature: String,
         #[arg(long)]
-        input_outpoint_txid: String,
+        input_outpoint_txid: Txid,
         #[arg(long)]
         input_outpoint_vout: u32,
         #[arg(long)]
-        output_script_pubkey: String,
+        #[arg(long, value_parser = parse_script_buf)]
+        output_script_pubkey: ScriptBuf,
         #[arg(long)]
         output_amount: u64,
     },
@@ -107,7 +111,7 @@ enum OperatorCommands {
     /// Get kickoff related txs for sending kickoff manually
     GetReimbursementTxs {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
@@ -118,7 +122,7 @@ enum OperatorCommands {
     /// Transfer outpoints from operator's address to the BTC wallet
     TransferToBtcWallet {
         #[arg(long, num_args = 1.., value_delimiter = ',')]
-        outpoints: Vec<String>,
+        outpoints: Vec<bitcoin::OutPoint>,
     },
     // Add other operator commands as needed
 }
@@ -153,31 +157,32 @@ enum AggregatorCommands {
     /// Process new deposit
     NewDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        evm_address: String,
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        recovery_taproot_address: String,
+        recovery_taproot_address: BitcoinAddress<NetworkUnchecked>,
     },
     /// Sign a replacement deposit
     NewReplacementDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        old_move_txid: String,
+        old_move_txid: Txid,
     },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
     /// Get deposit address
     GetDepositAddress {
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        evm_address: String,
-        #[arg(long)]
-        recovery_taproot_address: String,
+        recovery_taproot_address: BitcoinAddress<NetworkUnchecked>,
         #[arg(long, default_value = "bitcoin")]
         network: Network,
         #[arg(long, default_value_t = 200)]
@@ -185,7 +190,7 @@ enum AggregatorCommands {
     },
     GetReplacementDepositAddress {
         #[arg(long)]
-        move_txid: String,
+        move_txid: Txid,
         #[arg(long, default_value = "bitcoin")]
         network: Network,
         #[arg(long)]
@@ -198,17 +203,18 @@ enum AggregatorCommands {
         #[arg(long)]
         input_signature: String,
         #[arg(long)]
-        input_outpoint_txid: String,
+        input_outpoint_txid: Txid,
         #[arg(long)]
         input_outpoint_vout: u32,
         #[arg(long)]
-        output_script_pubkey: String,
+        #[arg(long, value_parser = parse_script_buf)]
+        output_script_pubkey: ScriptBuf,
         #[arg(long)]
         output_amount: u64,
         #[arg(long)]
         verification_signature: Option<String>,
         #[arg(long)]
-        operator_xonly_pks: Option<Vec<String>>,
+        operator_xonly_pks: Option<Vec<XOnlyPublicKey>>,
     },
     NewOptimisticWithdrawal {
         #[arg(long)]
@@ -216,11 +222,12 @@ enum AggregatorCommands {
         #[arg(long)]
         input_signature: String,
         #[arg(long)]
-        input_outpoint_txid: String,
+        input_outpoint_txid: Txid,
         #[arg(long)]
         input_outpoint_vout: u32,
         #[arg(long)]
-        output_script_pubkey: String,
+        #[arg(long, value_parser = parse_script_buf)]
+        output_script_pubkey: ScriptBuf,
         #[arg(long)]
         output_amount: u64,
         #[arg(long)]
@@ -233,9 +240,9 @@ enum AggregatorCommands {
     },
     /// Internal command to get the emergency stop encryption public key
     InternalGetEmergencyStopTx {
-        #[arg(long)]
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
         /// A comma-separated list of move txids
-        move_txids: String,
+        move_txids: Vec<Txid>,
     },
     /// Get compatibility parameters for all entities
     GetCompatibilityParamsFromAll,
@@ -250,7 +257,7 @@ enum BitcoinCommands {
         #[arg(long)]
         raw_tx: String,
         #[arg(long)]
-        fee_payer_address: Option<String>,
+        fee_payer_address: Option<BitcoinAddress<NetworkUnchecked>>,
         #[arg(long)]
         fee_rate: u64,
         #[arg(long)]
@@ -294,12 +301,14 @@ fn create_minimal_config() -> BridgeConfig {
     }
 }
 
-fn parse_cli_txid(txid: &str) -> Result<Txid> {
-    Txid::from_str(txid).wrap_err("Failed to parse txid")
+fn parse_script_buf(script: &str) -> std::result::Result<ScriptBuf, String> {
+    ScriptBuf::from_hex(script).map_err(|error| error.to_string())
 }
 
-fn parse_cli_rpc_txid(txid: &str) -> Result<clementine::Txid> {
-    Ok(parse_cli_txid(txid)?.into())
+fn parse_evm_address(address: &str) -> std::result::Result<EVMAddress, String> {
+    alloy::primitives::Address::from_str(address)
+        .map(|address| EVMAddress(address.into_array()))
+        .map_err(|error| error.to_string())
 }
 
 async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<()> {
@@ -331,7 +340,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<
                 }),
                 deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(parse_cli_rpc_txid(&deposit_outpoint_txid)?),
+                        txid: Some(deposit_outpoint_txid.into()),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -379,11 +388,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<
                 input_signature: hex::decode(input_signature)
                     .wrap_err("Failed to decode input signature")?,
                 input_outpoint: Some(Outpoint {
-                    txid: Some(parse_cli_rpc_txid(&input_outpoint_txid)?),
+                    txid: Some(input_outpoint_txid.into()),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: hex::decode(output_script_pubkey)
-                    .wrap_err("Failed to decode output script pubkey")?,
+                output_script_pubkey: output_script_pubkey.into_bytes(),
                 output_amount,
             };
             operator
@@ -415,7 +423,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<
             );
             let response = operator
                 .get_reimbursement_txs(Request::new(Outpoint {
-                    txid: Some(parse_cli_rpc_txid(&deposit_outpoint_txid)?),
+                    txid: Some(deposit_outpoint_txid.into()),
                     vout: deposit_outpoint_vout,
                 }))
                 .await
@@ -483,14 +491,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<
                 bail!("At least one outpoint is required");
             }
 
-            let mut parsed_outpoints = Vec::new();
-            for outpoint_str in outpoints {
-                let bitcoin_outpoint: bitcoin::OutPoint = outpoint_str
-                    .parse()
-                    .wrap_err_with(|| format!("Failed to parse outpoint '{outpoint_str}'"))?;
-
-                parsed_outpoints.push(clementine::Outpoint::from(bitcoin_outpoint));
-            }
+            let parsed_outpoints = outpoints
+                .into_iter()
+                .map(clementine::Outpoint::from)
+                .collect::<Vec<_>>();
 
             println!(
                 "Transferring {} outpoint(s) to BTC wallet",
@@ -640,14 +644,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             evm_address,
             recovery_taproot_address,
         } => {
-            let evm_address = alloy::primitives::Address::from_str(&evm_address)
-                .map(|address| EVMAddress(address.into_array()))
-                .wrap_err("Failed to parse --evm-address")?;
-
-            let recovery_taproot_address = bitcoin::Address::from_str(&recovery_taproot_address)
-                .wrap_err("Failed to parse --recovery-taproot-address")?;
-
-            let deposit_outpoint_txid = parse_cli_rpc_txid(&deposit_outpoint_txid)?;
+            let deposit_outpoint_txid: clementine::Txid = deposit_outpoint_txid.into();
 
             let move_to_vault_tx = aggregator
                 .new_deposit(Deposit {
@@ -705,17 +702,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             let input_signature_bytes =
                 hex::decode(input_signature).wrap_err("Failed to decode input signature")?;
 
-            let output_script_pubkey_bytes = hex::decode(output_script_pubkey)
-                .wrap_err("Failed to decode output script pubkey")?;
-
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
                 input_signature: input_signature_bytes,
                 input_outpoint: Some(Outpoint {
-                    txid: Some(parse_cli_rpc_txid(&input_outpoint_txid)?),
+                    txid: Some(input_outpoint_txid.into()),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: output_script_pubkey_bytes,
+                output_script_pubkey: output_script_pubkey.into_bytes(),
                 output_amount,
             };
 
@@ -753,16 +747,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .wrap_err("Failed to parse xonly_pk")?;
 
-            let recovery_taproot_address = bitcoin::Address::from_str(&recovery_taproot_address)
-                .wrap_err("Failed to parse --recovery-taproot-address")?;
             recovery_taproot_address
                 .clone()
                 .require_network(network)
                 .wrap_err("--recovery-taproot-address does not match --network")?;
-
-            let evm_address = alloy::primitives::Address::from_str(&evm_address)
-                .map(|address| EVMAddress(address.into_array()))
-                .wrap_err("Failed to parse --evm-address")?;
 
             let deposit_address = clementine_core::builder::address::generate_deposit_address(
                 xonly_pk,
@@ -777,10 +765,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             println!("Deposit address: {address}");
         }
         AggregatorCommands::InternalGetEmergencyStopTx { move_txids } => {
-            let move_txids = move_txids
-                .split(',')
-                .map(parse_cli_txid)
-                .collect::<Result<Vec<Txid>>>()?;
             let emergency_stop_tx = aggregator
                 .internal_get_emergency_stop_tx(Request::new(
                     clementine::GetEmergencyStopTxRequest {
@@ -808,8 +792,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             network,
             security_council,
         } => {
-            let move_txid = parse_cli_txid(&move_txid)?;
-
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
@@ -835,8 +817,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             deposit_outpoint_vout,
             old_move_txid,
         } => {
-            let old_move_txid = parse_cli_rpc_txid(&old_move_txid)?;
-            let deposit_outpoint_txid = parse_cli_rpc_txid(&deposit_outpoint_txid)?;
+            let old_move_txid: clementine::Txid = old_move_txid.into();
+            let deposit_outpoint_txid: clementine::Txid = deposit_outpoint_txid.into();
 
             let deposit = aggregator
                 .new_deposit(Deposit {
@@ -883,17 +865,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
             let input_signature_bytes =
                 hex::decode(input_signature).wrap_err("Failed to decode input signature")?;
 
-            let output_script_pubkey_bytes = hex::decode(output_script_pubkey)
-                .wrap_err("Failed to decode output script pubkey")?;
-
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
                 input_signature: input_signature_bytes,
                 input_outpoint: Some(Outpoint {
-                    txid: Some(parse_cli_rpc_txid(&input_outpoint_txid)?),
+                    txid: Some(input_outpoint_txid.into()),
                     vout: input_outpoint_vout,
                 }),
-                output_script_pubkey: output_script_pubkey_bytes,
+                output_script_pubkey: output_script_pubkey.into_bytes(),
                 output_amount,
             };
 
@@ -905,15 +884,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Res
 
             let operator_xonly_pks = operator_xonly_pks
                 .map(|pks| {
-                    pks.iter()
-                        .map(|pk| {
-                            let pk = XOnlyPublicKey::from_str(pk)
-                                .wrap_err("Failed to parse xonly public key")?;
-                            Ok(XOnlyPublicKeyRpc::from(pk))
-                        })
-                        .collect::<Result<Vec<_>>>()
+                    pks.into_iter()
+                        .map(XOnlyPublicKeyRpc::from)
+                        .collect::<Vec<_>>()
                 })
-                .transpose()?
                 .unwrap_or_default();
 
             let response = aggregator
@@ -1128,9 +1102,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) -> Result<()
                 );
             };
 
-            let fee_payer_address = bitcoin::Address::from_str(&fee_payer_address)
-                .wrap_err("Failed to parse fee payer address")?
-                .assume_checked();
+            let fee_payer_address = fee_payer_address.assume_checked();
 
             let fee_rate_sat_vb = fee_rate;
 
