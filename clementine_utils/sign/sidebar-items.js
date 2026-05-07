@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["TapTweakData"],"struct":["RbfSigningInfo"]};
+window.SIDEBAR_ITEMS = {"enum":["RbfSigningSpendPath","TapTweakData"],"struct":["RbfSigningInfo"]};

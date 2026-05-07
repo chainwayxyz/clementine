@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["env_subscriber_to_human","env_subscriber_to_json","env_subscriber_with_file","initialize_logger","is_json_logs","try_set_global_subscriber"]};

@@ -16,16 +16,20 @@
 <a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">pub </span>cpfp_fee_payer_bump_wait_time_seconds: u64,
 <a href=#17 id=17 data-nosnippet>17</a>    <span class="doccomment">/// The number of blocks after which to bump the fee a tx in tx sender queue if it's still not confirmed
 <a href=#18 id=18 data-nosnippet>18</a>    </span><span class="kw">pub </span>fee_bump_after_blocks: u32,
-<a href=#19 id=19 data-nosnippet>19</a>}
-<a href=#20 id=20 data-nosnippet>20</a>
-<a href=#21 id=21 data-nosnippet>21</a><span class="kw">impl </span>Default <span class="kw">for </span>TxSenderLimits {
-<a href=#22 id=22 data-nosnippet>22</a>    <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
-<a href=#23 id=23 data-nosnippet>23</a>        <span class="self">Self </span>{
-<a href=#24 id=24 data-nosnippet>24</a>            fee_rate_hard_cap: <span class="number">100</span>,
-<a href=#25 id=25 data-nosnippet>25</a>            mempool_fee_rate_multiplier: <span class="number">1</span>,
-<a href=#26 id=26 data-nosnippet>26</a>            mempool_fee_rate_offset_sat_kvb: <span class="number">0</span>,
-<a href=#27 id=27 data-nosnippet>27</a>            cpfp_fee_payer_bump_wait_time_seconds: <span class="number">60 </span>* <span class="number">60</span>, <span class="comment">// 1 hour in seconds
-<a href=#28 id=28 data-nosnippet>28</a>            </span>fee_bump_after_blocks: <span class="number">10</span>,
-<a href=#29 id=29 data-nosnippet>29</a>        }
-<a href=#30 id=30 data-nosnippet>30</a>    }
-<a href=#31 id=31 data-nosnippet>31</a>}</code></pre></div></section></main></body></html>
+<a href=#19 id=19 data-nosnippet>19</a>    <span class="doccomment">/// Minimum fee bump increment in sat/kvB. If current fee rate is smaller than previously sent fee rate + min_bump_kvb, we do not bump at all. This is so that we do not do tiny fee bumps constantly.
+<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">pub </span>min_bump_kvb: u64,
+<a href=#21 id=21 data-nosnippet>21</a>}
+<a href=#22 id=22 data-nosnippet>22</a>
+<a href=#23 id=23 data-nosnippet>23</a><span class="kw">impl </span>Default <span class="kw">for </span>TxSenderLimits {
+<a href=#24 id=24 data-nosnippet>24</a>    <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
+<a href=#25 id=25 data-nosnippet>25</a>        <span class="self">Self </span>{
+<a href=#26 id=26 data-nosnippet>26</a>            fee_rate_hard_cap: <span class="number">100</span>,
+<a href=#27 id=27 data-nosnippet>27</a>            mempool_fee_rate_multiplier: <span class="number">1</span>,
+<a href=#28 id=28 data-nosnippet>28</a>            mempool_fee_rate_offset_sat_kvb: <span class="number">0</span>,
+<a href=#29 id=29 data-nosnippet>29</a>            cpfp_fee_payer_bump_wait_time_seconds: <span class="number">60 </span>* <span class="number">60</span>, <span class="comment">// 1 hour in seconds
+<a href=#30 id=30 data-nosnippet>30</a>            </span>fee_bump_after_blocks: <span class="number">10</span>,
+<a href=#31 id=31 data-nosnippet>31</a>            <span class="comment">// 0.2 sat/vB ~= 200 sat/kvB
+<a href=#32 id=32 data-nosnippet>32</a>            </span>min_bump_kvb: <span class="number">200</span>,
+<a href=#33 id=33 data-nosnippet>33</a>        }
+<a href=#34 id=34 data-nosnippet>34</a>    }
+<a href=#35 id=35 data-nosnippet>35</a>}</code></pre></div></section></main></body></html>

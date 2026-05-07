@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["POLL_DELAY"],"struct":["TxSenderTaskInternal"]};
+window.SIDEBAR_ITEMS = {"fn":["spawn_txsender_loop","spawn_txsender_loop_with_free_localhost_jsonrpc_port"],"struct":["TxSenderTaskInternal"]};

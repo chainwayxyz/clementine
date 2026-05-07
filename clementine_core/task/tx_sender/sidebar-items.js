@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["TxSenderTask"]};
+window.SIDEBAR_ITEMS = {"constant":["POLL_DELAY"],"struct":["TxSenderTask"]};

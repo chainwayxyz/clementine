@@ -102,7 +102,7 @@
 <a href=#102 id=102 data-nosnippet>102</a>            <span class="kw">let </span>entity_id = <span class="kw">match </span><span class="self">Self</span>::convert_entity_id(<span class="kw-2">&amp;</span>proto_entity_id) {
 <a href=#103 id=103 data-nosnippet>103</a>                <span class="prelude-val">Ok</span>(id) =&gt; id,
 <a href=#104 id=104 data-nosnippet>104</a>                <span class="prelude-val">Err</span>(e) =&gt; {
-<a href=#105 id=105 data-nosnippet>105</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Failed to convert entity_id ({proto_entity_id:?}) to internal EntityId. This can be normal if the entity is unreachable: {e}"</span>);
+<a href=#105 id=105 data-nosnippet>105</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Failed to convert entity_id ({proto_entity_id:?}), can be normal if entity unreachable: {}"</span>, e);
 <a href=#106 id=106 data-nosnippet>106</a>                    <span class="kw">continue</span>;
 <a href=#107 id=107 data-nosnippet>107</a>                }
 <a href=#108 id=108 data-nosnippet>108</a>            };

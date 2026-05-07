@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SECURITY_COUNCIL_SIGNATURE_SIZE","SECURITY_COUNCIL_SIGNATURE_THRESHOLD"],"enum":["DataOnDa"],"struct":["BatchProofMethodId","BatchProofMethodIdBody","SequencerCommitment"],"type":["Proof"]};

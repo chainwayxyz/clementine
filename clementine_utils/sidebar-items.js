@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["address","fee","metadata","sign","traits"]};
+window.SIDEBAR_ITEMS = {"enum":["FeePayingType","RbfSigningSpendPath"],"mod":["address","sign","tracing","traits"],"struct":["RbfSigningInfo","TxMetadata"]};
