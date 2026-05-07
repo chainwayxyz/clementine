@@ -8,7 +8,7 @@ use std::str::FromStr;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FinalizedBlockProgress {
     pub last_processed_height: u32,
-    pub last_processed_block_hash: Option<BlockHash>,
+    pub last_processed_block_hash: BlockHash,
 }
 
 impl Database {
@@ -24,7 +24,7 @@ impl Database {
         )
         .bind(consumer_handle);
 
-        let result: Option<(i32, Option<String>)> =
+        let result: Option<(i32, String)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         let Some((height, block_hash)) = result else {
@@ -33,10 +33,7 @@ impl Database {
 
         let last_processed_height =
             u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
-        let last_processed_block_hash = block_hash
-            .as_deref()
-            .map(BlockHash::from_str)
-            .transpose()
+        let last_processed_block_hash = BlockHash::from_str(&block_hash)
             .wrap_err("Invalid finalized block hash stored in database")?;
 
         Ok(Some(FinalizedBlockProgress {

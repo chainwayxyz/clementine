@@ -23,27 +23,16 @@ use citrea_e2e::{
 use clementine_errors::BridgeError;
 pub use client_mock::*;
 use eyre::Context;
-use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClient;
-use jsonrpsee::rpc_params;
 pub use parameters::*;
 pub use requests::*;
-use serde_json::Value;
-use std::time::Duration;
 
 use super::test_actors::TestActors;
-use super::{are_all_nodes_synced, poll_get, poll_until_condition};
 
 mod bitcoin_merkle;
 mod client_mock;
 mod parameters;
 mod requests;
-
-// Citrea's Bitcoin DA regtest finality is currently hardcoded in the Citrea dependency
-// to the same value as citrea-e2e's DEFAULT_FINALITY_DEPTH. Keep these coupled until
-// Citrea exposes finality depth as test configuration.
-const CITREA_DA_FINALITY_DEPTH: u64 = DEFAULT_FINALITY_DEPTH;
-const SMALL_DA_BLOB_MEMPOOL_TXS: usize = 2;
 
 /// Calculates bridge params dynamically with the N-of-N public key which
 /// calculated from the verifier secret keys in `BridgeConfig::default`.
@@ -118,13 +107,9 @@ pub async fn start_citrea(
     let min_soft_confirmations_per_commitment = sequencer_config.max_l2_blocks_per_commitment;
 
     if sequencer_config.test_mode {
-        let da = f.bitcoin_nodes.get(0).expect("DA not running");
-        let initial_mempool_len = da.get_raw_mempool().await?.len();
         for _ in 0..min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await?;
         }
-        da.wait_mempool_len(initial_mempool_len + SMALL_DA_BLOB_MEMPOOL_TXS, None)
-            .await?;
     }
     sequencer
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
@@ -179,248 +164,60 @@ pub async fn wait_until_lc_contract_updated(
     actors: &TestActors<CitreaClient>,
     txid: Option<Txid>,
 ) -> Result<(), BridgeError> {
-    let height = target_lc_contract_height(e2e, actors, txid).await?;
-    tracing::info!("Driving deterministic Citrea LC update flow for L1 height {height}");
-
-    finalize_next_sequencer_commitment_and_batch_proof(e2e, actors).await?;
-
-    e2e.sequencer
-        .client
-        .send_publish_batch_request()
-        .await
-        .map_err(|e| eyre::eyre!("Failed to send publish batch request: {e}"))?;
-
-    poll_until_condition(
-        async || {
-            let lc_block_number = block_number(client).await?;
-            tracing::info!("LC block number: {lc_block_number}, requested height: {height}");
-            Ok(u64::from(lc_block_number) >= height)
-        },
-        Some(Duration::from_secs(600)),
-        Some(Duration::from_secs(1)),
-    )
-    .await
-    .wrap_err_with(|| format!("LC block number is less than requested height {height}"))?;
-    Ok(())
-}
-
-async fn finalize_next_sequencer_commitment_and_batch_proof(
-    e2e: &CitreaE2EData<'_>,
-    actors: &TestActors<CitreaClient>,
-) -> Result<(), BridgeError> {
-    let latest_job_before_commitment = latest_batch_prover_job_id(e2e).await?;
-    let commitment_mempool_size = e2e.rpc.mempool_size().await?;
-    force_sequencer_to_commit(e2e.sequencer).await?;
-    wait_for_mempool_increase(e2e, commitment_mempool_size, SMALL_DA_BLOB_MEMPOOL_TXS).await?;
-
-    mine_blocks_and_wait_for_sync(e2e, actors, CITREA_DA_FINALITY_DEPTH).await?;
-    let commitment_finalized_height = finalized_height(e2e).await?;
-    e2e.batch_prover
-        .wait_for_l1_height(commitment_finalized_height, Some(Duration::from_secs(300)))
-        .await
-        .map_err(|e| eyre::eyre!("Batch prover did not scan commitment L1 height: {e}"))?;
-
-    let job_ids =
-        force_or_find_batch_prover_jobs(e2e, latest_job_before_commitment.as_deref()).await?;
-    for job_id in &job_ids {
-        wait_for_batch_prover_job_submission(e2e, job_id).await?;
-    }
-
-    mine_blocks_and_wait_for_sync(e2e, actors, CITREA_DA_FINALITY_DEPTH).await?;
-    let batch_proof_finalized_height = finalized_height(e2e).await?;
-    e2e.lc_prover
-        .wait_for_l1_height(batch_proof_finalized_height, Some(Duration::from_secs(300)))
-        .await
-        .map_err(|e| eyre::eyre!("Light client prover did not scan batch proof L1 height: {e}"))?;
-
-    Ok(())
-}
-
-async fn target_lc_contract_height(
-    e2e: &CitreaE2EData<'_>,
-    actors: &TestActors<CitreaClient>,
-    txid: Option<Txid>,
-) -> Result<u64, BridgeError> {
-    let Some(txid) = txid else {
-        return finalized_height(e2e).await;
-    };
-
-    let confirmations = u64::from(e2e.rpc.confirmation_blocks(&txid).await?);
-    if confirmations < CITREA_DA_FINALITY_DEPTH {
-        mine_blocks_and_wait_for_sync(e2e, actors, CITREA_DA_FINALITY_DEPTH - confirmations)
-            .await?;
-    }
-
-    let tx_info = e2e
-        .rpc
-        .get_raw_transaction_info(&txid, None)
-        .await
-        .wrap_err("Failed to get target transaction info")?;
-    let blockhash = tx_info
-        .blockhash
-        .ok_or_else(|| eyre::eyre!("Tx {txid} is not mined"))?;
-    let block_height = e2e
-        .rpc
-        .get_block_info(&blockhash)
-        .await
-        .wrap_err("Failed to get target transaction block info")?
-        .height as u64;
-
-    Ok(block_height)
-}
-
-async fn finalized_height(e2e: &CitreaE2EData<'_>) -> Result<u64, BridgeError> {
-    e2e.bitcoin_nodes
-        .get(0)
-        .expect("There is a bitcoin node")
-        .get_finalized_height(None)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to get finalized Bitcoin height: {e}").into())
-}
-
-async fn mine_blocks_and_wait_for_sync(
-    e2e: &CitreaE2EData<'_>,
-    actors: &TestActors<CitreaClient>,
-    block_num: u64,
-) -> Result<(), BridgeError> {
-    if block_num == 0 {
-        return Ok(());
-    }
-
-    e2e.rpc
-        .mine_blocks(block_num)
-        .await
-        .wrap_err("Failed to mine Bitcoin blocks")?;
-    e2e.bitcoin_nodes
-        .wait_for_sync(Some(Duration::from_secs(60)))
-        .await
-        .map_err(|e| eyre::eyre!("Bitcoin nodes did not sync after mining: {e}"))?;
-    wait_for_clementine_sync(e2e, actors).await
-}
-
-async fn wait_for_clementine_sync(
-    e2e: &CitreaE2EData<'_>,
-    actors: &TestActors<CitreaClient>,
-) -> Result<(), BridgeError> {
-    poll_until_condition(
-        async || Ok(are_all_nodes_synced(e2e.rpc, actors).await?),
-        Some(Duration::from_secs(120)),
-        Some(Duration::from_millis(500)),
-    )
-    .await
-    .wrap_err("Clementine nodes did not sync")?;
-    Ok(())
-}
-
-async fn wait_for_mempool_increase(
-    e2e: &CitreaE2EData<'_>,
-    initial_size: usize,
-    min_increase: usize,
-) -> Result<(), BridgeError> {
-    let target_size = initial_size + min_increase;
-
-    poll_until_condition(
-        async || Ok(e2e.rpc.mempool_size().await? >= target_size),
-        Some(Duration::from_secs(180)),
-        Some(Duration::from_millis(500)),
-    )
-    .await
-    .wrap_err("Timed out waiting for sequencer commitment to enter mempool")?;
-    Ok(())
-}
-
-async fn latest_batch_prover_job_id(
-    e2e: &CitreaE2EData<'_>,
-) -> Result<Option<String>, BridgeError> {
-    let jobs: Vec<Value> = e2e
-        .batch_prover
-        .client
-        .http_client()
-        .request("batchProver_getProvingJobs", rpc_params![1usize])
-        .await
-        .wrap_err("Failed to query latest batch prover jobs")?;
-
-    Ok(jobs.first().and_then(job_id_from_proving_job))
-}
-
-fn job_id_from_proving_job(job: &Value) -> Option<String> {
-    job.get("jobId")
-        .or_else(|| job.get("job_id"))
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-}
-
-async fn force_or_find_batch_prover_jobs(
-    e2e: &CitreaE2EData<'_>,
-    previous_latest_job: Option<&str>,
-) -> Result<Vec<String>, BridgeError> {
-    Ok(poll_get(
-        async || {
-            match e2e
-                .batch_prover
-                .client
-                .http_client()
-                .request::<Vec<String>, _>("batchProver_prove", rpc_params!["Normal"])
+    let height;
+    if let Some(txid) = txid {
+        let mut confirmations = u64::from(e2e.rpc.confirmation_blocks(&txid).await?);
+        if confirmations <= DEFAULT_FINALITY_DEPTH {
+            e2e.rpc
+                .mine_blocks_while_synced(
+                    DEFAULT_FINALITY_DEPTH - confirmations + 1, // 1 extra, idk why
+                    actors,
+                    Some(e2e),
+                )
                 .await
-            {
-                Ok(job_ids) if !job_ids.is_empty() => return Ok(Some(job_ids)),
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::info!("Batch prover manual prove request is not ready yet: {error}");
-                }
-            }
-
-            Ok(latest_batch_prover_job_id(e2e)
-                .await?
-                .filter(|job| previous_latest_job != Some(job.as_str()))
-                .map(|job| vec![job]))
-        },
-        Some(Duration::from_secs(120)),
-        Some(Duration::from_secs(1)),
-    )
-    .await
-    .wrap_err("Timed out waiting for batch prover job")?)
-}
-
-async fn wait_for_batch_prover_job_submission(
-    e2e: &CitreaE2EData<'_>,
-    job_id: &str,
-) -> Result<(), BridgeError> {
-    poll_until_condition(
-        async || {
-            let job: Option<Value> = e2e
-                .batch_prover
-                .client
-                .http_client()
-                .request("batchProver_getProvingJob", rpc_params![job_id])
-                .await
-                .wrap_err("Failed to query batch prover job")?;
-            Ok(job.as_ref().is_some_and(batch_prover_job_has_l1_tx_id))
-        },
-        Some(Duration::from_secs(300)),
-        Some(Duration::from_secs(1)),
-    )
-    .await
-    .wrap_err_with(|| format!("Timed out waiting for batch prover job {job_id} L1 submission"))?;
-    Ok(())
-}
-
-fn batch_prover_job_has_l1_tx_id(job: &Value) -> bool {
-    let Some(l1_tx_id) = job
-        .pointer("/proof/l1_tx_id")
-        .or_else(|| job.pointer("/proof/l1TxId"))
-    else {
-        return false;
-    };
-
-    match l1_tx_id {
-        Value::String(txid) => txid
-            .trim_start_matches("0x")
-            .chars()
-            .any(|char| char != '0'),
-        Value::Array(bytes) => bytes.iter().any(|byte| byte.as_u64().unwrap_or(0) != 0),
-        value => !value.is_null(),
+                .unwrap();
+            confirmations = DEFAULT_FINALITY_DEPTH;
+        }
+        let cur_height = e2e
+            .rpc
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?;
+        height = cur_height - confirmations + 1;
+    } else {
+        height = e2e
+            .rpc
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?
+            - DEFAULT_FINALITY_DEPTH
+            + 1;
     }
+    let mut attempts = 0;
+    let max_attempts = 600;
+
+    let current_chain_height = e2e.rpc.get_block_count().await.unwrap();
+
+    while attempts < max_attempts {
+        let block_number = block_number(client).await?;
+        tracing::info!(
+            "LC block number: {block_number}, current chain height: {current_chain_height}, requested height: {height}",
+        );
+        if block_number >= height as u32 {
+            break;
+        }
+        attempts += 1;
+        e2e.sequencer
+            .client
+            .send_publish_batch_request()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to send publish batch request: {e}"))?;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+    if attempts == max_attempts {
+        return Err(eyre::eyre!("LC block number is less than requested height {height}").into());
+    }
+    Ok(())
 }
 
 /// Convert scriptbuf into how it would look like as a tapscript in a witness
@@ -636,9 +433,7 @@ pub async fn get_new_withdrawal_utxo_and_register_to_citrea(
 
     // Commit once at the end to reduce block usage.
     if !results.is_empty() {
-        finalize_next_sequencer_commitment_and_batch_proof(e2e, actors)
-            .await
-            .unwrap();
+        force_sequencer_to_commit(e2e.sequencer).await.unwrap();
         tracing::info!("Publish batch request sent");
 
         // Check receipts after commit to ensure all txs are finalized.
@@ -699,9 +494,14 @@ pub async fn register_replacement_deposit_to_citrea(
         .setOperator(e2e.citrea_client.wallet_address)
         .send()
         .await?;
-    finalize_next_sequencer_commitment_and_batch_proof(e2e, actors).await?;
+    force_sequencer_to_commit(e2e.sequencer).await?;
     let receipt = set_operator_tx.get_receipt().await?;
     tracing::info!("Set operator tx receipt: {:?}", receipt);
+
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
+        .await
+        .unwrap();
 
     let (replace_tx, block, block_height) =
         get_tx_information_for_citrea(e2e, replacement_move_txid).await?;
@@ -744,10 +544,30 @@ pub async fn register_replacement_deposit_to_citrea(
         .send()
         .await?;
 
-    finalize_next_sequencer_commitment_and_batch_proof(e2e, actors).await?;
+    force_sequencer_to_commit(e2e.sequencer).await?;
 
     let receipt = replace_deposit_tx.get_receipt().await?;
     tracing::info!("Replace deposit tx receipt: {:?}", receipt);
+
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH, actors, Some(e2e))
+        .await
+        .unwrap();
+    let finalized_height = e2e
+        .bitcoin_nodes
+        .get(0)
+        .expect("There is a bitcoin node")
+        .get_finalized_height(None)
+        .await
+        .unwrap();
+    e2e.batch_prover
+        .wait_for_l1_height(finalized_height, None)
+        .await
+        .unwrap();
+    e2e.rpc
+        .mine_blocks_while_synced(DEFAULT_FINALITY_DEPTH + 2, actors, Some(e2e))
+        .await
+        .unwrap();
 
     Ok(())
 }

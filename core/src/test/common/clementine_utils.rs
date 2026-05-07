@@ -12,6 +12,7 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::CitreaE2EData;
+use crate::test::common::mine_once_after_in_mempool;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
@@ -21,8 +22,7 @@ use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
-    ensure_outpoint_spent_while_synced, mine_fee_payers_then_tx,
-    mine_once_after_outpoint_spent_in_mempool,
+    ensure_outpoint_spent_while_synced, mine_once_after_outpoint_spent_in_mempool,
 };
 
 /// Sends a payout tx with given operator for the given withdrawal, starts a kickoff then returns
@@ -119,15 +119,10 @@ pub async fn payout_and_start_kickoff(
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    let kickoff_block_height = mine_fee_payers_then_tx(
-        e2e.rpc,
-        operator_db.clone(),
-        kickoff_txid,
-        Some("Kickoff tx"),
-        Some(300),
-    )
-    .await
-    .unwrap();
+    let kickoff_block_height =
+        mine_once_after_in_mempool(e2e.rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
+            .await
+            .unwrap();
 
     tracing::info!(
         "Kickoff height: {:?}, operator: {:?}",

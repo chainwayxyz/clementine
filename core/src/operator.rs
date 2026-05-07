@@ -2564,7 +2564,7 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
+    const STATE_MANAGER_CONSUMER_ID: &'static str =
         "operator_finalized_block_fetcher_automation";
     // operator uses verifier's lcp syncer
     const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";

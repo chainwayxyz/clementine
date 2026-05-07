@@ -61,7 +61,9 @@ impl<C: CitreaClientT> Task for LcpSyncerTask<C> {
         self.verifier
             .handle_finalized_block(&mut dbtx, height, block_cache, None)
             .await?;
-        self.cursor.save_progress(&mut dbtx, height).await?;
+        self.cursor
+            .save_progress(&mut dbtx, height, block_hash)
+            .await?;
         dbtx.commit().await?;
         self.cursor.record_processed(height, block_hash);
 
@@ -72,6 +74,8 @@ impl<C: CitreaClientT> Task for LcpSyncerTask<C> {
 #[async_trait]
 impl<C: CitreaClientT> RecoverableTask for LcpSyncerTask<C> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
-        self.cursor.recover_from_db().await
+        // The cursor advances only after the DB transaction commits, so a retry
+        // can continue from the same in-memory position.
+        Ok(())
     }
 }

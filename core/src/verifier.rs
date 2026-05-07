@@ -3083,8 +3083,7 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
-        "verifier_finalized_block_fetcher_automation";
+    const STATE_MANAGER_CONSUMER_ID: &'static str = "verifier_finalized_block_fetcher_automation";
     const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 

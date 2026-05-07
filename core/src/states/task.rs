@@ -33,7 +33,6 @@ pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
     /// Queue name for this owner type (cached)
     queue_name: String,
     finalized_block_cursor: FinalizedBlockCursor,
-    cursor_progress_seeded: bool,
 }
 
 #[async_trait]
@@ -42,8 +41,6 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
     const VARIANT: TaskVariant = TaskVariant::StateManager;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        self.ensure_cursor_progress_seeded().await?;
-
         if self.process_queue_event_once().await? {
             return Ok(true);
         }
@@ -55,32 +52,12 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 #[async_trait]
 impl<T: Owner + std::fmt::Debug + 'static> RecoverableTask for MessageConsumerTask<T> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
-        // in case of any error, reload the state machines from the database
         self.inner.reload_state_manager_from_db().await?;
-        self.finalized_block_cursor
-            .reset_to_last_processed_height(self.last_processed_height());
-        self.cursor_progress_seeded = false;
         Ok(())
     }
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> MessageConsumerTask<T> {
-    fn last_processed_height(&self) -> Option<u32> {
-        self.inner.get_next_height_to_process().checked_sub(1)
-    }
-
-    async fn ensure_cursor_progress_seeded(&mut self) -> Result<(), BridgeError> {
-        if self.cursor_progress_seeded {
-            return Ok(());
-        }
-
-        self.finalized_block_cursor
-            .reconcile_progress_with_current_height(self.last_processed_height())
-            .await?;
-        self.cursor_progress_seeded = true;
-        Ok(())
-    }
-
     async fn process_queue_event_once(&mut self) -> Result<bool, BridgeError> {
         tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
         let mut dbtx = self.db.begin_transaction().await?;
@@ -158,7 +135,7 @@ impl<T: Owner + std::fmt::Debug + 'static> MessageConsumerTask<T> {
         let mut dbtx = unwrap_shared_dbtx(arc_dbtx)?;
 
         self.finalized_block_cursor
-            .save_progress(&mut dbtx, height)
+            .save_progress(&mut dbtx, height, block_hash)
             .await?;
         dbtx.commit().await?;
         self.finalized_block_cursor
@@ -199,13 +176,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             "handle_finalized_block: processed block"
         );
 
-        let save_start = std::time::Instant::now();
         self.save_state_to_db(&mut context).await?;
-        tracing::trace!(
-            elapsed_ms = save_start.elapsed().as_millis() as u64,
-            total_elapsed_ms = event_start.elapsed().as_millis() as u64,
-            "handle_finalized_block: saved state"
-        );
 
         Ok(())
     }
@@ -219,7 +190,7 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
         let finalized_block_cursor = FinalizedBlockCursor::from_last_processed_height(
             self.db.clone(),
             self.rpc.clone(),
-            T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION.to_string(),
+            T::STATE_MANAGER_CONSUMER_ID.to_string(),
             self.config.protocol_paramset,
             self.get_next_height_to_process().checked_sub(1),
         );
@@ -229,7 +200,6 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
             finalized_block_cursor,
-            cursor_progress_seeded: false,
         }
         .into_buffered_errors(10, 3, Duration::from_secs(10))
         .with_delay(POLL_DELAY)
@@ -249,9 +219,7 @@ mod tests {
         database::{Database, DatabaseTransaction},
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{context::DutyResult, Duty},
-        test::common::{
-            create_regtest_rpc, create_test_config_with_thread_name, set_test_protocol_paramset,
-        },
+        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
     use clementine_primitives::TransactionType;
@@ -261,11 +229,21 @@ mod tests {
     #[derive(Clone, Debug)]
     struct MockHandler;
 
+    fn set_test_protocol_paramset(
+        config: &mut BridgeConfig,
+        start_height: u32,
+        finality_depth: u32,
+    ) {
+        let mut paramset = config.protocol_paramset().clone();
+        paramset.start_height = start_height;
+        paramset.finality_depth = finality_depth;
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+    }
+
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
         const LCP_SYNCER_CONSUMER_ID: &'static str = "mock_lcp_syncer";
-        const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
-            "mock_finalized_block_automation";
+        const STATE_MANAGER_CONSUMER_ID: &'static str = "mock_finalized_block_automation";
     }
 
     #[async_trait]
@@ -371,13 +349,10 @@ mod tests {
             Some(2)
         );
         assert_eq!(
-            db.get_finalized_block_progress(
-                None,
-                MockHandler::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION
-            )
-            .await
-            .unwrap()
-            .map(|progress| progress.last_processed_height),
+            db.get_finalized_block_progress(None, MockHandler::STATE_MANAGER_CONSUMER_ID)
+                .await
+                .unwrap()
+                .map(|progress| progress.last_processed_height),
             Some(1)
         );
     }

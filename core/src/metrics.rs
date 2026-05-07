@@ -276,7 +276,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
                 "get_finalized_synced_height",
                 get_finalized_block_fetcher_consumer_last_processed_height(
                     db,
-                    T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+                    T::STATE_MANAGER_CONSUMER_ID,
                 ),
             )
             .await,

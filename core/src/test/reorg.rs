@@ -12,7 +12,9 @@ use crate::rpc;
 use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::MockCitreaClient;
-use crate::test::common::tx_utils::{create_bumpable_tx, mine_fee_payers_then_tx};
+use crate::test::common::tx_utils::{
+    create_bumpable_tx, wait_for_fee_payer_utxos_to_be_in_mempool,
+};
 use crate::test::common::{
     citrea, create_actors, create_test_config_with_thread_name, get_deposit_address,
     mine_once_after_in_mempool,
@@ -33,6 +35,7 @@ use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::Te
 use clementine_errors::BridgeError;
 use clementine_primitives::EVMAddress;
 use std::collections::HashMap;
+use std::time::Duration;
 use tonic::{async_trait, Request};
 
 struct TxSenderReorgBehavior;
@@ -95,6 +98,13 @@ impl TestCase for TxSenderReorgBehavior {
         let actor = Actor::new(config.secret_key, config.protocol_paramset.network);
         let db = Database::new(&config).await.unwrap();
 
+        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap()
+            .into_task()
+            .cancelable_loop();
+        btc_syncer.0.into_bg();
+
         let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
         let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
@@ -121,7 +131,12 @@ impl TestCase for TxSenderReorgBehavior {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        mine_fee_payers_then_tx(&rpc, db.clone(), txid, Some("bumpable_cpfp_tx"), None).await?;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        rpc.mine_blocks(1).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        rpc.mine_blocks(1).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        mine_once_after_in_mempool(&rpc, txid, Some("bumpable_cpfp_tx"), None).await?;
 
         assert!(rpc
             .get_raw_transaction_info(&txid, None)
@@ -324,6 +339,7 @@ impl TestCase for ReorgOnDeposit {
             .await
             .unwrap();
 
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None)
             .await?;
 
@@ -358,15 +374,11 @@ impl TestCase for ReorgOnDeposit {
 
         // let move_txid: Transaction = aggregator.new_deposit(deposit).await?.into_inner();
 
-        let aggregator_db = Database::new(&actors.aggregator.config).await?;
-        mine_fee_payers_then_tx(
-            &rpc,
-            aggregator_db.clone(),
-            move_txid,
-            Some("Move tx"),
-            None,
-        )
-        .await?;
+        // Wait till tx_sender can send the fee_payer_tx to the mempool and then mine it
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        rpc.mine_blocks(1).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
         // Move tx is on-chain.
         assert!(rpc
@@ -423,9 +435,16 @@ impl TestCase for ReorgOnDeposit {
             .blockhash
             .is_none());
 
-        mine_fee_payers_then_tx(&rpc, aggregator_db, move_txid, Some("Move tx"), None)
+        // First mine once for fee payer tx of move tx + deposit tx to be included in chain
+        let aggregator_db = Database::new(&actors.aggregator.config).await?;
+        wait_for_fee_payer_utxos_to_be_in_mempool(&rpc, aggregator_db.clone(), move_txid)
             .await
             .map_err(BridgeError::from)?;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        rpc.mine_blocks(1).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // now mine again for move tx to be included in chain
+        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
         // Move tx should be on-chain.
         assert!(rpc

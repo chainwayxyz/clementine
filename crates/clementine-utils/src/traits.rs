@@ -18,8 +18,8 @@ pub trait NamedEntity: Sync + Send + 'static {
     /// Consumer ID for the finalized block task with no automation.
     const LCP_SYNCER_CONSUMER_ID: &'static str;
 
-    /// Consumer ID for the finalized block task with automation.
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str;
+    /// Consumer ID for the state manager task.
+    const STATE_MANAGER_CONSUMER_ID: &'static str;
 }
 
 /// Trait to extract last 20 bytes (for address derivation).

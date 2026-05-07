@@ -115,7 +115,7 @@ async fn deposit_and_get_reimbursement(
     citrea_client
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
-    // Mine enough blocks for RPC-backed finality checks.
+    // Mine some blocks so that block syncer counts it as finalized
 
     rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
         .await
@@ -259,14 +259,14 @@ async fn deposit_and_get_reimbursement(
                         rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
                             .await
                             .unwrap();
-                        // wait for RPC-backed background sync to observe finality
+                        // wait a bit for btc syncer to sync
                         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
                     } else if tx_type == TransactionType::ChallengeTimeout {
                         // mine blocks so that challenge timeout is considered finalized
                         rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
                             .await
                             .unwrap();
-                        // wait for RPC-backed background sync to observe finality
+                        // wait a bit for btc syncer to sync
                         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
                     }
                 }

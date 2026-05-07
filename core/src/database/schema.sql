@@ -98,12 +98,6 @@ create table if not exists bitcoin_syncer (
     height int not null,
     is_canonical boolean not null default true
 );
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
 -- enum for bitcoin_syncer_events
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
@@ -127,7 +121,7 @@ create table if not exists bitcoin_syncer_event_handlers (
 create table if not exists finalized_block_fetcher_progress (
     consumer_handle text primary key,
     last_processed_height int not null,
-    last_processed_block_hash text,
+    last_processed_block_hash text not null,
     created_at timestamp not null default now(),
     updated_at timestamp not null default now()
 );
