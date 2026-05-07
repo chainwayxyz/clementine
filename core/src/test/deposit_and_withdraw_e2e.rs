@@ -1597,10 +1597,6 @@ async fn mock_citrea_run_malicious() {
             .unwrap();
 
     tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
-    // sync all nodes
-    rpc.mine_blocks_while_synced(1, &actors, None)
-        .await
-        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,

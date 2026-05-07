@@ -177,7 +177,7 @@ pub async fn poll_get<T>(
 }
 
 /// Checks if all clementine nodes are synced.
-/// State managers and LCP syncers must be synced to the last finalized height.
+/// State managers and LCP syncers must be synced to the latest finalized block.
 /// Tx senders must be synced to at least current height.
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
