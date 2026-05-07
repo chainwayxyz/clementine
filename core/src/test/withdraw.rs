@@ -42,10 +42,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaWithdrawAndGetUTXO<USE_ANNEX> {
             extra_args.push("-acceptnonstdtxn=1");
         }
 
-        BitcoinConfig {
-            extra_args,
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(extra_args)
     }
 
     fn test_config() -> TestCaseConfig {
@@ -180,7 +177,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaWithdrawAndGetUTXO<USE_ANNEX> {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let use_annex = rand::random::<bool>();
     if use_annex {
         TestCaseRunner::new(CitreaWithdrawAndGetUTXO::<true>)
