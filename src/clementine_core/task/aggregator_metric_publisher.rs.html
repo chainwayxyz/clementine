@@ -147,22 +147,25 @@
 <a href=#147 id=147 data-nosnippet>147</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(fee_rate) = status.btc_fee_rate_sat_vb {
 <a href=#148 id=148 data-nosnippet>148</a>                        metrics.bitcoin_fee_rate_sat_vb.set(fee_rate <span class="kw">as </span>f64);
 <a href=#149 id=149 data-nosnippet>149</a>                    }
-<a href=#150 id=150 data-nosnippet>150</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.citrea_l2_block_height {
-<a href=#151 id=151 data-nosnippet>151</a>                        metrics.citrea_l2_block_height.set(height <span class="kw">as </span>f64);
+<a href=#150 id=150 data-nosnippet>150</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.lcp_synced_height {
+<a href=#151 id=151 data-nosnippet>151</a>                        metrics.lcp_synced_height.set(height <span class="kw">as </span>f64);
 <a href=#152 id=152 data-nosnippet>152</a>                    }
-<a href=#153 id=153 data-nosnippet>153</a>                }
-<a href=#154 id=154 data-nosnippet>154</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
-<a href=#155 id=155 data-nosnippet>155</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);
-<a href=#156 id=156 data-nosnippet>156</a>                    <span class="comment">// Increment error counter
-<a href=#157 id=157 data-nosnippet>157</a>                    </span>metrics.entity_status_error_count.increment(<span class="number">1</span>);
-<a href=#158 id=158 data-nosnippet>158</a>                }
-<a href=#159 id=159 data-nosnippet>159</a>                <span class="prelude-val">None </span>=&gt; {
-<a href=#160 id=160 data-nosnippet>160</a>                    <span class="macro">tracing::warn!</span>(<span class="string">"Entity {} has no status"</span>, entity_id);
+<a href=#153 id=153 data-nosnippet>153</a>                    <span class="kw">if let </span><span class="prelude-val">Some</span>(height) = status.citrea_l2_block_height {
+<a href=#154 id=154 data-nosnippet>154</a>                        metrics.citrea_l2_block_height.set(height <span class="kw">as </span>f64);
+<a href=#155 id=155 data-nosnippet>155</a>                    }
+<a href=#156 id=156 data-nosnippet>156</a>                }
+<a href=#157 id=157 data-nosnippet>157</a>                <span class="prelude-val">Some</span>(<span class="kw">crate</span>::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) =&gt; {
+<a href=#158 id=158 data-nosnippet>158</a>                    <span class="macro">tracing::error!</span>(<span class="string">"Entity {} error: {}"</span>, entity_id, error.error);
+<a href=#159 id=159 data-nosnippet>159</a>                    <span class="comment">// Increment error counter
+<a href=#160 id=160 data-nosnippet>160</a>                    </span>metrics.entity_status_error_count.increment(<span class="number">1</span>);
 <a href=#161 id=161 data-nosnippet>161</a>                }
-<a href=#162 id=162 data-nosnippet>162</a>            }
-<a href=#163 id=163 data-nosnippet>163</a>        }
-<a href=#164 id=164 data-nosnippet>164</a>
-<a href=#165 id=165 data-nosnippet>165</a>        <span class="comment">// Always delay by returning false (ie. no work done)
-<a href=#166 id=166 data-nosnippet>166</a>        </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
-<a href=#167 id=167 data-nosnippet>167</a>    }
-<a href=#168 id=168 data-nosnippet>168</a>}</code></pre></div></section></main></body></html>
+<a href=#162 id=162 data-nosnippet>162</a>                <span class="prelude-val">None </span>=&gt; {
+<a href=#163 id=163 data-nosnippet>163</a>                    <span class="macro">tracing::warn!</span>(<span class="string">"Entity {} has no status"</span>, entity_id);
+<a href=#164 id=164 data-nosnippet>164</a>                }
+<a href=#165 id=165 data-nosnippet>165</a>            }
+<a href=#166 id=166 data-nosnippet>166</a>        }
+<a href=#167 id=167 data-nosnippet>167</a>
+<a href=#168 id=168 data-nosnippet>168</a>        <span class="comment">// Always delay by returning false (ie. no work done)
+<a href=#169 id=169 data-nosnippet>169</a>        </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>)
+<a href=#170 id=170 data-nosnippet>170</a>    }
+<a href=#171 id=171 data-nosnippet>171</a>}</code></pre></div></section></main></body></html>
