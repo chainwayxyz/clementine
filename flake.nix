@@ -102,8 +102,6 @@
           ZERO_AR_DATE = "1";
           CARGO_INCREMENTAL = "0";
           VERGEN_IDEMPOTENT = "1";
-          # Avoid host-dependent jemalloc rtree sizing on machines with 5-level paging.
-          JEMALLOC_SYS_WITH_LG_VADDR = "48";
           RECURSION_SRC_PATH = "${recursionZkr}";
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 

@@ -49,6 +49,7 @@ async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
+blst = { workspace = true }
 tempfile = { workspace = true }
 eyre = { workspace = true }
 tokio-retry = { workspace = true }

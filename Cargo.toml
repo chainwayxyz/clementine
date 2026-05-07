@@ -105,6 +105,7 @@ once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
 blake3 = "1.6.1"
+blst = { version = "0.3.15", default-features = false, features = ["portable"] }
 itertools = "0.14.0"
 bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "aeecbd9ae609aea6651e07adecdd0bc11bfd3adb" }
 

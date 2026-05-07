@@ -2209,6 +2209,7 @@ dependencies = [
  "bitcoin-script",
  "bitcoincore-rpc",
  "bitvm",
+ "blst",
  "borsh",
  "bridge-circuit-host",
  "chacha20poly1305",
