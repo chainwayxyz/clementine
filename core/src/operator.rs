@@ -46,7 +46,7 @@ use clementine_primitives::UTXO;
 use clementine_primitives::{PublicHash, RoundIndex};
 
 use eyre::{eyre, Context, OptionExt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -379,27 +379,6 @@ where
             header_chain_prover,
             reimburse_addr,
         })
-    }
-
-    pub(crate) async fn get_canonical_rpc_block_height(
-        &self,
-        block_hash: BlockHash,
-    ) -> Result<u32, BridgeError> {
-        let block_info = self
-            .rpc
-            .get_block_info(&block_hash)
-            .await
-            .wrap_err_with(|| format!("Failed to get block info for {block_hash}"))?;
-
-        if block_info.confirmations <= 0 {
-            return Err(eyre::eyre!(
-                "Block {block_hash} is not on the canonical chain, confirmations: {}",
-                block_info.confirmations
-            )
-            .into());
-        }
-
-        Ok(u32::try_from(block_info.height).wrap_err("Failed to convert block height to u32")?)
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -1268,7 +1247,8 @@ where
         }
 
         let payout_block_height = self
-            .get_canonical_rpc_block_height(payout_block_hash)
+            .rpc
+            .get_canonical_block_height(payout_block_hash)
             .await?;
         let payout_block = self
             .rpc
@@ -1785,7 +1765,8 @@ where
 
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
                     let payout_block_height = self
-                        .get_canonical_rpc_block_height(payout_blockhash)
+                        .rpc
+                        .get_canonical_block_height(payout_blockhash)
                         .await?;
 
                     let move_txid = deposit_data.get_move_txid(self.config.protocol_paramset())?;
@@ -2355,7 +2336,7 @@ where
             return Ok(());
         }
         let kickoff_txids: Vec<_> = finalizers.iter().map(|(_, txid, _, _)| *txid).collect();
-        let on_chain_txids: Vec<_> = self
+        let on_chain_txids: HashSet<_> = self
             .rpc
             .confirmed_tx_heights(&kickoff_txids)
             .await?

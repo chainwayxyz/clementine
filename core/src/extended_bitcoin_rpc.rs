@@ -12,8 +12,8 @@
 
 // Re-export types from clementine-extended-rpc
 pub use clementine_extended_rpc::{
-    get_fee_rate_from_mempool_space, BitcoinRPCError, ExtendedBitcoinRpc, RetryConfig,
-    RetryableError,
+    get_fee_rate_from_mempool_space, ActiveBlockInfo, BitcoinRPCError, ExtendedBitcoinRpc,
+    RetryConfig, RetryableError,
 };
 
 use async_trait::async_trait;

@@ -5,6 +5,7 @@ use crate::{
 use bitcoin::{BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::{json::GetTxSpendingPrevoutOptions, RpcApi};
 use clementine_errors::BridgeError;
+use clementine_extended_rpc::ActiveBlockInfo;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -48,7 +49,7 @@ impl TxSender {
         // We cache getrawtransactioninfo and block info results per sync to avoid
         // duplicate RPC calls across tables.
         let mut tx_status_cache: HashMap<Txid, TxChainStatus> = HashMap::new();
-        let mut block_info_cache: HashMap<BlockHash, Option<(u32, u32)>> = HashMap::new();
+        let mut block_info_cache: HashMap<BlockHash, Option<ActiveBlockInfo>> = HashMap::new();
 
         // ---- main try_to_send_txs ----
         let unfinalized = self
@@ -98,7 +99,7 @@ impl TxSender {
                     if !rbf_txids.contains(&txid) {
                         rbf_txids.push(txid);
                     }
-                    let mut first_confirmed_rbf: Option<(u32, u32)> = None; // (confirmations, block_height)
+                    let mut first_confirmed_rbf: Option<ActiveBlockInfo> = None;
                     for rbf_txid in &rbf_txids {
                         if let TxChainStatus::Confirmed {
                             block_height,
@@ -111,14 +112,17 @@ impl TxSender {
                         )
                         .await?
                         {
-                            first_confirmed_rbf = Some((confirmations, block_height));
+                            first_confirmed_rbf = Some(ActiveBlockInfo {
+                                height: block_height,
+                                confirmations,
+                            });
                             break;
                         }
                     }
                     match first_confirmed_rbf {
-                        Some((confirmations, block_height)) => TxChainStatus::Confirmed {
-                            block_height,
-                            confirmations,
+                        Some(block_info) => TxChainStatus::Confirmed {
+                            block_height: block_info.height,
+                            confirmations: block_info.confirmations,
                         },
                         None => TxChainStatus::NotPresent,
                     }
@@ -318,7 +322,7 @@ impl TxSender {
 async fn get_tx_status_cached(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
     tx_cache: &mut HashMap<Txid, TxChainStatus>,
-    block_cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
+    block_cache: &mut HashMap<BlockHash, Option<ActiveBlockInfo>>,
     txid: Txid,
 ) -> Result<TxChainStatus, BridgeError> {
     if let Some(status) = tx_cache.get(&txid) {
@@ -343,9 +347,9 @@ async fn get_tx_status_cached(
             })?;
 
             match rpc.active_block_info_cached(block_cache, blockhash).await? {
-                Some((block_height, confirmations)) => TxChainStatus::Confirmed {
-                    block_height,
-                    confirmations,
+                Some(block_info) => TxChainStatus::Confirmed {
+                    block_height: block_info.height,
+                    confirmations: block_info.confirmations,
                 },
                 None => TxChainStatus::NotPresent,
             }
@@ -366,7 +370,7 @@ async fn get_tx_status_cached(
 /// when the queued tx first became unmineable.
 async fn confirmed_input_spender(
     rpc: &clementine_extended_rpc::ExtendedBitcoinRpc,
-    block_cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
+    block_cache: &mut HashMap<BlockHash, Option<ActiveBlockInfo>>,
     tx: &Transaction,
     original_txid: Txid,
     rbf_txids: &[Txid],
@@ -401,9 +405,7 @@ async fn confirmed_input_spender(
             continue;
         };
 
-        let Some((block_height, confirmations)) =
-            rpc.active_block_info_cached(block_cache, blockhash).await?
-        else {
+        let Some(block_info) = rpc.active_block_info_cached(block_cache, blockhash).await? else {
             continue;
         };
 
@@ -411,8 +413,8 @@ async fn confirmed_input_spender(
             outpoint: spender.outpoint(),
             spending_txid,
             blockhash,
-            confirmations,
-            block_height,
+            confirmations: block_info.confirmations,
+            block_height: block_info.height,
         };
 
         if oldest_confirmed_spender

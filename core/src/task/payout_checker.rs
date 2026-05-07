@@ -81,7 +81,8 @@ where
         // fetch and save the LCP for if we get challenged and need to provide proof of payout later
         let payout_block_height = self
             .operator
-            .get_canonical_rpc_block_height(payout_tx_blockhash)
+            .rpc
+            .get_canonical_block_height(payout_tx_blockhash)
             .await?;
 
         let _ = self

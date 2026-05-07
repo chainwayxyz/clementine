@@ -25,6 +25,12 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 const BITCOIN_CORE_V31_VERSION: usize = 310000;
 const REQUIRED_INDEXES: [&str; 2] = ["txindex", "txospenderindex"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActiveBlockInfo {
+    pub height: u32,
+    pub confirmations: u32,
+}
+
 fn is_not_found_error(err: &bitcoincore_rpc::Error) -> bool {
     let s = err.to_string();
     s.contains("No such mempool or blockchain transaction")
@@ -224,9 +230,9 @@ impl ExtendedBitcoinRpc {
 
     pub async fn active_block_info_cached(
         &self,
-        cache: &mut HashMap<BlockHash, Option<(u32, u32)>>,
+        cache: &mut HashMap<BlockHash, Option<ActiveBlockInfo>>,
         blockhash: BlockHash,
-    ) -> Result<Option<(u32, u32)>> {
+    ) -> Result<Option<ActiveBlockInfo>> {
         if let Some(info) = cache.get(&blockhash) {
             return Ok(*info);
         }
@@ -235,16 +241,34 @@ impl ExtendedBitcoinRpc {
             .await
             .wrap_err("Failed to get block info")?;
         let info = if block_info.confirmations > 0 {
-            Some((
-                u32::try_from(block_info.height).wrap_err("Failed to convert block height")?,
-                u32::try_from(block_info.confirmations)
+            Some(ActiveBlockInfo {
+                height: u32::try_from(block_info.height)
+                    .wrap_err("Failed to convert block height")?,
+                confirmations: u32::try_from(block_info.confirmations)
                     .wrap_err("Failed to convert block confirmations")?,
-            ))
+            })
         } else {
             None
         };
         cache.insert(blockhash, info);
         Ok(info)
+    }
+
+    pub async fn get_canonical_block_height(&self, blockhash: BlockHash) -> Result<u32> {
+        let block_info = self
+            .get_block_info(&blockhash)
+            .await
+            .wrap_err_with(|| format!("Failed to get block info for {blockhash}"))?;
+
+        if block_info.confirmations <= 0 {
+            return Err(eyre!(
+                "Block {blockhash} is not on the canonical chain, confirmations: {}",
+                block_info.confirmations
+            )
+            .into());
+        }
+
+        Ok(u32::try_from(block_info.height).wrap_err("Failed to convert block height to u32")?)
     }
 
     pub async fn confirmed_tx_heights(&self, txids: &[Txid]) -> Result<Vec<(Txid, u32)>> {
@@ -266,11 +290,11 @@ impl ExtendedBitcoinRpc {
             if info.confirmations.is_none_or(|c| c == 0) {
                 continue;
             }
-            if let Some((height, _)) = self
+            if let Some(block_info) = self
                 .active_block_info_cached(&mut block_cache, blockhash)
                 .await?
             {
-                heights.push((info.txid, height));
+                heights.push((info.txid, block_info.height));
             }
         }
         Ok(heights)
@@ -310,11 +334,11 @@ impl ExtendedBitcoinRpc {
             let Some(blockhash) = spender.blockhash else {
                 continue;
             };
-            if let Some((height, _)) = self
+            if let Some(block_info) = self
                 .active_block_info_cached(&mut block_cache, blockhash)
                 .await?
             {
-                heights.insert(spender.outpoint(), (spending_txid, height));
+                heights.insert(spender.outpoint(), (spending_txid, block_info.height));
             }
         }
         Ok(heights)
