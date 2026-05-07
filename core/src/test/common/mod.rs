@@ -177,7 +177,7 @@ pub async fn poll_get<T>(
 }
 
 /// Checks if all clementine nodes are synced.
-/// State managers must be synced to the last finalized height.
+/// State managers and LCP syncers must be synced to the latest finalized block.
 /// Tx senders must be synced to at least current height.
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
@@ -196,8 +196,16 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     let tx_sender_threshold = current_chain_height;
 
-    let mut min_next_sync_height = u32::MAX;
-    let mut all_tx_sender_synced = true;
+    let should_check_state_manager = cfg!(feature = "automation")
+        && actors
+            .aggregator
+            .config
+            .test_params
+            .should_run_state_manager;
+
+    let mut lcp_synced = true;
+    let mut state_manager_synced = true;
+    let mut tx_sender_synced = true;
 
     for entity in &entity_statuses.entity_statuses {
         let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
@@ -209,26 +217,31 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
             ));
         };
 
+        // LCP syncer runs even without automation.
+        let lcp_next_height = status
+            .lcp_synced_height
+            .map(|height| height.saturating_add(1))
+            .unwrap_or(0);
+        if lcp_next_height <= current_finalized_chain_height {
+            lcp_synced = false;
+        }
+
         if status.automation {
-            min_next_sync_height =
-                min_next_sync_height.min(status.state_manager_next_height.unwrap_or(0));
+            if should_check_state_manager {
+                let state_manager_next_height = status.state_manager_next_height.unwrap_or(0);
+                if state_manager_next_height <= current_finalized_chain_height {
+                    state_manager_synced = false;
+                }
+            }
+
             let tx_sender_height = status.tx_sender_synced_height.unwrap_or(0);
             if tx_sender_height < tx_sender_threshold {
-                all_tx_sender_synced = false;
+                tx_sender_synced = false;
             }
         }
     }
 
-    let state_manager_running = actors
-        .aggregator
-        .config
-        .test_params
-        .should_run_state_manager;
-
-    Ok(
-        (!state_manager_running || min_next_sync_height > current_finalized_chain_height)
-            && all_tx_sender_synced,
-    )
+    Ok(lcp_synced && state_manager_synced && tx_sender_synced)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make

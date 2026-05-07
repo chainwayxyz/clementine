@@ -9,6 +9,7 @@ use clementine_errors::BridgeError;
 
 pub mod aggregator_metric_publisher;
 pub mod entity_metric_publisher;
+pub mod lcp_syncer;
 pub mod manager;
 pub mod payout_checker;
 pub mod status_monitor;
@@ -23,6 +24,7 @@ pub enum TaskVariant {
     PayoutChecker,
     StateManager,
     FinalizedBlockFetcher,
+    LcpSyncer,
     TxSender,
     BitcoinSyncer,
     TaskStatusMonitor,

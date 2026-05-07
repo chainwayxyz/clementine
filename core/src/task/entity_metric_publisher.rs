@@ -105,6 +105,9 @@ impl<T: NamedEntity, C: CitreaClientT> Task for EntityMetricPublisher<T, C> {
         if let Some(fee_rate) = sync_status.bitcoin_fee_rate_sat_vb {
             metric.bitcoin_fee_rate_sat_vb.set(fee_rate as f64);
         }
+        if let Some(height) = sync_status.lcp_synced_height {
+            metric.lcp_synced_height.set(height as f64);
+        }
         if let Some(height) = sync_status.citrea_l2_block_height {
             metric.citrea_l2_block_height.set(height as f64);
         }

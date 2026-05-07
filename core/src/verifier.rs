@@ -45,8 +45,10 @@ use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
+use crate::task::lcp_syncer::LcpSyncerTask;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
+
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 #[cfg(feature = "automation")]
@@ -318,33 +320,20 @@ where
                     .await;
             }
         }
-        #[cfg(not(feature = "automation"))]
-        {
-            // get the next finalized block height to start from
-            let next_height = self
-                .verifier
-                .db
-                .get_next_finalized_block_height_for_consumer(
-                    None,
-                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
-                    self.verifier.config.protocol_paramset(),
-                )
-                .await?;
 
-            self.background_tasks
-                .ensure_task_looping(
-                    crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
-                        self.verifier.db.clone(),
-                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION.to_string(),
-                        self.verifier.config.protocol_paramset(),
-                        next_height,
-                        self.verifier.clone(),
-                    )
-                    .into_buffered_errors(20, 3, Duration::from_secs(10))
-                    .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
+        self.background_tasks
+            .ensure_task_looping(
+                LcpSyncerTask::new(
+                    self.verifier.db.clone(),
+                    Verifier::<C>::LCP_SYNCER_CONSUMER_ID.to_string(),
+                    self.verifier.config.protocol_paramset(),
+                    self.verifier.clone(),
                 )
-                .await;
-        }
+                .await?
+                .into_buffered_errors(20, 3, Duration::from_secs(10))
+                .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
+            )
+            .await;
 
         let syncer = BitcoinSyncer::new(
             self.verifier.db.clone(),
@@ -399,6 +388,7 @@ where
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
             citrea_l2_block_height: sync_status.citrea_l2_block_height,
+            lcp_synced_height: sync_status.lcp_synced_height,
         })
     }
 }
@@ -3060,7 +3050,7 @@ where
         Ok(())
     }
 
-    async fn handle_finalized_block(
+    pub async fn handle_finalized_block(
         &self,
         mut dbtx: DatabaseTransaction<'_>,
         block_id: u32,
@@ -3110,34 +3100,11 @@ where
                 // Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             }
+            // notify that lcp was processed for this height to state manager
+            StateManager::<Self>::dispatch_lcp_processed(&self.db, dbtx, block_height).await?;
         }
 
         Ok(())
-    }
-}
-
-// This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
-#[cfg(not(feature = "automation"))]
-#[async_trait::async_trait]
-impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
-where
-    C: CitreaClientT,
-{
-    async fn handle_new_block(
-        &mut self,
-        dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
-        block: bitcoin::Block,
-        height: u32,
-    ) -> Result<(), BridgeError> {
-        self.handle_finalized_block(
-            dbtx,
-            block_id,
-            height,
-            Arc::new(block_cache::BlockCache::from_block(block, height)),
-            None,
-        )
-        .await
     }
 }
 
@@ -3148,8 +3115,7 @@ where
     const ENTITY_NAME: &'static str = "verifier";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "verifier_finalized_block_fetcher_automation";
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-        "verifier_finalized_block_fetcher_no_automation";
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 
 #[cfg(feature = "automation")]
@@ -3159,7 +3125,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner};
+    use crate::states::{Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
@@ -3362,7 +3328,6 @@ mod states {
                     txid,
                     block_height,
                     witness,
-                    challenged_before,
                 } => {
                     tracing::debug!(
                         "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -3374,38 +3339,45 @@ mod states {
                         .db
                         .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
-                    let mut challenged = false;
                     if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
                         tracing::debug!(
                             "New kickoff found {:?}, for deposit: {:?}",
                             kickoff_data,
                             deposit_data.get_deposit_outpoint()
                         );
-                        let mut dbtx = self.db.begin_transaction().await?;
                         // add kickoff machine if there is a new kickoff
                         // do not add if kickoff finalizer is already spent => kickoff is finished
                         // this can happen if we are resyncing
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             &self.db,
-                            &mut dbtx,
+                            dbtx,
                             kickoff_data,
                             block_height,
                             deposit_data.clone(),
                             witness.clone(),
                         )
                         .await?;
-                        challenged = self
-                            .handle_kickoff(
-                                &mut dbtx,
-                                witness,
-                                deposit_data,
-                                kickoff_data,
-                                challenged_before,
-                            )
-                            .await?;
-                        dbtx.commit().await?;
                     }
-                    Ok(DutyResult::CheckIfKickoff { challenged })
+                    Ok(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoffMalicious {
+                    kickoff_witness,
+                    deposit_data,
+                    kickoff_data,
+                    challenged_before,
+                } => {
+                    let is_malicious = self
+                        .handle_kickoff(
+                            dbtx,
+                            kickoff_witness,
+                            deposit_data,
+                            kickoff_data,
+                            challenged_before,
+                        )
+                        .await?;
+                    Ok(DutyResult::CheckIfKickoffMalicious {
+                        challenged: is_malicious,
+                    })
                 }
             }
         }
@@ -3427,24 +3399,6 @@ mod states {
             .await?;
             Ok(txhandlers)
         }
-
-        async fn handle_finalized_block(
-            &self,
-            dbtx: DatabaseTransaction<'_>,
-            block_id: u32,
-            block_height: u32,
-            block_cache: Arc<block_cache::BlockCache>,
-            light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            self.handle_finalized_block(
-                dbtx,
-                block_id,
-                block_height,
-                block_cache,
-                light_client_proof_wait_interval_secs,
-            )
-            .await
-        }
     }
 }
 
@@ -3456,78 +3410,6 @@ mod tests {
     use crate::test::common::*;
     use bitcoin::Block;
     use std::str::FromStr;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_handle_finalized_block_idempotency() {
-        let mut config = create_test_config_with_thread_name().await;
-        let _regtest = create_regtest_rpc(&mut config).await;
-
-        let verifier = Verifier::<MockCitreaClient>::new(config.clone())
-            .await
-            .unwrap();
-
-        // Create test block data
-        let block_id = 1u32;
-        let block_height = 100u32;
-        let test_block = Block {
-            header: bitcoin::block::Header {
-                version: bitcoin::block::Version::ONE,
-                prev_blockhash: bitcoin::BlockHash::all_zeros(),
-                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
-                time: 1234567890,
-                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
-                nonce: 12345,
-            },
-            txdata: vec![], // empty transactions
-        };
-        let block_cache = Arc::new(block_cache::BlockCache::from_block(
-            test_block,
-            block_height,
-        ));
-
-        // First call to handle_finalized_block
-        let mut dbtx1 = verifier.db.begin_transaction().await.unwrap();
-        let result1 = verifier
-            .handle_finalized_block(
-                &mut dbtx1,
-                block_id,
-                block_height,
-                block_cache.clone(),
-                None,
-            )
-            .await;
-        // Should succeed or fail gracefully - testing idempotency, not functionality
-        tracing::info!("First call result: {:?}", result1);
-
-        // Commit the first transaction
-        dbtx1.commit().await.unwrap();
-
-        // Second call with identical parameters should also succeed (idempotent)
-        let mut dbtx2 = verifier.db.begin_transaction().await.unwrap();
-        let result2 = verifier
-            .handle_finalized_block(
-                &mut dbtx2,
-                block_id,
-                block_height,
-                block_cache.clone(),
-                None,
-            )
-            .await;
-        // Should succeed or fail gracefully - testing idempotency, not functionality
-        tracing::info!("Second call result: {:?}", result2);
-
-        // Commit the second transaction
-        dbtx2.commit().await.unwrap();
-
-        // Both calls should have same outcome (both succeed or both fail with same error type)
-        assert_eq!(
-            result1.is_ok(),
-            result2.is_ok(),
-            "Both calls should have the same outcome"
-        );
-    }
 
     #[tokio::test]
     #[cfg(feature = "automation")]

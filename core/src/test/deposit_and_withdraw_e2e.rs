@@ -1641,6 +1641,11 @@ async fn mock_citrea_run_malicious() {
             .await
             .unwrap();
 
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
+
     tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",
         kickoff_txid,

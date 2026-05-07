@@ -1028,6 +1028,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                     state_manager_next_height,
                                     stopped_tasks,
                                     btc_fee_rate_sat_vb,
+                                    lcp_synced_height,
                                     citrea_l2_block_height,
                                 } = &status;
                                 println!("  Automation: {automation}");
@@ -1056,6 +1057,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                 let state_manager_height = state_manager_next_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  State manager next height: {state_manager_height}");
+                                let lcp_synced_height = lcp_synced_height
+                                    .map_or("N/A".to_string(), |h| h.to_string());
+                                println!("  LCP synced height: {lcp_synced_height}");
                                 let citrea_l2_height = citrea_l2_block_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  Citrea L2 block height: {citrea_l2_height}");
