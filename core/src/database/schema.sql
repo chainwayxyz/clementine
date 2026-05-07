@@ -91,7 +91,7 @@ create table if not exists operators_challenge_ack_hashes (
 /*******************************************************************************
  *                               BITCOIN SYNCER
  ******************************************************************************/
--- Dead table kept only so legacy migrations can run after schema.sql bootstrap.
+-- Legacy Bitcoin Syncer table kept so older migrations can run after schema.sql bootstrap.
 -- 0002 reads bitcoin_syncer for seen_block_id backfills, and 0004 joins it for old LCP handler progress.
 create table if not exists bitcoin_syncer (
     id serial primary key,
@@ -100,7 +100,7 @@ create table if not exists bitcoin_syncer (
     height int not null,
     is_canonical boolean not null default true
 );
--- Dead enum kept only for the dead bitcoin_syncer_events compatibility table below.
+-- Legacy Bitcoin Syncer event enum kept for older migrations.
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
@@ -108,14 +108,14 @@ DO $$ BEGIN IF NOT EXISTS (
 ) THEN CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
 END IF;
 END $$;
--- Dead table kept only so migration 0004 can read old Bitcoin Syncer events.
+-- Legacy Bitcoin Syncer event table kept so migration 0004 can read old events.
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
     block_id int not null references bitcoin_syncer (id),
     event_type bitcoin_syncer_event_type not null,
     created_at timestamp not null default now()
 );
--- Dead table kept only so migration 0004 can migrate old Bitcoin Syncer handler progress.
+-- Legacy Bitcoin Syncer handler table kept so migration 0004 can migrate old handler progress.
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
     last_processed_event_id int not null,
@@ -175,7 +175,7 @@ create table if not exists tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
 );
--- Dead table kept only so migrations 0002 and 0003 can run before 0005 drops it.
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -185,7 +185,7 @@ create table if not exists tx_sender_cancel_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid, vout)
 );
--- Dead table kept only so migrations 0002 and 0003 can run before 0005 drops it.
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_cancel_try_to_send_txids (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -205,7 +205,7 @@ create table if not exists tx_sender_activate_try_to_send_txids (
     created_at timestamp not null default now(),
     primary key (activated_id, txid)
 );
--- Dead table kept only so migrations 0002 and 0003 can run before 0005 drops it.
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_activate_try_to_send_outpoints (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,

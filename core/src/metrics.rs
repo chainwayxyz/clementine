@@ -23,7 +23,7 @@ use metrics_derive::Metrics;
 
 const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
-// Metric scope is named l1_sync_status for backward compatibility even if it includes l2 metrics.
+// Metric scope stays l1_sync_status because existing dashboards use it.
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
 /// The sync status metrics for the currently running entity. (operator/verifier)
@@ -32,7 +32,7 @@ pub struct SyncStatusMetrics {
     pub wallet_balance_btc: Gauge,
     #[metric(describe = "The block height of the chain as seen by Bitcoin Core RPC")]
     pub rpc_tip_height: Gauge,
-    #[metric(describe = "Deprecated compatibility alias for the Bitcoin RPC tip height")]
+    #[metric(describe = "Legacy Bitcoin Syncer metric; reports the Bitcoin RPC tip height")]
     pub btc_syncer_synced_height: Gauge,
     #[metric(describe = "The block height of the latest header chain proof")]
     pub hcp_last_proven_height: Gauge,
@@ -67,7 +67,7 @@ pub struct EntitySyncStatusMetrics {
     )]
     pub rpc_tip_height: Gauge,
     #[metric(
-        describe = "Deprecated compatibility alias for the Bitcoin RPC tip height for the entity"
+        describe = "Legacy Bitcoin Syncer metric; reports the Bitcoin RPC tip height for the entity"
     )]
     pub btc_syncer_synced_height: Gauge,
     #[metric(describe = "The block height of the latest header chain proof for the entity")]
@@ -301,7 +301,7 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         )
         .flatten();
 
-        // Deprecated compatibility field: there is no Bitcoin Syncer task anymore.
+        // Legacy Bitcoin Syncer field; there is no Bitcoin Syncer task anymore.
         let btc_syncer_synced_height = rpc_tip_height;
 
         let hcp_last_proven_height = log_errs_and_ok::<_, T>(
