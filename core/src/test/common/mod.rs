@@ -246,7 +246,20 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
 /// sure that it is included in the next block.
+///
+/// # Parameters
+///
+/// - `rpc`: The RPC client to use.
+/// - `txid`: The txid to wait for.
+/// - `tx_name`: The name of the transaction to wait for.
+/// - `timeout`: The timeout in seconds.
+pub async fn mine_once_after_in_mempool(
+    rpc: &ExtendedBitcoinRpc,
+    txid: Txid,
+    tx_name: Option<&str>,
+    timeout: Option<u64>,
 ) -> Result<usize, BridgeError> {
+    let timeout = timeout.unwrap_or(90);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
     tracing::info!("Mine once after in mempool: {} txid: {:?}", tx_name, txid);
