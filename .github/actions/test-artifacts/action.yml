@@ -61,6 +61,7 @@ runs:
           {
             echo "path<<EOF"
             echo "${{ inputs.log_dir }}/failed-test-logs/"
+            echo "${{ inputs.log_dir }}/info/process.log"
             echo "${{ inputs.log_dir }}/db_dump_*.sql"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
