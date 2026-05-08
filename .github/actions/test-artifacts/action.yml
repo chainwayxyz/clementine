@@ -1,21 +1,17 @@
 name: Test Artifacts
-description: Dump test databases and upload test artifacts.
+description: Copy test output logs, dump test databases, and upload test artifacts.
 
 inputs:
   artifact_name:
     description: Artifact name to upload.
     required: true
   log_dir:
-    description: Directory containing test logs and database dumps.
+    description: Root directory for this uploaded test artifact.
     required: true
   cargo_output_logs:
     description: "Space-separated cargo output log files used to detect failed tests."
     required: false
     default: ""
-  upload:
-    description: "Upload mode: failed uploads cargo output logs and db dumps, all uploads log_dir too."
-    required: false
-    default: failed
   dump:
     description: "Database dump mode: failed, all, or none."
     required: false
@@ -32,44 +28,44 @@ runs:
       if: ${{ always() && inputs.dump == 'failed' && inputs.cargo_output_logs != '' }}
       continue-on-error: true
       shell: bash
-      run: ./scripts/dump_failed_test_dbs.sh "${{ inputs.log_dir }}" ${{ inputs.cargo_output_logs }}
+      run: ./scripts/dump_failed_test_dbs.sh "${{ inputs.log_dir }}/dumps" ${{ inputs.cargo_output_logs }}
 
     - name: Dump all test databases
       if: ${{ always() && inputs.dump == 'all' }}
       continue-on-error: true
       shell: bash
       run: |
-        mkdir -p "${{ inputs.log_dir }}"
+        mkdir -p "${{ inputs.log_dir }}/dumps"
         docker run --rm --network host -e PGPASSWORD=clementine postgres:latest \
           pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists \
-          > "${{ inputs.log_dir }}/db_dump.sql"
+          > "${{ inputs.log_dir }}/dumps/db_dump.sql"
 
-    - name: Resolve upload path
+    - name: Copy cargo output logs
       if: ${{ always() }}
-      id: upload-path
       shell: bash
       run: |
+        mkdir -p "${{ inputs.log_dir }}"
         cargo_output_logs="${{ inputs.cargo_output_logs }}"
 
-        {
-          echo "path<<EOF"
-          if [[ "${{ inputs.upload }}" == "all" ]]; then
-            echo "${{ inputs.log_dir }}/"
+        for log in ${cargo_output_logs}; do
+          if [[ ! -f "${log}" ]]; then
+            echo "Cargo output log not found, skipping: ${log}"
+            continue
           fi
 
-          for log in ${cargo_output_logs}; do
-            echo "${log}"
-          done
+          dest="${{ inputs.log_dir }}/$(basename "${log}")"
+          if [[ "$(realpath -m "${log}")" == "$(realpath -m "${dest}")" ]]; then
+            continue
+          fi
 
-          echo "${{ inputs.log_dir }}/db_dump_*.sql"
-          echo "EOF"
-        } >> "${GITHUB_OUTPUT}"
+          cp "${log}" "${dest}"
+        done
 
     - name: Upload test artifact
       if: ${{ always() }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact_name }}
-        path: ${{ steps.upload-path.outputs.path }}
+        path: ${{ inputs.log_dir }}/
         if-no-files-found: ignore
         retention-days: ${{ inputs.retention_days }}

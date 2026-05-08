@@ -17,9 +17,9 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 ///
 /// ## CI
 ///
-/// In CI, logging is always in the human-readable format with output to the
-/// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
-/// output. If not set, only console logging is used.
+/// In CI, `LOG_FORMAT=json` enables JSON console logs. The `INFO_LOG_FILE` env
+/// var can be used to set an optional human-readable log file output. If not
+/// set, only console logging is used.
 ///
 /// # Backtraces
 ///
@@ -99,6 +99,9 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
         if let Some(file_path) = info_log_file {
             try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
             tracing::trace!("Using file logging in CI, outputting to {}", file_path);
+        } else if is_json_logs() {
+            try_set_global_subscriber(env_subscriber_to_json(default_level));
+            tracing::trace!("Using JSON console logging in CI");
         } else {
             try_set_global_subscriber(env_subscriber_to_human(default_level));
             tracing::trace!("Using console logging in CI");

@@ -90,11 +90,12 @@ jobs:
 
       - name: Run no-automation tests # only one test for now
         env:
+          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture 2>&1 | tee no_automation_test_output.log
+          cargo test --release mock_citrea_run_truthful_manual_reimbursement 2>&1 | tee no_automation_test_output.log
 
       - name: Upload test artifacts
         if: failure()
@@ -103,7 +104,6 @@ jobs:
           artifact_name: release-no-automation-test-logs
           log_dir: test-logs/release
           cargo_output_logs: no_automation_test_output.log
-          upload: all
 
   # Full Tests -----------------------------------------------------------------
   debug_build_test_all_features:
@@ -145,6 +145,7 @@ jobs:
       - name: Run unit tests
         id: unit_tests
         env:
+          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -159,6 +160,7 @@ jobs:
 
       - name: Run integration tests
         env:
+          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -171,7 +173,6 @@ jobs:
           artifact_name: debug-test-logs
           log_dir: test-logs/debug
           cargo_output_logs: unit_test_output.log integration_test_output.log
-          upload: failed
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -213,6 +214,7 @@ jobs:
       - name: Run unit tests
         id: unit_tests
         env:
+          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -227,6 +229,7 @@ jobs:
 
       - name: Run integration tests
         env:
+          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -239,7 +242,6 @@ jobs:
           artifact_name: release-test-logs
           log_dir: test-logs/release
           cargo_output_logs: unit_test_output.log integration_test_output.log
-          upload: failed
 
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
@@ -322,5 +324,4 @@ jobs:
         with:
           artifact_name: standalone-test-logs-${{ matrix.test_name }}
           log_dir: test-logs/standalone
-          upload: all
           dump: all
