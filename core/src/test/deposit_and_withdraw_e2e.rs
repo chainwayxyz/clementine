@@ -158,8 +158,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config.citrea_rpc_url,
         );
 
-        panic!("Intentional panic to test workflow");
-
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

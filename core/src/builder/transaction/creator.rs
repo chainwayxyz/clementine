@@ -1382,8 +1382,6 @@ mod tests {
                 .await
                 .unwrap();
 
-        panic!("Intentional panic to test workflow");
-
         check_if_signable(actors, deposit_params, deposit_blockhash, config.clone()).await;
     }
 
@@ -1399,7 +1397,6 @@ mod tests {
                 .await
                 .unwrap();
 
-        panic!("Intentional panic to test workflow");
         let old_nofn_xonly_pk = actors.get_nofn_aggregated_xonly_pk().unwrap();
         // remove 1 verifier then run a replacement deposit
         actors.remove_verifier(2).await.unwrap();
