@@ -1,9 +1,13 @@
 use crate::actor::WinternitzDerivationPath;
+use crate::builder::address::calculate_taproot_leaf_depths;
+#[cfg(test)]
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
+use bitcoin::hashes::Hash;
+use bitcoin::taproot::{LeafVersion, TapNodeHash, TaprootBuilder};
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use clementine_errors::BridgeError;
@@ -19,15 +23,10 @@ use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
 use eyre::Context;
 use sha2::{Digest, Sha256};
 use std::fs;
-use tokio::sync::Mutex;
 
 use once_cell::sync::OnceCell;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Instant;
-
-/// Replacing bitvm scripts require cloning the scripts, which can be ~4GB. And this operation is done every deposit.
-/// So we ensure only 1 thread is doing this at a time to avoid OOM.
-pub static REPLACE_SCRIPTS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub use clementine_primitives::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 
@@ -41,6 +40,8 @@ pub static BITVM_CACHE: OnceCell<BitvmCacheWithMetadata> = OnceCell::new();
 pub struct BitvmCacheWithMetadata {
     pub bitvm_cache: BitvmCache,
     pub sha256_bitvm_cache: [u8; 32],
+    disprove_replacements_by_script: Vec<Vec<DisproveScriptReplacement>>,
+    disprove_replacement_operation_count: usize,
 }
 
 /// Returns the BitVM cache file path from `BITVM_CACHE_PATH` env var or a default based on RISC0 dev/prod mode.
@@ -95,9 +96,21 @@ pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeEr
     );
     tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
 
+    let replacement_plan_start = Instant::now();
+    let disprove_replacement_operation_count =
+        calculate_replacement_operations(&bitvm_cache.replacement_places);
+    let disprove_replacements_by_script = collect_disprove_script_replacement_plan(&bitvm_cache)?;
+    tracing::info!(
+        "Time taken to group BitVM disprove replacements by script: {:?}; operations: {}",
+        replacement_plan_start.elapsed(),
+        disprove_replacement_operation_count
+    );
+
     Ok(BitvmCacheWithMetadata {
         bitvm_cache,
         sha256_bitvm_cache,
+        disprove_replacements_by_script,
+        disprove_replacement_operation_count,
     })
 }
 
@@ -608,19 +621,44 @@ impl ClementineBitVMPublicKeys {
         &self,
         xonly_public_key: XOnlyPublicKey,
     ) -> Vec<bitcoin::TapNodeHash> {
+        let timing_started = Instant::now();
+        let step_started = Instant::now();
         let assert_scripts = self.get_assert_scripts(xonly_public_key);
-        assert_scripts
+        let script_count = assert_scripts.len();
+        if cfg!(test) {
+            tracing::warn!(
+                script_count,
+                step = "bitvm_get_assert_scripts",
+                elapsed_ms = step_started.elapsed().as_millis(),
+                total_elapsed_ms = timing_started.elapsed().as_millis(),
+                "bitvm assert taproot leaf hash timing"
+            );
+        }
+
+        let step_started = Instant::now();
+        let leaf_hashes = assert_scripts
             .into_iter()
-            .map(|script| {
-                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
-                taproot_builder
-                    .try_into_taptree()
-                    .expect("taproot builder always builds a full taptree")
-                    .root_hash()
-            })
-            .collect::<Vec<_>>()
+            .map(|script| TapNodeHash::from_script(&script.to_script_buf(), LeafVersion::TapScript))
+            .collect::<Vec<_>>();
+        if cfg!(test) {
+            tracing::warn!(
+                script_count,
+                step = "bitvm_assert_taproot_leaf_hashes",
+                elapsed_ms = step_started.elapsed().as_millis(),
+                total_elapsed_ms = timing_started.elapsed().as_millis(),
+                "bitvm assert taproot leaf hash timing"
+            );
+        }
+
+        leaf_hashes
     }
 
+    /// Materializes every replaced Groth16 verifier disprove script.
+    ///
+    /// This clones and replaces the full BitVM disprove script set and can require
+    /// several GB of memory. Prefer [`Self::get_g16_verifier_disprove_root_hash`]
+    /// when only the Taproot root is needed. Callers should ensure this method is
+    /// executed with at most one concurrent caller per process.
     pub fn get_g16_verifier_disprove_scripts(&self) -> Result<Vec<ScriptBuf>, BridgeError> {
         if cfg!(debug_assertions) {
             Ok(vec![ScriptBuf::from_bytes(vec![0x51])]) // OP_TRUE
@@ -628,8 +666,284 @@ impl ClementineBitVMPublicKeys {
             Ok(replace_disprove_scripts(self)?)
         }
     }
+
+    pub fn get_g16_verifier_disprove_root_hash(&self) -> Result<[u8; 32], BridgeError> {
+        if cfg!(debug_assertions) {
+            let script = ScriptBuf::from_bytes(vec![0x51]); // OP_TRUE
+            Ok(TapNodeHash::from_script(&script, LeafVersion::TapScript).to_byte_array())
+        } else {
+            replace_disprove_root_hash(self)
+        }
+    }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DisproveScriptReplacement {
+    pos: usize,
+    source: DisproveReplacementSource,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DisproveReplacementSource {
+    PayoutTxBlockhash { digit_idx: usize },
+    LatestBlockhash { digit_idx: usize },
+    ChallengeSendingWatchtowers { digit_idx: usize },
+    BitvmPks0 { pk_idx: usize, digit_idx: usize },
+    BitvmPks1 { pk_idx: usize, digit_idx: usize },
+    BitvmPks2 { pk_idx: usize, digit_idx: usize },
+}
+
+impl DisproveReplacementSource {
+    fn value(self, pks: &ClementineBitVMPublicKeys) -> [u8; 20] {
+        match self {
+            Self::PayoutTxBlockhash { digit_idx } => pks.payout_tx_blockhash_pk[digit_idx],
+            Self::LatestBlockhash { digit_idx } => pks.latest_blockhash_pk[digit_idx],
+            Self::ChallengeSendingWatchtowers { digit_idx } => {
+                pks.challenge_sending_watchtowers_pk[digit_idx]
+            }
+            Self::BitvmPks0 { pk_idx, digit_idx } => pks.bitvm_pks.0[pk_idx][digit_idx],
+            Self::BitvmPks1 { pk_idx, digit_idx } => pks.bitvm_pks.1[pk_idx][digit_idx],
+            Self::BitvmPks2 { pk_idx, digit_idx } => pks.bitvm_pks.2[pk_idx][digit_idx],
+        }
+    }
+}
+
+fn replace_disprove_root_hash(pks: &ClementineBitVMPublicKeys) -> Result<[u8; 32], BridgeError> {
+    let start = Instant::now();
+    tracing::info!("Starting script replacement for root hash");
+
+    let cache_with_metadata = BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)?;
+    let cache = &cache_with_metadata.bitvm_cache;
+
+    let estimated_operations = cache_with_metadata.disprove_replacement_operation_count;
+    tracing::info!(
+        "Estimated operations for script root hash replacement: {}",
+        estimated_operations
+    );
+    if estimated_operations > MAX_SCRIPT_REPLACEMENT_OPERATIONS {
+        tracing::warn!(
+            "Rejecting script root hash replacement: estimated {} operations exceeds limit of {}",
+            estimated_operations,
+            MAX_SCRIPT_REPLACEMENT_OPERATIONS
+        );
+        return Err(BridgeError::BitvmReplacementResourceExhaustion(
+            estimated_operations,
+        ));
+    }
+
+    let root_hash = disprove_root_hash_from_script_bytes(
+        &cache.disprove_scripts,
+        &cache_with_metadata.disprove_replacements_by_script,
+        pks,
+    )?;
+
+    tracing::info!(
+        "Script root hash replacement completed in {:?} with {} operations",
+        start.elapsed(),
+        estimated_operations
+    );
+
+    Ok(root_hash)
+}
+
+fn collect_disprove_script_replacement_plan(
+    cache: &BitvmCache,
+) -> Result<Vec<Vec<DisproveScriptReplacement>>, BridgeError> {
+    let replacement_places = &cache.replacement_places;
+    let mut replacements_by_script = vec![Vec::new(); cache.disprove_scripts.len()];
+
+    for (digit_idx, places) in replacement_places.payout_tx_blockhash_pk.iter().enumerate() {
+        for &(script_idx, pos) in places {
+            push_script_replacement(
+                &mut replacements_by_script,
+                script_idx,
+                pos,
+                DisproveReplacementSource::PayoutTxBlockhash { digit_idx },
+            )?;
+        }
+    }
+
+    for (digit_idx, places) in replacement_places.latest_blockhash_pk.iter().enumerate() {
+        for &(script_idx, pos) in places {
+            push_script_replacement(
+                &mut replacements_by_script,
+                script_idx,
+                pos,
+                DisproveReplacementSource::LatestBlockhash { digit_idx },
+            )?;
+        }
+    }
+
+    for (digit_idx, places) in replacement_places
+        .challenge_sending_watchtowers_pk
+        .iter()
+        .enumerate()
+    {
+        for &(script_idx, pos) in places {
+            push_script_replacement(
+                &mut replacements_by_script,
+                script_idx,
+                pos,
+                DisproveReplacementSource::ChallengeSendingWatchtowers { digit_idx },
+            )?;
+        }
+    }
+
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.0.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                push_script_replacement(
+                    &mut replacements_by_script,
+                    script_idx,
+                    pos,
+                    DisproveReplacementSource::BitvmPks0 { pk_idx, digit_idx },
+                )?;
+            }
+        }
+    }
+
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.1.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                push_script_replacement(
+                    &mut replacements_by_script,
+                    script_idx,
+                    pos,
+                    DisproveReplacementSource::BitvmPks1 { pk_idx, digit_idx },
+                )?;
+            }
+        }
+    }
+
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.2.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                push_script_replacement(
+                    &mut replacements_by_script,
+                    script_idx,
+                    pos,
+                    DisproveReplacementSource::BitvmPks2 { pk_idx, digit_idx },
+                )?;
+            }
+        }
+    }
+
+    Ok(replacements_by_script)
+}
+
+fn push_script_replacement(
+    replacements_by_script: &mut [Vec<DisproveScriptReplacement>],
+    script_idx: usize,
+    pos: usize,
+    source: DisproveReplacementSource,
+) -> Result<(), BridgeError> {
+    let replacements = replacements_by_script.get_mut(script_idx).ok_or_else(|| {
+        BridgeError::ConfigError(format!(
+            "BitVM replacement script index {script_idx} is out of bounds"
+        ))
+    })?;
+
+    replacements.push(DisproveScriptReplacement { pos, source });
+    Ok(())
+}
+
+fn disprove_root_hash_from_script_bytes(
+    disprove_scripts: &[Vec<u8>],
+    replacements_by_script: &[Vec<DisproveScriptReplacement>],
+    pks: &ClementineBitVMPublicKeys,
+) -> Result<[u8; 32], BridgeError> {
+    if disprove_scripts.is_empty() {
+        return Err(BridgeError::ConfigError(
+            "BitVM disprove script cache is empty".to_string(),
+        ));
+    }
+
+    if disprove_scripts.len() != replacements_by_script.len() {
+        return Err(BridgeError::ConfigError(format!(
+            "BitVM replacement script count mismatch: {} scripts and {} replacement buckets",
+            disprove_scripts.len(),
+            replacements_by_script.len()
+        )));
+    }
+
+    let depths = calculate_taproot_leaf_depths(disprove_scripts.len());
+    let mut taproot_builder = TaprootBuilder::new();
+    let mut replace_elapsed = std::time::Duration::ZERO;
+    let mut hash_elapsed = std::time::Duration::ZERO;
+    let mut builder_elapsed = std::time::Duration::ZERO;
+    let mut replacement_count = 0usize;
+
+    for (script_idx, base_script) in disprove_scripts.iter().enumerate() {
+        let step_started = Instant::now();
+        let mut script = base_script.clone();
+
+        for replacement in &replacements_by_script[script_idx] {
+            replacement_count += 1;
+            let end = replacement.pos.checked_add(20).ok_or_else(|| {
+                BridgeError::ConfigError(format!(
+                    "BitVM replacement offset overflow in script {script_idx}"
+                ))
+            })?;
+
+            if end > script.len() {
+                return Err(BridgeError::ConfigError(format!(
+                    "BitVM replacement range {}..{end} is out of bounds for script {script_idx}",
+                    replacement.pos
+                )));
+            }
+
+            script[replacement.pos..end].copy_from_slice(&replacement.source.value(pks));
+        }
+        replace_elapsed += step_started.elapsed();
+
+        let step_started = Instant::now();
+        let script = ScriptBuf::from_bytes(script);
+        let leaf_hash = TapNodeHash::from_script(&script, LeafVersion::TapScript);
+        hash_elapsed += step_started.elapsed();
+
+        let step_started = Instant::now();
+        taproot_builder = taproot_builder
+            .add_hidden_node(depths[script_idx], leaf_hash)
+            .map_err(|e| {
+                BridgeError::ConfigError(format!(
+                    "Failed to add BitVM disprove leaf hash to taproot builder: {e}"
+                ))
+            })?;
+        builder_elapsed += step_started.elapsed();
+    }
+
+    let step_started = Instant::now();
+    let root_hash = taproot_builder
+        .try_into_node_info()
+        .map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to build BitVM disprove taproot root hash: {e}"
+            ))
+        })?
+        .node_hash()
+        .to_byte_array();
+    builder_elapsed += step_started.elapsed();
+
+    if cfg!(test) {
+        tracing::warn!(
+            script_count = disprove_scripts.len(),
+            replacement_count,
+            replace_ms = replace_elapsed.as_millis(),
+            hash_ms = hash_elapsed.as_millis(),
+            taproot_builder_ms = builder_elapsed.as_millis(),
+            step = "bitvm_disprove_root_hash_from_script_bytes",
+            "bitvm disprove root hash timing"
+        );
+    }
+
+    Ok(root_hash)
+}
+
+/// Replaces all Groth16 verifier disprove scripts for the provided BitVM keys.
+///
+/// This is the high-memory full-script path used only when actual script leaves
+/// are needed. It clones the complete cached disprove script set, so callers
+/// should keep concurrency to one call at a time per process.
 pub fn replace_disprove_scripts(
     pks: &ClementineBitVMPublicKeys,
 ) -> Result<Vec<ScriptBuf>, BridgeError> {
@@ -780,6 +1094,52 @@ mod tests {
         let flattened_vec = bitvm_pks.to_flattened_vec();
         let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
         assert_eq!(bitvm_pks, from_vec_to_array);
+    }
+
+    #[test]
+    fn test_disprove_root_hash_from_script_bytes_matches_taproot_builder() {
+        let mut script_with_replacement = vec![0x00; 22];
+        script_with_replacement[0] = 0x14;
+        script_with_replacement[21] = 0x87;
+
+        let disprove_scripts = vec![
+            vec![0x51],
+            vec![0x52],
+            vec![0x53],
+            vec![0x54],
+            script_with_replacement,
+        ];
+        let replacement = [7u8; 20];
+        let mut replacements_by_script = vec![Vec::new(); disprove_scripts.len()];
+        replacements_by_script[4].push(DisproveScriptReplacement {
+            pos: 1,
+            source: DisproveReplacementSource::PayoutTxBlockhash { digit_idx: 0 },
+        });
+        let mut bitvm_pks = ClementineBitVMPublicKeys::create_replacable();
+        bitvm_pks.payout_tx_blockhash_pk[0] = replacement;
+
+        let mut expected_scripts = disprove_scripts.clone();
+        expected_scripts[4][1..21].copy_from_slice(&replacement);
+
+        let expected_root_hash = taproot_builder_with_scripts(
+            expected_scripts
+                .into_iter()
+                .map(ScriptBuf::from_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .try_into_taptree()
+        .expect("taproot builder always builds a full taptree")
+        .root_hash()
+        .to_byte_array();
+
+        let root_hash = disprove_root_hash_from_script_bytes(
+            &disprove_scripts,
+            &replacements_by_script,
+            &bitvm_pks,
+        )
+        .unwrap();
+
+        assert_eq!(root_hash, expected_root_hash);
     }
 
     #[tokio::test]
