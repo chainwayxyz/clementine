@@ -1,17 +1,9 @@
 use clementine_errors::BridgeError;
-use std::{
-    fs::{File, OpenOptions},
-    io::{self, Write},
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::fs::File;
 use tracing::level_filters::LevelFilter;
 use tracing::Subscriber;
-use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
-
-static LOGGER_INIT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Initializes a [`tracing`] subscriber depending on the environment.
 /// [`EnvFilter`] is used with an optional default level. Sets up the
@@ -26,9 +18,8 @@ static LOGGER_INIT_LOCK: Mutex<()> = Mutex::new(());
 /// ## CI
 ///
 /// In CI, logging is always in the human-readable format with output to the
-/// console. `INFO_LOG_DIR` enables per-test file logging, while `INFO_LOG_FILE`
-/// writes all file logs to one file. If neither is set, only console logging is
-/// used.
+/// console. The `INFO_LOG_FILE` env var can be used to set an optional log file
+/// output. If not set, only console logging is used.
 ///
 /// # Backtraces
 ///
@@ -43,9 +34,9 @@ static LOGGER_INIT_LOCK: Mutex<()> = Mutex::new(());
 ///
 /// # Returns
 ///
-/// Returns `Err` in CI if the file logging cannot be initialized. Already
-/// initialized loggers are left untouched, so this function can be called
-/// multiple times safely.
+/// Returns `Err` in CI if the file logging cannot be initialized.  Already
+/// initialized errors are ignored, so this function can be called multiple
+/// times safely.
 pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), BridgeError> {
     let is_ci = std::env::var("CI")
         .map(|v| v == "true" || v == "1")
@@ -96,36 +87,23 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
             });
         }));
 
-    // When JSON logs are enabled, use a theme without color codes
+    // When JSON logs are enabled, use a theme without color codes.
     if is_json_logs() {
         hook_builder = hook_builder.theme(color_eyre::config::Theme::new());
     }
 
     let _ = hook_builder.install();
 
-    let _guard = LOGGER_INIT_LOCK
-        .lock()
-        .expect("logger initialization lock poisoned");
-    if tracing::dispatcher::has_been_set() {
-        tracing::trace!("Tracing is already initialized, skipping without errors...");
-        return Ok(());
-    }
-
     if is_ci {
-        if let Some(dir_path) = std::env::var("INFO_LOG_DIR").ok() {
-            try_set_global_subscriber(env_subscriber_with_dir(&dir_path)?);
-            tracing::trace!(
-                "Using per-test file logging in CI, outputting under {}",
-                dir_path
-            );
-        } else if let Some(file_path) = std::env::var("INFO_LOG_FILE").ok() {
+        let info_log_file = std::env::var("INFO_LOG_FILE").ok();
+        if let Some(file_path) = info_log_file {
             try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
             tracing::trace!("Using file logging in CI, outputting to {}", file_path);
         } else {
             try_set_global_subscriber(env_subscriber_to_human(default_level));
             tracing::trace!("Using console logging in CI");
             tracing::warn!(
-                "CI is set but INFO_LOG_DIR and INFO_LOG_FILE are missing, only console logs will be used."
+                "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
             );
         }
     } else if is_json_logs() {
@@ -159,8 +137,7 @@ where
 }
 
 fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
-    let log_path = PathBuf::from(path);
-    if let Some(parent_dir) = log_path.parent() {
+    if let Some(parent_dir) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent_dir).map_err(|e| {
             BridgeError::ConfigError(format!(
                 "Failed to create log directory '{}': {}",
@@ -170,27 +147,8 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
         })?;
     }
 
-    File::create(&log_path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
-    Ok(env_subscriber_with_writer(CiFileWriter::new(log_path)))
-}
+    let file = File::create(path).map_err(|e| BridgeError::ConfigError(e.to_string()))?;
 
-fn env_subscriber_with_dir(path: &str) -> Result<Box<dyn Subscriber + Send + Sync>, BridgeError> {
-    let log_dir = PathBuf::from(path);
-    std::fs::create_dir_all(&log_dir).map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to create per-test log directory '{}': {}",
-            log_dir.display(),
-            e
-        ))
-    })?;
-
-    Ok(env_subscriber_with_writer(CiPerTestWriter::new(log_dir)))
-}
-
-fn env_subscriber_with_writer<W>(writer: W) -> Box<dyn Subscriber + Send + Sync>
-where
-    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
-{
     let file_filter = EnvFilter::from_default_env()
         .add_directive("info".parse().expect("It should parse info level"))
         .add_directive("ci=debug".parse().expect("It should parse ci debug level"));
@@ -200,7 +158,7 @@ where
         .from_env_lossy();
 
     let file_layer = fmt::layer()
-        .with_writer(writer)
+        .with_writer(file)
         .with_ansi(false)
         .with_file(true)
         .with_line_number(true)
@@ -218,104 +176,9 @@ where
         .with_filter(console_filter)
         .boxed();
 
-    Box::new(Registry::default().with(file_layer).with(console_layer))
-}
-
-#[derive(Clone)]
-struct CiFileWriter {
-    path: PathBuf,
-}
-
-impl CiFileWriter {
-    fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-}
-
-impl<'a> MakeWriter<'a> for CiFileWriter {
-    type Writer = RoutedLogWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        RoutedLogWriter {
-            file: open_append(&self.path).ok(),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct CiPerTestWriter {
-    dir: PathBuf,
-}
-
-impl CiPerTestWriter {
-    fn new(dir: PathBuf) -> Self {
-        Self { dir }
-    }
-}
-
-impl<'a> MakeWriter<'a> for CiPerTestWriter {
-    type Writer = RoutedLogWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        let log_name = current_test_thread_name().unwrap_or_else(|| "process".to_string());
-        let path = self
-            .dir
-            .join(format!("{}.log", sanitize_file_component(&log_name)));
-        RoutedLogWriter {
-            file: open_append(&path).ok(),
-        }
-    }
-}
-
-struct RoutedLogWriter {
-    file: Option<File>,
-}
-
-impl Write for RoutedLogWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Some(file) = &mut self.file {
-            file.write_all(buf)?;
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        if let Some(file) = &mut self.file {
-            file.flush()?;
-        }
-        Ok(())
-    }
-}
-
-fn open_append(path: &Path) -> io::Result<File> {
-    OpenOptions::new().create(true).append(true).open(path)
-}
-
-fn current_test_thread_name() -> Option<String> {
-    let thread = std::thread::current();
-    let name = thread.name()?;
-    (!is_non_test_thread_name(name)).then(|| name.to_owned())
-}
-
-fn is_non_test_thread_name(name: &str) -> bool {
-    matches!(
-        name,
-        "main" | "tokio-runtime-worker" | "rayon-worker" | "blocking" | "async-std/runtime"
-    )
-}
-
-fn sanitize_file_component(input: &str) -> String {
-    let mut sanitized = String::with_capacity(input.len());
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
-            sanitized.push(ch);
-        } else {
-            sanitized.push('_');
-        }
-    }
-
-    sanitized.truncate(180);
-    sanitized
+    Ok(Box::new(
+        Registry::default().with(file_layer).with(console_layer),
+    ))
 }
 
 fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {

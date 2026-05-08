@@ -1,5 +1,5 @@
 name: Test Artifacts
-description: Dump test databases, collect relevant logs, and upload one artifact.
+description: Dump test databases and upload test artifacts.
 
 inputs:
   artifact_name:
@@ -13,7 +13,7 @@ inputs:
     required: false
     default: ""
   upload:
-    description: "Upload mode: failed copies only failed test logs, all uploads log_dir."
+    description: "Upload mode: failed uploads cargo output logs and db dumps, all uploads log_dir too."
     required: false
     default: failed
   dump:
@@ -44,28 +44,26 @@ runs:
           pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists \
           > "${{ inputs.log_dir }}/db_dump.sql"
 
-    - name: Collect failed test logs
-      if: ${{ always() && inputs.upload == 'failed' && inputs.cargo_output_logs != '' }}
-      continue-on-error: true
-      shell: bash
-      run: bash scripts/collect_failed_test_logs.sh "${{ inputs.log_dir }}" ${{ inputs.cargo_output_logs }}
-
     - name: Resolve upload path
       if: ${{ always() }}
       id: upload-path
       shell: bash
       run: |
-        if [[ "${{ inputs.upload }}" == "all" ]]; then
-          echo "path=${{ inputs.log_dir }}/" >> "${GITHUB_OUTPUT}"
-        else
-          {
-            echo "path<<EOF"
-            echo "${{ inputs.log_dir }}/failed-test-logs/"
-            echo "${{ inputs.log_dir }}/info/process.log"
-            echo "${{ inputs.log_dir }}/db_dump_*.sql"
-            echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
-        fi
+        cargo_output_logs="${{ inputs.cargo_output_logs }}"
+
+        {
+          echo "path<<EOF"
+          if [[ "${{ inputs.upload }}" == "all" ]]; then
+            echo "${{ inputs.log_dir }}/"
+          fi
+
+          for log in ${cargo_output_logs}; do
+            echo "${log}"
+          done
+
+          echo "${{ inputs.log_dir }}/db_dump_*.sql"
+          echo "EOF"
+        } >> "${GITHUB_OUTPUT}"
 
     - name: Upload test artifact
       if: ${{ always() }}

@@ -53,8 +53,6 @@ jobs:
       contents: read
     runs-on: ubicloud-standard-4
     if: ${{ !github.event.pull_request.draft }}
-    env:
-      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/release/info
 
     services:
       postgres:
@@ -91,6 +89,8 @@ jobs:
         run: cargo build $CARGOFLAGS --release
 
       - name: Run no-automation tests # only one test for now
+        env:
+          RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
@@ -109,9 +109,6 @@ jobs:
   debug_build_test_all_features:
     name: Debug | All features | Test
     runs-on: ubicloud-standard-16
-
-    env:
-      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/debug/info
 
     services:
       postgres:
@@ -147,6 +144,8 @@ jobs:
 
       - name: Run unit tests
         id: unit_tests
+        env:
+          RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
@@ -159,6 +158,8 @@ jobs:
           profile: debug
 
       - name: Run integration tests
+        env:
+          RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           cargo test_integration 2>&1 | tee integration_test_output.log
@@ -176,9 +177,6 @@ jobs:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
     if: ${{ !github.event.pull_request.draft }}
-
-    env:
-      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/release/info
 
     services:
       postgres:
@@ -214,6 +212,8 @@ jobs:
 
       - name: Run unit tests
         id: unit_tests
+        env:
+          RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
@@ -226,6 +226,8 @@ jobs:
           profile: release
 
       - name: Run integration tests
+        env:
+          RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
           cargo test_integration_release 2>&1 | tee integration_test_output.log
@@ -246,7 +248,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     env:
-      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/standalone/info
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
 
     strategy:
       fail-fast: false
