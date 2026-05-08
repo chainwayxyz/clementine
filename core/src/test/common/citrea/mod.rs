@@ -135,10 +135,6 @@ pub fn update_config_with_citrea_e2e_values(
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
     light_client_prover: Option<(&str, u16)>,
 ) {
-    let mut paramset = config.protocol_paramset().clone();
-    paramset.start_height = CITREA_E2E_LCP_START_HEIGHT as u32 + 1;
-    config.protocol_paramset = Box::leak(Box::new(paramset));
-
     config.bitcoin_rpc_user = da.config.rpc_user.clone().into();
     config.bitcoin_rpc_password = da.config.rpc_password.clone().into();
     config.bitcoin_rpc_url = format!(
@@ -154,6 +150,10 @@ pub fn update_config_with_citrea_e2e_values(
     config.citrea_rpc_url = citrea_url;
 
     if let Some(light_client_prover) = light_client_prover {
+        let mut paramset = config.protocol_paramset().clone();
+        paramset.start_height = CITREA_E2E_LCP_START_HEIGHT as u32 + 1;
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+
         let citrea_light_client_prover_url =
             format!("http://{}:{}", light_client_prover.0, light_client_prover.1);
         config.citrea_light_client_prover_url = citrea_light_client_prover_url;
