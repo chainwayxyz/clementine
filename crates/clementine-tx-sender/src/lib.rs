@@ -3,11 +3,22 @@
 //! This crate handles the creation, signing, and broadcasting of Bitcoin transactions,
 //! supporting various fee-bumping strategies like CPFP and RBF.
 
+#[cfg(feature = "citrea")]
+pub mod citrea;
 pub mod client;
+pub mod config;
+mod confirmations;
 pub mod cpfp;
+pub mod db;
+#[cfg(feature = "json-rpc")]
+pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
+mod rpc_errors;
+mod signer;
 pub mod task;
+#[cfg(feature = "testing")]
+pub mod test_utils;
 
 // Define a macro for logging errors and saving them to the database
 #[macro_export]
@@ -26,47 +37,31 @@ macro_rules! log_error_for_tx {
 }
 
 pub use clementine_errors::SendTxError;
-use clementine_primitives::BitcoinSyncerEvent;
 pub use client::TxSenderClient;
+pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 
-use async_trait::async_trait;
-use bitcoin::secp256k1::schnorr;
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{
-    Address, Amount, FeeRate, OutPoint, Sequence, Transaction, Txid, Weight, XOnlyPublicKey,
-};
+use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
-use clementine_config::protocol::ProtocolParamset;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
+use clementine_primitives::FeeRateKvb;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
-use clementine_utils::sign::TapTweakData;
-use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
+use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
-use serde::{Deserialize, Serialize};
-
-/// Activation condition based on a transaction ID.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ActivatedWithTxid {
-    /// The transaction ID that must be seen.
-    pub txid: Txid,
-    /// Number of blocks that must pass after seeing the transaction.
-    pub relative_block_height: u32,
-}
-
-/// Activation condition based on an outpoint.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ActivatedWithOutpoint {
-    /// The outpoint that must be spent.
-    pub outpoint: OutPoint,
-    /// Number of blocks that must pass after seeing the outpoint spent.
-    pub relative_block_height: u32,
-}
+use signer::TxSenderSigningKey;
 
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
+
+/// Once a tx/outpoint has been observed confirmed/spent for at least this many
+/// blocks, we treat it as final and skip further RPC re-checks.
+///
+/// IMPORTANT: for observations with confirmations < FINALITY_DEPTH we
+/// must assume they can be reorged and therefore keep re-checking.
+pub const DEFAULT_FINALITY_DEPTH: u32 = 5;
 
 /// Represents a spendable UTXO.
 #[derive(Debug, Clone)]
@@ -76,312 +71,44 @@ pub struct SpendableUtxo {
     pub spend_info: Option<TaprootSpendInfo>,
 }
 
-impl SpendableInputInfo for SpendableUtxo {
-    fn get_prevout(&self) -> &bitcoin::TxOut {
-        &self.txout
-    }
-
-    fn get_outpoint(&self) -> OutPoint {
-        self.outpoint
-    }
-}
-
-/// Trait for extracting information from a spendable input.
-/// This allows different input types (SpendableUtxo, SpendableTxIn) to be used interchangeably.
-pub trait SpendableInputInfo: Send + Sync + Clone {
-    /// Returns a reference to the previous output (TxOut) for this input.
-    fn get_prevout(&self) -> &bitcoin::TxOut;
-
-    /// Returns the outpoint for this input.
-    fn get_outpoint(&self) -> OutPoint;
-}
-
-/// Trait for building child transactions in the transaction sender.
+/// Serialize a transaction for `fund_raw_transaction`, working around Bitcoin Core's
+/// deserialization bug for 0-input segwit transactions. fund_raw_transaction RPC
+/// gives deserialization error for 0-input transactions with segwit flag.
 ///
-/// This abstraction allows the core crate to provide `SpendableTxIn`-based transaction building
-/// using `TxHandler`, while keeping the tx-sender crate independent of the builder module.
-///
-/// All methods are static - no instance of this trait is stored.
-pub trait TxSenderTxBuilder: Send + Sync + 'static {
-    /// The type representing a spendable transaction input.
-    /// In core, this would be `SpendableTxIn`.
-    type SpendableInput: SpendableInputInfo;
+/// For transactions with no inputs, this uses legacy-style serialization
+/// (version, inputs, outputs, locktime) without segwit markers. Core will
+/// then add inputs and return a proper segwit transaction.
+pub(crate) fn serialize_tx_for_fund_raw(tx: &Transaction) -> Vec<u8> {
+    if tx.input.is_empty() {
+        use bitcoin::consensus::Encodable;
 
-    /// Builds a child transaction for CPFP.
-    ///
-    /// This method constructs a child transaction that spends the P2A anchor output
-    /// and fee payer UTXOs, paying the required fees for the CPFP package.
-    ///
-    /// # Arguments
-    /// * `p2a_anchor` - The P2A anchor output to spend
-    /// * `anchor_sat` - Amount in the anchor output
-    /// * `fee_payer_utxos` - UTXOs to fund the child transaction
-    /// * `change_address` - Address for the change output
-    /// * `required_fee` - The calculated required fee for the package
-    /// * `signer_address` - The signer's address (for script pubkey)
-    /// * `signer` - The signer to sign the transaction inputs
-    ///
-    /// # Returns
-    /// A signed child transaction ready for package submission.
-    fn build_child_tx<S: TxSenderSigner>(
-        p2a_anchor: OutPoint,
-        anchor_sat: Amount,
-        fee_payer_utxos: Vec<Self::SpendableInput>,
-        change_address: Address,
-        required_fee: Amount,
-        signer: &S,
-    ) -> Result<Transaction, BridgeError>;
+        let mut buf = Vec::new();
+        // Serialize version
+        tx.version
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize version");
+        // Serialize inputs
+        tx.input
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize inputs");
+        // Serialize outputs
+        tx.output
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize outputs");
+        // Serialize locktime
+        tx.lock_time
+            .consensus_encode(&mut buf)
+            .expect("Failed to serialize locktime");
 
-    /// Converts database UTXOs into the builder's SpendableInput type.
-    ///
-    /// # Arguments
-    /// * `utxos` - Vector of (txid, vout, amount) tuples from the database
-    /// * `signer_address` - The signer's address (for script pubkey generation)
-    ///
-    /// # Returns
-    /// Vector of SpendableInput instances ready for use in transaction building.
-    fn utxos_to_spendable_inputs(
-        utxos: Vec<(Txid, u32, Amount)>,
-        signer_address: &Address,
-    ) -> Vec<Self::SpendableInput>;
+        buf
+    } else {
+        bitcoin::consensus::encode::serialize(tx)
+    }
 }
 
-/// Trait for signing transactions in the transaction sender.
-#[async_trait]
-pub trait TxSenderSigner: Send + Sync {
-    /// Returns the signer's Bitcoin address.
-    fn address(&self) -> &Address;
+pub use db::{TxSenderDb, TxSenderDbTx, TxSenderTransaction};
 
-    /// Returns the signer's X-only public key.
-    fn xonly_public_key(&self) -> XOnlyPublicKey;
-
-    /// Signs a message with a tweak.
-    fn sign_with_tweak_data(
-        &self,
-        sighash: bitcoin::TapSighash,
-        tweak_data: TapTweakData,
-    ) -> Result<schnorr::Signature, BridgeError>;
-}
-
-/// Trait for database operations required by the transaction sender.
-#[async_trait]
-pub trait TxSenderDatabase: Send + Sync + Clone {
-    /// Type for database transactions.
-    type Transaction: Send;
-
-    /// Begin a new database transaction.
-    async fn begin_transaction(&self) -> Result<Self::Transaction, BridgeError>;
-
-    /// Commit a database transaction.
-    async fn commit_transaction(&self, dbtx: Self::Transaction) -> Result<(), BridgeError>;
-
-    /// Save a debug message for a transaction submission error.
-    async fn save_tx_debug_submission_error(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        error: &str,
-    ) -> Result<(), BridgeError>;
-
-    /// Get transactions that are ready to be sent.
-    async fn get_sendable_txs(
-        &self,
-        fee_rate: FeeRate,
-        current_tip_height: u32,
-    ) -> Result<Vec<u32>, BridgeError>;
-
-    /// Get details of a transaction to be sent.
-    async fn get_try_to_send_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<
-        (
-            Option<TxMetadata>,
-            Transaction,
-            FeePayingType,
-            Option<u32>,
-            Option<RbfSigningInfo>,
-        ),
-        BridgeError,
-    >;
-
-    /// Update the debug sending state of a transaction.
-    async fn update_tx_debug_sending_state(
-        &self,
-        id: u32,
-        state: &str,
-        is_error: bool,
-    ) -> Result<(), BridgeError>;
-
-    /// Get all unconfirmed fee payer transactions.
-    async fn get_all_unconfirmed_fee_payer_txs(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-    ) -> Result<Vec<(u32, u32, Txid, u32, Amount, Option<u32>)>, BridgeError>;
-
-    /// Get unconfirmed fee payer transactions for a specific parent transaction.
-    async fn get_unconfirmed_fee_payer_txs(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        bumped_id: u32,
-    ) -> Result<Vec<(u32, Txid, u32, Amount)>, BridgeError>;
-
-    /// Mark a fee payer UTXO as evicted.
-    async fn mark_fee_payer_utxo_as_evicted(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<(), BridgeError>;
-
-    /// Get confirmed fee payer UTXOs for a specific parent transaction.
-    async fn get_confirmed_fee_payer_utxos(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError>;
-
-    /// Save a fee payer transaction.
-    #[allow(clippy::too_many_arguments)]
-    async fn save_fee_payer_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        bumped_id: u32,
-        fee_payer_txid: Txid,
-        vout: u32,
-        amount: Amount,
-        replacement_of_id: Option<u32>,
-    ) -> Result<(), BridgeError>;
-
-    /// Get the last RBF transaction ID for a specific send attempt.
-    async fn get_last_rbf_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Option<Txid>, BridgeError>;
-
-    /// Save a new RBF transaction ID.
-    async fn save_rbf_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        txid: Txid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save a cancelled outpoint activation condition.
-    async fn save_cancelled_outpoint(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        outpoint: OutPoint,
-    ) -> Result<(), BridgeError>;
-
-    /// Save a cancelled transaction ID activation condition.
-    async fn save_cancelled_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        cancelled_id: u32,
-        txid: Txid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save an activated transaction ID condition.
-    async fn save_activated_txid(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        prerequisite_tx: &ActivatedWithTxid,
-    ) -> Result<(), BridgeError>;
-
-    /// Save an activated outpoint condition.
-    async fn save_activated_outpoint(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        activated_id: u32,
-        activated_outpoint: &ActivatedWithOutpoint,
-    ) -> Result<(), BridgeError>;
-
-    /// Update the effective fee rate of a transaction.
-    async fn update_effective_fee_rate(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-        effective_fee_rate: FeeRate,
-        current_tip_height: u32,
-    ) -> Result<(), BridgeError>;
-
-    /// Check if a transaction already exists in the transaction sender queue.
-    async fn check_if_tx_exists_on_txsender(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        txid: Txid,
-    ) -> Result<Option<u32>, BridgeError>;
-
-    /// Save a transaction to the sending queue.
-    async fn save_tx(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        tx_metadata: Option<TxMetadata>,
-        tx: &Transaction,
-        fee_paying_type: FeePayingType,
-        txid: Txid,
-        rbf_signing_info: Option<RbfSigningInfo>,
-    ) -> Result<u32, BridgeError>;
-
-    /// Returns debug information for a transaction.
-    async fn get_tx_debug_info(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Option<String>, BridgeError>;
-
-    /// Returns submission errors for a transaction.
-    async fn get_tx_debug_submission_errors(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(String, String)>, BridgeError>;
-
-    /// Returns fee payer UTXOs for an attempt.
-    async fn get_tx_debug_fee_payer_utxos(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>;
-
-    /// Debug method to log information about inactive transactions.
-    async fn debug_inactive_txs(&self, _fee_rate: FeeRate, _current_tip_height: u32) {}
-
-    /// Fetch the next event from the Bitcoin syncer.
-    async fn fetch_next_bitcoin_syncer_evt(
-        &self,
-        dbtx: &mut Self::Transaction,
-        consumer_id: &str,
-    ) -> Result<Option<BitcoinSyncerEvent>, BridgeError>;
-
-    /// Synchronize transaction confirmations based on canonical block status.
-    /// Confirms transactions in canonical blocks and unconfirms transactions in
-    /// non-canonical blocks.
-    async fn sync_transaction_confirmations(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-    ) -> Result<(), BridgeError>;
-
-    /// Get the maximum height of canonical blocks in the database.
-    async fn get_max_height(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-    ) -> Result<Option<u32>, BridgeError>;
-
-    /// Get the effective fee rate of a transaction and the block height when it was set.
-    /// Returns (None, None) if no effective fee rate has been set yet.
-    async fn get_effective_fee_rate(
-        &self,
-        dbtx: Option<&mut Self::Transaction>,
-        id: u32,
-    ) -> Result<(Option<FeeRate>, Option<u32>), BridgeError>;
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MempoolConfig {
     pub host: Option<String>,
     pub endpoint: Option<String>,
@@ -395,77 +122,90 @@ pub struct MempoolConfig {
 /// state, track confirmation status, and manage associated data like fee payer UTXOs.
 /// The `Actor` provides signing capabilities for transactions controlled by this service.
 ///
-/// The `TxSenderTxBuilder` type parameter provides static methods for transaction building
-/// capabilities for CPFP child transactions, using `SpendableTxIn` and `TxHandler`.
 #[derive(Clone)]
-pub struct TxSender<S, D, B>
-where
-    S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + 'static,
-    B: TxSenderTxBuilder + 'static,
-{
-    pub signer: S,
+pub struct TxSender {
+    signer: TxSenderSigningKey,
+    #[cfg(feature = "citrea")]
+    da_signer: TxSenderSigningKey,
     pub rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
-    pub db: D,
-    pub protocol_paramset: &'static ProtocolParamset,
+    pub db: TxSenderDb,
+    client: TxSenderClient,
+    pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
+    pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
-    /// Phantom data to track the TxBuilder type.
-    /// B provides static methods for transaction building.
-    _tx_builder: std::marker::PhantomData<B>,
+    /// Whether to include unsafe UTXOs when funding transactions.
+    include_unsafe: bool,
 }
 
-impl<S, D, B> std::fmt::Debug for TxSender<S, D, B>
-where
-    S: TxSenderSigner + std::fmt::Debug + 'static,
-    D: TxSenderDatabase + std::fmt::Debug + 'static,
-    B: TxSenderTxBuilder + 'static,
-{
+impl std::fmt::Debug for TxSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TxSender")
-            .field("signer", &self.signer)
+        let mut builder = f.debug_struct("TxSender");
+        builder.field("signer", &self.signer);
+        #[cfg(feature = "citrea")]
+        builder.field("da_signer", &self.da_signer);
+        builder
             .field("db", &self.db)
-            .field("protocol_paramset", &self.protocol_paramset)
+            .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
+            .field("include_unsafe", &self.include_unsafe)
             .finish()
     }
 }
 
-impl<S, D, B> TxSender<S, D, B>
-where
-    S: TxSenderSigner + 'static,
-    D: TxSenderDatabase + 'static,
-    B: TxSenderTxBuilder + 'static,
-{
-    /// Creates a new TxSender.
-    ///
-    /// The type parameter `B` provides static methods for CPFP child transaction creation
-    /// using SpendableTxIn and TxHandler from the core builder module.
-    pub fn new(
-        signer: S,
-        rpc: clementine_extended_rpc::ExtendedBitcoinRpc,
-        db: D,
-        protocol_paramset: &'static ProtocolParamset,
-        tx_sender_limits: TxSenderLimits,
-        mempool_config: MempoolConfig,
-    ) -> Self {
-        Self {
-            signer,
-            rpc,
-            db,
-            protocol_paramset,
-            tx_sender_limits,
-            http_client: reqwest::Client::new(),
-            mempool_config,
-            _tx_builder: std::marker::PhantomData,
-        }
+impl TxSender {
+    pub fn address(&self) -> &bitcoin::Address {
+        self.signer.address()
     }
 
-    pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
+    pub fn xonly_public_key(&self) -> bitcoin::XOnlyPublicKey {
+        self.signer.xonly_public_key()
+    }
+
+    /// Creates a new TxSender.
+    pub async fn new(
+        tx_sender_config: crate::config::TxSenderConfig,
+    ) -> std::result::Result<Self, BridgeError> {
+        let secret_key = tx_sender_config.secret_key;
+        let signer = TxSenderSigningKey::new(secret_key, tx_sender_config.network);
+        #[cfg(feature = "citrea")]
+        let da_signer = {
+            let da_key = tx_sender_config.private_da_key.unwrap_or(secret_key);
+            TxSenderSigningKey::new(da_key, tx_sender_config.network)
+        };
+        let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
+            tx_sender_config.bitcoin_rpc.url.clone(),
+            tx_sender_config.bitcoin_rpc.user.clone(),
+            tx_sender_config.bitcoin_rpc.password.clone(),
+            None,
+        )
+        .await
+        .map_err(|e| BridgeError::Eyre(e.into()))?;
+
+        let db = TxSenderDb::connect(&tx_sender_config.postgres).await?;
+        let client = TxSenderClient::new(db.clone());
+
+        Ok(Self {
+            signer,
+            #[cfg(feature = "citrea")]
+            da_signer,
+            rpc,
+            db,
+            client,
+            network: tx_sender_config.network,
+            tx_sender_limits: tx_sender_config.limits,
+            finality_depth: tx_sender_config.finality_depth,
+            http_client: reqwest::Client::new(),
+            mempool_config: tx_sender_config.mempool,
+            include_unsafe: tx_sender_config.include_unsafe,
+        })
+    }
+
+    pub async fn get_fee_rate(&self) -> Result<FeeRateKvb, BridgeError> {
         self.rpc
-            .get_fee_rate(
-                self.protocol_paramset.network,
+            .get_fee_rate_kvb(
+                self.network,
                 &self.mempool_config.host,
                 &self.mempool_config.endpoint,
                 self.tx_sender_limits.mempool_fee_rate_multiplier,
@@ -481,7 +221,7 @@ where
     /// # Arguments
     /// * `parent_tx_weight` - The weight of the main transaction being bumped.
     /// * `num_fee_payer_utxos` - The number of fee payer UTXOs used (relevant for child tx size in CPFP).
-    /// * `fee_rate` - The target fee rate (sat/kwu or similar).
+    /// * `fee_rate` - The target fee rate (sat/kvB).
     /// * `fee_paying_type` - The strategy being used (CPFP or RBF).
     ///
     /// # Calculation Logic
@@ -497,7 +237,7 @@ where
     fn calculate_required_fee(
         parent_tx_weight: Weight,
         num_fee_payer_utxos: usize,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
         tracing::info!(
@@ -518,7 +258,9 @@ where
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+                Weight::from_wu_usize(230 * num_fee_payer_utxos + 172)
+            }
             FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
@@ -529,12 +271,14 @@ where
             FeePayingType::CPFP => Weight::from_vb_unchecked(
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
-            FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+                child_tx_weight + parent_tx_weight // Should likely just be the RBF tx weight? Check RBF rules.
+            }
             FeePayingType::NoFunding => parent_tx_weight,
         };
 
         fee_rate
-            .checked_mul_by_weight(total_weight)
+            .fee_wu(total_weight)
             .ok_or_eyre("Fee calculation overflow")
             .map_err(Into::into)
     }
@@ -573,7 +317,7 @@ where
     #[tracing::instrument(skip_all, fields(new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,
-        new_fee_rate: FeeRate,
+        new_fee_rate: FeeRateKvb,
         current_tip_height: u32,
         is_tip_height_increased: bool,
     ) -> Result<()> {
@@ -583,13 +327,13 @@ where
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
         // if block height is increased, we use a dummy high fee rate to get all sendable txs
         let get_sendable_txs_fee_rate = if is_tip_height_increased {
-            FeeRate::from_sat_per_kwu(u32::MAX as u64)
+            FeeRateKvb::from_sat_per_kvb(u32::MAX as u64)
         } else {
             new_fee_rate
         };
         let txs = self
             .db
-            .get_sendable_txs(get_sendable_txs_fee_rate, current_tip_height)
+            .get_sendable_txs(None, get_sendable_txs_fee_rate, current_tip_height)
             .await
             .map_to_eyre()?;
 
@@ -614,7 +358,7 @@ where
                 "Processing TX in try_to_send_unconfirmed_txs with fee rate {new_fee_rate}",
             );
 
-            let (tx_metadata, tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+            let (tx_metadata, tx, fee_paying_type, seen_at_height, rbf_signing_info) =
                 match self.db.get_try_to_send_tx(None, id).await {
                     Ok(res) => res,
                     Err(e) => {
@@ -624,11 +368,11 @@ where
                 };
 
             // Check if the transaction is already confirmed (only happens if it was confirmed after this loop started)
-            if let Some(block_id) = seen_block_id {
+            if let Some(seen_at_height) = seen_at_height {
                 tracing::debug!(
                     try_to_send_id = id,
-                    "Transaction already confirmed in block with block id of {}",
-                    block_id
+                    "Transaction already confirmed (first seen at height {})",
+                    seen_at_height
                 );
 
                 // Update sending state
@@ -655,7 +399,7 @@ where
                 };
 
             // Calculate adjusted fee rate considering:
-            // 1. If new_fee_rate > previous_effective_fee_rate, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
+            // 1. If new_fee_rate > previous_effective_fee_rate + min_bump_kvb, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
             // 2. If tx has been stuck for 10+ blocks, bump with incremental fee
             let adjusted_fee_rate = match self
                 .calculate_target_fee_rate(
@@ -680,7 +424,7 @@ where
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.protocol_paramset.network == bitcoin::Network::Testnet4
+                _ if self.network == bitcoin::Network::Testnet4
                     && self.is_bridge_tx_nonstandard(&tx) =>
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
@@ -689,7 +433,7 @@ where
                     self.send_cpfp_tx(id, tx, tx_metadata, adjusted_fee_rate, current_tip_height)
                         .await
                 }
-                FeePayingType::RBF => {
+                FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
                     self.send_rbf_tx(
                         id,
                         tx,
@@ -697,6 +441,7 @@ where
                         adjusted_fee_rate,
                         rbf_signing_info,
                         current_tip_height,
+                        fee_paying_type == FeePayingType::RbfWtxidGrind,
                     )
                     .await
                 }
@@ -710,8 +455,8 @@ where
 
         Ok(())
     }
-    pub fn client(&self) -> TxSenderClient<D> {
-        TxSenderClient::new(self.db.clone())
+    pub fn client(&self) -> TxSenderClient {
+        self.client.clone()
     }
 
     /// Calculates the effective fee rate for a transaction, considering previous effective fee rate
@@ -730,16 +475,16 @@ where
     /// * `current_tip_height` - The current blockchain tip height
     ///
     /// # Returns
-    /// The effective fee rate to use (in sat/kwu), capped by the hard cap from config
+    /// The effective fee rate to use (in sat/kvB), capped by the hard cap from config
     pub async fn calculate_target_fee_rate(
         &self,
-        previous_effective_fee_rate: Option<FeeRate>,
-        new_fee_rate: FeeRate,
+        previous_effective_fee_rate: Option<FeeRateKvb>,
+        new_fee_rate: FeeRateKvb,
         last_bump_block_height: Option<u32>,
         current_tip_height: u32,
-    ) -> Result<FeeRate> {
-        // Hard cap from config (in sat/vB), convert to sat/kwu
-        let hard_cap = FeeRate::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
+    ) -> Result<FeeRateKvb> {
+        // Hard cap from config (in sat/vB), convert to sat/kvB
+        let hard_cap = FeeRateKvb::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
             .expect("fee_rate_hard_cap should be valid");
 
         let Some(previous_rate) = previous_effective_fee_rate else {
@@ -764,37 +509,43 @@ where
             .map_err(|e| eyre::eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate =
-            FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb.div_ceil(4));
+        let incremental_fee_rate = FeeRateKvb::from_sat_per_kvb(incremental_fee_rate_sat_per_kvb);
 
         // Minimum bump fee rate required by BIP125
         let min_bump_feerate =
-            previous_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+            previous_rate.to_sat_per_kvb() + incremental_fee_rate.to_sat_per_kvb();
+        let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kvb(), min_bump_feerate);
 
-        // If new fee rate is higher than previous, use max of new_fee_rate and min_bump_feerate
-        if new_fee_rate.to_sat_per_kwu() > previous_rate.to_sat_per_kwu() {
-            let effective_feerate = std::cmp::max(new_fee_rate.to_sat_per_kwu(), min_bump_feerate);
-            let result = FeeRate::from_sat_per_kwu(effective_feerate);
+        // If new fee rate is higher than previous, only bump when effective increment clears min_bump_kvb
+        if new_fee_rate.to_sat_per_kvb() > previous_rate.to_sat_per_kvb() && !is_stuck {
+            // Check the increment based on the requested fee rate, not the BIP125-adjusted one
+            let requested_increment = new_fee_rate
+                .to_sat_per_kvb()
+                .saturating_sub(previous_rate.to_sat_per_kvb());
+
+            // if the requested increment is less than min_bump_kvb, do not bump
+            if requested_increment < self.tx_sender_limits.min_bump_kvb {
+                return Ok(previous_rate);
+            }
+
+            let result = FeeRateKvb::from_sat_per_kvb(effective_feerate);
             return Ok(std::cmp::min(result, hard_cap));
         }
-
-        // If the tx is stuck for 10+ blocks, force a fee bump (previous + incremental)
-        if is_stuck {
-            let result = FeeRate::from_sat_per_kwu(min_bump_feerate);
+        // If the tx is stuck for 10+ blocks, force a fee bump
+        else if is_stuck {
+            let result = FeeRateKvb::from_sat_per_kvb(effective_feerate);
             let capped_result = std::cmp::min(result, hard_cap);
 
             tracing::debug!(
-                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kwu (hard cap: {} sat/kwu)",
+                "TX stuck for at least {} blocks, forcing fee bump from {} to {} sat/kvB (hard cap: {} sat/kvB)",
                 self.tx_sender_limits.fee_bump_after_blocks,
-                previous_rate.to_sat_per_kwu(),
-                capped_result.to_sat_per_kwu(),
-                hard_cap.to_sat_per_kwu()
+                previous_rate.to_sat_per_kvb(),
+                capped_result.to_sat_per_kvb(),
+                hard_cap.to_sat_per_kvb()
             );
 
             return Ok(capped_result);
         }
-
-        // Neither higher fee rate nor stuck, use previous rate (no change needed)
         Ok(previous_rate)
     }
 
@@ -837,11 +588,23 @@ where
                     .await;
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
-                log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                let err_str = e.to_string();
+                if rpc_errors::is_rejecting_replacement_error(&err_str) {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "No funding tx rejected (tx already in mempool): {err_str}"
+                    );
+                    return Ok(());
+                } else {
+                    tracing::error!(
+                        "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
+                    );
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("send_raw_transaction error for no funding tx: {err_str}")
+                    );
+                }
                 let _ = self
                     .db
                     .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)

@@ -12,7 +12,7 @@ use crate::config::BridgeConfig;
 use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
@@ -30,9 +30,9 @@ use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
 };
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
-    ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
-    wait_for_fee_payer_utxos_to_be_in_mempool,
+    ensure_outpoint_spent, ensure_outpoint_spent_while_synced, ensure_tx_onchain,
+    get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent_while_synced, wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
     create_actors, create_regtest_rpc, generate_withdrawal_transaction_and_signature,
@@ -431,7 +431,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // wait for all past kickoff reimburse connectors to be spent
         tracing::info!("Waiting for all past kickoff reimburse connectors to be spent");
         for reimburse_connector in reimburse_connectors.iter() {
-            ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
+            ensure_outpoint_spent_while_synced(
                 &rpc,
                 *reimburse_connector,
                 &actors,
@@ -541,10 +541,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(CitreaDepositAndWithdrawE2E {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -552,10 +555,13 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(CitreaDepositAndWithdrawE2E {
+            variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.
@@ -1021,7 +1027,7 @@ async fn mock_citrea_run_truthful_op_db_reset() {
         .await
         .unwrap();
 
-    tracing::info!("Restarted tasks");
+    tracing::info!("Restarted verifier/operator synced");
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
@@ -1029,9 +1035,10 @@ async fn mock_citrea_run_truthful_op_db_reset() {
     };
 
     tracing::warn!("Waiting for challenge");
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
     tracing::warn!("Challenge spent txid: {:?}", challenge_spent_txid);
 
     // check that challenge utxo was spent on timeout -> meaning challenge was not sent
@@ -1584,19 +1591,22 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    let _kickoff_block_height =
+    let kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
             .unwrap();
+
+    tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: UtxoVout::Challenge.get_vout(),
     };
 
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid =
+        get_txid_where_utxo_is_spent_while_synced(&rpc, challenge_outpoint, &actors, None)
+            .await
+            .unwrap();
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
@@ -1630,6 +1640,11 @@ async fn mock_citrea_run_malicious() {
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
+
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",

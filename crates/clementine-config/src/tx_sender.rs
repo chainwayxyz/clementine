@@ -16,6 +16,8 @@ pub struct TxSenderLimits {
     pub cpfp_fee_payer_bump_wait_time_seconds: u64,
     /// The number of blocks after which to bump the fee a tx in tx sender queue if it's still not confirmed
     pub fee_bump_after_blocks: u32,
+    /// Minimum fee bump increment in sat/kvB. If current fee rate is smaller than previously sent fee rate + min_bump_kvb, we do not bump at all. This is so that we do not do tiny fee bumps constantly.
+    pub min_bump_kvb: u64,
 }
 
 impl Default for TxSenderLimits {
@@ -26,6 +28,8 @@ impl Default for TxSenderLimits {
             mempool_fee_rate_offset_sat_kvb: 0,
             cpfp_fee_payer_bump_wait_time_seconds: 60 * 60, // 1 hour in seconds
             fee_bump_after_blocks: 10,
+            // 0.2 sat/vB ~= 200 sat/kvB
+            min_bump_kvb: 200,
         }
     }
 }

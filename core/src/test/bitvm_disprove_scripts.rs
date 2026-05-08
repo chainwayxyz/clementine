@@ -5,7 +5,7 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
-use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync;
+use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
 use crate::utils::initialize_logger;
 use crate::{
     extended_bitcoin_rpc::ExtendedBitcoinRpc,
@@ -165,7 +165,7 @@ impl TestCase for DisproveTest {
                     kickoff_txid
                 );
 
-                let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+                let txid = get_txid_where_utxo_is_spent_while_synced(
                     &rpc,
                     disprove_timeout_outpoint,
                     &actors,
@@ -203,7 +203,7 @@ impl TestCase for DisproveTest {
                     kickoff_txid
                 );
 
-                let txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+                let txid = get_txid_where_utxo_is_spent_while_synced(
                     &rpc,
                     disprove_outpoint,
                     &actors,
@@ -271,10 +271,13 @@ async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = DisproveTest {
-        variant: DisproveTestVariant::HealthyState,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(DisproveTest {
+            variant: DisproveTestVariant::HealthyState,
+        })
+        .run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism in the presence of a corrupted assert commitment.
@@ -297,8 +300,11 @@ async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let additional_disprove_test = DisproveTest {
-        variant: DisproveTestVariant::CorruptedAssert,
-    };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(DisproveTest {
+            variant: DisproveTestVariant::CorruptedAssert,
+        })
+        .run()
+    })
+    .await
 }

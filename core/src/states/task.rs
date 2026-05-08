@@ -38,15 +38,11 @@ impl BlockHandler for QueueBlockHandler {
     async fn handle_new_block(
         &mut self,
         dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
+        _block_id: u32,
         block: bitcoin::Block,
         height: u32,
     ) -> Result<(), BridgeError> {
-        let event = SystemEvent::NewFinalizedBlock {
-            block_id,
-            block,
-            height,
-        };
+        let event = SystemEvent::NewFinalizedBlock { block, height };
 
         self.queue
             .send_with_cxn(&self.queue_name, &event, &mut **dbtx)
@@ -199,7 +195,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::collections::BTreeMap;
 
     use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
     use tonic::async_trait;
@@ -209,7 +205,7 @@ mod tests {
         config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
-        states::{block_cache, context::DutyResult, Duty},
+        states::{context::DutyResult, Duty},
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
@@ -222,8 +218,7 @@ mod tests {
 
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
-        const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-            "mock_finalized_block_no_automation";
+        const LCP_SYNCER_CONSUMER_ID: &'static str = "mock_lcp_syncer";
         const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
             "mock_finalized_block_automation";
     }
@@ -245,17 +240,6 @@ mod tests {
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
     }
 
