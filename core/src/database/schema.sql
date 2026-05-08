@@ -152,7 +152,7 @@ DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
     WHERE typname = 'fee_paying_type'
-) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'nofunding');
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf', 'rbf_wtxid_grind', 'nofunding');
 END IF;
 END $$;
 -- Transactions that are needed to be fee bumped
@@ -164,7 +164,8 @@ create table if not exists tx_sender_try_to_send_txs (
     effective_fee_rate bigint,
     txid bytea,
     -- txid of the tx if it is CPFP
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when tx was seen confirmed (used for finality tracking)
+    seen_at_height int,
     latest_active_at timestamp,
     created_at timestamp not null default now(),
     rbf_signing_info text
@@ -184,7 +185,8 @@ create table if not exists tx_sender_fee_payer_utxos (
     fee_payer_txid bytea not null,
     vout int not null,
     amount bigint not null,
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when fee payer tx was seen confirmed (used for finality tracking)
+    seen_at_height int,
     created_at timestamp not null default now(),
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
@@ -193,14 +195,16 @@ create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
     vout int not null,
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
+    seen_at_height int,
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid, vout)
 );
 create table if not exists tx_sender_cancel_try_to_send_txids (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when this txid was seen confirmed (used for finality tracking)
+    seen_at_height int,
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid)
 );
@@ -208,7 +212,10 @@ create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
     timelock bigint not null,
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when this txid was seen confirmed (used for finality tracking)
+    seen_at_height int,
+    -- whether the activation txid is currently present in the mempool
+    in_mempool boolean not null default false,
     created_at timestamp not null default now(),
     primary key (activated_id, txid)
 );
@@ -217,84 +224,45 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     txid bytea not null,
     vout int not null,
     timelock bigint not null,
-    seen_block_id int references bitcoin_syncer(id),
+    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
+    seen_at_height int,
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
--- Triggers that sets the seen_block_id to the block id of the canonical block
--- when a row inserted to the tx_sender_*_try_to_send_* tables.
-CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
-UPDATE tx_sender_cancel_try_to_send_txids
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_txs bst
-    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-WHERE tx_sender_cancel_try_to_send_txids.cancelled_id = NEW.cancelled_id
-    AND tx_sender_cancel_try_to_send_txids.txid = NEW.txid
-    AND tx_sender_cancel_try_to_send_txids.seen_block_id IS NULL
-    AND bst.txid = NEW.txid
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_cancel_try_to_send_txids;
-CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
-AFTER
-INSERT ON tx_sender_cancel_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_cancel_txids_seen_block_id();
-CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
-UPDATE tx_sender_cancel_try_to_send_outpoints
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_spent_utxos bsu
-    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-WHERE tx_sender_cancel_try_to_send_outpoints.cancelled_id = NEW.cancelled_id
-    AND tx_sender_cancel_try_to_send_outpoints.txid = NEW.txid
-    AND tx_sender_cancel_try_to_send_outpoints.vout = NEW.vout
-    AND tx_sender_cancel_try_to_send_outpoints.seen_block_id IS NULL
-    AND bsu.txid = NEW.txid
-    AND bsu.vout = NEW.vout
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sender_cancel_try_to_send_outpoints;
-CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
-AFTER
-INSERT ON tx_sender_cancel_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
-CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
-UPDATE tx_sender_activate_try_to_send_txids
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_txs bst
-    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
-WHERE tx_sender_activate_try_to_send_txids.activated_id = NEW.activated_id
-    AND tx_sender_activate_try_to_send_txids.txid = NEW.txid
-    AND tx_sender_activate_try_to_send_txids.seen_block_id IS NULL
-    AND bst.txid = NEW.txid
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_activate_try_to_send_txids;
-CREATE TRIGGER trigger_update_activate_txids_seen_block_id
-AFTER
-INSERT ON tx_sender_activate_try_to_send_txids FOR EACH ROW EXECUTE FUNCTION update_activate_txids_seen_block_id();
-CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id() RETURNS TRIGGER AS $$ BEGIN
-UPDATE tx_sender_activate_try_to_send_outpoints
-SET seen_block_id = bs.id
-FROM bitcoin_syncer_spent_utxos bsu
-    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
-WHERE tx_sender_activate_try_to_send_outpoints.activated_id = NEW.activated_id
-    AND tx_sender_activate_try_to_send_outpoints.txid = NEW.txid
-    AND tx_sender_activate_try_to_send_outpoints.vout = NEW.vout
-    AND tx_sender_activate_try_to_send_outpoints.seen_block_id IS NULL
-    AND bsu.txid = NEW.txid
-    AND bsu.vout = NEW.vout
-    AND bs.is_canonical = TRUE;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sender_activate_try_to_send_outpoints;
-CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
-AFTER
-INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
+-- Citrea raw transaction queue for DA payloads.
+--
+-- Each logical request is grouped by `insertion_id`. For non-chunked payloads
+-- there is a single row. For chunked payloads, multiple chunk rows plus a
+-- single aggregate row share the same `insertion_id`.
+--
+-- `body_hash` is globally unique (when non-NULL) to avoid queuing duplicate
+-- logical payloads. For chunked BatchProof requests, the aggregate row stores
+-- the hash of the original full proof and chunk rows leave this NULL.
+create sequence if not exists tx_sender_citrea_raw_tx_insertion_id_seq;
+create table if not exists tx_sender_citrea_raw_tx_queue (
+    id bigserial primary key,
+    -- group identifier shared across all rows belonging to the same rawtxdata
+    -- request (chunks and aggregate).
+    insertion_id bigint not null default nextval('tx_sender_citrea_raw_tx_insertion_id_seq'),
+    -- numeric transaction kind as defined in `citrea::transactionkind` (u16).
+    transaction_kind smallint not null,
+    -- raw body bytes. non-null for all non-aggregate rows; null for the
+    -- aggregate placeholder row.
+    body bytea,
+    -- optional hash used for deduplication. usually hashes `body`; for chunked
+    -- batchproof aggregate rows it hashes the original full proof body.
+    body_hash bytea,
+    -- optional commit outpoint once known (format: "txid:vout").
+    commit_outpoint text,
+    -- optional link to a tx_sender_try_to_send_txs row once it exists.
+    try_to_send_id int references tx_sender_try_to_send_txs(id),
+    -- whether the aggregate row has been finalized and should no longer be processed.
+    aggregate_finalized boolean not null default false,
+    created_at timestamp not null default now(),
+    unique (body_hash)
+);
+create index if not exists tx_sender_citrea_raw_tx_queue_insertion_id_idx on tx_sender_citrea_raw_tx_queue(insertion_id);
+create index if not exists tx_sender_citrea_raw_tx_queue_try_to_send_id_idx on tx_sender_citrea_raw_tx_queue(try_to_send_id);
 /*******************************************************************************
  *           FINALIZED BLOCK SYNCER, CITREA DEPOSITS AND WITHDRAWALS
  ******************************************************************************/
@@ -335,6 +303,7 @@ CREATE TABLE IF NOT EXISTS state_machines (
 CREATE TABLE IF NOT EXISTS state_manager_status (
     owner_type VARCHAR(100) PRIMARY KEY,
     next_height_to_process INT NOT NULL,
+    last_processed_lcp INT,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 -- Create indexes for better query performance

@@ -21,7 +21,7 @@ use crate::test::common::{
     mine_once_after_in_mempool,
 };
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::tx_sender_ext::{CoreTxBuilder, TxSenderClientExt};
+use crate::tx_sender_ext::TxSenderClientExt;
 use crate::utils::FeePayingType;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
@@ -105,16 +105,8 @@ impl TestCase for TxSenderReorgBehavior {
             .cancelable_loop();
         btc_syncer.0.into_bg();
 
-        let tx_sender = TxSender::<Actor, Database, CoreTxBuilder>::new(
-            actor.clone(),
-            rpc.clone(),
-            db.clone(),
-            "tx_sender".into(),
-            config.protocol_paramset(),
-            config.tx_sender_limits.clone(),
-            config.mempool_config(),
-        );
-        let tx_sender_client: TxSenderClient<Database> = tx_sender.client();
+        let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
+        let tx_sender_client: TxSenderClient = tx_sender.client();
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();
 
@@ -135,7 +127,7 @@ impl TestCase for TxSenderReorgBehavior {
         let mut dbtx = db.begin_transaction().await.unwrap();
         let id = tx_sender_client
             .insert_try_to_send(
-                Some(&mut dbtx),
+                &mut dbtx,
                 None,
                 &tx,
                 FeePayingType::CPFP,
@@ -240,6 +232,11 @@ impl TestCase for TxSenderReorgBehavior {
         );
         tracing::info!("fee payer txid: {:?}, main txid: {:?}", fee_payer, txid);
 
+        tracing::info!(
+            "Main cpfp mempool entry: {:?}",
+            rpc.get_mempool_entry(&txid).await
+        );
+
         assert!(rpc
             .get_raw_transaction_info(&fee_payer, None)
             .await
@@ -256,54 +253,14 @@ impl TestCase for TxSenderReorgBehavior {
             .blockhash
             .is_some());
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let start = std::time::Instant::now();
-        loop {
-            tracing::warn!(
-                "tx info: {:?}",
-                rpc.get_raw_transaction_info(&txid, None).await.unwrap()
-            );
-            if start.elapsed() > Duration::from_secs(10) {
-                panic!("Timeout waiting for tx to be in mempool");
-            }
-            // Transaction should be included in the next block.
-            tracing::warn!("------- {:?}", rpc.get_mempool_entry(&txid).await.unwrap());
-
-            // let x = db
-            //     .get_sendable_txs(
-            //         None,
-            //         FeeRate::from_sat_per_vb_unchecked(1),
-            //         rpc.get_block_count().await.unwrap() as u32,
-            //     )
-            //     .await
-            //     .unwrap();
-            // tracing::warn!("bfpt: {:?}", x);
-            rpc.mine_blocks(1).await.unwrap();
-            let current_tip_hash = rpc.get_best_block_hash().await?;
-
-            if rpc
-                .get_raw_transaction_info(&txid, None)
-                .await
-                .unwrap()
-                .blockhash
-                .is_none()
-            {
-                tracing::debug!("Transaction not in mempool yet");
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-
-            assert_eq!(
-                rpc.get_raw_transaction_info(&txid, None)
-                    .await
-                    .unwrap()
-                    .blockhash
-                    .unwrap(),
-                current_tip_hash
-            );
-            break;
-        }
+        // with bitcoin v30, the feepayer + cpfp 1p1c package can both be in the mempool together
+        // so they will get mined together in the same block
+        assert!(rpc
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_some(),);
 
         Ok(())
     }
@@ -311,7 +268,10 @@ impl TestCase for TxSenderReorgBehavior {
 
 #[tokio::test]
 async fn reorg_on_cpfp_tx() -> Result<()> {
-    TestCaseRunner::new(TxSenderReorgBehavior).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(TxSenderReorgBehavior).run()
+    })
+    .await
 }
 
 struct ReorgOnDeposit;
@@ -512,5 +472,8 @@ impl TestCase for ReorgOnDeposit {
 
 #[tokio::test]
 async fn reorg_on_deposit() -> Result<()> {
-    TestCaseRunner::new(ReorgOnDeposit).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(ReorgOnDeposit).run()
+    })
+    .await
 }

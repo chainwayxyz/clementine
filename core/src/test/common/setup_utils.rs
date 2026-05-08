@@ -74,14 +74,59 @@ impl Drop for WithProcessCleanup {
 /// the bitcoind process and invalidate the RPC connection. The cleanup is handled automatically when
 /// the returned value is dropped.
 pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup {
+    let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
+    let max_attempts = 5;
+    let mut last_error = String::new();
+
+    for attempt in 1..=max_attempts {
+        match try_create_regtest_rpc(config, bitcoin_rpc_debug).await {
+            Ok(regtest) => return regtest,
+            Err(error) => {
+                last_error = error;
+                if attempt < max_attempts {
+                    tracing::warn!(
+                        attempt,
+                        max_attempts,
+                        error = %last_error,
+                        "Failed to create Bitcoin regtest RPC; retrying with a fresh datadir and port"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            }
+        }
+    }
+
+    panic!("Failed to create Bitcoin regtest RPC after {max_attempts} attempts: {last_error}");
+}
+
+async fn try_create_regtest_rpc(
+    config: &mut BridgeConfig,
+    bitcoin_rpc_debug: bool,
+) -> Result<WithProcessCleanup, String> {
     use bitcoincore_rpc::RpcApi;
     use tempfile::TempDir;
 
     // Create temporary directory for bitcoin data
     let data_dir = TempDir::new()
-        .expect("Failed to create temporary directory")
+        .map_err(|e| format!("Failed to create temporary directory: {e}"))?
         .keep();
-    let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
+
+    // Use per-attempt credentials in normal tests so an RPC port collision cannot
+    // authenticate against another test's bitcoind.
+    if !bitcoin_rpc_debug {
+        let nonce = data_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| {
+                name.chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            })
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| std::process::id().to_string());
+        config.bitcoin_rpc_user = format!("admin{nonce}").into();
+        config.bitcoin_rpc_password = format!("admin{nonce}").into();
+    }
 
     // Get available ports for RPC
     let rpc_port = if bitcoin_rpc_debug {
@@ -94,7 +139,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{rpc_port}")).is_err() {
         // Bitcoind is already running on port 18443, use existing port.
-        return WithProcessCleanup(
+        return Ok(WithProcessCleanup(
             None,
             ExtendedBitcoinRpc::connect(
                 "http://127.0.0.1:18443".into(),
@@ -103,10 +148,10 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
                 None,
             )
             .await
-            .unwrap(),
+            .map_err(|e| format!("Failed to connect to existing debug bitcoind: {e:?}"))?,
             data_dir.join("debug.log"),
             false, // no need to wait after test
-        );
+        ));
     }
     // Bitcoin node configuration
     // Construct args for bitcoind
@@ -138,6 +183,12 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         args.push("-minrelaytxfee=0".to_string());
         args.push("-acceptnonstdtxn=1".to_string());
         args.push("-blockmintxfee=0".to_string());
+    } else if config.test_params.use_small_annex
+        || config.test_params.use_large_annex
+        || config.test_params.use_large_annex_and_output
+    {
+        // annex is nonstandard
+        args.push("-acceptnonstdtxn=1".to_string());
     }
 
     // Create log file in temp directory
@@ -153,7 +204,29 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("Failed to start bitcoind");
+        .map_err(|e| format!("Failed to start bitcoind: {e}"))?;
+
+    struct AttemptCleanup {
+        child: Option<std::process::Child>,
+        data_dir: Option<std::path::PathBuf>,
+    }
+
+    impl Drop for AttemptCleanup {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            if let Some(data_dir) = self.data_dir.take() {
+                let _ = std::fs::remove_dir_all(data_dir);
+            }
+        }
+    }
+
+    let mut attempt_cleanup = AttemptCleanup {
+        child: Some(process),
+        data_dir: Some(data_dir.clone()),
+    };
 
     if bitcoin_rpc_debug {
         tracing::warn!("Bitcoind logs are available at {}", log_file_path);
@@ -176,9 +249,24 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         {
             Ok(client) => break client,
             Err(_) => {
+                if let Some(child) = attempt_cleanup.child.as_mut() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            return Err(format!(
+                                "Bitcoin node exited before RPC became ready: {status}"
+                            ));
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            return Err(format!("Failed to check bitcoind process status: {e}"));
+                        }
+                    }
+                }
                 attempts += 1;
                 if attempts >= retry_count {
-                    panic!("Bitcoin node failed to start in {retry_count} seconds");
+                    return Err(format!(
+                        "Bitcoin node failed to start in {retry_count} seconds"
+                    ));
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
@@ -189,29 +277,37 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     let network_info = client
         .get_network_info()
         .await
-        .expect("Failed to get network info");
+        .map_err(|e| format!("Failed to get network info: {e:?}"))?;
     tracing::info!("Using bitcoind version: {}", network_info.version);
 
     // // Create wallet
     client
         .create_wallet("admin", None, None, None, None)
         .await
-        .expect("Failed to create wallet");
+        .map_err(|e| format!("Failed to create wallet: {e:?}"))?;
 
     // Generate blocks
     let address = client
         .get_new_address(None, None)
         .await
-        .expect("Failed to get new address");
+        .map_err(|e| format!("Failed to get new address: {e:?}"))?;
 
     if config.test_params.generate_to_address {
         client
             .generate_to_address(201, address.assume_checked_ref())
             .await
-            .expect("Failed to generate blocks");
+            .map_err(|e| format!("Failed to generate blocks: {e:?}"))?;
     }
 
-    WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
+    let process = attempt_cleanup.child.take();
+    attempt_cleanup.data_dir.take();
+
+    Ok(WithProcessCleanup(
+        process,
+        client.clone(),
+        log_file,
+        bitcoin_rpc_debug,
+    ))
 }
 
 /// Creates a temporary database for testing, using current thread's name as the
@@ -245,6 +341,7 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
         citrea_rpc_url: handle.to_string(),
         ..Default::default()
     };
+
     let mut new_paramset = config.protocol_paramset().clone();
     new_paramset.finality_depth = DEFAULT_FINALITY_DEPTH as u32;
     config.protocol_paramset = Box::leak(Box::new(new_paramset));
@@ -345,6 +442,42 @@ pub async fn generate_withdrawal_transaction_and_signature(
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
 ) -> (UTXO, bitcoin::TxOut, taproot::Signature) {
+    let dust_utxo = generate_withdrawal_utxo(config, rpc).await;
+    let (txout, sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, withdrawal_amount);
+    (dust_utxo, txout, sig)
+}
+
+/// Optimistic payout registration must use the contract-accepted fee amount,
+/// while operator payouts use the configured operator fee.
+pub async fn generate_withdrawal_transaction_and_signatures(
+    config: &BridgeConfig,
+    rpc: &ExtendedBitcoinRpc,
+    withdrawal_address: &bitcoin::Address,
+    operator_amount: bitcoin::Amount,
+    optimistic_amount: bitcoin::Amount,
+) -> (
+    UTXO,
+    bitcoin::TxOut,
+    taproot::Signature,
+    bitcoin::TxOut,
+    taproot::Signature,
+) {
+    let dust_utxo = generate_withdrawal_utxo(config, rpc).await;
+    let (operator_txout, operator_sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, operator_amount);
+    let (optimistic_txout, optimistic_sig) =
+        sign_withdrawal_output(config, &dust_utxo, withdrawal_address, optimistic_amount);
+    (
+        dust_utxo,
+        operator_txout,
+        operator_sig,
+        optimistic_txout,
+        optimistic_sig,
+    )
+}
+
+async fn generate_withdrawal_utxo(config: &BridgeConfig, rpc: &ExtendedBitcoinRpc) -> UTXO {
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
@@ -354,14 +487,22 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .await
         .expect("Failed to send to address");
 
-    let dust_utxo = UTXO {
+    UTXO {
         outpoint: dust_outpoint,
         txout: bitcoin::TxOut {
             value: WITHDRAWAL_EMPTY_UTXO_SATS,
             script_pubkey: signer.address.script_pubkey(),
         },
-    };
+    }
+}
 
+fn sign_withdrawal_output(
+    config: &BridgeConfig,
+    dust_utxo: &UTXO,
+    withdrawal_address: &bitcoin::Address,
+    withdrawal_amount: bitcoin::Amount,
+) -> (bitcoin::TxOut, taproot::Signature) {
+    let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
     let txin = builder::transaction::input::SpendableTxIn::new(
         dust_utxo.outpoint,
         dust_utxo.txout.clone(),
@@ -393,14 +534,12 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
         .expect("Failed to sign");
 
-    (
-        dust_utxo,
-        txout,
-        taproot::Signature {
-            signature: sig,
-            sighash_type: sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        },
-    )
+    let sig = taproot::Signature {
+        signature: sig,
+        sighash_type: sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+
+    (txout, sig)
 }
 
 /// Helper to get a dynamically assigned free port.
@@ -429,23 +568,19 @@ impl PartialEq for MockOwner {
 
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
-    const TX_SENDER_CONSUMER_ID: &'static str = "test_tx_sender";
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-        "test_finalized_block_no_automation";
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "test_lcp_syncer";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str = "test_finalized_block_automation";
 }
 
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::block_cache;
     use crate::builder::transaction::{ContractContext, TxHandler};
     use crate::database::DatabaseTransaction;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
     use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
-    use std::sync::Arc;
     use tonic::async_trait;
 
     // Implement the Owner trait for MockOwner
@@ -467,17 +602,6 @@ mod states {
             _contract_context: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
     }
 }
