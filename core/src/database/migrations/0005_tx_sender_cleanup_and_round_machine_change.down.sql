@@ -1,6 +1,21 @@
--- Recreate legacy tx_sender cancel/activate helper tables
+-- Remove tx-sender/round_tx tracking fields.
+UPDATE state_machines
+SET state_json = (
+    jsonb_set(
+        state_json::jsonb,
+        '{state,RoundTx}',
+        (state_json::jsonb -> 'state' -> 'RoundTx')
+            - 'possible_kickoffs'
+            - 'kickoff_finalizers_spent'
+    )
+)::text
+WHERE machine_type = 'round'
+  AND state_json::jsonb -> 'state' ? 'RoundTx';
 
--- Legacy tables
+ALTER TABLE IF EXISTS tx_sender_try_to_send_txs
+DROP COLUMN IF EXISTS input_spent_at_height;
+
+-- Recreate legacy tx_sender cancel/activate helper tables.
 CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_outpoints (
     cancelled_id INT NOT NULL REFERENCES tx_sender_try_to_send_txs(id),
     txid BYTEA NOT NULL,

@@ -21,6 +21,8 @@ pub use crate::retry::{RetryConfig, RetryableError};
 /// Result type for RPC operations.
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
+const BITCOIN_CORE_V31_VERSION: usize = 310000;
+
 /// Bitcoin RPC wrapper with retry logic.
 ///
 /// Provides useful wrapper functions for common operations, as well as
@@ -145,6 +147,71 @@ impl ExtendedBitcoinRpc {
     /// Returns a reference to the inner client.
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// Ensures the connected Bitcoin Core node supports the v31 RPC surface.
+    pub async fn ensure_bitcoin_core_v31_or_newer(&self) -> Result<()> {
+        let network_info = self
+            .get_network_info()
+            .await
+            .wrap_err("Failed to get Bitcoin Core network info")?;
+
+        if network_info.version < BITCOIN_CORE_V31_VERSION {
+            return Err(eyre!(
+                "Bitcoin Core v31.0+ is required, connected node reports version {} ({})",
+                network_info.version,
+                network_info.subversion
+            )
+            .into());
+        }
+
+        Ok(())
+    }
+
+    async fn index_infos(&self) -> Result<serde_json::Value> {
+        self.call("getindexinfo", &[])
+            .await
+            .wrap_err("Failed to call getindexinfo")
+            .map_err(Into::into)
+    }
+
+    /// Ensures all tx-sender-required indexes are enabled.
+    pub async fn ensure_tx_sender_indexes_available(&self) -> Result<()> {
+        let index_info: serde_json::Value = self.index_infos().await?;
+        let missing: Vec<&str> = ["txindex", "txospenderindex"]
+            .into_iter()
+            .filter(|name| index_info.get(*name).is_none())
+            .collect();
+
+        if !missing.is_empty() {
+            let args = missing
+                .iter()
+                .map(|name| format!("-{name}=1"))
+                .collect::<Vec<_>>()
+                .join(" and ");
+            return Err(
+                eyre!("Bitcoin Core missing required indexes; start bitcoind with {args}").into(),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Returns whether tx-sender-required indexes are fully synced.
+    pub async fn tx_sender_indexes_synced(&self) -> Result<(bool, bool)> {
+        let index_info = self.index_infos().await?;
+        Ok((
+            index_info
+                .get("txindex")
+                .and_then(|index| index.get("synced"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            index_info
+                .get("txospenderindex")
+                .and_then(|index| index.get("synced"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        ))
     }
 
     /// Generates a new Bitcoin address for the wallet.

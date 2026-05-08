@@ -153,7 +153,7 @@ async fn get_citrea_aggregate_row(tx_sender: &TxSender, insertion_id: i64) -> Ci
     CitreaAggregateRow {
         body: body.unwrap_or_default(),
         commit_outpoint: commit_outpoint.map(|op| op.0),
-        try_to_send_id: try_to_send_id.map(|id| id as u32),
+        try_to_send_id: try_to_send_id.map(|id| u32::try_from(id).unwrap()),
     }
 }
 

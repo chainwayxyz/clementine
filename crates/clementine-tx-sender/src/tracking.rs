@@ -134,22 +134,11 @@ impl TxSenderTracker {
                 self.build_submission_status_by_txid(&mut ctx, &txid)
                     .await?,
             )),
-            TrackRequest::CommitReveal { insertion_id } => {
-                #[cfg(feature = "citrea")]
-                {
-                    Ok(TrackResponse::CommitReveal(
-                        self.build_commit_reveal_status(&mut ctx, insertion_id)
-                            .await?,
-                    ))
-                }
-                #[cfg(not(feature = "citrea"))]
-                {
-                    let _ = insertion_id;
-                    Err(BridgeError::Eyre(eyre!(
-                        "citrea tracking is not available without the `citrea` feature"
-                    )))
-                }
-            }
+            #[cfg(feature = "citrea")]
+            TrackRequest::CommitReveal { insertion_id } => Ok(TrackResponse::CommitReveal(
+                self.build_commit_reveal_status(&mut ctx, insertion_id)
+                    .await?,
+            )),
         }
     }
 
@@ -188,8 +177,12 @@ impl TxSenderTracker {
 
         let activation = self.build_activation_state(ctx, try_to_send_id).await?;
 
-        let status = if row.input_unspent_timed_out {
-            TrackStatus::Cancelled
+        let status = if row.input_spent_at_height.is_some() {
+            if row.is_finalized {
+                TrackStatus::Cancelled
+            } else {
+                TrackStatus::InProgress
+            }
         } else if ctx.is_mined_height_finalized(tx_chain_snapshot.mined_at_height)
             || row.is_finalized
         {
@@ -420,8 +413,13 @@ impl TxSenderTracker {
                     aggregate_commit_tx = Some(ctx.bitcoin_tx_status(outpoint.txid).await?);
                 }
                 if let Some(try_to_send_id) = row.try_to_send_id {
+                    let try_to_send_id = u32::try_from(try_to_send_id).map_err(|e| {
+                        BridgeError::Eyre(eyre!(
+                            "Invalid aggregate citrea try_to_send_id {try_to_send_id}: {e}"
+                        ))
+                    })?;
                     let mut aggregate_submission = self
-                        .build_submission_status_by_id(ctx, try_to_send_id as u32)
+                        .build_submission_status_by_id(ctx, try_to_send_id)
                         .await?;
                     if aggregate_finalized {
                         aggregate_submission.status = TrackStatus::Finalized;
@@ -440,8 +438,11 @@ impl TxSenderTracker {
             }
 
             let submission = if let Some(try_to_send_id) = row.try_to_send_id {
+                let try_to_send_id = u32::try_from(try_to_send_id).map_err(|e| {
+                    BridgeError::Eyre(eyre!("Invalid citrea try_to_send_id {try_to_send_id}: {e}"))
+                })?;
                 let submission = self
-                    .build_submission_status_by_id(ctx, try_to_send_id as u32)
+                    .build_submission_status_by_id(ctx, try_to_send_id)
                     .await?;
                 Some(submission)
             } else {

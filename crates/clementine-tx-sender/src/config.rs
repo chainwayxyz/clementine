@@ -61,13 +61,6 @@ pub struct TxSenderConfig {
     /// If not provided, defaults to 30 seconds.
     pub poll_delay_ms: u64,
 
-    /// Optional override for the maximum number of consecutive input-unspent
-    /// check failures before timing out a tx.
-    ///
-    /// If `None`, txsender derives it from:
-    /// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
-    pub input_unspent_max_retries: Option<u32>,
-
     /// Whether tx-sender should use wtxid-grind test-mode behavior.
     ///
     /// Test mode relaxes wtxid grinding to prefix `[2]`; otherwise the
@@ -128,20 +121,6 @@ pub(crate) fn resolve_wtxid_grind_prefix(wtxid_grind_test_mode: bool) -> Vec<u8>
     } else {
         vec![2, 2]
     }
-}
-
-pub(crate) fn validate_input_unspent_max_retries(
-    input_unspent_max_retries: Option<u32>,
-) -> std::result::Result<Option<u32>, String> {
-    if let Some(retries) = input_unspent_max_retries {
-        if retries == 0 {
-            return Err("must be >= 1 when set".to_string());
-        }
-        if retries > i32::MAX as u32 {
-            return Err(format!("must be <= {} when set", i32::MAX));
-        }
-    }
-    Ok(input_unspent_max_retries)
 }
 
 impl TxSenderConfig {
@@ -216,12 +195,6 @@ impl TxSenderConfig {
             ));
         }
 
-        let input_unspent_max_retries = validate_input_unspent_max_retries(env_parse_optional::<
-            u32,
-        >(
-            "TX_SENDER_INPUT_UNSPENT_MAX_RETRIES",
-        )?)
-        .map_err(|msg| BridgeError::EnvVarMalformed("TX_SENDER_INPUT_UNSPENT_MAX_RETRIES", msg))?;
         let wtxid_grind_test_mode =
             env_parse_bool_optional("WTXID_GRIND_TEST_MODE")?.unwrap_or(false);
 
@@ -262,7 +235,6 @@ impl TxSenderConfig {
             limits,
             finality_depth,
             poll_delay_ms,
-            input_unspent_max_retries,
             wtxid_grind_test_mode,
             jsonrpc,
         })

@@ -47,14 +47,14 @@ pub use tx_sender_types::ActivatedWithTxid;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
-use clementine_config::tx_sender::{derive_input_unspent_max_retries, TxSenderLimits};
+use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
 use clementine_primitives::FeeRateKvb;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
 use clementine_utils::{FeePayingType, TxMetadata};
-use eyre::{OptionExt, WrapErr};
+use eyre::OptionExt;
 use signer::TxSenderSigningKey;
 
 /// Default sequence for transactions.
@@ -136,7 +136,6 @@ pub struct TxSender {
     client: TxSenderClient,
     pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
-    input_unspent_max_retries: u32,
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
@@ -168,7 +167,6 @@ impl std::fmt::Debug for TxSender {
             .field("db", &self.db)
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
-            .field("input_unspent_max_retries", &self.input_unspent_max_retries)
             .field("wtxid_grind_prefix", &self.wtxid_grind_prefix)
             .finish()
     }
@@ -196,18 +194,10 @@ impl TxSender {
             mempool,
             limits,
             finality_depth,
-            poll_delay_ms,
-            input_unspent_max_retries,
+            poll_delay_ms: _,
             wtxid_grind_test_mode,
             jsonrpc: _,
         } = tx_sender_config;
-
-        let input_unspent_max_retries =
-            crate::config::validate_input_unspent_max_retries(input_unspent_max_retries)
-                .map_err(|msg| {
-                    BridgeError::ConfigError(format!("input_unspent_max_retries {msg}"))
-                })?
-                .unwrap_or_else(|| derive_input_unspent_max_retries(finality_depth, poll_delay_ms));
 
         let signer = TxSenderSigningKey::new(secret_key, network);
         #[cfg(feature = "citrea")]
@@ -223,6 +213,18 @@ impl TxSender {
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
+        rpc.ensure_bitcoin_core_v31_or_newer().await.map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "tx-sender requires a Bitcoin Core v31.0+ RPC node: {e}"
+            ))
+        })?;
+        rpc.ensure_tx_sender_indexes_available()
+            .await
+            .map_err(|e| {
+                BridgeError::ConfigError(format!(
+                    "tx-sender requires Bitcoin Core txindex and txospenderindex: {e}"
+                ))
+            })?;
         let change_script_pubkey = rpc
             .get_new_wallet_address()
             .await
@@ -241,7 +243,6 @@ impl TxSender {
             client,
             network,
             tx_sender_limits: limits,
-            input_unspent_max_retries,
             finality_depth,
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
@@ -343,42 +344,6 @@ impl TxSender {
             .map_err(BridgeError::Eyre)
     }
 
-    /// Checks whether all inputs of the given transaction are currently unspent.
-    ///
-    /// For each input:
-    /// - If the creating transaction (`outpoint.txid`) is still in the mempool, we **skip**
-    ///   checking its spend status via `gettxout`, since the output is not yet in the UTXO set.
-    /// - Otherwise, we use `gettxout` to verify the previous output is still in the UTXO set.
-    async fn are_tx_inputs_unspent(&self, tx: &Transaction) -> Result<bool> {
-        for input in &tx.input {
-            let outpoint = input.previous_output;
-
-            let utxo = self
-                .rpc
-                .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
-                .await
-                .wrap_err("Failed to gettxout for tx input")?;
-
-            if utxo.is_none() {
-                // If the transaction that created this UTXO is still in the mempool, don't consider it as spent
-                // outputs as "spent" just because they're not yet in the UTXO set.
-                // If timelock of activate_txid is 0, we try to send txs directly while the activate_txid is in mempool.
-                let in_mempool = match self.rpc.get_mempool_entry(&outpoint.txid).await {
-                    Ok(_) => Ok(true),
-                    Err(e) if crate::rpc_errors::is_mempool_not_found_error(&e) => Ok(false),
-                    Err(e) => Err(e).wrap_err("Failed to get mempool entry for tx input"),
-                }?;
-
-                if in_mempool {
-                    continue;
-                }
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
     /// Fetches transactions that are eligible to be sent or bumped from
     /// database based on the given fee rate and tip height. Then, places a send
     /// transaction request to the Bitcoin based on the fee strategy.
@@ -466,76 +431,6 @@ impl TxSender {
                     .update_tx_debug_sending_state(id, "confirmed", true)
                     .await;
 
-                continue;
-            }
-
-            // Before attempting to (re)send, ensure all inputs are still unspent.
-            let inputs_unspent = match self.are_tx_inputs_unspent(&tx).await {
-                Ok(res) => res,
-                Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        id,
-                        format!("Failed to verify tx inputs are unspent: {}", e)
-                    );
-                    continue;
-                }
-            };
-
-            if !inputs_unspent {
-                let timed_out = match self
-                    .db
-                    .mark_input_unspent_check_failed(None, id, self.input_unspent_max_retries)
-                    .await
-                {
-                    Ok(res) => res,
-                    Err(e) => {
-                        log_error_for_tx!(
-                            self.db,
-                            id,
-                            format!("Failed to update input-unspent retry tracking: {}", e)
-                        );
-                        continue;
-                    }
-                };
-
-                tracing::debug!(
-                    try_to_send_id = id,
-                    timed_out,
-                    "Skipping tx because one or more inputs are already spent"
-                );
-
-                let sending_state = if timed_out {
-                    "inputs_already_spent_timed_out"
-                } else {
-                    "inputs_already_spent_retrying"
-                };
-
-                let _ = self
-                    .db
-                    .update_tx_debug_sending_state(id, sending_state, true)
-                    .await;
-
-                if timed_out {
-                    log_error_for_tx!(
-                        self.db,
-                        id,
-                        format!(
-                            "Tx inputs stayed unavailable for {} consecutive checks; marking tx as timed out",
-                            self.input_unspent_max_retries
-                        )
-                    );
-                }
-
-                continue;
-            }
-
-            if let Err(e) = self.db.clear_input_unspent_check_failures(None, id).await {
-                log_error_for_tx!(
-                    self.db,
-                    id,
-                    format!("Failed to clear input-unspent retry tracking: {}", e)
-                );
                 continue;
             }
 

@@ -40,16 +40,14 @@ struct BridgeCircuitTestData {
 #[async_trait]
 impl TestCase for BridgeCircuitTestData {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-                "-acceptnonstdtxn=1",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![
+            "-txindex=1",
+            "-txospenderindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+            "-dustrelayfee=0",
+            "-acceptnonstdtxn=1",
+        ])
     }
 
     fn test_config() -> TestCaseConfig {
@@ -175,7 +173,7 @@ impl TestCase for BridgeCircuitTestData {
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_generate_kickoff_and_wtc_tx() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::GenerateKickoffAndWtcTx,
     };
@@ -186,7 +184,7 @@ async fn bridge_circuit_test_data_generate_kickoff_and_wtc_tx() -> Result<()> {
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::Valid,
     };
@@ -197,7 +195,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::InsufficientTotalWork,
@@ -208,7 +206,7 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
 
     let bridge_circuit_test_data = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::FirstTwoValid,
@@ -221,7 +219,7 @@ async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<(
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_annex() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::WithAnnex,
     };
@@ -233,7 +231,7 @@ async fn challenge_tx_with_annex() -> Result<()> {
 #[tokio::test]
 #[ignore = "Only run this test manually, it's for data generation purposes"]
 async fn challenge_tx_with_large_input() -> Result<()> {
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let watchtower_challenge_tx_variant = BridgeCircuitTestData {
         variant: BridgeCircuitTestDataVariant::LargeInput,
     };

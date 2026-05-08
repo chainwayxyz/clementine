@@ -29,6 +29,27 @@ impl TxSenderTaskInternal {
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
+        let (txindex_synced, txospenderindex_synced) = self
+            .inner
+            .rpc
+            .tx_sender_indexes_synced()
+            .await
+            .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
+
+        if !txindex_synced || !txospenderindex_synced {
+            // `synced=false` means the index is still doing initial catch-up or
+            // has otherwise not reached usable state. Once synced, Bitcoin Core
+            // keeps this flag true and RPCs wait for block notification backlog
+            // when they need tip-current index data.
+            tracing::warn!(
+                current_tip_height = self.current_tip_height,
+                txindex_synced,
+                txospenderindex_synced,
+                "Bitcoin Core indexes are still catching up; skipping tx-sender loop"
+            );
+            return Ok(false);
+        }
+
         tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate = self.inner.get_fee_rate().await?;
         tracing::debug!("TXSENDER: Fee rate result: {fee_rate:?}");

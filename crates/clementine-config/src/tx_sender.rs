@@ -2,24 +2,6 @@
 
 use serde::Deserialize;
 
-/// 10 minutes in milliseconds.
-pub const BITCOIN_TARGET_BLOCK_TIME_MS: u64 = 10 * 60 * 1000;
-/// Keep retrying for 2 * finality depth worth of expected block time.
-pub const INPUT_UNSPENT_TIMEOUT_FINALITY_MULTIPLIER: u64 = 2;
-
-/// Derive default maximum retries for input-unspent checks:
-/// `(finality_depth * 2 * 10 minutes) / poll_delay_ms`.
-///
-/// Uses ceil division and always returns at least 1.
-pub fn derive_input_unspent_max_retries(finality_depth: u32, poll_delay_ms: u64) -> u32 {
-    let poll_delay_ms = poll_delay_ms.max(1);
-    let timeout_window_ms = u64::from(finality_depth)
-        .saturating_mul(INPUT_UNSPENT_TIMEOUT_FINALITY_MULTIPLIER)
-        .saturating_mul(BITCOIN_TARGET_BLOCK_TIME_MS);
-    let retries = timeout_window_ms.div_ceil(poll_delay_ms).max(1);
-    u32::try_from(retries).unwrap_or(i32::MAX as u32)
-}
-
 /// Transaction sender limits and fee configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct TxSenderLimits {

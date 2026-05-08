@@ -69,7 +69,7 @@ services:
       - clementine-network
 
   bitcoin_regtest:
-    image: bitcoin/bitcoin:29
+    image: bitcoin/bitcoin:31
     attach: false
     container_name: bitcoin_regtest
     ports:
@@ -90,6 +90,7 @@ services:
       -rpcpassword=admin
       -server
       -txindex=1
+      -txospenderindex=1
       -fallbackfee=0.00001
       -maxtxfee=5
     entrypoint: ["/docker-entrypoint.sh"]

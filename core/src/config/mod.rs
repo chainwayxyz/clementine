@@ -370,9 +370,7 @@ impl BridgeConfig {
             mempool: self.mempool_config(),
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
-            // Must match core/src/task/tx_sender.rs POLL_DELAY for retry-time derivations. (max retries derivation depends on this)
             poll_delay_ms: 30_000,
-            input_unspent_max_retries: None,
             wtxid_grind_test_mode: cfg!(test),
             jsonrpc: None,
         }

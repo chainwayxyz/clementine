@@ -49,6 +49,8 @@ type TxSenderWithCore = TxSender;
 /// Sets up common RPC mocks that are needed for TxSender initialization.
 /// This includes:
 /// - `ping`: Always returns success
+/// - `getnetworkinfo`: Returns a Bitcoin Core v31-compatible response
+/// - `getindexinfo`: Returns synced `txindex` and `txospenderindex`
 /// - `getnewaddress`: Returns a valid Bitcoin mainnet address
 ///
 /// Note: Tests should still set up their own `estimatesmartfee` mock as it varies per test.
@@ -62,6 +64,57 @@ async fn setup_common_rpc_mocks(mock_rpc_server: &MockServer) {
             "jsonrpc": "2.0",
             "id": 1,
             "result": null
+        })))
+        .mount(mock_rpc_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({
+            "method": "getnetworkinfo"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "version": 310000,
+                "subversion": "/Satoshi:31.0.0/",
+                "protocolversion": 70016,
+                "localservices": "0000000000000409",
+                "localrelay": true,
+                "timeoffset": 0,
+                "connections": 0,
+                "connections_in": 0,
+                "connections_out": 0,
+                "networkactive": true,
+                "networks": [],
+                "relayfee": 0.00001000,
+                "incrementalfee": 0.00001000,
+                "localaddresses": [],
+                "warnings": ""
+            }
+        })))
+        .mount(mock_rpc_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({
+            "method": "getindexinfo"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "txindex": {
+                    "synced": true,
+                    "best_block_height": 1
+                },
+                "txospenderindex": {
+                    "synced": true,
+                    "best_block_height": 1
+                }
+            }
         })))
         .mount(mock_rpc_server)
         .await;

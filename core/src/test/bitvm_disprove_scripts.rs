@@ -38,18 +38,16 @@ struct DisproveTest {
 #[async_trait]
 impl TestCase for DisproveTest {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-limitancestorsize=1010",
-                "-limitdescendantsize=1010",
-                "-acceptnonstdtxn=1",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![
+            "-txindex=1",
+            "-txospenderindex=1",
+            "-fallbackfee=0.000001",
+            "-rpcallowip=0.0.0.0/0",
+            "-limitancestorsize=1010",
+            "-limitdescendantsize=1010",
+            "-acceptnonstdtxn=1",
+            "-dustrelayfee=0",
+        ])
     }
 
     fn test_config() -> TestCaseConfig {
@@ -270,7 +268,7 @@ impl TestCase for DisproveTest {
 async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::HealthyState,
     };
@@ -296,7 +294,7 @@ async fn disprove_script_test_healthy() -> Result<()> {
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::CorruptedAssert,
     };

@@ -82,6 +82,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> 
     fn bitcoin_config() -> BitcoinConfig {
         let mut extra_args = vec![
             "-txindex=1",
+            "-txospenderindex=1",
             "-fallbackfee=0.000001",
             "-rpcallowip=0.0.0.0/0",
             "-dustrelayfee=0",
@@ -93,10 +94,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> 
             extra_args.push("-acceptnonstdtxn=1");
         }
 
-        BitcoinConfig {
-            extra_args,
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(extra_args)
     }
 
     fn test_config() -> TestCaseConfig {
@@ -534,7 +532,7 @@ impl<const USE_ANNEX: bool> TestCase for CitreaDepositAndWithdrawE2E<USE_ANNEX> 
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let use_annex = rand::random::<bool>();
     if use_annex {
         let citrea_e2e = CitreaDepositAndWithdrawE2E::<true> {
@@ -553,7 +551,7 @@ async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e
 #[ignore = "Ignored, currently no specific reason to test with genesis height zero"]
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::configure_citrea_e2e_citrea_image();
     let use_annex = rand::random::<bool>();
     if use_annex {
         let citrea_e2e = CitreaDepositAndWithdrawE2E::<true> {

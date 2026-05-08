@@ -41,7 +41,6 @@ pub async fn create_test_environment(
         },
         finality_depth: 1,
         poll_delay_ms: 500,
-        input_unspent_max_retries: None,
         wtxid_grind_test_mode: true,
         jsonrpc: None,
         mempool: MempoolConfig {
@@ -159,9 +158,14 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         .keep();
     let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
-    // Get available ports for RPC
+    // Get available ports for RPC and P2P
     let rpc_port = if bitcoin_rpc_debug {
         18443
+    } else {
+        get_available_port()
+    };
+    let p2p_port = if bitcoin_rpc_debug {
+        18444
     } else {
         get_available_port()
     };
@@ -189,7 +193,8 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
     let args = vec![
         "-regtest".to_string(),
         format!("-datadir={}", data_dir.display()),
-        "-listen=0".to_string(),
+        "-listen=1".to_string(),
+        format!("-port={p2p_port}"),
         format!("-rpcport={}", rpc_port),
         format!("-rpcuser={}", config.bitcoin_rpc.user.expose_secret()),
         format!(
@@ -198,6 +203,7 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
+        "-txospenderindex=1".to_string(),
         "-whitelist=noban@127.0.0.1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
@@ -256,11 +262,12 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         .expect("Failed to get network info");
     tracing::info!("Using bitcoind version: {}", network_info.version);
 
-    // // Create wallet
-    client
-        .create_wallet("admin", None, None, None, None)
-        .await
-        .expect("Failed to create wallet");
+    if let Err(e) = client.create_wallet("admin", None, None, None, None).await {
+        let err = e.to_string();
+        if !err.contains("Database already exists") && !err.contains("already exists") {
+            panic!("Failed to create wallet: {e}");
+        }
+    }
 
     // Generate blocks
     let address = client

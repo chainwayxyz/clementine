@@ -48,6 +48,19 @@ mod txsender;
 
 pub const CITREA_E2E_DOCKER_IMAGE: &str =
     "chainwayxyz/citrea-test:2d00b9e8fcaa1e20474faa7c29c3420d96c9aeaf";
+pub const E2E_BITCOIN_DOCKER_IMAGE: &str = "bitcoin/bitcoin:31";
+
+pub fn e2e_bitcoin_config(extra_args: Vec<&'static str>) -> citrea_e2e::config::BitcoinConfig {
+    citrea_e2e::config::BitcoinConfig {
+        extra_args,
+        docker_image: Some(E2E_BITCOIN_DOCKER_IMAGE.to_string()),
+        ..Default::default()
+    }
+}
+
+pub fn configure_citrea_e2e_citrea_image() {
+    std::env::set_var("CITREA_DOCKER_IMAGE", CITREA_E2E_DOCKER_IMAGE);
+}
 
 use ctor::ctor;
 
