@@ -2906,9 +2906,8 @@ where
         );
         tracing::debug!("BitVM public keys: {:?}", bitvm_pks.bitvm_pks);
 
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
-
         let res = tokio::task::spawn_blocking(move || {
+            let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
             use bitvm::chunk::api::validate_assertions_return_vector;
 
             validate_assertions_return_vector(

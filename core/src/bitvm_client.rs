@@ -96,15 +96,9 @@ pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeEr
     );
     tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
 
-    let replacement_plan_start = Instant::now();
     let disprove_replacement_operation_count =
         calculate_replacement_operations(&bitvm_cache.replacement_places);
     let disprove_replacements_by_script = collect_disprove_script_replacement_plan(&bitvm_cache)?;
-    tracing::info!(
-        "Time taken to group BitVM disprove replacements by script: {:?}; operations: {}",
-        replacement_plan_start.elapsed(),
-        disprove_replacement_operation_count
-    );
 
     Ok(BitvmCacheWithMetadata {
         bitvm_cache,
@@ -621,36 +615,11 @@ impl ClementineBitVMPublicKeys {
         &self,
         xonly_public_key: XOnlyPublicKey,
     ) -> Vec<bitcoin::TapNodeHash> {
-        let timing_started = Instant::now();
-        let step_started = Instant::now();
         let assert_scripts = self.get_assert_scripts(xonly_public_key);
-        let script_count = assert_scripts.len();
-        if cfg!(test) {
-            tracing::warn!(
-                script_count,
-                step = "bitvm_get_assert_scripts",
-                elapsed_ms = step_started.elapsed().as_millis(),
-                total_elapsed_ms = timing_started.elapsed().as_millis(),
-                "bitvm assert taproot leaf hash timing"
-            );
-        }
-
-        let step_started = Instant::now();
-        let leaf_hashes = assert_scripts
+        assert_scripts
             .into_iter()
             .map(|script| TapNodeHash::from_script(&script.to_script_buf(), LeafVersion::TapScript))
-            .collect::<Vec<_>>();
-        if cfg!(test) {
-            tracing::warn!(
-                script_count,
-                step = "bitvm_assert_taproot_leaf_hashes",
-                elapsed_ms = step_started.elapsed().as_millis(),
-                total_elapsed_ms = timing_started.elapsed().as_millis(),
-                "bitvm assert taproot leaf hash timing"
-            );
-        }
-
-        leaf_hashes
+            .collect::<Vec<_>>()
     }
 
     /// Materializes every replaced Groth16 verifier disprove script.
@@ -659,6 +628,9 @@ impl ClementineBitVMPublicKeys {
     /// several GB of memory. Prefer [`Self::get_g16_verifier_disprove_root_hash`]
     /// when only the Taproot root is needed. Callers should ensure this method is
     /// executed with at most one concurrent caller per process.
+    ///
+    /// Currently this is only called in verifier disprove path in state manager which is single threaded,
+    /// so no need to use a mutex lock.
     pub fn get_g16_verifier_disprove_scripts(&self) -> Result<Vec<ScriptBuf>, BridgeError> {
         if cfg!(debug_assertions) {
             Ok(vec![ScriptBuf::from_bytes(vec![0x51])]) // OP_TRUE
@@ -709,7 +681,6 @@ impl DisproveReplacementSource {
 }
 
 fn replace_disprove_root_hash(pks: &ClementineBitVMPublicKeys) -> Result<[u8; 32], BridgeError> {
-    let start = Instant::now();
     tracing::info!("Starting script replacement for root hash");
 
     let cache_with_metadata = BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)?;
@@ -731,19 +702,11 @@ fn replace_disprove_root_hash(pks: &ClementineBitVMPublicKeys) -> Result<[u8; 32
         ));
     }
 
-    let root_hash = disprove_root_hash_from_script_bytes(
+    disprove_root_hash_from_script_bytes(
         &cache.disprove_scripts,
         &cache_with_metadata.disprove_replacements_by_script,
         pks,
-    )?;
-
-    tracing::info!(
-        "Script root hash replacement completed in {:?} with {} operations",
-        start.elapsed(),
-        estimated_operations
-    );
-
-    Ok(root_hash)
+    )
 }
 
 fn collect_disprove_script_replacement_plan(
@@ -868,17 +831,11 @@ fn disprove_root_hash_from_script_bytes(
 
     let depths = calculate_taproot_leaf_depths(disprove_scripts.len());
     let mut taproot_builder = TaprootBuilder::new();
-    let mut replace_elapsed = std::time::Duration::ZERO;
-    let mut hash_elapsed = std::time::Duration::ZERO;
-    let mut builder_elapsed = std::time::Duration::ZERO;
-    let mut replacement_count = 0usize;
 
     for (script_idx, base_script) in disprove_scripts.iter().enumerate() {
-        let step_started = Instant::now();
         let mut script = base_script.clone();
 
         for replacement in &replacements_by_script[script_idx] {
-            replacement_count += 1;
             let end = replacement.pos.checked_add(20).ok_or_else(|| {
                 BridgeError::ConfigError(format!(
                     "BitVM replacement offset overflow in script {script_idx}"
@@ -894,14 +851,10 @@ fn disprove_root_hash_from_script_bytes(
 
             script[replacement.pos..end].copy_from_slice(&replacement.source.value(pks));
         }
-        replace_elapsed += step_started.elapsed();
 
-        let step_started = Instant::now();
         let script = ScriptBuf::from_bytes(script);
         let leaf_hash = TapNodeHash::from_script(&script, LeafVersion::TapScript);
-        hash_elapsed += step_started.elapsed();
 
-        let step_started = Instant::now();
         taproot_builder = taproot_builder
             .add_hidden_node(depths[script_idx], leaf_hash)
             .map_err(|e| {
@@ -909,10 +862,8 @@ fn disprove_root_hash_from_script_bytes(
                     "Failed to add BitVM disprove leaf hash to taproot builder: {e}"
                 ))
             })?;
-        builder_elapsed += step_started.elapsed();
     }
 
-    let step_started = Instant::now();
     let root_hash = taproot_builder
         .try_into_node_info()
         .map_err(|e| {
@@ -922,19 +873,6 @@ fn disprove_root_hash_from_script_bytes(
         })?
         .node_hash()
         .to_byte_array();
-    builder_elapsed += step_started.elapsed();
-
-    if cfg!(test) {
-        tracing::warn!(
-            script_count = disprove_scripts.len(),
-            replacement_count,
-            replace_ms = replace_elapsed.as_millis(),
-            hash_ms = hash_elapsed.as_millis(),
-            taproot_builder_ms = builder_elapsed.as_millis(),
-            step = "bitvm_disprove_root_hash_from_script_bytes",
-            "bitvm disprove root hash timing"
-        );
-    }
 
     Ok(root_hash)
 }
