@@ -44,6 +44,7 @@ async fn mock_citrea_run_truthful_manual_reimbursement() {
     // do 2 deposits and get reimbursements
     let actors = create_actors::<MockCitreaClient>(&config).await;
     deposit_and_get_reimbursement(&mut config, &actors, &rpc, &mut citrea_client, 0).await;
+    panic!("Intentional panic to test workflow");
     deposit_and_get_reimbursement(&mut config, &actors, &rpc, &mut citrea_client, 1).await;
 }
 
