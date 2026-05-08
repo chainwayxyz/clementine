@@ -35,6 +35,8 @@ mod client_mock;
 mod parameters;
 mod requests;
 
+pub const CITREA_E2E_LCP_START_HEIGHT: u64 = 194;
+
 /// Calculates bridge params dynamically with the N-of-N public key which
 /// calculated from the verifier secret keys in `BridgeConfig::default`.
 pub fn get_bridge_params() -> String {
@@ -133,6 +135,10 @@ pub fn update_config_with_citrea_e2e_values(
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
     light_client_prover: Option<(&str, u16)>,
 ) {
+    let mut paramset = config.protocol_paramset().clone();
+    paramset.start_height = CITREA_E2E_LCP_START_HEIGHT as u32 + 1;
+    config.protocol_paramset = Box::leak(Box::new(paramset));
+
     config.bitcoin_rpc_user = da.config.rpc_user.clone().into();
     config.bitcoin_rpc_password = da.config.rpc_password.clone().into();
     config.bitcoin_rpc_url = format!(

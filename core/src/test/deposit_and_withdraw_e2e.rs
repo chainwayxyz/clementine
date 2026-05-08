@@ -24,7 +24,7 @@ use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPa
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
     start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
-    SECRET_KEYS,
+    CITREA_E2E_LCP_START_HEIGHT, SECRET_KEYS,
 };
 use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
@@ -124,9 +124,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 60,
+            initial_da_height: CITREA_E2E_LCP_START_HEIGHT,
             ..Default::default()
         }
+    }
+
+    fn scan_l1_start_height() -> Option<u64> {
+        Some(CITREA_E2E_LCP_START_HEIGHT)
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
@@ -191,7 +195,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             let paramset = ProtocolParamset {
                 genesis_height,
                 genesis_chain_state_hash,
-                ..ProtocolParamset::default()
+                ..config.protocol_paramset().clone()
             };
 
             config.protocol_paramset = Box::leak(Box::new(paramset));
