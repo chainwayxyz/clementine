@@ -63,9 +63,7 @@ async fn test_process_empty_block_with_no_machines() {
             .await
             .expect("Failed to begin transaction"),
     ));
-    let mut context = state_manager
-        .new_context(dbtx.clone(), &block, block_height)
-        .expect("Failed to create context");
+    let mut context = state_manager.new_context(dbtx.clone(), &block, block_height);
     // Process an empty block with no state machines
     let result = state_manager.process_block_parallel(&mut context).await;
     drop(context);
@@ -98,7 +96,7 @@ async fn test_process_block_parallel() {
 
     // Process the block multiple times to test the iteration logic
     for i in 1..=3 {
-        let mut context = state_manager.new_context(dbtx.clone(), &block, i).unwrap();
+        let mut context = state_manager.new_context(dbtx.clone(), &block, i);
         let result = state_manager.process_block_parallel(&mut context).await;
         assert!(
             result.is_ok(),
@@ -140,9 +138,7 @@ async fn test_save_and_load_state() {
             .await
             .expect("Failed to begin transaction"),
     ));
-    let mut context = state_manager
-        .new_context(dbtx.clone(), &block, 1)
-        .expect("Failed to create context");
+    let mut context = state_manager.new_context(dbtx.clone(), &block, 1);
     let result = state_manager.process_block_parallel(&mut context).await;
     assert!(result.is_ok(), "Failed to process block: {result:?}");
 
