@@ -143,7 +143,7 @@ where
         let transaction_request = request.into_inner();
         let transaction_data: TransactionRequestData = transaction_request.try_into()?;
 
-        let (_tx_type, signed_tx, rbf_info) = self
+        let (_tx_type, signed_tx) = self
             .verifier
             .create_watchtower_challenge(
                 transaction_data,
@@ -167,7 +167,7 @@ where
 
         Ok(Response::new(RawTxWithRbfInfo {
             raw_tx: bitcoin::consensus::serialize(&signed_tx),
-            rbf_info: Some(rbf_info.into()),
+            rbf_info: None,
         }))
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -653,14 +653,7 @@ where
             .await?;
         if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(
-                    &mut dbtx,
-                    Witness::new(),
-                    deposit_data,
-                    kickoff_id,
-                    false,
-                    txid,
-                )
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));

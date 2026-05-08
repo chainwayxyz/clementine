@@ -49,7 +49,8 @@
 //! }
 //! ```
 
-use bitcoin::{secp256k1::PublicKey, BlockHash, FeeRate, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{secp256k1::PublicKey, BlockHash, OutPoint, Txid, XOnlyPublicKey};
+use clementine_primitives::FeeRateKvb;
 use core::fmt::Debug;
 use hex::FromHexError;
 use http::StatusCode;
@@ -105,7 +106,7 @@ impl From<ParserError> for tonic::Status {
 #[derive(Debug, Error)]
 pub enum BitcoinRPCError {
     #[error("Failed to bump fee for Txid of {0} and feerate of {1}")]
-    BumpFeeError(Txid, FeeRate),
+    BumpFeeError(Txid, FeeRateKvb),
     #[error("Failed to bump fee: UTXO is already spent")]
     BumpFeeUTXOSpent(OutPoint),
     #[error("Transaction is already in block: {0}")]

@@ -14,7 +14,7 @@ use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, DutyResult, StateContext},
+    context::{Duty, StateContext},
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
@@ -42,6 +42,8 @@ pub enum RoundEvent {
     OperatorExit,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
+    /// Event to flag that the current round is challenged, it should only be sent and handled if current state is round_tx
+    SetChallenged { round_idx: RoundIndex },
 }
 
 /// State machine for the round state.
@@ -71,6 +73,13 @@ pub struct RoundStateMachine<T: Owner> {
     /// the flag is set to true in on_transition and on_dispatch
     /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
     pub(crate) dirty: bool,
+    /// In a single round, a challenge is enough to slash all of the operators current kickoffs in the same round.
+    /// This set stores the rounds that have been challenged.
+    /// If that challenge is successful, operator will not be able to get reimbursement from all kickoffs.
+    /// serde default is used to ensure backwards compatibility with old state machines.
+    /// Why store like this instead of local storage of round_tx state? Because an operator might start a kickoff and instantly move to the next round (which should get it slashed).
+    #[serde(default)]
+    pub(crate) challenged_rounds: HashSet<RoundIndex>,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -97,6 +106,7 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             dirty: true,
+            challenged_rounds: HashSet::new(),
             phantom: std::marker::PhantomData,
         }
     }
@@ -164,9 +174,17 @@ impl<T: Owner> RoundStateMachine<T> {
         match event {
             // If the initial collateral is spent, we can transition to the first round tx.
             RoundEvent::RoundSent { round_idx } => {
-                Transition(State::round_tx(*round_idx, HashSet::new(), false))
+                tracing::info!(
+                    "First round tx detected for {}",
+                    self.operator_data.xonly_pk
+                );
+                Transition(State::round_tx(*round_idx, HashSet::new()))
             }
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {
                 self.unhandled_event(context, event).await;
@@ -235,7 +253,6 @@ impl<T: Owner> RoundStateMachine<T> {
         event: &RoundEvent,
         round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
-        challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
@@ -248,6 +265,12 @@ impl<T: Owner> RoundStateMachine<T> {
                 kickoff_idx,
                 kickoff_outpoint,
             } => {
+                tracing::info!(
+                    "Kickoff utxo {} usage detected, operator: {}, round: {}",
+                    kickoff_idx,
+                    self.operator_data.xonly_pk,
+                    round_idx
+                );
                 used_kickoffs.insert(*kickoff_idx);
                 let txid = context
                     .cache
@@ -259,7 +282,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         {
                             // acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize
                             let _guard = CHECK_KICKOFF_LOCK.write().await;
-                            let duty_result = context
+                            context
                                 .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
                                     block_height: context.cache.block_height,
@@ -267,12 +290,8 @@ impl<T: Owner> RoundStateMachine<T> {
                                         .cache
                                         .get_witness_of_utxo(kickoff_outpoint)
                                         .expect("UTXO should be in block"),
-                                    challenged_before: *challenged_before,
                                 })
                                 .await?;
-                            if let DutyResult::CheckIfKickoff { challenged } = duty_result {
-                                *challenged_before |= challenged;
-                            }
                             Ok::<(), BridgeError>(())
                         }
                         .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))
@@ -282,9 +301,18 @@ impl<T: Owner> RoundStateMachine<T> {
             }
             // If the ready to reimburse tx is mined, we transition to the ready to reimburse state.
             RoundEvent::ReadyToReimburseSent { round_idx } => {
+                tracing::info!(
+                    "Ready to reimburse tx sent for operator: {}, round: {}",
+                    self.operator_data.xonly_pk,
+                    round_idx
+                );
                 Transition(State::ready_to_reimburse(*round_idx))
             }
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {
                 self.unhandled_event(context, event).await;
@@ -302,6 +330,10 @@ impl<T: Owner> RoundStateMachine<T> {
     ) -> Response<State> {
         match event {
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled
@@ -356,14 +388,8 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut RoundIndex,
-        challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) {
-        // ensure challenged_before starts at false for each round
-        // In a single round, a challenge is enough to slash all of the operators current kickoffs in the same round.
-        // This way, if the operator posts 50 different kickoffs, we only need one challenge.
-        // If that challenge is successful, operator will not be able to get reimbursement from all kickoffs.
-        *challenged_before = false;
         context
             .capture_error(async |context| {
                 {
@@ -448,9 +474,13 @@ impl<T: Owner> RoundStateMachine<T> {
             // If the next round tx is mined, we transition to the round tx state.
             RoundEvent::RoundSent {
                 round_idx: next_round_idx,
-            } => Transition(State::round_tx(*next_round_idx, HashSet::new(), false)),
+            } => Transition(State::round_tx(*next_round_idx, HashSet::new())),
             RoundEvent::SavedToDb => Handled,
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

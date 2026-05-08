@@ -3,34 +3,26 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use crate::TxSenderDatabase;
 use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
 use bitcoin::{OutPoint, Transaction, Txid};
-use clementine_config::protocol::ProtocolParamset;
 use clementine_errors::BridgeError;
-use clementine_primitives::{TransactionType, UtxoVout};
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::eyre;
 use std::collections::BTreeMap;
 
+#[cfg(feature = "citrea")]
+use crate::citrea::CitreaTxRequest;
+#[cfg(feature = "citrea")]
+use crate::citrea::TransactionKind;
+
 #[derive(Debug, Clone)]
-pub struct TxSenderClient<D>
-where
-    D: TxSenderDatabase,
-{
-    pub db: D,
-    pub tx_sender_consumer_id: String,
+pub struct TxSenderClient {
+    pub db: crate::TxSenderDb,
 }
 
-impl<D> TxSenderClient<D>
-where
-    D: TxSenderDatabase,
-{
-    pub fn new(db: D, tx_sender_consumer_id: String) -> Self {
-        Self {
-            db,
-            tx_sender_consumer_id,
-        }
+impl TxSenderClient {
+    pub fn new(db: crate::TxSenderDb) -> Self {
+        Self { db }
     }
 
     /// Saves a transaction to the database queue for sending/fee bumping.
@@ -62,11 +54,11 @@ where
     /// # Returns
     ///
     /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata))]
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_try_to_send(
         &self,
-        mut dbtx: Option<&mut D::Transaction>,
+        dbtx: &mut crate::TxSenderTransaction,
         tx_metadata: Option<TxMetadata>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
@@ -78,9 +70,17 @@ where
     ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
-        tracing::debug!(
-            "{} added tx {} with txid {} to the queue",
-            self.tx_sender_consumer_id,
+        // do not add duplicate transactions to the txsender
+        let tx_exists = self
+            .db
+            .check_if_tx_exists_on_txsender(Some(dbtx), txid)
+            .await?;
+        if let Some(try_to_send_id) = tx_exists {
+            return Ok(try_to_send_id);
+        }
+
+        tracing::info!(
+            "Added tx {} with txid {} to the queue",
             tx_metadata
                 .as_ref()
                 .map(|data| format!("{:?}", data.tx_type))
@@ -88,19 +88,10 @@ where
             txid
         );
 
-        // do not add duplicate transactions to the txsender
-        let tx_exists = self
-            .db
-            .check_if_tx_exists_on_txsender(dbtx.as_deref_mut(), txid)
-            .await?;
-        if let Some(try_to_send_id) = tx_exists {
-            return Ok(try_to_send_id);
-        }
-
         let try_to_send_id = self
             .db
             .save_tx(
-                dbtx.as_deref_mut(),
+                dbtx,
                 tx_metadata,
                 signed_tx,
                 fee_paying_type,
@@ -115,19 +106,19 @@ where
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
             self.db
-                .save_cancelled_outpoint(dbtx.as_deref_mut(), try_to_send_id, input_outpoint)
+                .save_cancelled_outpoint(dbtx, try_to_send_id, input_outpoint)
                 .await?;
         }
 
         for outpoint in cancel_outpoints {
             self.db
-                .save_cancelled_outpoint(dbtx.as_deref_mut(), try_to_send_id, *outpoint)
+                .save_cancelled_outpoint(dbtx, try_to_send_id, *outpoint)
                 .await?;
         }
 
         for txid in cancel_txids {
             self.db
-                .save_cancelled_txid(dbtx.as_deref_mut(), try_to_send_id, *txid)
+                .save_cancelled_txid(dbtx, try_to_send_id, *txid)
                 .await?;
         }
 
@@ -168,7 +159,7 @@ where
         for (txid, timelock) in max_timelock_of_activated_txids {
             self.db
                 .save_activated_txid(
-                    dbtx.as_deref_mut(),
+                    dbtx,
                     try_to_send_id,
                     &ActivatedWithTxid {
                         txid,
@@ -180,183 +171,334 @@ where
 
         for activated_outpoint in activate_outpoints {
             self.db
-                .save_activated_outpoint(dbtx.as_deref_mut(), try_to_send_id, activated_outpoint)
+                .save_activated_outpoint(dbtx, try_to_send_id, activated_outpoint)
                 .await?;
         }
 
         Ok(try_to_send_id)
     }
 
-    /// Adds a transaction to the sending queue based on its type and configuration.
-    ///
-    /// This is a higher-level wrapper around [`Self::insert_try_to_send`]. It determines the
-    /// appropriate `FeePayingType` (CPFP or RBF) and any specific cancellation or activation
-    /// dependencies based on the `tx_type` and `config`.
-    ///
-    /// For example:
-    /// - `Challenge` transactions use `RBF`.
-    /// - Most other transactions default to `CPFP`.
-    /// - Specific types like `OperatorChallengeAck` might activate certain outpoints
-    ///   based on related transactions (`kickoff_txid`).
-    ///
-    /// # Arguments
-    /// * `dbtx` - An active database transaction.
-    /// * `tx_type` - The semantic type of the transaction.
-    /// * `signed_tx` - The transaction itself.
-    /// * `related_txs` - Other transactions potentially related (e.g., the kickoff for a challenge ack).
-    /// * `tx_metadata` - Optional metadata, `tx_type` will be added/overridden.
-    /// * `config` - Bridge configuration providing parameters like finality depth.
-    ///
-    /// # Returns
-    ///
-    /// - [`u32`]: The database ID (`try_to_send_id`) assigned to this send attempt.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn add_tx_to_queue(
-        &self,
-        dbtx: Option<&mut D::Transaction>,
-        tx_type: TransactionType,
-        signed_tx: &Transaction,
-        related_txs: &[(TransactionType, Transaction)],
-        tx_metadata: Option<TxMetadata>,
-        protocol_paramset: &ProtocolParamset,
-        rbf_info: Option<RbfSigningInfo>,
-    ) -> Result<u32, BridgeError> {
-        let tx_metadata = tx_metadata.map(|mut data| {
-            data.tx_type = tx_type;
-            data
-        });
-        match tx_type {
-            TransactionType::Kickoff
-            | TransactionType::Dummy
-            | TransactionType::ChallengeTimeout
-            | TransactionType::DisproveTimeout
-            | TransactionType::Reimburse
-            | TransactionType::Round
-            | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::UnspentKickoff(_)
-            | TransactionType::MoveToVault
-            | TransactionType::BurnUnusedKickoffConnectors
-            | TransactionType::KickoffNotFinalized
-            | TransactionType::MiniAssert(_)
-            | TransactionType::LatestBlockhashTimeout
-            | TransactionType::LatestBlockhash
-            | TransactionType::EmergencyStop
-            | TransactionType::OptimisticPayout
-            | TransactionType::ReadyToReimburse
-            | TransactionType::ReplacementDeposit
-            | TransactionType::AssertTimeout(_) => {
-                // no_dependency and cpfp
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
+    #[cfg(feature = "citrea")]
+    pub async fn send_citrea_tx(&self, request: CitreaTxRequest) -> Result<i64, eyre::Report> {
+        use crate::citrea::data_serialization::DataOnDa;
+        use crate::citrea::MAX_CHUNK_SIZE;
+
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        let insertion_id = match request {
+            CitreaTxRequest::BatchProof { bytes, chunk_size } => {
+                // Hash the original proof bytes so the same proof dedupes even if callers
+                // retry it with a different chunk_size or as a non-chunked Complete body.
+                let full_body_hash = crate::citrea::calculate_sha256(&bytes);
+                let mut chunk_size = chunk_size.unwrap_or(MAX_CHUNK_SIZE);
+                if chunk_size == 0 {
+                    chunk_size = MAX_CHUNK_SIZE;
+                }
+                if chunk_size > MAX_CHUNK_SIZE {
+                    chunk_size = MAX_CHUNK_SIZE;
+                }
+                let chunk_size = chunk_size as usize;
+
+                if bytes.len() <= chunk_size {
+                    let data = DataOnDa::Complete(bytes);
+                    let blob = borsh::to_vec(&data).expect("zk::Proof serialize must not fail");
+                    self.db
+                        .insert_citrea_raw_tx_single_with_hash(
+                            &mut dbtx,
+                            TransactionKind::Complete,
+                            &blob,
+                            &full_body_hash,
+                        )
+                        .await?
+                } else {
+                    let chunks: Vec<Vec<u8>> = bytes
+                        .chunks(chunk_size)
+                        .map(|chunk| {
+                            borsh::to_vec(&DataOnDa::Chunk(chunk.to_vec()))
+                                .expect("zk::Proof serialize must not fail")
+                        })
+                        .collect();
+                    self.db
+                        .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks, &full_body_hash)
+                        .await?
+                }
+            }
+            CitreaTxRequest::BatchProofMethodId(body) => {
+                if body.len() as u32 > MAX_CHUNK_SIZE {
+                    return Err(eyre!(
+                        "Citrea BatchProofMethodId DA payload body too large; max {} bytes",
+                        MAX_CHUNK_SIZE,
+                    ));
+                }
+                self.db
+                    .insert_citrea_raw_tx_single(
+                        &mut dbtx,
+                        TransactionKind::BatchProofMethodId,
+                        &body,
+                    )
+                    .await?
+            }
+            CitreaTxRequest::SequencerCommitment(body) => {
+                if body.len() as u32 > MAX_CHUNK_SIZE {
+                    return Err(eyre!(
+                        "Citrea SequencerCommitment DA payload body too large; max {} bytes",
+                        MAX_CHUNK_SIZE,
+                    ));
+                }
+                self.db
+                    .insert_citrea_raw_tx_single(
+                        &mut dbtx,
+                        TransactionKind::SequencerCommitment,
+                        &body,
+                    )
+                    .await?
+            }
+        };
+
+        self.db.commit_transaction(dbtx).await?;
+        Ok(insertion_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::Row;
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    async fn test_send_citrea_tx_batch_proof() {
+        use crate::citrea::data_serialization::DataOnDa;
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let body = vec![1, 2, 3, 4, 5];
+        let expected_body_hash = crate::citrea::calculate_sha256(&body).to_vec();
+        let insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: body.clone(),
+                chunk_size: None,
+            })
+            .await
+            .expect("Should insert successfully");
+
+        let serialized_body =
+            borsh::to_vec(&DataOnDa::Complete(body)).expect("Serialization should not fail");
+
+        // Verify row was inserted
+        let row = sqlx::query(
+            "SELECT insertion_id, transaction_kind, body, body_hash FROM tx_sender_citrea_raw_tx_queue WHERE body = $1",
+        )
+        .bind(&serialized_body)
+        .fetch_one(db.pool())
+        .await
+        .expect("Should find inserted row");
+
+        assert_eq!(row.get::<i16, _>("transaction_kind"), 0); // Complete
+        assert_eq!(row.get::<Vec<u8>, _>("body"), serialized_body);
+        assert_eq!(row.get::<Vec<u8>, _>("body_hash"), expected_body_hash);
+        assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
+    }
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    async fn test_send_citrea_tx_chunks() {
+        use crate::citrea::data_serialization::DataOnDa;
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_body_hash = crate::citrea::calculate_sha256(&bytes).to_vec();
+        let chunks: Vec<Vec<u8>> = bytes.chunks(3).map(|chunk| chunk.to_vec()).collect();
+        let insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: Some(3),
+            })
+            .await
+            .expect("Should insert successfully");
+
+        // Verify all chunk rows + aggregate row were inserted with same insertion_id
+        let rows = sqlx::query(
+            "SELECT id, insertion_id, transaction_kind, body, body_hash FROM tx_sender_citrea_raw_tx_queue ORDER BY id ASC",
+        )
+        .fetch_all(db.pool())
+        .await
+        .expect("Should find inserted rows");
+
+        assert_eq!(rows.len(), 4); // 3 chunks + 1 aggregate
+
+        let aggregate_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| row.get::<i16, _>("transaction_kind") == 1)
+            .collect();
+        assert_eq!(aggregate_rows.len(), 1);
+        assert_eq!(
+            aggregate_rows[0].get::<i64, _>("insertion_id"),
+            insertion_id
+        );
+        assert_eq!(aggregate_rows[0].get::<Option<Vec<u8>>, _>("body"), None);
+        assert_eq!(
+            aggregate_rows[0].get::<Option<Vec<u8>>, _>("body_hash"),
+            Some(expected_body_hash.clone())
+        );
+
+        let chunk_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| row.get::<i16, _>("transaction_kind") == 2)
+            .collect();
+        assert_eq!(chunk_rows.len(), chunks.len());
+        for (idx, row) in chunk_rows.iter().enumerate() {
+            assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
+            assert_eq!(
+                row.get::<Option<Vec<u8>>, _>("body"),
+                Some(
+                    borsh::to_vec(&DataOnDa::Chunk(chunks[idx].clone()))
+                        .expect("Serialization should not fail")
                 )
-                .await
-            }
-            TransactionType::Challenge
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::Payout => {
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::RBF,
-                    rbf_info,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::WatchtowerChallengeTimeout(_) => {
-                // do not send watchtowet timeout if kickoff is already finalized
-                // which is done by adding kickoff finalizer utxo to cancel_outpoints
-                // this is not needed for any timeouts that spend the kickoff finalizer utxo like AssertTimeout
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(tx_type, tx)| {
-                        if let TransactionType::Kickoff = tx_type {
-                            Some(tx.compute_txid())
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or(BridgeError::Eyre(eyre!(
-                        "Couldn't find kickoff tx in related_txs"
-                    )))?;
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[OutPoint {
-                        txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                    }],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::OperatorChallengeAck(watchtower_idx) => {
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(tx_type, tx)| {
-                        if let TransactionType::Kickoff = tx_type {
-                            Some(tx.compute_txid())
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or(BridgeError::Eyre(eyre!(
-                        "Couldn't find kickoff tx in related_txs"
-                    )))?;
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[],
-                    &[],
-                    &[],
-                    &[ActivatedWithOutpoint {
-                        // only send OperatorChallengeAck if corresponding watchtower challenge is sent
-                        outpoint: OutPoint {
-                            txid: kickoff_txid,
-                            vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
-                        },
-                        relative_block_height: protocol_paramset.finality_depth - 1,
-                    }],
-                )
-                .await
-            }
-            TransactionType::Disprove => {
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::NoFunding,
-                    rbf_info,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!("Higher level transaction types used for yielding kickoff txid from sighash stream should not be added to the queue");
-            }
+            );
+            assert_eq!(row.get::<Option<Vec<u8>>, _>("body_hash"), None);
         }
+
+        let aggregate_id = aggregate_rows[0].get::<i64, _>("id");
+        db.update_citrea_aggregate_body_and_reset(None, aggregate_id, b"aggregate-body")
+            .await
+            .expect("Aggregate body update should succeed");
+
+        let body_hash_after_update: Option<Vec<u8>> =
+            sqlx::query_scalar("SELECT body_hash FROM tx_sender_citrea_raw_tx_queue WHERE id = $1")
+                .bind(aggregate_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("Should fetch aggregate body hash");
+
+        assert_eq!(body_hash_after_update, Some(expected_body_hash));
+    }
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    async fn test_send_citrea_tx_batch_proof_dedupes_by_full_body() {
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let first_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: bytes.clone(),
+                chunk_size: Some(3),
+            })
+            .await
+            .expect("First insert should succeed");
+
+        let second_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: bytes.clone(),
+                chunk_size: Some(4),
+            })
+            .await
+            .expect("Second insert should return existing insertion_id");
+
+        let complete_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: None,
+            })
+            .await
+            .expect("Complete insert should return existing insertion_id");
+
+        assert_eq!(first_insertion_id, second_insertion_id);
+        assert_eq!(first_insertion_id, complete_insertion_id);
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tx_sender_citrea_raw_tx_queue")
+            .fetch_one(db.pool())
+            .await
+            .expect("Should count rows");
+
+        assert_eq!(count, 4, "Should keep one aggregate row and three chunks");
+    }
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    async fn test_send_citrea_tx_duplicate_body() {
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let body = vec![10, 20, 30];
+        let first_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body.clone()))
+            .await
+            .expect("First insert should succeed");
+
+        // Try to insert duplicate body - should return existing insertion_id
+        let second_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProofMethodId(body))
+            .await
+            .expect("Second insert should return existing insertion_id");
+
+        assert_eq!(first_insertion_id, second_insertion_id);
+
+        // Verify only one row exists
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tx_sender_citrea_raw_tx_queue WHERE body = $1",
+        )
+        .bind(vec![10u8, 20, 30])
+        .fetch_one(db.pool())
+        .await
+        .expect("Should count rows");
+
+        assert_eq!(count, 1, "Should have exactly one row with this body");
+    }
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    #[ignore = "Think about duplicate body possibility first"]
+    async fn test_send_citrea_tx_transaction_rollback() {
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let body1 = vec![100, 200];
+        // Insert first body
+        client
+            .send_citrea_tx(CitreaTxRequest::SequencerCommitment(body1))
+            .await
+            .expect("First insert should succeed");
+
+        // Try to insert chunks where one chunk body duplicates body1
+        // This should cause transaction rollback, so no rows should be inserted
+        let bytes = vec![1, 2, 100, 200, 4, 5, 6];
+        let result = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: Some(2),
+            })
+            .await;
+
+        assert!(result.is_err(), "Should fail due to duplicate body");
+
+        // Verify no partial insert happened - count should be 1 (only the first insert)
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tx_sender_citrea_raw_tx_queue")
+            .fetch_one(db.pool())
+            .await
+            .expect("Should count rows");
+
+        assert_eq!(
+            count, 1,
+            "Should have only the first row, no partial chunk inserts"
+        );
     }
 }

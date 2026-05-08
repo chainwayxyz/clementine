@@ -9,9 +9,11 @@ use clementine_errors::BridgeError;
 
 pub mod aggregator_metric_publisher;
 pub mod entity_metric_publisher;
+pub mod lcp_syncer;
 pub mod manager;
 pub mod payout_checker;
 pub mod status_monitor;
+#[cfg(feature = "automation")]
 pub mod tx_sender;
 
 /// The variant of the task, used for identifying the task in the status monitor
@@ -22,6 +24,7 @@ pub enum TaskVariant {
     PayoutChecker,
     StateManager,
     FinalizedBlockFetcher,
+    LcpSyncer,
     TxSender,
     BitcoinSyncer,
     TaskStatusMonitor,
