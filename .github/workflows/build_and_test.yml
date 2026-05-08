@@ -54,7 +54,7 @@ jobs:
     runs-on: ubicloud-standard-4
     if: ${{ !github.event.pull_request.draft }}
     env:
-      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-no-automation-test.log
+      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/release/info
 
     services:
       postgres:
@@ -80,15 +80,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-      
+
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
           key: "release-no-automation"
-
-      - name: Create test log directories
-        run: mkdir -p test-logs/release
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --release
@@ -99,18 +96,14 @@ jobs:
           ./scripts/generate_certs.sh
           cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture 2>&1 | tee no_automation_test_output.log
 
-      - name: Dump databases for failed tests
+      - name: Upload test artifacts
         if: failure()
-        run: |
-          ./scripts/dump_failed_test_dbs.sh test-logs/release no_automation_test_output.log
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/test-artifacts
         with:
-          name: release-no-automation-test-logs
-          path: test-logs/release/
-          retention-days: 7
+          artifact_name: release-no-automation-test-logs
+          log_dir: test-logs/release
+          cargo_output_logs: no_automation_test_output.log
+          upload: all
 
   # Full Tests -----------------------------------------------------------------
   debug_build_test_all_features:
@@ -118,7 +111,7 @@ jobs:
     runs-on: ubicloud-standard-16
 
     env:
-      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
+      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/debug/info
 
     services:
       postgres:
@@ -145,9 +138,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-
-      - name: Create test log directories
-        run: mkdir -p test-logs/debug
 
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
@@ -184,18 +174,14 @@ jobs:
           set -o pipefail
           cargo test_integration 2>&1 | tee integration_test_output.log
 
-      - name: Dump databases for failed tests
+      - name: Upload test artifacts
         if: failure()
-        run: |
-          ./scripts/dump_failed_test_dbs.sh test-logs/debug unit_test_output.log integration_test_output.log
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/test-artifacts
         with:
-          name: debug-test-logs
-          path: test-logs/debug/
-          retention-days: 7
+          artifact_name: debug-test-logs
+          log_dir: test-logs/debug
+          cargo_output_logs: unit_test_output.log integration_test_output.log
+          upload: failed
 
   release_build_test_all_features:
     name: Release | All features | Test
@@ -203,7 +189,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     env:
-      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
+      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/release/info
 
     services:
       postgres:
@@ -230,9 +216,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-
-      - name: Create test log directories
-        run: mkdir -p test-logs/release
 
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
@@ -269,18 +252,14 @@ jobs:
           set -o pipefail
           cargo test_integration_release 2>&1 | tee integration_test_output.log
 
-      - name: Dump databases for failed tests
+      - name: Upload test artifacts
         if: failure()
-        run: |
-          ./scripts/dump_failed_test_dbs.sh test-logs/release unit_test_output.log integration_test_output.log
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/test-artifacts
         with:
-          name: release-test-logs
-          path: test-logs/release/
-          retention-days: 7
+          artifact_name: release-test-logs
+          log_dir: test-logs/release
+          cargo_output_logs: unit_test_output.log integration_test_output.log
+          upload: failed
 
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
@@ -289,7 +268,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     env:
-      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
+      INFO_LOG_DIR: ${{ github.workspace }}/test-logs/standalone/info
 
     strategy:
       fail-fast: false
@@ -346,9 +325,6 @@ jobs:
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
-      - name: Create test log directories
-        run: mkdir -p test-logs/standalone
-
       - name: Save/restore build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -360,16 +336,11 @@ jobs:
           ./scripts/generate_certs.sh
           cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
 
-      - name: Dump database
+      - name: Upload test artifacts
         if: failure() || cancelled()
-        run: |
-          docker run --rm --network host -e PGPASSWORD=clementine postgres:latest \
-            pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists > test-logs/standalone/db_dump.sql
-
-      - name: Upload test logs
-        if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/test-artifacts
         with:
-          name: standalone-test-logs-${{ matrix.test_name }}
-          path: test-logs/standalone/
-          retention-days: 7
+          artifact_name: standalone-test-logs-${{ matrix.test_name }}
+          log_dir: test-logs/standalone
+          upload: all
+          dump: all

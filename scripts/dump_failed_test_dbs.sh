@@ -30,11 +30,14 @@ if [[ ${#existing_logs[@]} -eq 0 ]]; then
   exit 0
 fi
 
-failed_tests=$(cat "${existing_logs[@]}" \
-  | grep -E "^test .* \.\.\. FAILED" \
-  | sed -E 's/^test (.*) \.\.\. FAILED/\1/' \
-  | awk -F'::' '{print $NF}' \
-  | sort -u)
+failed_tests=$(awk '
+  /^test .* \.\.\. FAILED$/ {
+    sub(/^test /, "")
+    sub(/ \.\.\. FAILED$/, "")
+    split($0, parts, "::")
+    print parts[length(parts)]
+  }
+' "${existing_logs[@]}" | sort -u)
 
 if [[ -z "${failed_tests}" ]]; then
   echo "No failed tests found in logs."

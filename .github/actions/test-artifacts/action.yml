@@ -1,0 +1,76 @@
+name: Test Artifacts
+description: Dump test databases, collect relevant logs, and upload one artifact.
+
+inputs:
+  artifact_name:
+    description: Artifact name to upload.
+    required: true
+  log_dir:
+    description: Directory containing test logs and database dumps.
+    required: true
+  cargo_output_logs:
+    description: "Space-separated cargo output log files used to detect failed tests."
+    required: false
+    default: ""
+  upload:
+    description: "Upload mode: failed copies only failed test logs, all uploads log_dir."
+    required: false
+    default: failed
+  dump:
+    description: "Database dump mode: failed, all, or none."
+    required: false
+    default: failed
+  retention_days:
+    description: Artifact retention in days.
+    required: false
+    default: "7"
+
+runs:
+  using: composite
+  steps:
+    - name: Dump failed test databases
+      if: ${{ always() && inputs.dump == 'failed' && inputs.cargo_output_logs != '' }}
+      continue-on-error: true
+      shell: bash
+      run: ./scripts/dump_failed_test_dbs.sh "${{ inputs.log_dir }}" ${{ inputs.cargo_output_logs }}
+
+    - name: Dump all test databases
+      if: ${{ always() && inputs.dump == 'all' }}
+      continue-on-error: true
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.log_dir }}"
+        docker run --rm --network host -e PGPASSWORD=clementine postgres:latest \
+          pg_dumpall -h localhost -p 5432 -U clementine --exclude-database=postgres --clean --if-exists \
+          > "${{ inputs.log_dir }}/db_dump.sql"
+
+    - name: Collect failed test logs
+      if: ${{ always() && inputs.upload == 'failed' && inputs.cargo_output_logs != '' }}
+      continue-on-error: true
+      shell: bash
+      run: bash scripts/collect_failed_test_logs.sh "${{ inputs.log_dir }}" ${{ inputs.cargo_output_logs }}
+
+    - name: Resolve upload path
+      if: ${{ always() }}
+      id: upload-path
+      shell: bash
+      run: |
+        if [[ "${{ inputs.upload }}" == "all" ]]; then
+          echo "path=${{ inputs.log_dir }}/" >> "${GITHUB_OUTPUT}"
+        else
+          {
+            echo "path<<EOF"
+            echo "${{ inputs.log_dir }}/failed-test-logs/"
+            echo "${{ inputs.log_dir }}/db_dump_*.sql"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Upload test artifact
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ steps.upload-path.outputs.path }}
+        if-no-files-found: ignore
+        retention-days: ${{ inputs.retention_days }}
