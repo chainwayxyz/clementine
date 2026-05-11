@@ -1382,8 +1382,6 @@ mod tests {
                 .await
                 .unwrap();
 
-        panic!("Intentional panic to dump logs");
-
         check_if_signable(actors, deposit_params, deposit_blockhash, config.clone()).await;
     }
 
