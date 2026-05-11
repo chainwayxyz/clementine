@@ -371,7 +371,7 @@ impl BridgeConfig {
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
             // Must match core/src/task/tx_sender.rs POLL_DELAY for retry-time derivations. (max retries derivation depends on this)
-            poll_delay_ms: 30_000,
+            poll_delay_ms: crate::task::tx_sender::POLL_DELAY.as_millis() as u64,
             input_unspent_max_retries: None,
             include_unsafe: false,
             jsonrpc: None,
