@@ -3,10 +3,13 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{
+    address::NetworkUnchecked, hashes::Hash, secp256k1::SecretKey, Address as BitcoinAddress,
+    Network, ScriptBuf, Txid, XOnlyPublicKey,
+};
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
 use bridge_circuit_host::docker::pull_or_load_all_images;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
     compatibility::CompatibilityParams,
@@ -22,39 +25,67 @@ use clementine_core::{
 };
 use clementine_errors::TransactionType;
 use clementine_primitives::EVMAddress;
+use eyre::{bail, Context, OptionExt, Result};
 use tonic::Request;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// The URL of the service
-    #[arg(short, long)]
-    node_url: Option<String>,
-
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Args)]
+struct RpcArgs {
+    /// The URL of the service
+    #[arg(short, long)]
+    node_url: String,
+}
+
+#[derive(Args)]
+struct WithdrawalArgs {
+    #[arg(long)]
+    withdrawal_id: u32,
+    #[arg(long)]
+    input_signature: String,
+    #[arg(long)]
+    input_outpoint_txid: Txid,
+    #[arg(long)]
+    input_outpoint_vout: u32,
+    #[arg(long, value_parser = parse_script_buf)]
+    output_script_pubkey: ScriptBuf,
+    #[arg(long)]
+    output_amount: u64,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Operator service commands
     Operator {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: OperatorCommands,
     },
     /// Verifier service commands
     Verifier {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: VerifierCommands,
     },
     /// Aggregator service commands
     Aggregator {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: AggregatorCommands,
     },
     /// Commands for interacting with Bitcoin only
     /// Give Bitcoin RPC URL as node-url
     Bitcoin {
+        #[command(flatten)]
+        rpc: RpcArgs,
         #[command(subcommand)]
         command: BitcoinCommands,
     },
@@ -69,7 +100,7 @@ enum OperatorCommands {
     /// Get deposit keys
     GetDepositKeys {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
@@ -77,25 +108,15 @@ enum OperatorCommands {
     GetParams,
     /// Withdraw funds
     Withdraw {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
     },
     /// Get vergen build information
     Vergen,
     /// Get kickoff related txs for sending kickoff manually
     GetReimbursementTxs {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
@@ -106,7 +127,7 @@ enum OperatorCommands {
     /// Transfer outpoints from operator's address to the BTC wallet
     TransferToBtcWallet {
         #[arg(long, num_args = 1.., value_delimiter = ',')]
-        outpoints: Vec<String>,
+        outpoints: Vec<bitcoin::OutPoint>,
     },
     // Add other operator commands as needed
 }
@@ -141,76 +162,56 @@ enum AggregatorCommands {
     /// Process new deposit
     NewDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        evm_address: Option<String>,
-        #[arg(long)]
-        recovery_taproot_address: Option<String>,
+        recovery_taproot_address: BitcoinAddress<NetworkUnchecked>,
     },
     /// Sign a replacement deposit
     NewReplacementDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        old_move_txid: String,
+        old_move_txid: Txid,
     },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
     /// Get deposit address
     GetDepositAddress {
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        evm_address: Option<String>,
-        #[arg(long)]
-        recovery_taproot_address: Option<String>,
-        #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        user_takes_after: Option<u64>,
+        recovery_taproot_address: BitcoinAddress<NetworkUnchecked>,
+        #[arg(long, default_value = "bitcoin")]
+        network: Network,
+        #[arg(long, default_value_t = 200)]
+        user_takes_after: u16,
     },
     GetReplacementDepositAddress {
         #[arg(long)]
-        move_txid: String,
+        move_txid: Txid,
+        #[arg(long, default_value = "bitcoin")]
+        network: Network,
         #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        security_council: Option<SecurityCouncil>,
+        security_council: SecurityCouncil,
     },
     /// Process a new withdrawal
     NewWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
         #[arg(long)]
-        operator_xonly_pks: Option<Vec<String>>,
+        operator_xonly_pks: Option<Vec<XOnlyPublicKey>>,
     },
     NewOptimisticWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
     },
@@ -221,9 +222,9 @@ enum AggregatorCommands {
     },
     /// Internal command to get the emergency stop encryption public key
     InternalGetEmergencyStopTx {
-        #[arg(long)]
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
         /// A comma-separated list of move txids
-        move_txids: String,
+        move_txids: Vec<Txid>,
     },
     /// Get compatibility parameters for all entities
     GetCompatibilityParamsFromAll,
@@ -238,9 +239,9 @@ enum BitcoinCommands {
         #[arg(long)]
         raw_tx: String,
         #[arg(long)]
-        fee_payer_address: Option<String>,
+        fee_payer_address: Option<BitcoinAddress<NetworkUnchecked>>,
         #[arg(long)]
-        fee_rate: Option<f64>,
+        fee_rate: u64,
         #[arg(long)]
         bitcoin_rpc_user: String,
         #[arg(long)]
@@ -282,7 +283,33 @@ fn create_minimal_config() -> BridgeConfig {
     }
 }
 
-async fn handle_operator_call(url: String, command: OperatorCommands) {
+fn parse_script_buf(script: &str) -> std::result::Result<ScriptBuf, String> {
+    ScriptBuf::from_hex(script).map_err(|error| error.to_string())
+}
+
+fn parse_evm_address(address: &str) -> std::result::Result<EVMAddress, String> {
+    alloy::primitives::Address::from_str(address)
+        .map(|address| EVMAddress(address.into_array()))
+        .map_err(|error| error.to_string())
+}
+
+fn withdrawal_params_from_args(
+    withdrawal: WithdrawalArgs,
+) -> Result<clementine_core::rpc::clementine::WithdrawParams> {
+    Ok(clementine_core::rpc::clementine::WithdrawParams {
+        withdrawal_id: withdrawal.withdrawal_id,
+        input_signature: hex::decode(withdrawal.input_signature)
+            .wrap_err("Failed to decode input signature")?,
+        input_outpoint: Some(Outpoint {
+            txid: Some(withdrawal.input_outpoint_txid.into()),
+            vout: withdrawal.input_outpoint_vout,
+        }),
+        output_script_pubkey: withdrawal.output_script_pubkey.into_bytes(),
+        output_amount: withdrawal.output_amount,
+    })
+}
+
+async fn handle_operator_call(url: String, command: OperatorCommands) -> Result<()> {
     let config = create_minimal_config();
     let mut operator = clementine_core::rpc::get_clients(
         vec![url],
@@ -291,8 +318,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         true,
     )
     .await
-    .expect("Exists")[0]
-        .clone();
+    .wrap_err("Failed to connect to operator")?
+    .into_iter()
+    .next()
+    .ok_or_eyre("No operator client returned")?;
 
     match command {
         OperatorCommands::GetDepositKeys {
@@ -309,10 +338,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 }),
                 deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine::Txid {
-                            txid: hex::decode(deposit_outpoint_txid)
-                                .expect("Failed to decode txid"),
-                        }),
+                        txid: Some(deposit_outpoint_txid.into()),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -335,54 +361,31 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             let response = operator
                 .get_deposit_keys(Request::new(params))
                 .await
-                .expect("Failed to make a request to operator");
+                .wrap_err("Failed to make get_deposit_keys request to operator")?;
             println!("Get deposit keys response: {response:?}");
         }
         OperatorCommands::GetParams => {
             let params = operator
                 .get_params(Empty {})
                 .await
-                .expect("Failed to make a request to operator");
+                .wrap_err("Failed to make get_params request to operator")?;
             println!("Operator params: {params:?}");
         }
-        OperatorCommands::Withdraw {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
-        } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+        OperatorCommands::Withdraw { withdrawal } => {
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: hex::decode(input_signature)
-                    .expect("Failed to decode input signature"),
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: Txid::from_str(&input_outpoint_txid)
-                            .expect("Failed to decode txid")
-                            .to_byte_array()
-                            .to_vec(),
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: hex::decode(output_script_pubkey)
-                    .expect("Failed to decode output script pubkey"),
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
             operator
                 .internal_withdraw(Request::new(params))
                 .await
-                .expect("Failed to make a request to operator");
+                .wrap_err("Failed to make internal_withdraw request to operator")?;
         }
         OperatorCommands::Vergen => {
             let params = Empty {};
             let response = operator
                 .vergen(Request::new(params))
                 .await
-                .expect("Failed to make a request to operator");
+                .wrap_err("Failed to make vergen request to operator")?;
             let response_msg = response.into_inner().response;
             println!("Vergen response:\n{response_msg}");
         }
@@ -399,25 +402,23 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             println!(
                 "Getting kickoff txs for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
             );
-            let mut txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            txid_bytes.reverse();
             let response = operator
                 .get_reimbursement_txs(Request::new(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
+                    txid: Some(deposit_outpoint_txid.into()),
                     vout: deposit_outpoint_vout,
                 }))
                 .await
-                .expect("Failed to make a request to operator")
+                .wrap_err("Failed to make get_reimbursement_txs request to operator")?
                 .into_inner();
             for signed_tx in &response.signed_txs {
                 let tx_type: TransactionType = signed_tx
                     .transaction_type
-                    .expect("Tx type should not be None")
+                    .ok_or_eyre("Tx type should not be None")?
                     .try_into()
-                    .expect("Failed to convert tx type");
+                    .wrap_err("Failed to convert tx type")?;
                 let transaction: bitcoin::Transaction =
                     bitcoin::consensus::deserialize(&signed_tx.raw_tx)
-                        .expect("Failed to decode transaction");
+                        .wrap_err("Failed to decode transaction")?;
                 match tx_type {
                     TransactionType::Kickoff => {
                         println!("Round tx is on chain, time to send the kickoff tx. This tx is non-standard and cannot be sent by using normal Bitcoin RPC");
@@ -453,37 +454,28 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             let params = operator
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request")
+                .wrap_err("Failed to make get_compatibility_params request to operator")?
                 .into_inner();
             let params = CompatibilityParams::try_from(params)
-                .expect("Failed to convert compatibility params");
+                .wrap_err("Failed to convert compatibility params")?;
             println!("Compatibility params:\n{params}");
         }
         OperatorCommands::GetEntityStatus => {
             let params = operator
                 .get_current_status(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_current_status request to operator")?;
             println!("Entity status:\n{params:#?}");
         }
         OperatorCommands::TransferToBtcWallet { outpoints } => {
             if outpoints.is_empty() {
-                println!("Error: At least one outpoint is required");
-                return;
+                bail!("At least one outpoint is required");
             }
 
-            let mut parsed_outpoints = Vec::new();
-            for outpoint_str in outpoints {
-                let bitcoin_outpoint: bitcoin::OutPoint = match outpoint_str.parse() {
-                    Ok(op) => op,
-                    Err(e) => {
-                        println!("Error: Failed to parse outpoint '{outpoint_str}': {e}");
-                        return;
-                    }
-                };
-
-                parsed_outpoints.push(clementine::Outpoint::from(bitcoin_outpoint));
-            }
+            let parsed_outpoints = outpoints
+                .into_iter()
+                .map(clementine::Outpoint::from)
+                .collect::<Vec<_>>();
 
             println!(
                 "Transferring {} outpoint(s) to BTC wallet",
@@ -494,19 +486,20 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     outpoints: parsed_outpoints,
                 }))
                 .await
-                .expect("Failed to make a request to operator");
+                .wrap_err("Failed to make transfer_to_btc_wallet request to operator")?;
 
             let raw_tx = response.into_inner().raw_tx;
             let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw_tx)
-                .expect("Failed to deserialize transaction");
+                .wrap_err("Failed to deserialize transaction")?;
             let txid = tx.compute_txid();
             println!("Transaction created: {txid}");
             println!("Raw transaction: {}", hex::encode(raw_tx));
         }
     }
+    Ok(())
 }
 
-async fn handle_verifier_call(url: String, command: VerifierCommands) {
+async fn handle_verifier_call(url: String, command: VerifierCommands) -> Result<()> {
     println!("Connecting to verifier at {url}");
     let config = create_minimal_config();
     let mut verifier = clementine_core::rpc::get_clients(
@@ -516,15 +509,17 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
         true,
     )
     .await
-    .expect("Exists")[0]
-        .clone();
+    .wrap_err("Failed to connect to verifier")?
+    .into_iter()
+    .next()
+    .ok_or_eyre("No verifier client returned")?;
 
     match command {
         VerifierCommands::GetParams => {
             let params = verifier
                 .get_params(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_params request to verifier")?;
             println!("Verifier params: {params:?}");
         }
         VerifierCommands::NonceGen { num_nonces } => {
@@ -532,7 +527,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let response = verifier
                 .nonce_gen(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make nonce_gen request to verifier")?;
             println!("Noncegen response: {response:?}");
         }
         VerifierCommands::Vergen => {
@@ -540,7 +535,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let response = verifier
                 .vergen(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make vergen request to verifier")?;
             let response_msg = response.into_inner().response;
             println!("Vergen response:\n{response_msg}");
         }
@@ -548,23 +543,24 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
             let params = verifier
                 .get_compatibility_params(Empty {})
                 .await
-                .expect("Failed to make a request")
+                .wrap_err("Failed to make get_compatibility_params request to verifier")?
                 .into_inner();
             let params = CompatibilityParams::try_from(params)
-                .expect("Failed to convert compatibility params");
+                .wrap_err("Failed to convert compatibility params")?;
             println!("Compatibility params:\n{params}");
         }
         VerifierCommands::GetEntityStatus => {
             let params = verifier
                 .get_current_status(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_current_status request to verifier")?;
             println!("Entity status:\n{params:#?}");
         }
     }
+    Ok(())
 }
 
-async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
+async fn handle_aggregator_call(url: String, command: AggregatorCommands) -> Result<()> {
     println!("Connecting to aggregator at {url}");
     let config = create_minimal_config();
     let mut aggregator = clementine_core::rpc::get_clients(
@@ -574,28 +570,32 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         false,
     )
     .await
-    .expect("Exists")[0]
-        .clone();
+    .wrap_err("Failed to connect to aggregator")?
+    .into_iter()
+    .next()
+    .ok_or_eyre("No aggregator client returned")?;
 
     match command {
         AggregatorCommands::Setup => {
             let setup = aggregator
                 .setup(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make setup request to aggregator")?;
             println!("{setup:?}");
         }
         AggregatorCommands::GetCompatibilityParamsFromAll => {
             let params = aggregator
                 .get_compatibility_data_from_entities(Empty {})
                 .await
-                .expect("Failed to make a request");
+                .wrap_err(
+                    "Failed to make get_compatibility_data_from_entities request to aggregator",
+                )?;
             let params = params.into_inner();
             for entity in params.entities_compatibility_data {
                 match entity.entity_id {
                     Some(entity_id) => {
                         let kind = EntityType::try_from(entity_id.kind)
-                            .expect("Failed to convert kind to entity type");
+                            .wrap_err("Failed to convert kind to entity type")?;
                         println!("Entity: {:?}, ID: {:?}", kind, entity_id.id);
                     }
                     None => {
@@ -606,7 +606,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     Some(data_result) => match data_result {
                         DataResult::Data(data) => {
                             let params = CompatibilityParams::try_from(data)
-                                .expect("Failed to convert compatibility params");
+                                .wrap_err("Failed to convert compatibility params")?;
                             println!("{params}");
                         }
                         DataResult::Error(error) => {
@@ -625,35 +625,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
         } => {
-            let evm_address = match evm_address {
-                Some(address) => EVMAddress(
-                    hex::decode(address)
-                        .expect("Failed to decode evm address")
-                        .try_into()
-                        .expect("Failed to convert evm address to array"),
-                ),
-                None => EVMAddress([1; 20]),
-            };
-
-            let recovery_taproot_address = match recovery_taproot_address {
-                Some(address) => bitcoin::Address::from_str(&address)
-                    .expect("Failed to parse recovery taproot address"),
-                None => bitcoin::Address::from_str(
-                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
-                )
-                .expect("Failed to parse recovery taproot address"),
-            };
-
-            let mut deposit_outpoint_txid =
-                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            deposit_outpoint_txid.reverse();
+            let deposit_outpoint_txid: clementine::Txid = deposit_outpoint_txid.into();
 
             let move_to_vault_tx = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid.clone(),
-                        }),
+                        txid: Some(deposit_outpoint_txid.clone()),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -664,7 +641,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     })),
                 })
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make new_deposit request to aggregator")?;
 
             let move_to_vault_tx = move_to_vault_tx.into_inner();
 
@@ -672,66 +649,33 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(move_to_vault_tx.clone()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid,
-                        }),
+                        txid: Some(deposit_outpoint_txid),
                         vout: deposit_outpoint_vout,
                     }),
                 })
                 .await;
 
-            match deposit {
-                Ok(deposit) => {
-                    let move_txid = deposit.get_ref().txid.clone();
-                    let txid = bitcoin::Txid::from_byte_array(
-                        move_txid
-                            .try_into()
-                            .expect("Failed to convert txid to array"),
-                    );
-                    println!("Move txid: {txid}");
-                }
-                Err(e) => {
-                    println!("Failed to send move transaction: {e}");
-                    println!(
-                        "Please send manually: {}",
-                        hex::encode(move_to_vault_tx.raw_tx)
-                    );
-                }
-            }
+            let deposit = deposit.wrap_err_with(|| {
+                format!(
+                    "Failed to send move transaction. Please send manually: {}",
+                    hex::encode(move_to_vault_tx.raw_tx)
+                )
+            })?;
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .map_err(|txid| eyre::eyre!("Failed to convert txid to array: {txid:?}"))?,
+            );
+            println!("Move txid: {txid}");
         }
         AggregatorCommands::NewOptimisticWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let mut input_outpoint_txid_bytes =
-                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
-            input_outpoint_txid_bytes.reverse();
-
-            let input_signature_bytes =
-                hex::decode(input_signature).expect("Failed to decode input signature");
-
-            let output_script_pubkey_bytes =
-                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: input_outpoint_txid_bytes,
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey_bytes,
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::OptimisticWithdrawParams {
@@ -742,16 +686,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let response = aggregator
                 .optimistic_payout(Request::new(withdraw_params_with_sig))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make optimistic_payout request to aggregator")?;
             println!("Tx: {}", hex::encode(response.get_ref().raw_tx.clone()));
         }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_nofn_aggregated_xonly_pk request to aggregator")?;
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
-                .expect("Failed to parse xonly_pk");
+                .wrap_err("Failed to parse xonly_pk")?;
             println!("{xonly_pk}");
         }
         AggregatorCommands::GetDepositAddress {
@@ -763,40 +707,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_nofn_aggregated_xonly_pk request to aggregator")?;
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
-                .expect("Failed to parse xonly_pk");
+                .wrap_err("Failed to parse xonly_pk")?;
 
-            let recovery_taproot_address = match recovery_taproot_address {
-                Some(address) => bitcoin::Address::from_str(&address)
-                    .expect("Failed to parse recovery taproot address"),
-                None => bitcoin::Address::from_str(
-                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
-                )
-                .expect("Failed to parse recovery taproot address"),
-            };
-
-            let evm_address = match evm_address {
-                Some(address) => EVMAddress(
-                    hex::decode(address)
-                        .expect("Failed to decode evm address")
-                        .try_into()
-                        .expect("Failed to convert evm address to array"),
-                ),
-                None => EVMAddress([1; 20]),
-            };
-
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
-
-            let user_takes_after = match user_takes_after {
-                Some(amount) => amount as u16,
-                None => 200,
-            };
+            recovery_taproot_address
+                .clone()
+                .require_network(network)
+                .wrap_err("--recovery-taproot-address does not match --network")?;
 
             let deposit_address = clementine_core::builder::address::generate_deposit_address(
                 xonly_pk,
@@ -805,30 +723,20 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 network,
                 user_takes_after,
             )
-            .expect("Failed to generate deposit address");
+            .wrap_err("Failed to generate deposit address")?;
 
             let address = &deposit_address.0;
             println!("Deposit address: {address}");
         }
         AggregatorCommands::InternalGetEmergencyStopTx { move_txids } => {
-            let move_txids = move_txids
-                .split(',')
-                .map(|txid| Txid::from_str(txid).expect("Failed to parse txid"))
-                .collect::<Vec<Txid>>();
             let emergency_stop_tx = aggregator
                 .internal_get_emergency_stop_tx(Request::new(
                     clementine::GetEmergencyStopTxRequest {
-                        txids: move_txids
-                            .clone()
-                            .into_iter()
-                            .map(|txid| clementine::Txid {
-                                txid: txid.to_byte_array().to_vec(),
-                            })
-                            .collect(),
+                        txids: move_txids.clone().into_iter().map(Into::into).collect(),
                     },
                 ))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make internal_get_emergency_stop_tx request to aggregator")?;
             println!("Emergency stop tx: {emergency_stop_tx:?}");
             for (i, tx) in emergency_stop_tx
                 .into_inner()
@@ -848,38 +756,23 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             network,
             security_council,
         } => {
-            let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
-            move_txid.reverse();
-            let move_txid = bitcoin::Txid::from_byte_array(
-                move_txid
-                    .try_into()
-                    .expect("Failed to convert txid to array"),
-            );
-
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_nofn_aggregated_xonly_pk request to aggregator")?;
 
             let nofn_xonly_pk =
                 bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
-                    .expect("Failed to parse xonly_pk");
-
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
+                    .wrap_err("Failed to parse xonly_pk")?;
 
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    security_council.expect("Security council is required"),
+                    security_council,
                 )
-                .expect("Failed to generate replacement deposit address");
+                .wrap_err("Failed to generate replacement deposit address")?;
 
             println!("Replacement deposit address: {replacement_deposit_address}");
         }
@@ -888,83 +781,47 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             deposit_outpoint_vout,
             old_move_txid,
         } => {
-            let mut old_move_txid = hex::decode(old_move_txid).expect("Failed to decode txid");
-            old_move_txid.reverse();
-
-            let mut deposit_outpoint_txid =
-                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            deposit_outpoint_txid.reverse();
+            let old_move_txid: clementine::Txid = old_move_txid.into();
+            let deposit_outpoint_txid: clementine::Txid = deposit_outpoint_txid.into();
 
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid.clone(),
-                        }),
+                        txid: Some(deposit_outpoint_txid.clone()),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
-                        old_move_txid: Some(clementine::Txid {
-                            txid: old_move_txid,
-                        }),
+                        old_move_txid: Some(old_move_txid),
                     })),
                 })
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make new_deposit request to aggregator")?;
             let deposit = aggregator
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
                     deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid,
-                        }),
+                        txid: Some(deposit_outpoint_txid),
                         vout: deposit_outpoint_vout,
                     }),
                 })
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make send_move_to_vault_tx request to aggregator")?;
             let move_txid = deposit.get_ref().txid.clone();
             let txid = bitcoin::Txid::from_byte_array(
                 move_txid
                     .try_into()
-                    .expect("Failed to convert txid to array"),
+                    .map_err(|txid| eyre::eyre!("Failed to convert txid to array: {txid:?}"))?,
             );
             println!("Move txid: {txid}");
         }
         AggregatorCommands::NewWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
             operator_xonly_pks,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let mut input_outpoint_txid_bytes =
-                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
-            input_outpoint_txid_bytes.reverse();
-
-            let input_signature_bytes =
-                hex::decode(input_signature).expect("Failed to decode input signature");
-
-            let output_script_pubkey_bytes =
-                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: input_outpoint_txid_bytes,
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey_bytes,
-                output_amount,
-            };
+            let params = withdrawal_params_from_args(withdrawal)?;
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::WithdrawParamsWithSig {
@@ -974,13 +831,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 
             let operator_xonly_pks = operator_xonly_pks
                 .map(|pks| {
-                    pks.iter()
-                        .map(|pk| {
-                            XOnlyPublicKeyRpc::from(
-                                XOnlyPublicKey::from_str(pk)
-                                    .expect("Failed to parse xonly public key"),
-                            )
-                        })
+                    pks.into_iter()
+                        .map(XOnlyPublicKeyRpc::from)
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
@@ -991,7 +843,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     operator_xonly_pks,
                 }))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make withdraw request to aggregator")?;
 
             let withdraw_responses = response.get_ref().withdraw_responses.clone();
 
@@ -1006,14 +858,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let response = aggregator
                 .get_entity_statuses(Request::new(request))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make get_entity_statuses request to aggregator")?;
 
             println!("Entities status:");
             for entity_status in &response.get_ref().entity_statuses {
                 match &entity_status.entity_id {
                     Some(entity_id) => {
                         let kind = EntityType::try_from(entity_id.kind)
-                            .expect("Failed to convert kind to entity type");
+                            .wrap_err("Failed to convert kind to entity type")?;
                         println!("Entity: {:?}, ID: {:?}", kind, entity_id.id);
                         match &entity_status.status_result {
                             Some(clementine_core::rpc::clementine::entity_status_with_id::StatusResult::Status(status)) => {
@@ -1063,11 +915,11 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                                 let citrea_l2_height = citrea_l2_block_height
                                     .map_or("N/A".to_string(), |h| h.to_string());
                                 println!("  Citrea L2 block height: {citrea_l2_height}");
-                                if !stopped_tasks.as_ref().is_none_or(|t| t.stopped_tasks.is_empty()) {
-                                    let stopped_tasks = &stopped_tasks
-                                        .as_ref()
-                                        .expect("Stopped tasks are required")
-                                        .stopped_tasks;
+                                if let Some(stopped_tasks) = stopped_tasks
+                                    .as_ref()
+                                    .filter(|tasks| !tasks.stopped_tasks.is_empty())
+                                {
+                                    let stopped_tasks = &stopped_tasks.stopped_tasks;
                                     println!("  Stopped tasks: {stopped_tasks:?}");
                                 }
                             }
@@ -1096,50 +948,34 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let response = aggregator
                 .vergen(Request::new(params))
                 .await
-                .expect("Failed to make a request");
+                .wrap_err("Failed to make vergen request to aggregator")?;
             let response_msg = response.into_inner().response;
             println!("Vergen response:\n{response_msg}");
         }
     }
+    Ok(())
 }
 
-async fn handle_print_addresses() {
+async fn handle_print_addresses() -> Result<()> {
     // Get secret key from environment
-    let secret_key = match std::env::var("SECRET_KEY") {
-        Ok(key) => SecretKey::from_str(&key).expect("Failed to parse secret key"),
-        Err(_) => {
-            println!("Error: SECRET_KEY environment variable not set");
-            return;
-        }
-    };
+    let secret_key = std::env::var("SECRET_KEY")
+        .wrap_err("SECRET_KEY environment variable not set")
+        .and_then(|key| SecretKey::from_str(&key).wrap_err("Failed to parse secret key"))?;
 
     // Get Bitcoin RPC credentials from environment
-    let bitcoin_rpc_url = match std::env::var("BITCOIN_RPC_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            println!("Error: BITCOIN_RPC_URL environment variable not set");
-            return;
-        }
-    };
-    let bitcoin_rpc_user = match std::env::var("BITCOIN_RPC_USER") {
-        Ok(user) => user,
-        Err(_) => {
-            println!("Error: BITCOIN_RPC_USER environment variable not set");
-            return;
-        }
-    };
-    let bitcoin_rpc_password = match std::env::var("BITCOIN_RPC_PASSWORD") {
-        Ok(password) => password,
-        Err(_) => {
-            println!("Error: BITCOIN_RPC_PASSWORD environment variable not set");
-            return;
-        }
-    };
+    let bitcoin_rpc_url = std::env::var("BITCOIN_RPC_URL")
+        .wrap_err("BITCOIN_RPC_URL environment variable not set")?;
+    let bitcoin_rpc_user = std::env::var("BITCOIN_RPC_USER")
+        .wrap_err("BITCOIN_RPC_USER environment variable not set")?;
+    let bitcoin_rpc_password = std::env::var("BITCOIN_RPC_PASSWORD")
+        .wrap_err("BITCOIN_RPC_PASSWORD environment variable not set")?;
 
-    // Get network from environment or default to regtest
+    // Get network from environment or default to bitcoin
     let network = match std::env::var("NETWORK") {
-        Ok(network) => Network::from_str(&network).unwrap_or(Network::Regtest),
-        Err(_) => Network::Regtest,
+        Ok(network) => {
+            Network::from_str(&network).wrap_err("Failed to parse NETWORK environment variable")?
+        }
+        Err(_) => Network::Bitcoin,
     };
 
     let actor = Actor::new(secret_key, network);
@@ -1154,25 +990,19 @@ async fn handle_print_addresses() {
     .await
     {
         Ok(client) => client,
-        Err(e) => {
-            println!("Error connecting to Bitcoin RPC: {e}");
-            return;
-        }
+        Err(e) => return Err(e).wrap_err("Error connecting to Bitcoin RPC"),
     };
 
-    match rpc
+    let address = rpc
         .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
         .await
-    {
-        Ok(address) => {
-            let addr = address.assume_checked();
-            println!("Bitcoin wallet's new address: {addr}");
-        }
-        Err(e) => println!("Error getting new address from Bitcoin wallet: {e}"),
-    }
+        .wrap_err("Error getting new address from Bitcoin wallet")?;
+    let addr = address.assume_checked();
+    println!("Bitcoin wallet's new address: {addr}");
+    Ok(())
 }
 
-async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
+async fn handle_bitcoin_call(url: String, command: BitcoinCommands) -> Result<()> {
     match command {
         BitcoinCommands::SendTxWithCpfp {
             raw_tx,
@@ -1181,9 +1011,9 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             bitcoin_rpc_user,
             bitcoin_rpc_password,
         } => {
-            let tx_hex = hex::decode(raw_tx).expect("Failed to decode transaction");
+            let tx_hex = hex::decode(raw_tx).wrap_err("Failed to decode transaction")?;
             let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&tx_hex)
-                .expect("Failed to deserialize transaction");
+                .wrap_err("Failed to deserialize transaction")?;
 
             let txid = tx.compute_txid();
             println!("Transaction created: {txid}");
@@ -1191,13 +1021,13 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             println!("Raw transaction: {raw_tx}");
 
             // Find P2A anchor output (script: 51024e73)
+            let p2a_anchor_script =
+                ScriptBuf::from_hex("51024e73").wrap_err("Failed to build P2A anchor script")?;
             let p2a_vout = tx
                 .output
                 .iter()
-                .position(|output| {
-                    output.script_pubkey == ScriptBuf::from_hex("51024e73").expect("valid script")
-                })
-                .expect("P2A anchor output not found in transaction");
+                .position(|output| output.script_pubkey == p2a_anchor_script)
+                .ok_or_eyre("P2A anchor output not found in transaction")?;
 
             let p2a_txout = tx.output[p2a_vout].clone();
 
@@ -1207,31 +1037,25 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             use bitcoincore_rpc::{Auth, Client, RpcApi};
             let rpc = Client::new(&url, Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password))
                 .await
-                .expect("Failed to connect to Bitcoin RPC");
+                .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-            if fee_payer_address.is_none() {
+            let Some(fee_payer_address) = fee_payer_address else {
                 let temp_address = rpc
                     .get_new_address(
                         Some("fee_payer_address"),
                         Some(bitcoincore_rpc::json::AddressType::Bech32m),
                     )
                     .await
-                    .expect("Failed to get new address");
-                println!(
+                    .wrap_err("Failed to get new address")?;
+                bail!(
                     "You haven't provided a fee payer address, so a new one was generated: {}",
                     temp_address.assume_checked()
                 );
-                println!("Please use this address for the fee payer in the next command");
-                return;
-            }
+            };
 
-            let fee_payer_address = bitcoin::Address::from_str(
-                &fee_payer_address.expect("Fee payer address is required"),
-            )
-            .expect("Failed to parse fee payer address")
-            .assume_checked();
+            let fee_payer_address = fee_payer_address.assume_checked();
 
-            let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
+            let fee_rate_sat_vb = fee_rate;
 
             // Calculate package fee requirements
             let parent_weight = tx.weight();
@@ -1256,32 +1080,30 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                     None,
                 )
                 .await
-                .expect("Failed to list unspent outputs");
+                .wrap_err("Failed to list confirmed unspent outputs")?;
 
             if unspent.is_empty() {
                 let unspent = rpc
                     .list_unspent(None, None, Some(&[&fee_payer_address.clone()]), None, None)
                     .await
-                    .expect("Failed to list unspent outputs");
+                    .wrap_err("Failed to list unspent outputs")?;
                 if unspent.is_empty() {
-                    println!("No unspent outputs available for fee payment.");
-                    println!("Please send some funds to the fee payer address.");
-                    println!("Fee payer address: {fee_payer_address}");
+                    bail!(
+                        "No unspent outputs available for fee payment. Please send some funds to the fee payer address: {fee_payer_address}"
+                    );
                 } else {
-                    println!("Unspent outputs: {unspent:?}");
-                    println!("Please wait for them to confirm.");
+                    bail!("Unspent outputs are available but not confirmed yet: {unspent:?}");
                 }
-                return;
             }
 
             let fee_payer_utxo = unspent
                 .iter()
                 .find(|utxo| utxo.amount > required_fee)
-                .unwrap_or_else(|| {
-                    panic!(
+                .ok_or_else(|| {
+                    eyre::eyre!(
                         "No UTXO found with enough balance for fee payment, required fee is: {required_fee}"
                     )
-                });
+                })?;
 
             // Create child transaction
             use bitcoin::{transaction::Version, OutPoint, Sequence, TxIn, TxOut};
@@ -1309,7 +1131,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             let total_input_value = p2a_txout.value + fee_payer_utxo.amount;
             let change_amount = total_input_value
                 .checked_sub(required_fee)
-                .expect("Insufficient funds for required fee");
+                .ok_or_eyre("Insufficient funds for required fee")?;
 
             let child_output = TxOut {
                 value: change_amount,
@@ -1334,11 +1156,11 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
             let signed_tx = rpc
                 .sign_raw_transaction_with_wallet(&child_tx, Some(&[child_input_utxo]), None)
                 .await
-                .expect("Failed to sign child transaction");
+                .wrap_err("Failed to sign child transaction")?;
 
             let signed_child_tx = signed_tx
                 .transaction()
-                .expect("Failed to get transaction from sign_raw_transaction_with_wallet");
+                .wrap_err("Failed to get transaction from sign_raw_transaction_with_wallet")?;
 
             println!(
                 "Child transaction signed: {}",
@@ -1372,66 +1194,41 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                         "Child tx: {}",
                         hex::encode(bitcoin::consensus::serialize(&signed_child_tx))
                     );
+                    return Err(e).wrap_err("Failed to submit CPFP package");
                 }
             }
         }
     }
+    Ok(())
 }
 
 #[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
+async fn main() -> Result<()> {
+    let Cli { command } = Cli::parse();
 
     rustls::crypto::ring::default_provider()
         .install_default()
-        .expect("Failed to install rustls crypto provider");
+        .map_err(|_| eyre::eyre!("Failed to install rustls crypto provider"))?;
 
-    match cli.command {
-        Commands::Operator { command } => {
-            let node_url = match cli.node_url {
-                Some(url) => url,
-                None => {
-                    eprintln!("Error: Provide operator URL with --node-url");
-                    std::process::exit(1);
-                }
-            };
-            handle_operator_call(node_url, command).await;
+    match command {
+        Commands::Operator { rpc, command } => {
+            handle_operator_call(rpc.node_url, command).await?;
         }
-        Commands::Verifier { command } => {
-            let node_url = match cli.node_url {
-                Some(url) => url,
-                None => {
-                    eprintln!("Error: Provide verifier URL with --node-url");
-                    std::process::exit(1);
-                }
-            };
-            handle_verifier_call(node_url, command).await;
+        Commands::Verifier { rpc, command } => {
+            handle_verifier_call(rpc.node_url, command).await?;
         }
-        Commands::Aggregator { command } => {
-            let node_url = match cli.node_url {
-                Some(url) => url,
-                None => {
-                    eprintln!("Error: Provide aggregator URL with --node-url");
-                    std::process::exit(1);
-                }
-            };
-            handle_aggregator_call(node_url, command).await;
+        Commands::Aggregator { rpc, command } => {
+            handle_aggregator_call(rpc.node_url, command).await?;
         }
-        Commands::Bitcoin { command } => {
-            let node_url = match cli.node_url {
-                Some(url) => url,
-                None => {
-                    eprintln!("Error: Provide bitcoin RPC URL with --node-url");
-                    std::process::exit(1);
-                }
-            };
-            handle_bitcoin_call(node_url, command).await;
+        Commands::Bitcoin { rpc, command } => {
+            handle_bitcoin_call(rpc.node_url, command).await?;
         }
         Commands::PrintAddresses => {
-            handle_print_addresses().await;
+            handle_print_addresses().await?;
         }
         Commands::LoadProverImages => {
-            pull_or_load_all_images().expect("Failed to load prover images");
+            pull_or_load_all_images().wrap_err("Failed to load prover images")?;
         }
     }
+    Ok(())
 }
