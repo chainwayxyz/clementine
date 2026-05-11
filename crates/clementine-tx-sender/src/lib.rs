@@ -297,11 +297,7 @@ impl TxSender {
         }
 
         let child_target_fee = fee_rate
-            .fee_wu(
-                Weight::from_vb(child_tx_weight.to_vbytes_ceil())
-                    .ok_or_eyre("Fee calculation overflow")
-                    .map_err(SendTxError::from)?,
-            )
+            .fee_wu(child_tx_weight)
             .ok_or_eyre("Fee calculation overflow")
             .map_err(SendTxError::from)?;
         let package_deficit = required_fee
