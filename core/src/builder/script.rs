@@ -1171,9 +1171,15 @@ mod tests {
         let mut witness_elements: Vec<Vec<u8>> =
             witness.iter().map(|element| element.to_vec()).collect();
 
-        // The BitVM verifier clamps signed digits with OP_MIN(max_digit). A digit
-        // larger than 15 must not make off-chain extraction fail before challenge txs are built.
-        witness_elements[2] = scriptint_bytes(256);
+        // The BitVM verifier clamps signed digits with OP_MIN(max_digit). Replace a witness
+        // digit that already commits to max_digit, so only the witness changes while the
+        // extracted committed data remains the same.
+        assert_eq!(assert_commit_data[31] & 0x0f, 15);
+        assert_eq!(
+            bitcoin::script::read_scriptint(&witness_elements[4]).unwrap(),
+            15
+        );
+        witness_elements[4] = scriptint_bytes(256);
         let extracted = extract_winternitz_commits(
             Witness::from_slice(&witness_elements),
             &wt_derive_paths,
@@ -1181,10 +1187,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut expected_assert_commit_data = assert_commit_data;
-        expected_assert_commit_data[31] = 0xf0 | (expected_assert_commit_data[31] & 0x0f);
         assert_eq!(extracted[0], kickoff_blockhash);
-        assert_eq!(extracted[1], expected_assert_commit_data);
+        assert_eq!(extracted[1], assert_commit_data);
     }
 
     #[tokio::test]
