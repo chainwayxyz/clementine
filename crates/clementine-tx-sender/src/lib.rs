@@ -256,7 +256,7 @@ impl TxSender {
             // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
             // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
             // Simplified calculation used here needs verification.
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
+            FeePayingType::CPFP => Self::estimate_cpfp_child_weight(num_fee_payer_utxos)?,
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
@@ -657,6 +657,20 @@ impl TxSender {
 
         Ok(())
     }
+
+    fn estimate_cpfp_child_weight(num_fee_payer_utxos: usize) -> Result<Weight> {
+        let fee_payer_inputs_wu = 230usize
+            .checked_mul(num_fee_payer_utxos)
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+        let child_tx_weight_wu = fee_payer_inputs_wu
+            .checked_add(207)
+            .and_then(|weight| weight.checked_add(172))
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+
+        Ok(Weight::from_wu_usize(child_tx_weight_wu))
+    }
 }
 
 #[cfg(test)]
@@ -666,25 +680,41 @@ mod tests {
     #[test]
     fn calculate_required_fee_subtracts_parent_fee_for_cpfp() {
         let fee_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
+        let parent_weight = Weight::from_wu(400);
+        let parent_vbytes = parent_weight.to_vbytes_ceil();
+
+        let child_vbytes = TxSender::estimate_cpfp_child_weight(1)
+            .unwrap()
+            .to_vbytes_ceil();
+        let package_target_fee =
+            Amount::from_sat((parent_vbytes + child_vbytes) * fee_rate.to_sat_per_vb_ceil());
+
+        let parent_fee = Amount::from_sat(600);
 
         let required_fee = TxSender::calculate_required_fee(
-            Weight::from_wu(400),
-            Amount::from_sat(600),
+            parent_weight,
+            parent_fee,
             1,
             fee_rate,
             FeePayingType::CPFP,
         )
         .unwrap();
 
-        assert_eq!(required_fee, Amount::from_sat(1930));
+        assert_eq!(required_fee, package_target_fee - parent_fee);
     }
 
     #[test]
     fn calculate_required_fee_uses_child_floor_when_parent_already_exceeds_target() {
         let fee_rate = FeeRateKvb::from_sat_per_vb(10).unwrap();
+        let parent_weight = Weight::from_wu(400);
+
+        let child_vbytes = TxSender::estimate_cpfp_child_weight(1)
+            .unwrap()
+            .to_vbytes_ceil();
+        let child_target_fee = Amount::from_sat(child_vbytes * fee_rate.to_sat_per_vb_ceil());
 
         let required_fee = TxSender::calculate_required_fee(
-            Weight::from_wu(400),
+            parent_weight,
             Amount::from_sat(1200),
             1,
             fee_rate,
@@ -692,6 +722,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(required_fee, Amount::from_sat(1530));
+        assert_eq!(required_fee, child_target_fee);
     }
 }
