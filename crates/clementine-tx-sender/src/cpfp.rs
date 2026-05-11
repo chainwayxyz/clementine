@@ -157,8 +157,10 @@ impl TxSender {
             &tx.compute_txid().to_string(),
             bumped_id
         );
+        let parent_tx_fee = self.get_tx_fee(tx).await.map_err(|e| eyre!(e))?;
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
+            parent_tx_fee,
             fee_payer_utxos_len + 1,
             fee_rate,
             FeePayingType::CPFP,
@@ -291,10 +293,12 @@ impl TxSender {
         anchor_sat: Amount,
         fee_payer_utxos: Vec<crate::SpendableUtxo>,
         parent_tx_size: Weight,
+        parent_tx_fee: Amount,
         fee_rate: FeeRateKvb,
     ) -> Result<Transaction> {
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
+            parent_tx_fee,
             fee_payer_utxos.len(),
             fee_rate,
             FeePayingType::CPFP,
@@ -346,6 +350,7 @@ impl TxSender {
             .find_p2a_vout(&tx)
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
         let anchor_sat = tx.output[p2a_vout].value;
+        let parent_tx_fee = self.get_tx_fee(&tx).await.map_err(|e| eyre!(e))?;
 
         let child_tx = self
             .create_child_tx(
@@ -356,6 +361,7 @@ impl TxSender {
                 anchor_sat,
                 fee_payer_utxos,
                 tx.weight(),
+                parent_tx_fee,
                 fee_rate,
             )
             .await?;
