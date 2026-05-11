@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Dumps the dbs that failed test into the specified output directory.
 # Locally, use a command like this to import the db (it will overwrite your own dbs with same name):
-# PGPASSWORD=clementine psql -h localhost -p 5432 -U clementine -f db_dump_operator_transfer_to_btc_wallet.sql 
+# PGPASSWORD=clementine psql -h localhost -p 5432 -U clementine -f db_dump_operator_transfer_to_btc_wallet.sql
 
 
 if [[ $# -lt 2 ]]; then
@@ -46,9 +46,12 @@ fi
 
 for test_name in ${failed_tests}; do
   echo "Collecting DBs for test: ${test_name}"
-  dbs=$(docker run --rm --network host -e PGPASSWORD=clementine postgres:latest \
+  dbs=$(docker run -i --rm --network host -e PGPASSWORD=clementine postgres:latest \
     psql -h localhost -p 5432 -U clementine -d postgres -At \
-    -c "select datname from pg_database where datname like '%${test_name}%';" || true)
+    -v test_name="${test_name}" <<'SQL'
+select datname from pg_database where strpos(datname, :'test_name') > 0;
+SQL
+  )
 
   if [[ -z "${dbs}" ]]; then
     echo "No DBs found for test: ${test_name}"

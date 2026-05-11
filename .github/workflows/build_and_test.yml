@@ -90,7 +90,6 @@ jobs:
 
       - name: Run no-automation tests # only one test for now
         env:
-          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -145,7 +144,6 @@ jobs:
       - name: Run unit tests
         id: unit_tests
         env:
-          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -160,7 +158,6 @@ jobs:
 
       - name: Run integration tests
         env:
-          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -214,7 +211,6 @@ jobs:
       - name: Run unit tests
         id: unit_tests
         env:
-          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail
@@ -229,7 +225,6 @@ jobs:
 
       - name: Run integration tests
         env:
-          LOG_FORMAT: json
           RUST_LOG: info,ci=debug,risc0_zkvm=error,risc0_circuit_rv32im=error
         run: |
           set -o pipefail

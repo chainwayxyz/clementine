@@ -11,15 +11,17 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 ///
 /// # Log Formats
 ///
-/// - `json` **JSON** is used when `LOG_FORMAT=json`
-/// - `human` **Human-readable** direct logs are used when `LOG_FORMAT` is not
-///   set to `json`.
+/// - `file` **Human-readable file logs** are used when `INFO_LOG_FILE` is set.
+/// - `json` **JSON console logs** are used when `LOG_FORMAT=json` and
+///   `INFO_LOG_FILE` is not set.
+/// - `human` **Human-readable console logs** are used when neither
+///   `INFO_LOG_FILE` nor `LOG_FORMAT=json` is set.
 ///
 /// ## CI
 ///
-/// In CI, `LOG_FORMAT=json` enables JSON console logs. The `INFO_LOG_FILE` env
-/// var can be used to set an optional human-readable log file output. If not
-/// set, only console logging is used.
+/// In CI, ANSI color codes are disabled. The `INFO_LOG_FILE` env var can be
+/// used to set an optional human-readable log file output. If not set, only
+/// console logging is used.
 ///
 /// # Backtraces
 ///
@@ -34,9 +36,9 @@ use tracing_subscriber::{fmt, EnvFilter, Layer as TracingLayer, Registry};
 ///
 /// # Returns
 ///
-/// Returns `Err` in CI if the file logging cannot be initialized.  Already
-/// initialized errors are ignored, so this function can be called multiple
-/// times safely.
+/// Returns `Err` when `INFO_LOG_FILE` is set and file logging cannot be
+/// initialized. Already initialized errors are ignored, so this function can be
+/// called multiple times safely.
 pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), BridgeError> {
     let is_ci = std::env::var("CI")
         .map(|v| v == "true" || v == "1")
@@ -87,33 +89,22 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
             });
         }));
 
-    // When JSON logs are enabled, use a theme without color codes.
-    if is_json_logs() {
+    // Avoid ANSI color codes in machine-consumed logs.
+    if is_ci || is_json_logs() {
         hook_builder = hook_builder.theme(color_eyre::config::Theme::new());
     }
 
     let _ = hook_builder.install();
 
-    if is_ci {
-        let info_log_file = std::env::var("INFO_LOG_FILE").ok();
-        if let Some(file_path) = info_log_file {
-            try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
-            tracing::trace!("Using file logging in CI, outputting to {}", file_path);
-        } else if is_json_logs() {
-            try_set_global_subscriber(env_subscriber_to_json(default_level));
-            tracing::trace!("Using JSON console logging in CI");
-        } else {
-            try_set_global_subscriber(env_subscriber_to_human(default_level));
-            tracing::trace!("Using console logging in CI");
-            tracing::warn!(
-                "CI is set but INFO_LOG_FILE is missing, only console logs will be used."
-            );
-        }
+    let info_log_file = std::env::var("INFO_LOG_FILE").ok();
+    if let Some(file_path) = info_log_file {
+        try_set_global_subscriber(env_subscriber_with_file(&file_path)?);
+        tracing::trace!("Using file logging, outputting to {}", file_path);
     } else if is_json_logs() {
         try_set_global_subscriber(env_subscriber_to_json(default_level));
         tracing::trace!("Using JSON logging");
     } else {
-        try_set_global_subscriber(env_subscriber_to_human(default_level));
+        try_set_global_subscriber(env_subscriber_to_human(default_level, !is_ci));
         tracing::trace!("Using human-readable logging");
     }
 
@@ -173,6 +164,7 @@ fn env_subscriber_with_file(path: &str) -> Result<Box<dyn Subscriber + Send + Sy
 
     let console_layer = fmt::layer()
         .with_test_writer()
+        .with_ansi(false)
         .with_file(true)
         .with_line_number(true)
         .with_target(true)
@@ -209,7 +201,10 @@ fn env_subscriber_to_json(level: Option<LevelFilter>) -> Box<dyn Subscriber + Se
     Box::new(tracing_subscriber::registry().with(json_layer).with(filter))
 }
 
-fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + Send + Sync> {
+fn env_subscriber_to_human(
+    level: Option<LevelFilter>,
+    ansi: bool,
+) -> Box<dyn Subscriber + Send + Sync> {
     let filter = match level {
         Some(lvl) => EnvFilter::builder()
             .with_default_directive(lvl.into())
@@ -224,7 +219,8 @@ fn env_subscriber_to_human(level: Option<LevelFilter>) -> Box<dyn Subscriber + S
         .with_line_number(true)
         // To see how long each span takes, uncomment this.
         // .with_span_events(FmtSpan::CLOSE)
-        .with_target(true);
+        .with_target(true)
+        .with_ansi(ansi);
 
     Box::new(
         tracing_subscriber::registry()
