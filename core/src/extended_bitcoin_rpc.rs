@@ -12,8 +12,8 @@
 
 // Re-export types from clementine-extended-rpc
 pub use clementine_extended_rpc::{
-    get_fee_rate_from_mempool_space, BitcoinRPCError, ExtendedBitcoinRpc, RetryConfig,
-    RetryableError,
+    get_fee_rate_from_mempool_space, ActiveBlockInfo, BitcoinRPCError, ExtendedBitcoinRpc,
+    RetryConfig, RetryableError,
 };
 
 use async_trait::async_trait;
@@ -350,8 +350,10 @@ mod tests {
     use crate::{
         bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
-    use bitcoin::Amount;
+    use bitcoin::hashes::Hash;
     use bitcoin::{amount, key::Keypair, Address, XOnlyPublicKey};
+    use bitcoin::{Amount, OutPoint, Transaction};
+    use bitcoincore_rpc::json::CreateRawTransactionInput;
     use bitcoincore_rpc::RpcApi;
     use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
     use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
@@ -454,6 +456,95 @@ mod tests {
         let (hash, header) = rpc.get_block_info_by_height(height.into()).await.unwrap();
         assert_eq!(blockhash, hash);
         assert_eq!(rpc.get_block_header(&hash).await.unwrap(), header);
+    }
+
+    async fn signed_wallet_spend(
+        rpc: &ExtendedBitcoinRpc,
+        prevout: OutPoint,
+        value: Amount,
+    ) -> Transaction {
+        let address = rpc.get_new_wallet_address().await.unwrap();
+        let mut outputs = HashMap::new();
+        outputs.insert(address.to_string(), value);
+        let raw_tx = rpc
+            .create_raw_transaction(
+                &[CreateRawTransactionInput {
+                    txid: prevout.txid,
+                    vout: prevout.vout,
+                    sequence: None,
+                    weight: None,
+                }],
+                &outputs,
+                None,
+                Some(false),
+            )
+            .await
+            .unwrap();
+        let signed = rpc
+            .sign_raw_transaction_with_wallet(&raw_tx, None, None)
+            .await
+            .unwrap();
+        assert!(
+            signed.complete,
+            "wallet failed to sign: {:?}",
+            signed.errors
+        );
+        signed.transaction().unwrap()
+    }
+
+    #[tokio::test]
+    async fn confirmed_rpc_helpers_filter_unconfirmed_unspent_and_reorged() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let address = rpc.get_new_wallet_address().await.unwrap();
+        let amount = Amount::from_sat(100_000);
+
+        let unspent = rpc.send_to_address(&address, amount).await.unwrap();
+        let mempool_spent = rpc.send_to_address(&address, amount).await.unwrap();
+        let confirmed_spent = rpc.send_to_address(&address, amount).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let confirmed_tx =
+            signed_wallet_spend(rpc, confirmed_spent, Amount::from_sat(90_000)).await;
+        let confirmed_txid = rpc.send_raw_transaction(&confirmed_tx).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        let confirmed_height = rpc.get_current_chain_height().await.unwrap();
+        let confirmed_block = rpc.get_best_block_hash().await.unwrap();
+
+        let mempool_tx = signed_wallet_spend(rpc, mempool_spent, Amount::from_sat(90_000)).await;
+        let mempool_txid = rpc.send_raw_transaction(&mempool_tx).await.unwrap();
+
+        let spending_heights = rpc
+            .confirmed_spending_heights(&[unspent, mempool_spent, confirmed_spent])
+            .await
+            .unwrap();
+        assert_eq!(
+            spending_heights.get(&confirmed_spent),
+            Some(&confirmed_height)
+        );
+        assert!(!spending_heights.contains_key(&unspent));
+        assert!(!spending_heights.contains_key(&mempool_spent));
+
+        let tx_heights = rpc
+            .confirmed_tx_heights(&[confirmed_txid, mempool_txid, bitcoin::Txid::all_zeros()])
+            .await
+            .unwrap();
+        assert_eq!(tx_heights, vec![(confirmed_txid, confirmed_height)]);
+
+        rpc.invalidate_block(&confirmed_block).await.unwrap();
+        assert!(!rpc.is_tx_on_chain(&confirmed_txid).await.unwrap());
+        assert!(rpc
+            .confirmed_tx_heights(&[confirmed_txid])
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(rpc
+            .confirmed_spending_heights(&[confirmed_spent])
+            .await
+            .unwrap()
+            .is_empty());
+        rpc.reconsider_block(&confirmed_block).await.unwrap();
     }
 
     #[tokio::test]

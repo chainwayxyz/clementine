@@ -4,7 +4,6 @@
 //! in the event of a reorg.
 
 use crate::actor::Actor;
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
@@ -95,13 +94,6 @@ impl TestCase for TxSenderReorgBehavior {
 
         let actor = Actor::new(config.secret_key, config.protocol_paramset.network);
         let db = Database::new(&config).await.unwrap();
-
-        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
-            .await
-            .unwrap()
-            .into_task()
-            .cancelable_loop();
-        btc_syncer.0.into_bg();
 
         let tx_sender = TxSender::new(config.tx_sender_config()).await.unwrap();
         let tx_sender_client: TxSenderClient = tx_sender.client();

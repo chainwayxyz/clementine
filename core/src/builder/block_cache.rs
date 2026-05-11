@@ -19,6 +19,9 @@ impl BlockCache {
 
             // Mark UTXOs as spent
             for input in &tx.input {
+                if input.previous_output == OutPoint::null() {
+                    continue;
+                }
                 spent_utxos.insert(input.previous_output, idx);
             }
         }

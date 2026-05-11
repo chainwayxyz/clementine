@@ -218,13 +218,11 @@ impl TxSender {
                 "tx-sender requires a Bitcoin Core v31.0+ RPC node: {e}"
             ))
         })?;
-        rpc.ensure_tx_sender_indexes_available()
-            .await
-            .map_err(|e| {
-                BridgeError::ConfigError(format!(
-                    "tx-sender requires Bitcoin Core txindex and txospenderindex: {e}"
-                ))
-            })?;
+        rpc.ensure_required_indexes_available().await.map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "tx-sender requires Bitcoin Core txindex and txospenderindex: {e}"
+            ))
+        })?;
         let change_script_pubkey = rpc
             .get_new_wallet_address()
             .await

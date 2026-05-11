@@ -32,7 +32,7 @@ impl TxSenderTaskInternal {
         let (txindex_synced, txospenderindex_synced) = self
             .inner
             .rpc
-            .tx_sender_indexes_synced()
+            .required_indexes_synced()
             .await
             .map_err(|e| BridgeError::Eyre(eyre::eyre!(e)))?;
 
