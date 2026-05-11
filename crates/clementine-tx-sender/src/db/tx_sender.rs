@@ -279,9 +279,12 @@ impl TxSenderDb {
         id: u32,
         txid: Txid,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
-            .bind(TxidDB(txid));
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
+        .bind(TxidDB(txid));
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
@@ -339,8 +342,8 @@ impl TxSenderDb {
     /// A transaction is sendable when:
     /// - all activation dependencies have been seen and their relative block timelocks passed;
     /// - zero-timelock txid activations are either seen on-chain or currently in mempool;
-    /// - no cancellation dependency has been seen;
     /// - the transaction itself has not been seen on-chain;
+    /// - its inputs have not exceeded the unavailable-input retry limit;
     /// - its previous effective fee rate is lower than `fee_rate`, or it has never been sent.
     ///
     /// Passing a very high `fee_rate` is used by callers to retrieve all active transactions
@@ -826,11 +829,8 @@ impl TxSenderDb {
 
     /// Lists all unfinalized try-to-send transactions that should be checked for confirmation.
     ///
-    /// This function excludes transactions that have been permanently cancelled (i.e., any cancellation
-    /// from `tx_sender_cancel_try_to_send_txids` or `tx_sender_cancel_try_to_send_outpoints` is finalized).
-    /// Once a cancellation is finalized, the transaction can never be sent, so there's no point in
-    /// repeatedly checking it via RPC. This prevents unnecessary RPC calls for transactions that are
-    /// permanently cancelled.
+    /// Transactions whose inputs have repeatedly been unavailable past the configured retry limit
+    /// are excluded, because txsender assumes at least one of its inputs were spent in another tx, so its i.
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,

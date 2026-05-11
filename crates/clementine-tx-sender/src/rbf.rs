@@ -790,18 +790,16 @@ impl TxSender {
 
             let bumped_txid = final_tx.compute_txid();
 
+            // Save the rbf txid before broadcasting, txsender can recover if rbf fails to broadcast, but if it broadcasts and then fails db commit, its worse as we lose the tracking of rbf.
+            self.db
+                .save_rbf_txid(None, try_to_send_id, bumped_txid)
+                .await
+                .wrap_err("Failed to save new RBF txid before bump broadcast")?;
+
             // Broadcast the finalized transaction
             let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) if sent_txid == bumped_txid => sent_txid,
                 Ok(other_txid) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!(
-                            "send_raw_transaction returned unexpected txid {} (expected {})",
-                            other_txid, bumped_txid
-                        )
-                    );
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -811,15 +809,10 @@ impl TxSender {
                         )
                         .await;
                     return Err(SendTxError::Other(eyre!(
-                        "send_raw_transaction returned unexpected txid"
+                        "send_raw_transaction returned unexpected txid, expected {bumped_txid}: {other_txid}",
                     )));
                 }
                 Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("send_raw_transaction error for bumped RBF tx: {}", e)
-                    );
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(try_to_send_id, "rbf_bump_send_failed", true)
@@ -837,11 +830,6 @@ impl TxSender {
                 .db
                 .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped_sent", true)
                 .await;
-
-            self.db
-                .save_rbf_txid(None, try_to_send_id, sent_txid)
-                .await
-                .wrap_err("Failed to save new RBF txid after bump")?;
 
             effective_feerate
         } else {
@@ -1037,8 +1025,14 @@ impl TxSender {
 
             let initial_txid = final_tx.compute_txid();
 
+            // Save the rbf txid before broadcasting, txsender can recover if rbf fails to broadcast, but if it broadcasts and then fails db commit, its worse as we lose the tracking of rbf.
+            self.db
+                .save_rbf_txid(None, try_to_send_id, initial_txid)
+                .await
+                .wrap_err("Failed to save initial RBF txid before broadcast")?;
+
             // 4. Broadcast the finalized transaction
-            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
+            match self.rpc.send_raw_transaction(&final_tx).await {
                 Ok(sent_txid) => {
                     if sent_txid != initial_txid {
                         let err_msg = format!(
@@ -1059,7 +1053,6 @@ impl TxSender {
                         try_to_send_id,
                         "Successfully sent initial RBF tx with txid {sent_txid}"
                     );
-                    sent_txid
                 }
                 Err(e) => {
                     tracing::error!("RBF failed for: {:?}", final_tx);
@@ -1075,18 +1068,13 @@ impl TxSender {
                         .await;
                     return Err(SendTxError::Other(eyre!(e)));
                 }
-            };
+            }
 
             // Update debug sending state
             let _ = self
                 .db
                 .update_tx_debug_sending_state(try_to_send_id, "rbf_initial_sent", true)
                 .await;
-
-            self.db
-                .save_rbf_txid(None, try_to_send_id, sent_txid)
-                .await
-                .wrap_err("Failed to save initial RBF txid")?;
 
             fee_rate
         };
