@@ -830,7 +830,7 @@ impl TxSenderDb {
     /// Lists all unfinalized try-to-send transactions that should be checked for confirmation.
     ///
     /// Transactions whose inputs have repeatedly been unavailable past the configured retry limit
-    /// are excluded, because txsender assumes at least one of its inputs were spent in another tx, so its i.
+    /// are excluded, because txsender assumes at least one of its inputs were spent in another tx, so it's impossible to send the tx.
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,

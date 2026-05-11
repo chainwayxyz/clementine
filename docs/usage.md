@@ -120,17 +120,14 @@ Before running Clementine:
 
    To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
-   ```sh
    echo 'export PATH="'$(pwd)'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
    source ~/.bashrc
-   ````
 
    # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
 
    udocker install
 
    # If you install as root, use: udocker --allow-root install
-
    ````
 
    When proving in automation mode, Clementine also requires an unlimited stack
