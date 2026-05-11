@@ -1,0 +1,66 @@
+name: Deposit State Artifact
+description: Generate and upload deposit state when the bridge contract test fails.
+
+inputs:
+  cargo_output_log:
+    description: Cargo output log used to detect the bridge contract test failure.
+    required: false
+    default: unit_test_output.log
+  profile:
+    description: "Build profile for the artifact: debug or release."
+    required: true
+  failure_pattern:
+    description: Test output line that triggers deposit state generation.
+    required: false
+    default: "test builder::sighash::tests::test_bridge_contract_change ... FAILED"
+  retention_days:
+    description: Artifact retention in days.
+    required: false
+    default: "1"
+
+runs:
+  using: composite
+  steps:
+    - name: Detect bridge contract test failure
+      id: detect
+      shell: bash
+      run: |
+        if [[ -f "${{ inputs.cargo_output_log }}" ]] && grep -Fq "${{ inputs.failure_pattern }}" "${{ inputs.cargo_output_log }}"; then
+          echo "found=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "found=false" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Generate deposit state
+      if: ${{ steps.detect.outputs.found == 'true' }}
+      id: generate
+      shell: bash
+      run: |
+        case "${{ inputs.profile }}" in
+          debug)
+            echo "artifact_name=deposit-state-debug" >> "${GITHUB_OUTPUT}"
+            echo "artifact_path=core/src/test/data/deposit_state_debug.bincode" >> "${GITHUB_OUTPUT}"
+            generate_command="cargo test generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored"
+            ;;
+          release)
+            echo "artifact_name=deposit-state-release" >> "${GITHUB_OUTPUT}"
+            echo "artifact_path=core/src/test/data/deposit_state_release.bincode" >> "${GITHUB_OUTPUT}"
+            generate_command="cargo test --release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored"
+            ;;
+          *)
+            echo "Unknown profile '${{ inputs.profile }}'. Expected 'debug' or 'release'." >&2
+            exit 1
+            ;;
+        esac
+
+        echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
+        ${generate_command}
+
+    - name: Upload deposit state artifact
+      if: ${{ steps.detect.outputs.found == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.generate.outputs.artifact_name }}
+        path: ${{ steps.generate.outputs.artifact_path }}
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention_days }}
