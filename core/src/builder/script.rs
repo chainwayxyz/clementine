@@ -43,14 +43,17 @@ pub enum SpendPath {
     Unknown,
 }
 
-/// Converts a minimal serialized u32 (trailing zeros removed) to full 4 byte representation
-fn from_minimal_to_u32_le_bytes(minimal: &[u8]) -> Result<[u8; 4]> {
-    if minimal.len() > 4 {
-        return Err(eyre::eyre!("u32 bytes length is greater than 4"));
+fn parse_winternitz_digit(digit: &[u8], max_digit: u8) -> Result<u8> {
+    let parsed = bitcoin::script::read_scriptint(digit)
+        .wrap_err("Failed to parse Winternitz digit as Bitcoin script integer")?;
+    if parsed < 0 {
+        return Err(eyre::eyre!("Winternitz digit cannot be negative: {parsed}"));
     }
-    let mut bytes = [0u8; 4];
-    bytes[..minimal.len()].copy_from_slice(minimal);
-    Ok(bytes)
+
+    // The raw Script number can be larger than u8. After matching BitVM's
+    // OP_MIN(max_digit), this is the normalized Winternitz digit, which fits in u8.
+    // If BitVM changes that verifier behavior, this normalization must change with it.
+    Ok(std::cmp::min(parsed, i64::from(max_digit)) as u8)
 }
 
 /// Extracts the committed data from the witness.
@@ -68,6 +71,18 @@ pub fn extract_winternitz_commits(
 
     for wt_path in wt_derive_paths.iter().rev() {
         let wt_params = wt_path.get_params();
+        let digit_base = 1u8
+            .checked_shl(paramset.winternitz_log_d)
+            .ok_or_else(|| eyre::eyre!("Winternitz digit base overflow"))?;
+
+        let max_digit =
+            u8::try_from(wt_params.max_digit()).wrap_err("Failed to convert max digit to u8")?;
+        if max_digit != digit_base - 1 {
+            return Err(eyre::eyre!(
+                "Winternitz max digit must match digit base: max_digit={max_digit}, digit_base={digit_base}"
+            ));
+        }
+
         let message_digits =
             (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
         let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
@@ -87,15 +102,10 @@ pub fn extract_winternitz_commits(
             elements
                 .chunks_exact(2)
                 .map(|digits| {
-                    let first_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[0])?);
-                    let second_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[1])?);
+                    let first_digit = parse_winternitz_digit(digits[0], max_digit)?;
+                    let second_digit = parse_winternitz_digit(digits[1], max_digit)?;
 
-                    let first_u8 = u8::try_from(first_digit)
-                        .wrap_err("Failed to convert first digit to u8")?;
-                    let second_u8 = u8::try_from(second_digit)
-                        .wrap_err("Failed to convert second digit to u8")?;
-
-                    Ok(second_u8 * (1 << paramset.winternitz_log_d) + first_u8)
+                    Ok(second_digit * digit_base + first_digit)
                 })
                 .collect::<Result<Vec<_>>>()?,
         );
@@ -607,6 +617,12 @@ mod tests {
         EVMAddress([0u8; 20])
     }
 
+    fn scriptint_bytes(value: i64) -> Vec<u8> {
+        let mut buf = [0u8; 8];
+        let len = bitcoin::script::write_scriptint(&mut buf, value);
+        buf[..len].to_vec()
+    }
+
     #[test]
     fn test_dynamic_casting_extended() {
         // Build a collection of SpendableScript implementations.
@@ -1070,15 +1086,19 @@ mod tests {
             .expect("bitcoin RPC did not accept transaction");
     }
 
-    #[tokio::test]
-    async fn test_extract_commit_data() {
-        let config = create_test_config_with_thread_name().await;
+    fn create_winternitz_commit_test_witness() -> (
+        Witness,
+        Vec<WinternitzDerivationPath>,
+        &'static ProtocolParamset,
+        Vec<u8>,
+        Vec<u8>,
+    ) {
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
 
         let signer = Actor::new(kp.secret_key(), bitcoin::Network::Regtest);
 
-        let kickoff =
-            WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, config.protocol_paramset());
+        let kickoff = WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset);
         let bitvm_assert = WinternitzDerivationPath::BitvmAssert(
             64,
             3,
@@ -1087,7 +1107,7 @@ mod tests {
                 txid: Txid::all_zeros(),
                 vout: 0,
             },
-            config.protocol_paramset(),
+            paramset,
         );
         let commit_script = WinternitzCommit::new(
             vec![
@@ -1125,13 +1145,48 @@ mod tests {
             ],
             &signature,
         );
-        let extracted = extract_winternitz_commits(
+        (
             witness,
-            &[kickoff, bitvm_assert],
-            config.protocol_paramset(),
+            vec![kickoff, bitvm_assert],
+            paramset,
+            kickoff_blockhash,
+            assert_commit_data,
+        )
+    }
+
+    #[test]
+    fn test_extract_commit_data() {
+        let (witness, wt_derive_paths, paramset, kickoff_blockhash, assert_commit_data) =
+            create_winternitz_commit_test_witness();
+        let extracted = extract_winternitz_commits(witness, &wt_derive_paths, paramset).unwrap();
+        tracing::info!("{:?}", extracted);
+        assert_eq!(extracted[0], kickoff_blockhash);
+        assert_eq!(extracted[1], assert_commit_data);
+    }
+
+    #[test]
+    fn test_extract_commit_data_clamps_large_digits_like_bitvm_script() {
+        let (witness, wt_derive_paths, paramset, kickoff_blockhash, assert_commit_data) =
+            create_winternitz_commit_test_witness();
+        let mut witness_elements: Vec<Vec<u8>> =
+            witness.iter().map(|element| element.to_vec()).collect();
+
+        // The BitVM verifier clamps signed digits with OP_MIN(max_digit). Replace a witness
+        // digit that already commits to max_digit, so only the witness changes while the
+        // extracted committed data remains the same.
+        assert_eq!(assert_commit_data[31] & 0x0f, 15);
+        assert_eq!(
+            bitcoin::script::read_scriptint(&witness_elements[4]).unwrap(),
+            15
+        );
+        witness_elements[4] = scriptint_bytes(256);
+        let extracted = extract_winternitz_commits(
+            Witness::from_slice(&witness_elements),
+            &wt_derive_paths,
+            paramset,
         )
         .unwrap();
-        tracing::info!("{:?}", extracted);
+
         assert_eq!(extracted[0], kickoff_blockhash);
         assert_eq!(extracted[1], assert_commit_data);
     }
