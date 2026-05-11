@@ -319,35 +319,62 @@ impl TxSender {
             .map_err(BridgeError::Eyre)
     }
 
-    /// Checks whether all inputs of the given transaction are currently unspent.
+    async fn is_txid_in_mempool(&self, txid: &bitcoin::Txid) -> Result<bool> {
+        match self.rpc.get_mempool_entry(txid).await {
+            Ok(_) => Ok(true),
+            Err(e) if crate::rpc_errors::is_mempool_not_found_error(&e) => Ok(false),
+            Err(e) => Err(e)
+                .wrap_err_with(|| format!("Failed to get mempool entry for {txid}"))
+                .map_err(Into::into),
+        }
+    }
+
+    async fn is_tracked_tx_in_mempool(
+        &self,
+        try_to_send_id: u32,
+        tx: &Transaction,
+        fee_paying_type: FeePayingType,
+    ) -> Result<bool> {
+        if self.is_txid_in_mempool(&tx.compute_txid()).await? {
+            return Ok(true);
+        }
+
+        if matches!(
+            fee_paying_type,
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind
+        ) {
+            let rbf_txids = self
+                .db
+                .list_rbf_txids_for_id(None, try_to_send_id)
+                .await
+                .wrap_err("Failed to list RBF txids")?;
+
+            for txid in rbf_txids {
+                if self.is_txid_in_mempool(&txid).await? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Checks whether all inputs of a transaction are available for a new mempool submission.
     ///
-    /// For each input:
-    /// - If the creating transaction (`outpoint.txid`) is still in the mempool, we **skip**
-    ///   checking its spend status via `gettxout`, since the output is not yet in the UTXO set.
-    /// - Otherwise, we use `gettxout` to verify the previous output is still in the UTXO set.
-    async fn are_tx_inputs_unspent(&self, tx: &Transaction) -> Result<bool> {
+    /// `include_mempool=true` makes this exact-outpoint check cover both confirmed UTXOs and
+    /// unconfirmed parent outputs, while returning `None` if another mempool transaction already
+    /// spends the outpoint.
+    async fn are_tx_inputs_available_for_new_submission(&self, tx: &Transaction) -> Result<bool> {
         for input in &tx.input {
             let outpoint = input.previous_output;
 
             let utxo = self
                 .rpc
-                .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+                .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
                 .await
                 .wrap_err("Failed to gettxout for tx input")?;
 
             if utxo.is_none() {
-                // If the transaction that created this UTXO is still in the mempool, don't consider it as spent
-                // outputs as "spent" just because they're not yet in the UTXO set.
-                // If timelock of activate_txid is 0, we try to send txs directly while the activate_txid is in mempool.
-                let in_mempool = match self.rpc.get_mempool_entry(&outpoint.txid).await {
-                    Ok(_) => Ok(true),
-                    Err(e) if crate::rpc_errors::is_mempool_not_found_error(&e) => Ok(false),
-                    Err(e) => Err(e).wrap_err("Failed to get mempool entry for tx input"),
-                }?;
-
-                if in_mempool {
-                    continue;
-                }
                 return Ok(false);
             }
         }
@@ -444,20 +471,31 @@ impl TxSender {
                 continue;
             }
 
-            // Before attempting to (re)send, ensure all inputs are still unspent.
-            let inputs_unspent = match self.are_tx_inputs_unspent(&tx).await {
+            // Before attempting to (re)send, ensure all inputs are still available. If this
+            // try-to-send row is already represented in the mempool, its inputs may look spent by
+            // that mempool transaction, so do not treat that as an unavailable-input failure.
+            let inputs_available = match self
+                .is_tracked_tx_in_mempool(id, &tx, fee_paying_type)
+                .await
+            {
+                Ok(true) => Ok(true),
+                Ok(false) => self.are_tx_inputs_available_for_new_submission(&tx).await,
+                Err(e) => Err(e),
+            };
+
+            let inputs_available = match inputs_available {
                 Ok(res) => res,
                 Err(e) => {
                     log_error_for_tx!(
                         self.db,
                         id,
-                        format!("Failed to verify tx inputs are unspent: {}", e)
+                        format!("Failed to verify tx inputs are available: {}", e)
                     );
                     continue;
                 }
             };
 
-            if !inputs_unspent {
+            if !inputs_available {
                 let timed_out = match self
                     .db
                     .mark_input_unspent_check_failed(None, id, self.input_unspent_max_retries)
@@ -477,7 +515,7 @@ impl TxSender {
                 tracing::debug!(
                     try_to_send_id = id,
                     timed_out,
-                    "Skipping tx because one or more inputs are already spent"
+                    "Skipping tx because one or more inputs are unavailable"
                 );
 
                 let sending_state = if timed_out {
