@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::common::citrea::get_bridge_params;
 use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
-use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
+use crate::test::common::citrea::{CitreaE2EData, CITREA_E2E_LCP_START_HEIGHT, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
 use crate::utils::initialize_logger;
@@ -84,9 +84,13 @@ impl TestCase for DisproveTest {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 60,
+            initial_da_height: CITREA_E2E_LCP_START_HEIGHT,
             ..Default::default()
         }
+    }
+
+    fn scan_l1_start_height() -> Option<u64> {
+        Some(CITREA_E2E_LCP_START_HEIGHT)
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {

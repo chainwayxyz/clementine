@@ -294,7 +294,7 @@ async fn try_create_regtest_rpc(
 
     if config.test_params.generate_to_address {
         client
-            .generate_to_address(201, address.assume_checked_ref())
+            .generate_to_address(110, address.assume_checked_ref())
             .await
             .map_err(|e| format!("Failed to generate blocks: {e:?}"))?;
     }

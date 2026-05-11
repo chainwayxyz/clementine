@@ -46,7 +46,7 @@ use crate::{
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 #[cfg(test)]
-pub const MINE_BLOCK_COUNT: u64 = 1;
+pub const MINE_BLOCK_COUNT: u64 = 2;
 
 /// Extension trait for bridge-specific RPC queries.
 ///
@@ -277,7 +277,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
                     if !are_all_nodes_synced(self, actors).await? {
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         continue;
                     }
                     let num_mine_blocks = std::cmp::min(
@@ -308,7 +308,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
                     if !are_all_nodes_synced(self, actors).await? {
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         continue;
                     }
                     let num_mine_blocks = std::cmp::min(
@@ -323,7 +323,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
                     if !are_all_nodes_synced(self, actors).await? {
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         continue;
                     }
                     let num_mine_blocks = std::cmp::min(

@@ -801,15 +801,6 @@ pub async fn create_txhandlers(
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
-    let disprove_path = if transaction_type == TransactionType::Disprove {
-        // no need to use db cache here, this is only called once when creating the disprove tx
-        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?;
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
-        DisprovePath::Scripts(disprove_scripts)
-    } else {
-        DisprovePath::HiddenNode(&disprove_root_hash)
-    };
-
     let kickoff_txhandler = if matches!(
         transaction_type,
         TransactionType::LatestBlockhash | TransactionType::MiniAssert(_)
@@ -838,7 +829,7 @@ pub async fn create_txhandlers(
             &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
-            disprove_path,
+            DisprovePath::HiddenNode(&disprove_root_hash),
             additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &challenge_ack_public_hashes,
@@ -860,6 +851,24 @@ pub async fn create_txhandlers(
         );
 
         kickoff_txhandler
+    } else if transaction_type == TransactionType::Disprove {
+        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
+        let bitvm_assert_hash = db_cache.get_bitvm_assert_hash().await?.to_vec();
+
+        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
+        create_kickoff_txhandler(
+            kickoff_data,
+            get_txhandler(&txhandlers, TransactionType::Round)?,
+            get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
+            &mut deposit_data,
+            operator_data.xonly_pk,
+            AssertScripts::AssertScriptTapNodeHash(&bitvm_assert_hash),
+            DisprovePath::Scripts(disprove_scripts),
+            additional_disprove_script.clone(),
+            AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
+            &challenge_ack_public_hashes,
+            paramset,
+        )?
     } else {
         // use db data for scripts
         create_kickoff_txhandler(
@@ -869,7 +878,7 @@ pub async fn create_txhandlers(
             &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
-            disprove_path,
+            DisprovePath::HiddenNode(&disprove_root_hash),
             additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &challenge_ack_public_hashes,
