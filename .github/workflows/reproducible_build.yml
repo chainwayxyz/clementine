@@ -1,0 +1,82 @@
+name: reproducible-build
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  # Temporary trigger while testing reproducible builds on this branch.
+  push:
+    branches:
+      - oguz/repr-build
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  nix-build:
+    name: ${{ matrix.platform }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubicloud-standard-30
+          - platform: linux-arm64
+            runner: ubicloud-standard-30-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.34.6/install
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Build
+        run: nix build .#clementine --print-build-logs
+
+      - name: Rebuild to verify reproducibility
+        run: nix build .#clementine --rebuild --print-build-logs
+
+      - name: Hash binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORE_HASH="$(sha256sum ./result/bin/clementine-core | awk '{print $1}')"
+          CLI_HASH="$(sha256sum ./result/bin/clementine-cli | awk '{print $1}')"
+
+          echo "clementine-core ${CORE_HASH}"
+          echo "clementine-cli ${CLI_HASH}"
+
+          {
+            echo "## ${{ matrix.platform }}"
+            echo ""
+            echo "| Binary | SHA-256 |"
+            echo "|--------|---------|"
+            echo "| clementine-core | \`${CORE_HASH}\` |"
+            echo "| clementine-cli | \`${CLI_HASH}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare binary artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp ./result/bin/clementine-core artifacts/
+          cp ./result/bin/clementine-cli artifacts/
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-${{ matrix.platform }}-${{ github.sha }}
+          path: artifacts/
+          retention-days: 7
