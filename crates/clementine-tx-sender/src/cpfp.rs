@@ -44,6 +44,20 @@ impl TxSender {
         }
     }
 
+    async fn get_cpfp_parent_fee_or_zero(&self, tx: &Transaction) -> Amount {
+        match self.get_tx_fee(tx).await {
+            Ok(fee) => fee,
+            Err(e) => {
+                tracing::warn!(
+                    txid = %tx.compute_txid(),
+                    error = %e,
+                    "Failed to calculate CPFP parent fee; falling back to zero parent fee"
+                );
+                Amount::ZERO
+            }
+        }
+    }
+
     fn build_and_sign_child_tx(
         &self,
         p2a_anchor: OutPoint,
@@ -157,7 +171,7 @@ impl TxSender {
             &tx.compute_txid().to_string(),
             bumped_id
         );
-        let parent_tx_fee = self.get_tx_fee(tx).await.map_err(|e| eyre!(e))?;
+        let parent_tx_fee = self.get_cpfp_parent_fee_or_zero(tx).await;
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
             parent_tx_fee,
@@ -350,7 +364,7 @@ impl TxSender {
             .find_p2a_vout(&tx)
             .map_err(|e: BridgeError| SendTxError::Other(e.into()))?;
         let anchor_sat = tx.output[p2a_vout].value;
-        let parent_tx_fee = self.get_tx_fee(&tx).await.map_err(|e| eyre!(e))?;
+        let parent_tx_fee = self.get_cpfp_parent_fee_or_zero(&tx).await;
 
         let child_tx = self
             .create_child_tx(
