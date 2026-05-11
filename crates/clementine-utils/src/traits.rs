@@ -15,7 +15,7 @@ pub trait NamedEntity: Sync + Send + 'static {
     /// "operator", "verifier", "user"
     const ENTITY_NAME: &'static str;
 
-    /// Consumer ID for the finalized block task with no automation.
+    /// Light client proof syncer consumer ID.
     const LCP_SYNCER_CONSUMER_ID: &'static str;
 
     /// Consumer ID for the finalized block task with automation.

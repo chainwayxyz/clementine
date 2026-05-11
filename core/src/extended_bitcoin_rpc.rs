@@ -346,7 +346,9 @@ mod tests {
     use crate::actor::Actor;
     use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-    use crate::test::common::{citrea, create_test_config_with_thread_name};
+    use crate::test::common::{
+        create_test_config_with_thread_name, run_citrea_e2e_with_docker_port_retry,
+    };
     use crate::{
         bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
     };
@@ -519,12 +521,12 @@ mod tests {
 
         fn test_config() -> TestCaseConfig {
             TestCaseConfig {
-                with_sequencer: true,
+                with_sequencer: false,
                 with_batch_prover: false,
                 n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
                 docker: TestCaseDockerConfig {
                     bitcoin: true,
-                    citrea: true,
+                    citrea: false,
                 },
                 ..Default::default()
             }
@@ -542,11 +544,12 @@ mod tests {
                 ..REGTEST_PARAMSET
             };
             config.protocol_paramset = &PARAMSET;
-            citrea::update_config_with_citrea_e2e_values(
-                &mut config,
-                da0,
-                f.sequencer.as_ref().expect("Sequencer is present"),
-                None,
+            config.bitcoin_rpc_user = da0.config.rpc_user.clone().into();
+            config.bitcoin_rpc_password = da0.config.rpc_password.clone().into();
+            config.bitcoin_rpc_url = format!(
+                "http://127.0.0.1:{}/wallet/{}",
+                da0.config.rpc_port,
+                NodeKind::Bitcoin
             );
 
             let rpc = ExtendedBitcoinRpc::connect(
@@ -600,7 +603,7 @@ mod tests {
 
     #[tokio::test]
     async fn reorg_checks() -> Result<()> {
-        TestCaseRunner::new(ReorgChecks).run().await
+        run_citrea_e2e_with_docker_port_retry(|| TestCaseRunner::new(ReorgChecks).run()).await
     }
 
     mod retry_config_tests {

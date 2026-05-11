@@ -60,7 +60,8 @@ impl TxSenderTaskInternal {
 
 /// Spawns a tokio task that runs txsender indefinitely.
 ///
-/// This is a standalone loop helper (no dependency on `clementine-core` task framework).
+/// This is a standalone loop helper with no dependency on the `clementine-core` task framework.
+/// Callers that own the txsender schema should run migrations before spawning it.
 pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let poll_delay = Duration::from_millis(config.poll_delay_ms);
@@ -70,10 +71,6 @@ pub fn spawn_txsender_loop(config: TxSenderConfig) -> tokio::task::JoinHandle<()
         loop {
             let init_res: Result<TxSender, BridgeError> = async {
                 let tx_sender = TxSender::new(config.clone()).await?;
-
-                // Standalone deployments own their txsender schema.
-                // In clementine-core deployments, schema/migrations are owned by core.
-                tx_sender.db.run_migrations().await?;
 
                 #[cfg(feature = "json-rpc")]
                 if let Some(rpc_cfg) = config.jsonrpc.clone() {

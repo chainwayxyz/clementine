@@ -724,15 +724,7 @@ impl TxSender {
                         try_to_send_id,
                         "No funding tx rejected (tx already in mempool): {err_str}"
                     );
-                } else {
-                    tracing::error!(
-                        "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                    );
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("send_raw_transaction error for no funding tx: {err_str}")
-                    );
+                    return Ok(());
                 }
                 let _ = self
                     .db

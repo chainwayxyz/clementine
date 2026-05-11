@@ -19,6 +19,6 @@ lcov.json
 .idea/
 logs
 out.json*
-*test.dockerfile
+**/test.dockerfile
 
 core/certs/

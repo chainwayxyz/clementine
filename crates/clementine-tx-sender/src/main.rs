@@ -1,4 +1,4 @@
-#[cfg(all(feature = "standalone", feature = "json-rpc"))]
+#[cfg(feature = "json-rpc")]
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
     tracing_subscriber::fmt()
@@ -14,6 +14,10 @@ async fn main() -> Result<(), eyre::Report> {
         ));
     }
 
+    let db = clementine_tx_sender::TxSenderDb::connect(&config.postgres).await?;
+    db.run_migrations().await?;
+    db.pool().close().await;
+
     let handle = clementine_tx_sender::task::spawn_txsender_loop(config);
 
     // Wait until Ctrl-C, then abort the background loop.
@@ -24,11 +28,11 @@ async fn main() -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "standalone", feature = "json-rpc")))]
+#[cfg(not(feature = "json-rpc"))]
 fn main() {
     eprintln!(
-        "This binary requires `--features \"standalone\"`.\n\
+        "This binary requires `--features \"json-rpc\"`.\n\
          Example:\n\
-         cargo run -p clementine-tx-sender --features \"standalone\""
+         cargo run -p clementine-tx-sender --features \"json-rpc\""
     );
 }

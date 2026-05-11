@@ -27,6 +27,8 @@ use citrea_e2e::{
 pub enum BridgeCircuitTestDataVariant {
     WithAnnex,
     LargeInput,
+    LargeOutput,
+    LargeInputAndOutput,
     InsufficientTotalWork,
     Valid,
     FirstTwoValid,
@@ -115,6 +117,12 @@ impl TestCase for BridgeCircuitTestData {
             BridgeCircuitTestDataVariant::LargeInput => {
                 config.test_params.use_large_annex = true;
             }
+            BridgeCircuitTestDataVariant::LargeOutput => {
+                config.test_params.use_large_output = true;
+            }
+            BridgeCircuitTestDataVariant::LargeInputAndOutput => {
+                config.test_params.use_large_annex_and_output = true;
+            }
             BridgeCircuitTestDataVariant::FirstTwoValid => {
                 config
                     .test_params
@@ -176,10 +184,13 @@ impl TestCase for BridgeCircuitTestData {
 async fn bridge_circuit_test_data_generate_kickoff_and_wtc_tx() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let bridge_circuit_test_data = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::GenerateKickoffAndWtcTx,
-    };
-    TestCaseRunner::new(bridge_circuit_test_data).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::GenerateKickoffAndWtcTx,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test]
@@ -187,10 +198,13 @@ async fn bridge_circuit_test_data_generate_kickoff_and_wtc_tx() -> Result<()> {
 async fn bridge_circuit_test_data_diverse_hcp_lengths() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let bridge_circuit_test_data = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::Valid,
-    };
-    TestCaseRunner::new(bridge_circuit_test_data).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::Valid,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test]
@@ -199,10 +213,13 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
 
-    let bridge_circuit_test_data = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::InsufficientTotalWork,
-    };
-    TestCaseRunner::new(bridge_circuit_test_data).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::InsufficientTotalWork,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test]
@@ -210,11 +227,13 @@ async fn bridge_circuit_test_data_insuff_total_work_diverse_hcp_lens() -> Result
 async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<()> {
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
 
-    let bridge_circuit_test_data = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::FirstTwoValid,
-    };
-
-    TestCaseRunner::new(bridge_circuit_test_data).run().await
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::FirstTwoValid,
+        })
+        .run()
+    })
+    .await
 }
 
 #[tokio::test]
@@ -222,22 +241,59 @@ async fn bridge_circuit_test_data_diverse_hcp_lens_first_two_valid() -> Result<(
 async fn challenge_tx_with_annex() -> Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::WithAnnex,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::WithAnnex,
+        })
         .run()
-        .await
+    })
+    .await
 }
 
 #[tokio::test]
-#[ignore = "Only run this test manually, it's for data generation purposes"]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
 async fn challenge_tx_with_large_input() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
     std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let watchtower_challenge_tx_variant = BridgeCircuitTestData {
-        variant: BridgeCircuitTestDataVariant::LargeInput,
-    };
-    TestCaseRunner::new(watchtower_challenge_tx_variant)
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::LargeInput,
+        })
         .run()
-        .await
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
+async fn challenge_tx_with_large_output_large_op_return() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::LargeOutput,
+        })
+        .run()
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "Only run this test manually, it's for data generation purposes. Requires test-only RBF sending for WT challenge txs because CPFP submitpackage rejects oversized packages."]
+async fn challenge_tx_with_large_input_and_output_large_op_return() -> Result<()> {
+    // This creates a WT challenge that is too large for the normal v3 path.
+    // Data generation needs two test-only adjustments: v2/RBF avoids TRUC
+    // policy rejection, and WT timeouts must not spend the challenge output first.
+    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
+    crate::test::common::run_citrea_e2e_with_docker_port_retry(|| {
+        TestCaseRunner::new(BridgeCircuitTestData {
+            variant: BridgeCircuitTestDataVariant::LargeInputAndOutput,
+        })
+        .run()
+    })
+    .await
 }

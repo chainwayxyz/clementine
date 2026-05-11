@@ -29,8 +29,6 @@ jobs:
 
       - name: Install risc0
         uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Project (No Features)
         run: |

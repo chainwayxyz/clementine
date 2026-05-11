@@ -72,7 +72,7 @@ pub struct BridgeConfig {
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
-    pub db_port: usize,
+    pub db_port: u16,
     /// PostgreSQL database user name.
     pub db_user: SecretString,
     /// PostgreSQL database user password.
@@ -357,7 +357,7 @@ impl BridgeConfig {
             private_da_key: None,
             postgres: TxSenderPostgresConfig {
                 host: self.db_host.clone(),
-                port: u16::try_from(self.db_port).unwrap_or(5432),
+                port: self.db_port,
                 user: self.db_user.clone(),
                 password: self.db_password.clone(),
                 dbname: self.db_name.clone(),

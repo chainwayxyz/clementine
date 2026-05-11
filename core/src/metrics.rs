@@ -44,10 +44,10 @@ pub struct SyncStatusMetrics {
     pub state_manager_next_height: Gauge,
     #[metric(describe = "The current Bitcoin fee rate in sat/vB")]
     pub bitcoin_fee_rate_sat_vb: Gauge,
-    #[metric(describe = "The current Citrea L2 block height")]
-    pub citrea_l2_block_height: Gauge,
     #[metric(describe = "The last processed Citrea Light Client Proof L1 height for the entity")]
     pub lcp_synced_height: Gauge,
+    #[metric(describe = "The current Citrea L2 block height")]
+    pub citrea_l2_block_height: Gauge,
 }
 
 #[derive(Metrics)]
@@ -111,8 +111,8 @@ pub struct SyncStatus {
     pub finalized_synced_height: Option<u32>,
     pub state_manager_next_height: Option<u32>,
     pub bitcoin_fee_rate_sat_vb: Option<u64>,
-    pub citrea_l2_block_height: Option<u32>,
     pub lcp_synced_height: Option<u32>,
+    pub citrea_l2_block_height: Option<u32>,
 }
 
 /// Get the current balance of the wallet.
@@ -391,8 +391,8 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             finalized_synced_height,
             state_manager_next_height,
             bitcoin_fee_rate_sat_vb,
-            citrea_l2_block_height,
             lcp_synced_height,
+            citrea_l2_block_height,
         })
     }
 }

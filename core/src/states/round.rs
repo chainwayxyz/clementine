@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::builder::transaction::{input::UtxoVout, ContractContext};
 use crate::deposit::OperatorData;
+use crate::states::context::DutyResult;
 use bitcoin::OutPoint;
 use bitcoin::Txid;
 use clementine_errors::BridgeError;
@@ -14,7 +15,7 @@ use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, DutyResult, StateContext},
+    context::{Duty, StateContext},
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };

@@ -214,8 +214,8 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
-            citrea_l2_block_height: sync_status.citrea_l2_block_height,
             lcp_synced_height: sync_status.lcp_synced_height,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
@@ -274,7 +274,7 @@ where
             None => {
                 if config.protocol_paramset().network == bitcoin::Network::Bitcoin
                     && (config.operator_reimbursement_address.is_none()
-                        || config.operator_reimbursement_address.is_none())
+                        || config.operator_collateral_funding_outpoint.is_none())
                 {
                     let wallet_address = rpc.get_new_wallet_address().await?;
                     return Err(eyre::eyre!(
@@ -1496,11 +1496,6 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
-
         let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
         })
@@ -2678,8 +2673,6 @@ mod states {
                         Ok(DutyResult::CheckIfKickoff { is_kickoff: false })
                     }
                 }
-                // Operators do not check if kickoffs are malicious
-                Duty::CheckIfKickoffMalicious { .. } => Ok(DutyResult::Handled),
                 Duty::QueueReadyToReimburse {
                     round_idx,
                     operator_xonly_pk,
@@ -2743,6 +2736,8 @@ mod states {
 
                     Ok(DutyResult::Handled)
                 }
+                // Operators do not check if kickoffs are malicious
+                Duty::CheckIfKickoffMalicious { .. } => Ok(DutyResult::Handled),
             }
         }
 

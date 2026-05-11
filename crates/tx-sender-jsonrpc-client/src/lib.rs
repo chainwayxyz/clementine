@@ -56,7 +56,7 @@ impl JsonRpcTxSenderClient {
     /// Citrea-only RPC to submit a DA payload described by `CitreaTxRequest`.
     ///
     /// When the `citrea` feature is enabled on this crate, the JSON-RPC server exposes the
-    /// `send_citrea_raw_tx` method which expects a single `InsertCitreaRawTxParams` argument.
+    /// `send_citrea_tx` method which expects a single `InsertCitreaRawTxParams` argument.
     /// This helper takes a strongly-typed `CitreaTxRequest` and forwards it to that method.
     #[cfg(feature = "citrea")]
     pub async fn send_citrea_tx(

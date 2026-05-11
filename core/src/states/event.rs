@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{consensus::Encodable, Witness};
+use bitcoin::Witness;
 use eyre::{Context, OptionExt};
 use pgmq::PGMQueueExt;
 use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt};
@@ -111,7 +111,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock { block, height } => {
-                tracing::trace!(height, "handle_event: NewFinalizedBlock starting");
                 if self.next_height_to_process != height {
                     return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
                 }
@@ -188,46 +187,46 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     if kickoff_machine.kickoff_data != kickoff_data {
                         continue;
                     }
-                    let matches = [
-                        kickoff_machine.deposit_data == deposit_data,
-                        kickoff_machine.payout_blockhash == payout_blockhash,
-                        kickoff_machine.kickoff_height == kickoff_height,
-                    ];
-                    let match_count = matches.iter().filter(|&&b| b).count();
+                    let deposit_data_matches = kickoff_machine.deposit_data == deposit_data;
+                    let payout_blockhash_matches =
+                        kickoff_machine.payout_blockhash == payout_blockhash;
+                    let kickoff_height_matches = kickoff_machine.kickoff_height == kickoff_height;
 
-                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
-                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
-                    match match_count {
-                        3 => return Ok(()), // exact duplicate, skip
-                        n => {
-                            let mut raw_payout_blockhash = Vec::new();
-                            payout_blockhash
-                                .consensus_encode(&mut raw_payout_blockhash)
-                                .map_err(|e| {
-                                    eyre::eyre!("Error encoding payout blockhash: {}", e)
-                                })?;
-                            let payout_blockhash_hex = hex::encode(raw_payout_blockhash);
-                            let mut raw_existing_payout_blockhash = Vec::new();
-                            kickoff_machine
-                                .payout_blockhash
-                                .consensus_encode(&mut raw_existing_payout_blockhash)
-                                .map_err(|e| {
-                                    eyre::eyre!("Error encoding existing payout blockhash: {}", e)
-                                })?;
-                            let existing_payout_blockhash_hex =
-                                hex::encode(raw_existing_payout_blockhash);
-                            return Err(eyre::eyre!(
-                            "Partial kickoff({:?}) match detected ({n} of 3 fields match). This indicates data corruption or inconsistency. New deposit data: {:?}, Existing deposit data: {:?}, New kickoff height: {}, Existing kickoff height: {}, New payout blockhash: {}, Existing payout blockhash: {}",
-                            kickoff_data,
-                            deposit_data,
-                            kickoff_machine.deposit_data,
-                            kickoff_height,
-                            kickoff_machine.kickoff_height,
-                            payout_blockhash_hex,
-                            existing_payout_blockhash_hex,
-                            ).into());
-                        }
+                    // Same kickoff_data should always imply the same associated fields.
+                    // This catches inconsistent finalized kickoff data, for example after a reorged kickoff was added too early.
+                    if deposit_data_matches && payout_blockhash_matches && kickoff_height_matches {
+                        return Ok(());
                     }
+
+                    let mut mismatches = Vec::new();
+                    if !deposit_data_matches {
+                        mismatches.push(format!(
+                            "deposit_data: new={:?}, existing={:?}",
+                            deposit_data, kickoff_machine.deposit_data
+                        ));
+                    }
+                    if !payout_blockhash_matches {
+                        let witness_hex =
+                            |witness: &Witness| witness.iter().map(hex::encode).collect::<Vec<_>>();
+                        mismatches.push(format!(
+                            "payout_blockhash_witness: new={:?}, existing={:?}",
+                            witness_hex(&payout_blockhash),
+                            witness_hex(&kickoff_machine.payout_blockhash)
+                        ));
+                    }
+                    if !kickoff_height_matches {
+                        mismatches.push(format!(
+                            "kickoff_height: new={}, existing={}",
+                            kickoff_height, kickoff_machine.kickoff_height
+                        ));
+                    }
+
+                    return Err(eyre::eyre!(
+                        "Conflicting kickoff({:?}) detected: same kickoff_data, mismatches: {}",
+                        kickoff_data,
+                        mismatches.join("; "),
+                    )
+                    .into());
                 }
 
                 // Initialize context using the block just before the kickoff height
@@ -239,19 +238,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 };
 
                 let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
-
-                // Check if the kickoff machine already exists. If so do not add a new one.
-                // This can happen if during block processing an error happens, reverting the state machines
-                // but a new kickoff state was already dispatched during block processing.
-                for kickoff_machine in self.kickoff_machines.iter() {
-                    if kickoff_machine.kickoff_data == kickoff_data
-                        && kickoff_machine.deposit_data == deposit_data
-                        && kickoff_machine.payout_blockhash == payout_blockhash
-                        && kickoff_machine.kickoff_height == kickoff_height
-                    {
-                        return Ok(());
-                    }
-                }
 
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
@@ -354,16 +340,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    async fn get_round_machine(
+    fn get_round_machine(
         &mut self,
         operator_xonly_pk: &bitcoin::XOnlyPublicKey,
     ) -> Option<&mut InitializedStateMachine<RoundStateMachine<T>>> {
-        for machine in self.round_machines.iter_mut() {
-            if &machine.operator_data.xonly_pk == operator_xonly_pk {
-                return Some(machine);
-            }
-        }
-        None
+        self.round_machines
+            .iter_mut()
+            .find(|machine| &machine.operator_data.xonly_pk == operator_xonly_pk)
     }
 
     async fn check_if_kickoff_malicious(
@@ -378,10 +361,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let was_challenged_before = {
             let round_machine = self
                 .get_round_machine(&kickoff_data.operator_xonly_pk)
-                .await
-                .ok_or_eyre(
-                    format!("Round machine not found for operator {} while checking if kickoff is malicious", kickoff_data.operator_xonly_pk),
-                )?;
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Round machine not found for operator {} while checking if kickoff is malicious",
+                        kickoff_data.operator_xonly_pk
+                    )
+                })?;
 
             round_machine
                 .challenged_rounds
@@ -404,9 +389,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             DutyResult::CheckIfKickoffMalicious { challenged } => {
                 if challenged && !was_challenged_before {
                     // Reacquire the round machine mutably to update the challenged flag
-                    if let Some(round_machine) = self
-                        .get_round_machine(&kickoff_data.operator_xonly_pk)
-                        .await
+                    if let Some(round_machine) =
+                        self.get_round_machine(&kickoff_data.operator_xonly_pk)
                     {
                         round_machine
                             .handle_with_context(
@@ -419,8 +403,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
             }
-            _ => {
-                unreachable!("Expected CheckIfKickoffMalicious result");
+            other => {
+                return Err(eyre::eyre!(
+                    "Expected CheckIfKickoffMalicious duty result, got {other:?}"
+                )
+                .into());
             }
         }
 

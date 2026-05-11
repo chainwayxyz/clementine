@@ -216,7 +216,6 @@ pub struct Actor {
 }
 
 impl Actor {
-    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let keypair = Keypair::from_secret_key(&SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
@@ -232,7 +231,7 @@ impl Actor {
         }
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     fn sign_with_tweak(
         &self,
         sighash: TapSighash,
@@ -252,7 +251,7 @@ impl Actor {
             .sign_schnorr(&Message::from_digest(*sighash.as_byte_array()), keypair_ref))
     }
 
-    #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self))]
     fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),

@@ -158,13 +158,15 @@ impl TxSenderClient {
     #[cfg(feature = "citrea")]
     pub async fn send_citrea_tx(&self, request: CitreaTxRequest) -> Result<i64, eyre::Report> {
         use crate::citrea::data_serialization::DataOnDa;
-
-        const MAX_CHUNK_SIZE: u32 = 390_000;
+        use crate::citrea::MAX_CHUNK_SIZE;
 
         let mut dbtx = self.db.begin_transaction().await?;
 
         let insertion_id = match request {
             CitreaTxRequest::BatchProof { bytes, chunk_size } => {
+                // Hash the original proof bytes so the same proof dedupes even if callers
+                // retry it with a different chunk_size or as a non-chunked Complete body.
+                let full_body_hash = crate::citrea::calculate_sha256(&bytes);
                 let mut chunk_size = chunk_size.unwrap_or(MAX_CHUNK_SIZE);
                 if chunk_size == 0 {
                     chunk_size = MAX_CHUNK_SIZE;
@@ -178,7 +180,12 @@ impl TxSenderClient {
                     let data = DataOnDa::Complete(bytes);
                     let blob = borsh::to_vec(&data).expect("zk::Proof serialize must not fail");
                     self.db
-                        .insert_citrea_raw_tx_single(&mut dbtx, TransactionKind::Complete, &blob)
+                        .insert_citrea_raw_tx_single_with_hash(
+                            &mut dbtx,
+                            TransactionKind::Complete,
+                            &blob,
+                            &full_body_hash,
+                        )
                         .await?
                 } else {
                     let chunks: Vec<Vec<u8>> = bytes
@@ -189,7 +196,7 @@ impl TxSenderClient {
                         })
                         .collect();
                     self.db
-                        .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks)
+                        .insert_citrea_raw_tx_chunks(&mut dbtx, &chunks, &full_body_hash)
                         .await?
                 }
             }
@@ -246,6 +253,7 @@ mod tests {
         let client = TxSenderClient::new(db.clone());
 
         let body = vec![1, 2, 3, 4, 5];
+        let expected_body_hash = crate::citrea::calculate_sha256(&body).to_vec();
         let insertion_id = client
             .send_citrea_tx(CitreaTxRequest::BatchProof {
                 bytes: body.clone(),
@@ -259,7 +267,7 @@ mod tests {
 
         // Verify row was inserted
         let row = sqlx::query(
-            "SELECT insertion_id, transaction_kind, body FROM tx_sender_citrea_raw_tx_queue WHERE body = $1",
+            "SELECT insertion_id, transaction_kind, body, body_hash FROM tx_sender_citrea_raw_tx_queue WHERE body = $1",
         )
         .bind(&serialized_body)
         .fetch_one(db.pool())
@@ -268,6 +276,7 @@ mod tests {
 
         assert_eq!(row.get::<i16, _>("transaction_kind"), 0); // Complete
         assert_eq!(row.get::<Vec<u8>, _>("body"), serialized_body);
+        assert_eq!(row.get::<Vec<u8>, _>("body_hash"), expected_body_hash);
         assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
     }
 
@@ -282,6 +291,7 @@ mod tests {
         let client = TxSenderClient::new(db.clone());
 
         let bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_body_hash = crate::citrea::calculate_sha256(&bytes).to_vec();
         let chunks: Vec<Vec<u8>> = bytes.chunks(3).map(|chunk| chunk.to_vec()).collect();
         let insertion_id = client
             .send_citrea_tx(CitreaTxRequest::BatchProof {
@@ -293,7 +303,7 @@ mod tests {
 
         // Verify all chunk rows + aggregate row were inserted with same insertion_id
         let rows = sqlx::query(
-            "SELECT insertion_id, transaction_kind, body FROM tx_sender_citrea_raw_tx_queue ORDER BY id ASC",
+            "SELECT id, insertion_id, transaction_kind, body, body_hash FROM tx_sender_citrea_raw_tx_queue ORDER BY id ASC",
         )
         .fetch_all(db.pool())
         .await
@@ -301,26 +311,96 @@ mod tests {
 
         assert_eq!(rows.len(), 4); // 3 chunks + 1 aggregate
 
-        let db_insertion_id = rows[0].get::<i64, _>("insertion_id");
-        assert_eq!(db_insertion_id, insertion_id);
-        for (idx, row) in rows.iter().enumerate() {
+        let aggregate_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| row.get::<i16, _>("transaction_kind") == 1)
+            .collect();
+        assert_eq!(aggregate_rows.len(), 1);
+        assert_eq!(
+            aggregate_rows[0].get::<i64, _>("insertion_id"),
+            insertion_id
+        );
+        assert_eq!(aggregate_rows[0].get::<Option<Vec<u8>>, _>("body"), None);
+        assert_eq!(
+            aggregate_rows[0].get::<Option<Vec<u8>>, _>("body_hash"),
+            Some(expected_body_hash.clone())
+        );
+
+        let chunk_rows: Vec<_> = rows
+            .iter()
+            .filter(|row| row.get::<i16, _>("transaction_kind") == 2)
+            .collect();
+        assert_eq!(chunk_rows.len(), chunks.len());
+        for (idx, row) in chunk_rows.iter().enumerate() {
             assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
-            if idx < 3 {
-                // Chunk rows
-                assert_eq!(row.get::<i16, _>("transaction_kind"), 2); // Chunks
-                assert_eq!(
-                    row.get::<Option<Vec<u8>>, _>("body"),
-                    Some(
-                        borsh::to_vec(&DataOnDa::Chunk(chunks[idx].clone()))
-                            .expect("Serialization should not fail")
-                    )
-                );
-            } else {
-                // Aggregate row
-                assert_eq!(row.get::<i16, _>("transaction_kind"), 1); // Aggregate
-                assert_eq!(row.get::<Option<Vec<u8>>, _>("body"), None);
-            }
+            assert_eq!(
+                row.get::<Option<Vec<u8>>, _>("body"),
+                Some(
+                    borsh::to_vec(&DataOnDa::Chunk(chunks[idx].clone()))
+                        .expect("Serialization should not fail")
+                )
+            );
+            assert_eq!(row.get::<Option<Vec<u8>>, _>("body_hash"), None);
         }
+
+        let aggregate_id = aggregate_rows[0].get::<i64, _>("id");
+        db.update_citrea_aggregate_body_and_reset(None, aggregate_id, b"aggregate-body")
+            .await
+            .expect("Aggregate body update should succeed");
+
+        let body_hash_after_update: Option<Vec<u8>> =
+            sqlx::query_scalar("SELECT body_hash FROM tx_sender_citrea_raw_tx_queue WHERE id = $1")
+                .bind(aggregate_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("Should fetch aggregate body hash");
+
+        assert_eq!(body_hash_after_update, Some(expected_body_hash));
+    }
+
+    #[cfg(feature = "citrea")]
+    #[tokio::test]
+    async fn test_send_citrea_tx_batch_proof_dedupes_by_full_body() {
+        use crate::citrea::CitreaTxRequest;
+        use crate::test_utils::create_test_environment;
+
+        let db = create_test_environment(true, false).await.1.unwrap();
+        let client = TxSenderClient::new(db.clone());
+
+        let bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let first_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: bytes.clone(),
+                chunk_size: Some(3),
+            })
+            .await
+            .expect("First insert should succeed");
+
+        let second_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes: bytes.clone(),
+                chunk_size: Some(4),
+            })
+            .await
+            .expect("Second insert should return existing insertion_id");
+
+        let complete_insertion_id = client
+            .send_citrea_tx(CitreaTxRequest::BatchProof {
+                bytes,
+                chunk_size: None,
+            })
+            .await
+            .expect("Complete insert should return existing insertion_id");
+
+        assert_eq!(first_insertion_id, second_insertion_id);
+        assert_eq!(first_insertion_id, complete_insertion_id);
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tx_sender_citrea_raw_tx_queue")
+            .fetch_one(db.pool())
+            .await
+            .expect("Should count rows");
+
+        assert_eq!(count, 4, "Should keep one aggregate row and three chunks");
     }
 
     #[cfg(feature = "citrea")]
