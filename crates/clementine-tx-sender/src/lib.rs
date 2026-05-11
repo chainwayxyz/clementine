@@ -312,7 +312,7 @@ impl TxSender {
         // We can lower this later if we want fee-optimal CPFP when the parent already pays
         // above the target feerate.
         if package_deficit < child_target_fee {
-            tracing::error!(
+            tracing::warn!(
                 parent_fee_sat = parent_tx_fee.to_sat(),
                 package_target_fee_sat = required_fee.to_sat(),
                 package_deficit_sat = package_deficit.to_sat(),
