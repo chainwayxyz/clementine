@@ -1,11 +1,11 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-use crate::builder::transaction::{input::UtxoVout, ContractContext};
+use crate::builder::transaction::{input::UtxoVout, ContractContext, TxHandler};
 use crate::deposit::OperatorData;
 use crate::states::context::DutyResult;
-use bitcoin::OutPoint;
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Transaction, Txid, Witness};
+use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
 use clementine_errors::TxError;
 use clementine_primitives::RoundIndex;
@@ -143,6 +143,152 @@ impl<T: Owner> RoundStateMachine<T> {
                     .wrap_err(self.round_meta("round unhandled event"))
             })
             .await;
+    }
+
+    async fn is_possible_kickoff(
+        &self,
+        txid: Txid,
+        block_height: u32,
+        witness: Witness,
+        tx: &Transaction,
+        context: &StateContext<T>,
+    ) -> Result<bool, BridgeError> {
+        let duty_result = context
+            .dispatch_duty(Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            })
+            .await?;
+
+        Ok(match duty_result {
+            DutyResult::CheckIfKickoff { is_kickoff: true } => true,
+            DutyResult::CheckIfKickoff { is_kickoff: false } => {
+                let min_outputs = UtxoVout::Assert(0).get_vout() as usize
+                    + NUMBER_OF_ASSERT_TXS
+                    + 1 // anchor
+                    + 2; // at least one watchtower (challenge + ack)
+                tx.input.len() == 1 && tx.output.len() >= min_outputs
+            }
+            _ => false,
+        })
+    }
+
+    async fn ensure_kickoff_finalizer_tracking(
+        &mut self,
+        kickoff_idx: usize,
+        kickoff_txid: Txid,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
+        context: &StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        if kickoff_finalizers_spent.contains(&kickoff_idx) {
+            return Ok(());
+        }
+
+        let finalizer_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::KickoffFinalizer.get_vout(),
+        };
+
+        let spending_height = {
+            let mut guard = context.shared_dbtx.lock().await;
+            context
+                .db
+                .get_block_height_of_spending_txid(Some(&mut *guard), finalizer_outpoint)
+                .await?
+        };
+
+        if matches!(spending_height, Some(height) if height <= context.cache.block_height) {
+            kickoff_finalizers_spent.insert(kickoff_idx);
+            self.dirty = true;
+        } else {
+            self.matchers.insert(
+                matcher::Matcher::SpentUtxo(finalizer_outpoint),
+                RoundEvent::KickoffFinalizerSpent { kickoff_idx },
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn reconcile_used_kickoffs_from_syncer(
+        &mut self,
+        round_idx: &RoundIndex,
+        used_kickoffs: &HashSet<usize>,
+        possible_kickoffs: &mut HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
+        round_txhandler: &TxHandler,
+        context: &StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        let missing_kickoffs = used_kickoffs
+            .iter()
+            .copied()
+            .filter(|idx| !possible_kickoffs.contains_key(idx))
+            .collect::<Vec<_>>();
+
+        if missing_kickoffs.is_empty() {
+            return Ok(());
+        }
+
+        for kickoff_idx in missing_kickoffs {
+            let kickoff_outpoint = *round_txhandler
+                .get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?
+                .get_prev_outpoint();
+
+            let spending_tx_info = {
+                let mut guard = context.shared_dbtx.lock().await;
+                context
+                    .db
+                    .get_spending_txid_of_outpoint(
+                        Some(&mut *guard),
+                        kickoff_outpoint,
+                        context.cache.block_height,
+                    )
+                    .await?
+            }
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Used kickoff {kickoff_idx} for round {round_idx} has no spending tx in bitcoin syncer up to height {}",
+                        context.cache.block_height
+                    )
+                })?;
+            let (block_height, block_hash, spending_txid) = spending_tx_info;
+            let spending_tx = context
+                .rpc
+                .get_raw_transaction(&spending_txid, Some(&block_hash))
+                .await
+                .wrap_err_with(|| {
+                    format!("Failed to fetch spending tx {spending_txid} from block {block_hash}")
+                })?;
+            let witness = spending_tx
+                .input
+                .iter()
+                .find(|input| input.previous_output == kickoff_outpoint)
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Spending tx {spending_txid} from syncer does not spend {kickoff_outpoint}"
+                    )
+                })?
+                .witness
+                .clone();
+
+            if self
+                .is_possible_kickoff(spending_txid, block_height, witness, &spending_tx, context)
+                .await?
+            {
+                possible_kickoffs.insert(kickoff_idx, spending_txid);
+                self.dirty = true;
+                self.ensure_kickoff_finalizer_tracking(
+                    kickoff_idx,
+                    spending_txid,
+                    kickoff_finalizers_spent,
+                    context,
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
     }
 
     #[action]
@@ -287,50 +433,33 @@ impl<T: Owner> RoundStateMachine<T> {
                 context
                     .capture_error(async |context| {
                         {
-                            let duty_result = context
-                                .dispatch_duty(Duty::CheckIfKickoff {
+                            let witness = context
+                                .cache
+                                .get_witness_of_utxo(kickoff_outpoint)
+                                .expect("UTXO should be in block");
+                            let tx = context
+                                .cache
+                                .get_tx_of_utxo(kickoff_outpoint)
+                                .expect("UTXO should be in block");
+                            let is_possible_kickoff = self
+                                .is_possible_kickoff(
                                     txid,
-                                    block_height: context.cache.block_height,
-                                    witness: context
-                                        .cache
-                                        .get_witness_of_utxo(kickoff_outpoint)
-                                        .expect("UTXO should be in block"),
-                                })
+                                    context.cache.block_height,
+                                    witness,
+                                    tx,
+                                    context,
+                                )
                                 .await?;
-
-                            // Determine if this kickoff should be tracked as a possible kickoff
-                            let is_possible_kickoff = match &duty_result {
-                                DutyResult::CheckIfKickoff { is_kickoff: true } => true,
-                                DutyResult::CheckIfKickoff { is_kickoff: false } => {
-                                    // Check tx structure: if it looks like a kickoff (1 input, >= expected outputs),
-                                    // treat it as a possible kickoff even though we don't have it in our DB
-                                    // this is done so that if db was lost, and the operator is during a round/kickoff, it doesn't instantly send a ready to reimburse tx, even if it doesn't recognize the kickoff tx.
-                                    let tx = context
-                                        .cache
-                                        .get_tx_of_utxo(kickoff_outpoint)
-                                        .expect("UTXO should be in block");
-                                    // simple heuristic for kickoff tx, a true burnunusedkickoffconnectors tx is very likely to not match this structure.
-                                    let min_outputs = UtxoVout::Assert(0).get_vout() as usize
-                                        + NUMBER_OF_ASSERT_TXS
-                                        + 1  // anchor
-                                        + 2; // at least one watchtower (challenge + ack)
-                                    tx.input.len() == 1 && tx.output.len() >= min_outputs
-                                }
-                                _ => false,
-                            };
 
                             if is_possible_kickoff {
                                 possible_kickoffs.insert(*kickoff_idx, txid);
-                                // Add a matcher for the kickoff finalizer outpoint being spent
-                                self.matchers.insert(
-                                    matcher::Matcher::SpentUtxo(OutPoint {
-                                        txid,
-                                        vout: UtxoVout::KickoffFinalizer.get_vout(),
-                                    }),
-                                    RoundEvent::KickoffFinalizerSpent {
-                                        kickoff_idx: *kickoff_idx,
-                                    },
-                                );
+                                self.ensure_kickoff_finalizer_tracking(
+                                    *kickoff_idx,
+                                    txid,
+                                    kickoff_finalizers_spent,
+                                    context,
+                                )
+                                .await?;
                             }
 
                             // Check if conditions are met to queue ready to reimburse
@@ -471,6 +600,7 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut RoundIndex,
+        used_kickoffs: &mut HashSet<usize>,
         possible_kickoffs: &mut HashMap<usize, Txid>,
         kickoff_finalizers_spent: &mut HashSet<usize>,
         context: &mut StateContext<T>,
@@ -526,6 +656,26 @@ impl<T: Owner> RoundStateMachine<T> {
                             ),
                             RoundEvent::OperatorExit,
                         );
+                        self.reconcile_used_kickoffs_from_syncer(
+                            round_idx,
+                            used_kickoffs,
+                            possible_kickoffs,
+                            kickoff_finalizers_spent,
+                            &round_txhandler,
+                            context,
+                        )
+                        .await?;
+
+                        for (kickoff_idx, txid) in possible_kickoffs.clone() {
+                            self.ensure_kickoff_finalizer_tracking(
+                                kickoff_idx,
+                                txid,
+                                kickoff_finalizers_spent,
+                                context,
+                            )
+                            .await?;
+                        }
+
                         // Add a matcher for each kickoff utxo in the round tx.
                         for idx in 0..context.config.protocol_paramset.num_kickoffs_per_round {
                             let outpoint = *round_txhandler
@@ -539,6 +689,14 @@ impl<T: Owner> RoundStateMachine<T> {
                                 },
                             );
                         }
+                        self.check_and_dispatch_queue_ready_to_reimburse(
+                            round_idx,
+                            used_kickoffs,
+                            possible_kickoffs,
+                            kickoff_finalizers_spent,
+                            context,
+                        )
+                        .await?;
                         Ok::<(), BridgeError>(())
                     }
                 }

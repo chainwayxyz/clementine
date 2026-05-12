@@ -185,6 +185,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             Arc::new(BlockCache::from_block(block.clone(), block_height)),
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
@@ -198,6 +200,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             block_cache,
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
