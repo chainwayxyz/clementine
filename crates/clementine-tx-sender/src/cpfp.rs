@@ -278,7 +278,7 @@ impl TxSender {
     /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
     /// by this child transaction.
     ///
-    /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
+    /// The remaining value (total input value - `required_fee`) is sent to the CPFP change script.
     ///
     /// # Signing
     /// We sign the input spending the P2A anchor and all fee payer UTXOs.
@@ -300,7 +300,19 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        let change_script_pubkey = self.cpfp_change_script_pubkey.clone();
+        let change_script_pubkey = self
+            .cpfp_change_script_pubkey
+            .get_or_try_init(|| async {
+                Ok::<_, SendTxError>(
+                    self.rpc
+                        .get_new_wallet_address()
+                        .await
+                        .wrap_err("Failed to get CPFP change address")?
+                        .script_pubkey(),
+                )
+            })
+            .await?
+            .clone();
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()

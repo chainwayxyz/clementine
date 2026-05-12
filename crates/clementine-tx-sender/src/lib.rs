@@ -54,6 +54,8 @@ pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{OptionExt, WrapErr};
 use signer::TxSenderSigningKey;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
@@ -140,8 +142,8 @@ pub struct TxSender {
     mempool_config: MempoolConfig,
     /// Whether to include unsafe UTXOs when funding transactions.
     include_unsafe: bool,
-    /// CPFP change script, initialized once and reused for all CPFP child txs.
-    cpfp_change_script_pubkey: bitcoin::ScriptBuf,
+    /// CPFP change script, lazily initialized once and reused for all CPFP child txs.
+    cpfp_change_script_pubkey: Arc<OnceCell<bitcoin::ScriptBuf>>,
 }
 
 impl std::fmt::Debug for TxSender {
@@ -209,12 +211,6 @@ impl TxSender {
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
-        let cpfp_change_script_pubkey = rpc
-            .get_new_wallet_address()
-            .await
-            .map_err(|e| BridgeError::Eyre(e.into()))?
-            .script_pubkey();
-
         let db = TxSenderDb::connect(&postgres).await?;
         let client = TxSenderClient::new(db.clone());
 
@@ -232,7 +228,7 @@ impl TxSender {
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
             include_unsafe,
-            cpfp_change_script_pubkey,
+            cpfp_change_script_pubkey: Arc::new(OnceCell::new()),
         })
     }
 
