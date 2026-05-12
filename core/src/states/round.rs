@@ -11,7 +11,6 @@ use clementine_errors::TxError;
 use clementine_primitives::RoundIndex;
 use clementine_primitives::TransactionType;
 use clementine_primitives::NUMBER_OF_ASSERT_TXS;
-use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
@@ -61,12 +60,10 @@ pub enum RoundEvent {
 /// - `OperatorExit`: The operator exited the protocol. The state machine transitions to the operator exit state. In this state, all tracking of the operator is stopped as operator is no longer participating in the protocol.
 /// - `SavedToDb`: The state machine has been saved to the database and the dirty flag should be reset to false.
 ///
-#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
     /// Maps matchers to the resulting round events.
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
+    pub(crate) matchers: matcher::MatcherMap<RoundEvent>,
     /// Data of the operator that is being tracked.
     pub(crate) operator_data: OperatorData,
     /// Indicates if the state machine has unsaved changes that need to be persisted on db.
@@ -88,23 +85,14 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
     type StateEvent = RoundEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
-        self.matchers
-            .iter()
-            .filter_map(|(matcher, round_event)| {
-                matcher.matches(block).map(|ord| (ord, round_event))
-            })
-            .min()
-            .map(|(_, round_event)| round_event)
-            .into_iter()
-            .cloned()
-            .collect()
+        self.matchers.match_block(block)
     }
 }
 
 impl<T: Owner> RoundStateMachine<T> {
     pub fn new(operator_data: OperatorData) -> Self {
         Self {
-            matchers: HashMap::new(),
+            matchers: matcher::MatcherMap::new(),
             operator_data,
             dirty: true,
             challenged_rounds: HashSet::new(),
@@ -164,6 +152,9 @@ impl<T: Owner> RoundStateMachine<T> {
         Ok(match duty_result {
             DutyResult::CheckIfKickoff { is_kickoff: true } => true,
             DutyResult::CheckIfKickoff { is_kickoff: false } => {
+                // Be conservative if the kickoff signature data is unavailable. A
+                // real kickoff and burn-unused-kickoff-connectors have different
+                // shapes unless the operator intentionally griefs themselves.
                 let min_outputs = UtxoVout::Assert(0).get_vout() as usize
                     + NUMBER_OF_ASSERT_TXS
                     + 1 // anchor
@@ -211,6 +202,15 @@ impl<T: Owner> RoundStateMachine<T> {
         Ok(())
     }
 
+    /// Reconstructs `possible_kickoffs` for round states persisted before that
+    /// field existed.
+    ///
+    /// Older serialized `RoundTx` states only contain `used_kickoffs`. After the
+    /// migration those machines reload with empty `possible_kickoffs`, which would
+    /// make the round look ready to reimburse as soon as all kickoff UTXOs are
+    /// spent. We use the bitcoin syncer history to find the actual spending tx for
+    /// each missing used kickoff, classify possible kickoff txs, and restore
+    /// finalizer tracking before queue readiness is checked.
     async fn reconcile_used_kickoffs_from_syncer(
         &mut self,
         round_idx: &RoundIndex,
@@ -303,11 +303,8 @@ impl<T: Owner> RoundStateMachine<T> {
             tracing::trace!(?self.operator_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
-            // Remove the matcher corresponding to the event.
-            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-                let matcher = matcher.clone();
-                self.matchers.remove(&matcher);
-            }
+            // Consume the matched event so it is not emitted again.
+            self.matchers.remove_event(evt);
         }
     }
 
@@ -353,7 +350,7 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
                     let contract_context = ContractContext::new_context_for_round(
@@ -557,7 +554,7 @@ impl<T: Owner> RoundStateMachine<T> {
     /// which cannot be created anymore as the collateral is spent. So we do not want to challenge it, etc.
     #[action]
     pub(crate) async fn on_operator_exit_entry(&mut self) {
-        self.matchers = HashMap::new();
+        self.matchers.clear();
         tracing::warn!(?self.operator_data, "Operator exited the protocol.");
     }
 
@@ -608,7 +605,7 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
                     // On the round after last round, do not care about anything,
                     // last round has index num_round_txs and is there only for reimbursement generators of previous round
                     // nothing is signed with them
@@ -780,7 +777,7 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
                     // get next rounds Round tx
                     let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,
