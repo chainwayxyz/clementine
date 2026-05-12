@@ -70,10 +70,7 @@ pub async fn start_jsonrpc_server(
                     &signed_tx,
                     req.fee_paying_type,
                     req.rbf_signing_info,
-                    &req.cancel_outpoints,
-                    &req.cancel_txids,
                     &req.activate_txids,
-                    &req.activate_outpoints,
                 )
                 .await
                 .map_err(jsonrpc_err)?;
@@ -164,7 +161,7 @@ mod tests {
         let start = Instant::now();
         let try_to_send_id = loop {
             match client
-                .insert_try_to_send(None, &tx, FeePayingType::CPFP, None, &[], &[], &[], &[])
+                .insert_try_to_send(None, &tx, FeePayingType::CPFP, None, &[])
                 .await
             {
                 Ok(id) => break id,

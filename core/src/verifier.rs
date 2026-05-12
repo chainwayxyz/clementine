@@ -53,8 +53,6 @@ use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::{TxSender, TxSenderClient};
 #[cfg(feature = "automation")]
 use crate::tx_sender_queue::TxSenderClientQueueExt;
-#[cfg(feature = "automation")]
-use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use alloy::primitives::PrimitiveSignature;
@@ -1337,11 +1335,6 @@ where
             }
         }
         // Check move_txid/kickoffs consistency and dispatch finalized kickoffs to state managers
-        // First acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize. It is a read lock so that multiple new_deposit calls can run this in parallel.
-        // The lock is to ensure this race condition doesn't happen: A kickoff is almost finalized (one block left), kickoffs are checkedd in function below and added to state manager if they are finalized, if they are not finalized during check but become finalized + processed by state manager before dbtx in deposit_finalize is committed, the kickoff won't be added to the state manager.
-        // Very unlikely to happen (because it needs both a db loss + resync conditions here + a kickoff to be just a small amount of time away from being finalized + state manager sync happening before dbtx is committed), but the performance cost of the lock is also negligible because the write lock will be acquired only when a kickoff utxo (in round tx) is spent.
-        #[cfg(feature = "automation")]
-        let _guard = crate::states::round::CHECK_KICKOFF_LOCK.read().await;
         self.check_kickoffs_on_chain_and_track(deposit_data, &mut dbtx, kickoff_txids, move_txid)
             .await?;
         dbtx.commit().await?;
@@ -2008,9 +2001,7 @@ where
                         dbtx,
                         TransactionType::Challenge,
                         &challenge_tx,
-                        &[],
                         Some(tx_metadata),
-                        self.config.protocol_paramset(),
                         None,
                     )
                     .await?;
@@ -2034,7 +2025,6 @@ where
         dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        kickoff_txid: Txid,
     ) -> Result<(), BridgeError> {
         let (signed_txs, tx_metadata, _challenge_tx) = self
             .get_signed_txs_for_kickoff(dbtx, kickoff_data, deposit_data)
@@ -2046,41 +2036,19 @@ where
                 TransactionType::AssertTimeout(_)
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
-                | TransactionType::OperatorChallengeNack(_) => {
+                | TransactionType::OperatorChallengeNack(_)
+                // Technically verifiers do not need to send watchtower challenge timeout tx,
+                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
+                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
+                // to not get disproven
+                | TransactionType::WatchtowerChallengeTimeout(_) => {
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
                             *tx_type,
                             signed_tx,
-                            &signed_txs,
                             Some(tx_metadata),
-                            self.config.protocol_paramset(),
-                            None, // limit
-                        )
-                        .await?;
-                }
-                // Technically verifiers do not need to send watchtower challenge timeout tx,
-                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
-                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
-                // to not get disproven
-                TransactionType::WatchtowerChallengeTimeout(idx) => {
-                    self.tx_sender
-                        .insert_try_to_send(
-                            dbtx,
-                            Some(TxMetadata {
-                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
-                                ..tx_metadata
-                            }),
-                            signed_tx,
-                            FeePayingType::CPFP,
                             None,
-                            &[OutPoint {
-                                txid: kickoff_txid,
-                                vout: UtxoVout::KickoffFinalizer.get_vout(),
-                            }],
-                            &[],
-                            &[],
-                            &[],
                         )
                         .await?;
                 }
@@ -2179,7 +2147,6 @@ where
                     dbtx,
                     tx_type,
                     &challenge_tx,
-                    &[],
                     Some(TxMetadata {
                         tx_type,
                         operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
@@ -2187,7 +2154,6 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -2378,7 +2344,6 @@ where
                         dbtx,
                         tx_type,
                         &tx,
-                        &[],
                         Some(TxMetadata {
                             tx_type,
                             operator_xonly_pk: Some(operator_xonly_pk),
@@ -2386,7 +2351,6 @@ where
                             kickoff_idx: Some(kickoff_idx as u32),
                             deposit_outpoint: None,
                         }),
-                        self.config.protocol_paramset(),
                         None,
                     )
                     .await?;
@@ -2741,7 +2705,6 @@ where
                 dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
-                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -2749,7 +2712,6 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -3035,7 +2997,6 @@ where
                 dbtx,
                 TransactionType::Disprove,
                 &disprove_tx,
-                &[],
                 Some(TxMetadata {
                     tx_type: TransactionType::Disprove,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -3043,7 +3004,6 @@ where
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -3159,6 +3119,7 @@ mod states {
                     .await?;
                     Ok(DutyResult::Handled)
                 }
+                Duty::WatchtowerChallengeDetected { .. } => Ok(DutyResult::Handled),
                 Duty::WatchtowerChallenge {
                     kickoff_data,
                     deposit_data,
@@ -3184,27 +3145,8 @@ mod states {
                     deposit_data,
                 } => {
                     tracing::info!("Verifier {:?} called add relevant txs to tx sender with kickoff_data: {:?}", verifier_xonly_pk, kickoff_data);
-                    let kickoff_txid = self
-                        .db
-                        .get_kickoff_txid_from_deposit_and_kickoff_data(
-                            Some(dbtx),
-                            deposit_data.get_deposit_outpoint(),
-                            &kickoff_data,
-                        )
-                        .await?
-                        .ok_or_else(|| {
-                            eyre::eyre!(
-                                "Kickoff txid not found in deposit_signatures for kickoff_data: {:?}",
-                                kickoff_data
-                            )
-                        })?;
-                    self.queue_txs_for_challenged_kickoff(
-                        dbtx,
-                        kickoff_data,
-                        deposit_data,
-                        kickoff_txid,
-                    )
-                    .await?;
+                    self.queue_txs_for_challenged_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::VerifierDisprove {
@@ -3357,8 +3299,10 @@ mod states {
                             witness.clone(),
                         )
                         .await?;
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: true })
+                    } else {
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: false })
                     }
-                    Ok(DutyResult::Handled)
                 }
                 Duty::CheckIfKickoffMalicious {
                     kickoff_witness,
@@ -3378,6 +3322,10 @@ mod states {
                     Ok(DutyResult::CheckIfKickoffMalicious {
                         challenged: is_malicious,
                     })
+                }
+                Duty::QueueReadyToReimburse { .. } => {
+                    // Verifiers do nothing with this duty
+                    Ok(DutyResult::Handled)
                 }
             }
         }

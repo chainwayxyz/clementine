@@ -945,9 +945,6 @@ impl Aggregator {
                 FeePayingType::RBF,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
         dbtx.commit()
@@ -1244,9 +1241,7 @@ impl ClementineAggregator for AggregatorServer {
                         &mut dbtx,
                         TransactionType::OptimisticPayout,
                         opt_payout_tx,
-                        &[],
                         None,
-                        self.config.protocol_paramset(),
                         None,
                     )
                     .await
@@ -1291,17 +1286,7 @@ impl ClementineAggregator for AggregatorServer {
 
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
-                .insert_try_to_send(
-                    &mut dbtx,
-                    None,
-                    &signed_tx,
-                    fee_type.try_into()?,
-                    None,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
+                .insert_try_to_send(&mut dbtx, None, &signed_tx, fee_type.try_into()?, None, &[])
                 .await
                 .map_to_status()?;
             dbtx.commit()
@@ -2086,9 +2071,6 @@ impl ClementineAggregator for AggregatorServer {
                     &movetx,
                     FeePayingType::CPFP,
                     None,
-                    &[],
-                    &[],
-                    &[],
                     &[],
                 )
                 .await

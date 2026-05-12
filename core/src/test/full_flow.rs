@@ -743,6 +743,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "Can't advance round with only txsender anymore (depends on state manager)"]
     async fn test_operator_end_round() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;

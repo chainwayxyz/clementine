@@ -107,6 +107,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         event: SystemEvent,
         dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
     ) -> Result<(), BridgeError> {
+        let event_start = std::time::Instant::now();
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock { block, height } => {
@@ -119,6 +120,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.process_block_parallel(&mut context).await?;
 
                 self.last_finalized_block = Some(context.cache.clone());
+                tracing::trace!(
+                    height,
+                    elapsed_ms = event_start.elapsed().as_millis() as u64,
+                    "handle_event: NewFinalizedBlock completed process_block_parallel"
+                );
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -322,7 +328,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
+        tracing::trace!("handle_event: saving state to db");
+        let save_start = std::time::Instant::now();
         self.save_state_to_db(&mut context).await?;
+        tracing::trace!(
+            elapsed_ms = save_start.elapsed().as_millis() as u64,
+            total_elapsed_ms = event_start.elapsed().as_millis() as u64,
+            "handle_event: save_state_to_db completed"
+        );
 
         Ok(())
     }

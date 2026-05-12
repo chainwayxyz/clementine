@@ -1,6 +1,7 @@
 use crate::config::BridgeConfig;
-use crate::database::DatabaseTransaction;
+use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData};
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::utils::NamedEntity;
 use clementine_primitives::RoundIndex;
 
@@ -79,6 +80,14 @@ pub enum Duty {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     },
+    /// This duty is sent when a specific watchtower challenge transaction is detected on Bitcoin.
+    /// It includes the watchtower index so the owner (if it is an operator) can queue the corresponding OperatorChallengeAck
+    /// transaction for that exact watchtower.
+    WatchtowerChallengeDetected {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        watchtower_idx: usize,
+    },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
     /// This duty is sent after some time (config.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
@@ -121,6 +130,15 @@ pub enum Duty {
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     },
+    /// Dispatched when all kickoff UTXOs are spent and all kickoff finalizers for
+    /// possible kickoffs (those that returned yes from CheckIfKickoff, or looked like
+    /// a kickoff based on tx structure) are spent.
+    /// Tells the operator to queue the ReadyToReimburse tx.
+    /// Verifiers do nothing with this duty.
+    QueueReadyToReimburse {
+        round_idx: RoundIndex,
+        operator_xonly_pk: XOnlyPublicKey,
+    },
 }
 
 /// Result of handling a duty
@@ -130,6 +148,8 @@ pub enum DutyResult {
     Handled,
     /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
     CheckIfKickoffMalicious { challenged: bool },
+    /// Result of checking if a spent kickoff UTXO corresponds to a known kickoff in the database
+    CheckIfKickoff { is_kickoff: bool },
 }
 
 /// Owner trait with async handling and tx handler creation
@@ -168,6 +188,8 @@ pub struct StateContext<T: Owner> {
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
     pub config: BridgeConfig,
+    pub db: Database,
+    pub rpc: ExtendedBitcoinRpc,
     pub owner_type: String,
     pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
@@ -178,6 +200,8 @@ impl<T: Owner> StateContext<T> {
         owner: Arc<T>,
         cache: Arc<block_cache::BlockCache>,
         config: BridgeConfig,
+        db: Database,
+        rpc: ExtendedBitcoinRpc,
     ) -> Self {
         // Get the owner type string from the owner instance
         let owner_type = T::ENTITY_NAME.to_string();
@@ -190,6 +214,8 @@ impl<T: Owner> StateContext<T> {
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
             config,
+            db,
+            rpc,
             owner_type,
         }
     }

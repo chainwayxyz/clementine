@@ -10,6 +10,6 @@ pub use citrea::CitreaTxRequest;
 
 #[cfg(feature = "clementine")]
 pub use clementine::{
-    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo,
-    RbfSigningSpendPath, TxMetadata,
+    ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo, RbfSigningSpendPath,
+    TxMetadata,
 };

@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use bitcoin::{OutPoint, Transaction, Witness};
 use eyre::Context;
-use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
@@ -16,7 +15,7 @@ use clementine_primitives::TransactionType;
 use super::{
     block_cache::BlockCache,
     context::{Duty, StateContext},
-    matcher::{BlockMatcher, Matcher},
+    matcher::{BlockMatcher, Matcher, MatcherMap},
     Owner, StateMachineError,
 };
 
@@ -95,12 +94,10 @@ pub enum KickoffEvent {
 /// - The state machine interacts with the owner to perform protocol duties (e.g., sending challenges, asserts, or disproves) as required by the protocol logic.
 ///
 /// This design ensures that all protocol-critical events related to a kickoff are tracked and handled in a robust, stateful manner, supporting both normal and adversarial scenarios.
-#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KickoffStateMachine<T: Owner> {
     /// Maps matchers to the resulting kickoff events.
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
+    pub(crate) matchers: MatcherMap<KickoffEvent>,
     /// Indicates if the state machine has unsaved changes that need to be persisted on db.
     /// dirty flag is set if any matcher matches the current block.
     /// the flag is set to true in on_transition and on_dispatch
@@ -141,16 +138,7 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
     type StateEvent = KickoffEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
-        self.matchers
-            .iter()
-            .filter_map(|(matcher, kickoff_event)| {
-                matcher.matches(block).map(|ord| (ord, kickoff_event))
-            })
-            .min()
-            .map(|(_, kickoff_event)| kickoff_event)
-            .into_iter()
-            .cloned()
-            .collect()
+        self.matchers.match_block(block)
     }
 }
 
@@ -167,7 +155,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             deposit_data,
             payout_blockhash,
             latest_blockhash: Witness::default(),
-            matchers: HashMap::new(),
+            matchers: MatcherMap::new(),
             dirty: true,
             challenged: false,
             phantom: std::marker::PhantomData,
@@ -213,11 +201,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             tracing::trace!(?self.kickoff_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
-            // Remove the matcher corresponding to the event.
-            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-                let matcher = matcher.clone();
-                self.matchers.remove(&matcher);
-            }
+            // Consume the matched event so it is not emitted again.
+            self.matchers.remove_event(evt);
         }
     }
 
@@ -359,8 +344,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
         context
             .capture_error(async |_context| {
-                let event_str = format!("{event:?}");
-                Err(StateMachineError::UnhandledEvent(event_str))
+                Err(StateMachineError::UnhandledEvent(format!("{event:?}")))
                     .wrap_err(self.kickoff_meta("kickoff unhandled event"))
             })
             .await;
@@ -468,6 +452,22 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
+                // notify owner so it can queue OperatorChallengeAck for this specific watchtower
+                context
+                    .capture_error(async |context| {
+                        {
+                            context
+                                .dispatch_duty(Duty::WatchtowerChallengeDetected {
+                                    kickoff_data: self.kickoff_data,
+                                    deposit_data: self.deposit_data.clone(),
+                                    watchtower_idx: *watchtower_idx,
+                                })
+                                .await?;
+                            Ok::<(), BridgeError>(())
+                        }
+                        .wrap_err(self.kickoff_meta("on_watchtower_challenge_detected"))
+                    })
+                    .await;
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
                 self.send_operator_asserts_if_ready(context).await;

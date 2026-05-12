@@ -57,7 +57,7 @@ use {
         header_chain_prover::HeaderChainProver,
         states::StateManager,
         task::IntoTask,
-        tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+        tx_sender::{ActivatedWithTxid, TxSenderClient},
         utils::FeePayingType,
     },
     bitcoin::Witness,
@@ -926,22 +926,12 @@ where
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
                 TransactionType::Kickoff
-                | TransactionType::OperatorChallengeAck(_)
-                | TransactionType::WatchtowerChallengeTimeout(_)
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
                     #[cfg(feature = "automation")]
                     self.tx_sender
-                        .add_tx_to_queue(
-                            dbtx,
-                            *tx_type,
-                            signed_tx,
-                            &signed_txs,
-                            tx_metadata,
-                            self.config.protocol_paramset(),
-                            None,
-                        )
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
                         .await?;
                 }
                 _ => {}
@@ -1003,9 +993,6 @@ where
                 FeePayingType::CPFP,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 
@@ -1024,8 +1011,6 @@ where
     ) -> Result<(), BridgeError> {
         // get current round index
         let current_round_index = self.db.get_current_round_index(Some(&mut dbtx)).await?;
-
-        let mut activation_prerequisites = Vec::new();
 
         let operator_winternitz_public_keys = self
             .db
@@ -1077,7 +1062,6 @@ where
             .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[], Some(&mut tweak_cache))
             .wrap_err("Failed to sign next round tx")?;
 
-        let current_round_txid = current_round_txhandler.get_cached_tx().compute_txid();
         let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
         let next_round_tx = next_round_txhandler.get_cached_tx();
 
@@ -1098,20 +1082,8 @@ where
                 )
                 .await?;
             match kickoff_txid {
-                Some(kickoff_txid) => {
-                    activation_prerequisites.push(ActivatedWithOutpoint {
-                        outpoint: OutPoint {
-                            txid: kickoff_txid,
-                            vout: UtxoVout::KickoffFinalizer.get_vout(), // Kickoff finalizer output index
-                        },
-                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
-                    });
-                }
+                Some(_) => {}
                 None => {
-                    let unspent_kickoff_connector = OutPoint {
-                        txid: current_round_txid,
-                        vout: UtxoVout::Kickoff(kickoff_connector_idx as usize).get_vout(),
-                    };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
                         .mark_kickoff_connector_as_used(
@@ -1121,10 +1093,6 @@ where
                             None,
                         )
                         .await?;
-                    activation_prerequisites.push(ActivatedWithOutpoint {
-                        outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.protocol_paramset().finality_depth - 1,
-                    });
                 }
             }
         }
@@ -1161,32 +1129,10 @@ where
                 FeePayingType::CPFP,
                 None,
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 
-        // send ready to reimburse tx
-        self.tx_sender
-            .insert_try_to_send(
-                dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::ReadyToReimburse,
-                    operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                ready_to_reimburse_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &activation_prerequisites,
-            )
-            .await?;
+        // Ready to reimburse tx will be sent using state manager
 
         // send next round tx
         self.tx_sender
@@ -1202,8 +1148,6 @@ where
                 next_round_tx,
                 FeePayingType::CPFP,
                 None,
-                &[],
-                &[],
                 &[ActivatedWithTxid {
                     txid: ready_to_reimburse_txid,
                     relative_block_height: self
@@ -1212,7 +1156,6 @@ where
                         .operator_reimburse_timelock
                         as u32,
                 }],
-                &[],
             )
             .await?;
 
@@ -1616,7 +1559,6 @@ where
                     dbtx,
                     tx_type,
                     &tx,
-                    &[],
                     Some(TxMetadata {
                         tx_type,
                         operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1624,7 +1566,6 @@ where
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -1668,7 +1609,6 @@ where
                 dbtx,
                 tx_type,
                 &tx,
-                &[],
                 Some(TxMetadata {
                     tx_type,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1676,7 +1616,6 @@ where
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -2448,6 +2387,43 @@ where
         }
     }
 
+    /// Creates and signs all kickoff-related transactions for a given deposit,
+    /// returning them together with the associated `TxMetadata`.
+    #[cfg(feature = "automation")]
+    async fn create_signed_kickoff_related_txs(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        block_hash: Option<[u8; 20]>,
+    ) -> Result<(Vec<(TransactionType, Transaction)>, TxMetadata), BridgeError> {
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let context = ContractContext::new_context_for_kickoff(
+            kickoff_data,
+            deposit_data,
+            self.config.protocol_paramset(),
+        );
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            context,
+            block_hash,
+            Some(dbtx),
+        )
+        .await?;
+
+        let tx_metadata = TxMetadata {
+            tx_type: TransactionType::Dummy,
+            operator_xonly_pk: Some(self.signer.xonly_public_key),
+            round_idx: Some(kickoff_data.round_idx),
+            kickoff_idx: Some(kickoff_data.kickoff_idx),
+            deposit_outpoint: Some(deposit_outpoint),
+        };
+
+        Ok((signed_txs, tx_metadata))
+    }
+
     /// Adds relevant transactions to tx_sender queue for a kickoff.
     /// Used during resync to ensure all necessary txs are queued.
     #[cfg(feature = "automation")]
@@ -2457,50 +2433,75 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let context = ContractContext::new_context_for_kickoff(
-            kickoff_data,
-            deposit_data.clone(),
-            self.config.protocol_paramset(),
-        );
-        let signed_txs = create_and_sign_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            context,
-            // dummy blockhash, as kickoff is already sent and payout blockhash does not affect the txid, we can use a dummy blockhash
-            Some([0u8; 20]),
-            Some(dbtx),
-        )
-        .await?;
-        let tx_metadata = Some(TxMetadata {
-            tx_type: TransactionType::Dummy,
-            operator_xonly_pk: Some(self.signer.xonly_public_key),
-            round_idx: Some(kickoff_data.round_idx),
-            kickoff_idx: Some(kickoff_data.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-        });
+        // dummy blockhash, as kickoff is already sent and payout blockhash does not affect the txid, we can use a dummy blockhash
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, Some([0u8; 20]))
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
         for (tx_type, signed_tx) in &signed_txs {
             match *tx_type {
-                TransactionType::OperatorChallengeAck(_)
-                | TransactionType::WatchtowerChallengeTimeout(_)
-                | TransactionType::ChallengeTimeout
+                TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
                     self.tx_sender
-                        .add_tx_to_queue(
-                            dbtx,
-                            *tx_type,
-                            signed_tx,
-                            &signed_txs,
-                            tx_metadata,
-                            self.config.protocol_paramset(),
-                            None,
-                        )
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
                         .await?;
                 }
                 _ => {}
             }
         }
+        Ok(())
+    }
+
+    /// Queues watchtower challenge timeout transactions for a kickoff that was challenged.
+    #[cfg(feature = "automation")]
+    async fn queue_watchtower_challenge_timeout_txs(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, None)
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
+        for (tx_type, signed_tx) in &signed_txs {
+            if let TransactionType::WatchtowerChallengeTimeout(_) = *tx_type {
+                self.tx_sender
+                    .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Queues an OperatorChallengeAck transaction for the given watchtower index.
+    #[cfg(feature = "automation")]
+    async fn queue_operator_challenge_ack_for_watchtower(
+        &self,
+        dbtx: DatabaseTransaction<'_>,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        watchtower_idx: usize,
+    ) -> Result<(), BridgeError> {
+        let (signed_txs, tx_metadata) = self
+            .create_signed_kickoff_related_txs(dbtx, kickoff_data, deposit_data, None)
+            .await?;
+        let tx_metadata = Some(tx_metadata);
+
+        for (tx_type, signed_tx) in &signed_txs {
+            if let TransactionType::OperatorChallengeAck(idx) = *tx_type {
+                if idx == watchtower_idx {
+                    self.tx_sender
+                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                        .await?;
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -2568,8 +2569,29 @@ mod states {
                 } => {
                     tracing::info!("Operator {:?} called add relevant txs to tx sender with kickoff_data: {:?}, deposit_data: {:?}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data);
-                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                    self.queue_watchtower_challenge_timeout_txs(dbtx, kickoff_data, deposit_data)
                         .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallengeDetected {
+                    kickoff_data,
+                    deposit_data,
+                    watchtower_idx,
+                } => {
+                    tracing::info!(
+                        "Operator {:?} detected watchtower challenge for watchtower_idx: {} with kickoff_data: {:?}, deposit_data: {:?}",
+                        self.signer.xonly_public_key,
+                        watchtower_idx,
+                        kickoff_data,
+                        deposit_data
+                    );
+                    self.queue_operator_challenge_ack_for_watchtower(
+                        dbtx,
+                        kickoff_data,
+                        deposit_data,
+                        watchtower_idx,
+                    )
+                    .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::SendOperatorAsserts {
@@ -2633,7 +2655,72 @@ mod states {
                         // resend relevant txs
                         self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
                             .await?;
+
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: true })
+                    } else {
+                        Ok(DutyResult::CheckIfKickoff { is_kickoff: false })
                     }
+                }
+                Duty::QueueReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                } => {
+                    tracing::info!(
+                        "Operator {:?} called queue ready to reimburse with round_idx: {:?}, operator_xonly_pk: {:?}",
+                        self.signer.xonly_public_key,
+                        round_idx,
+                        operator_xonly_pk,
+                    );
+                    // Sanity check: ensure this duty is for the right operator
+                    if operator_xonly_pk != self.signer.xonly_public_key {
+                        tracing::warn!(
+                            "QueueReadyToReimburse duty operator_xonly_pk {:?} does not match self {:?}, ignoring",
+                            operator_xonly_pk,
+                            self.signer.xonly_public_key,
+                        );
+                        return Ok(DutyResult::Handled);
+                    }
+
+                    let kickoff_wpks = KickoffWinternitzKeys::new(
+                        self.generate_kickoff_winternitz_pubkeys()?,
+                        self.config.protocol_paramset().num_kickoffs_per_round,
+                        self.config.protocol_paramset().num_round_txs,
+                    )?;
+
+                    let (_, mut ready_to_reimburse_txhandler) = create_round_nth_txhandler(
+                        self.signer.xonly_public_key,
+                        self.collateral_funding_outpoint,
+                        self.config.protocol_paramset().collateral_funding_amount,
+                        round_idx,
+                        &kickoff_wpks,
+                        self.config.protocol_paramset(),
+                    )?;
+
+                    self.signer
+                        .tx_sign_and_fill_sigs(&mut ready_to_reimburse_txhandler, &[], None)
+                        .wrap_err("Failed to sign ready to reimburse tx")?;
+
+                    let tx = ready_to_reimburse_txhandler.get_cached_tx();
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            TransactionType::ReadyToReimburse,
+                            tx,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::ReadyToReimburse,
+                                operator_xonly_pk: Some(self.signer.xonly_public_key),
+                                round_idx: Some(round_idx),
+                                kickoff_idx: None,
+                                deposit_outpoint: None,
+                            }),
+                            None,
+                        )
+                        .await?;
+                    tracing::info!(
+                        "Operator {:?} queued ReadyToReimburse tx for round {:?}",
+                        self.signer.xonly_public_key,
+                        round_idx,
+                    );
 
                     Ok(DutyResult::Handled)
                 }

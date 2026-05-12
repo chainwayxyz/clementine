@@ -114,7 +114,9 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let new_event_received = async {
+            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
             let mut dbtx = self.db.begin_transaction().await?;
+            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction done, reading queue");
 
             // Poll new event
             let Some(Message {
@@ -132,9 +134,24 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 return Ok::<_, BridgeError>(false);
             };
 
+            tracing::trace!(
+                queue = %self.queue_name,
+                msg_id,
+                event = ?message,
+                "MessageConsumerTask: read event from queue, starting handle_event"
+            );
+            let handle_start = std::time::Instant::now();
+
             let arc_dbtx = Arc::new(Mutex::new(dbtx));
 
             self.inner.handle_event(message, arc_dbtx.clone()).await?;
+
+            tracing::trace!(
+                queue = %self.queue_name,
+                msg_id,
+                elapsed_ms = handle_start.elapsed().as_millis() as u64,
+                "MessageConsumerTask: handle_event done, extracting dbtx"
+            );
 
             let mut dbtx = Arc::into_inner(arc_dbtx)
                 .ok_or_eyre("Expected single reference to DB tx when committing")?
@@ -147,7 +164,18 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
                 .await
                 .wrap_err("Deleting event from queue")?;
 
+            tracing::trace!(
+                queue = %self.queue_name,
+                msg_id,
+                "MessageConsumerTask: committing transaction"
+            );
             dbtx.commit().await?;
+            tracing::trace!(
+                queue = %self.queue_name,
+                msg_id,
+                total_elapsed_ms = handle_start.elapsed().as_millis() as u64,
+                "MessageConsumerTask: committed successfully"
+            );
             Ok(true)
         }
         .await?;
