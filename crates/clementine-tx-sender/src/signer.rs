@@ -69,8 +69,7 @@ impl TxSenderSigningKey {
             TapTweakData::Unknown => return Err(eyre::eyre!("Spend Data Unknown").into()),
         };
 
-        Ok(SECP
-            .sign_schnorr_no_aux_rand(&Message::from_digest(sighash.to_byte_array()), keypair_ref))
+        Ok(SECP.sign_schnorr(&Message::from_digest(sighash.to_byte_array()), keypair_ref))
     }
 
     /// Signs a blob using ECDSA and returns (signature, public_key).

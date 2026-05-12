@@ -32,7 +32,7 @@ pub async fn create_test_environment(
             port: 5432,
             user: "clementine".to_string().into(),
             password: "clementine".to_string().into(),
-            dbname: format!("clementine_tx_sender_{}", get_current_test_name()),
+            dbname: get_current_test_name(),
         },
         bitcoin_rpc: TxSenderBitcoinRpcConfig {
             url: "http://127.0.0.1:18443".to_string(),
@@ -198,6 +198,7 @@ pub async fn create_regtest_rpc(config: &mut TxSenderConfig) -> WithProcessClean
         ),
         "-wallet=admin".to_string(),
         "-txindex=1".to_string(),
+        "-whitelist=noban@127.0.0.1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
@@ -301,7 +302,7 @@ pub fn get_current_test_name() -> String {
     if test_name == "main" {
         // Use the Process ID. It is unique for every parallel test.
         let pid = std::process::id();
-        format!("{pid}")
+        format!("tx_sender_{pid}")
     } else {
         test_name
     }

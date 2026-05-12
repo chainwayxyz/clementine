@@ -14,6 +14,8 @@ pub mod db;
 pub mod jsonrpc;
 pub mod nonstandard;
 pub mod rbf;
+#[cfg(all(test, feature = "testing"))]
+mod replacement_cycling_tests;
 mod rpc_errors;
 mod signer;
 pub mod task;
@@ -52,6 +54,8 @@ pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::{OptionExt, WrapErr};
 use signer::TxSenderSigningKey;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
@@ -138,6 +142,8 @@ pub struct TxSender {
     mempool_config: MempoolConfig,
     /// Whether to include unsafe UTXOs when funding transactions.
     include_unsafe: bool,
+    /// CPFP change script, lazily initialized once and reused for all CPFP child txs.
+    cpfp_change_script_pubkey: Arc<OnceCell<bitcoin::ScriptBuf>>,
 }
 
 impl std::fmt::Debug for TxSender {
@@ -205,7 +211,6 @@ impl TxSender {
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
-
         let db = TxSenderDb::connect(&postgres).await?;
         let client = TxSenderClient::new(db.clone());
 
@@ -223,6 +228,7 @@ impl TxSender {
             http_client: reqwest::Client::new(),
             mempool_config: mempool,
             include_unsafe,
+            cpfp_change_script_pubkey: Arc::new(OnceCell::new()),
         })
     }
 
@@ -408,7 +414,8 @@ impl TxSender {
         current_tip_height: u32,
         is_tip_height_increased: bool,
     ) -> Result<()> {
-        // get_sendable_txs doesn't return txs that we already sent in the past with >= fee rate to the current fee rate
+        // get_sendable_txs doesn't return non-CPFP txs that we already sent in the past
+        // with >= fee rate to the current fee rate.
         // but if we have a new block height, but the tx is still not confirmed, we want to send it again anyway in case
         // some error occurred on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)

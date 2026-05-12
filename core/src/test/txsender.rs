@@ -46,6 +46,40 @@ use clementine_utils::FeePayingType;
 
 type TxSenderWithCore = TxSender;
 
+/// Sets up common RPC mocks that are needed for TxSender initialization.
+/// This includes:
+/// - `ping`: Always returns success
+/// - `getnewaddress`: Returns a valid Bitcoin mainnet address
+///
+/// Note: Tests should still set up their own `estimatesmartfee` mock as it varies per test.
+async fn setup_common_rpc_mocks(mock_rpc_server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({
+            "method": "ping"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": null
+        })))
+        .mount(mock_rpc_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .and(body_partial_json(json!({
+            "method": "getnewaddress"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"
+        })))
+        .mount(mock_rpc_server)
+        .await;
+}
+
 #[tokio::test]
 async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name().await;
@@ -205,18 +239,7 @@ async fn test_get_fee_rate_mempool_higher_than_rpc_uses_rpc() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -272,18 +295,7 @@ async fn test_hard_cap() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -343,18 +355,7 @@ async fn test_get_fee_rate_rpc_higher_than_mempool() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -411,18 +412,7 @@ async fn test_get_fee_rate_rpc_failure_mempool_fallback() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -479,18 +469,7 @@ async fn test_get_fee_rate_mempool_space_timeout() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -555,18 +534,7 @@ async fn test_get_fee_rate_rpc_timeout() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({
-            "method": "ping"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -640,16 +608,7 @@ async fn test_rpc_retry_after_failures() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({"method": "ping"})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     let mock_mempool_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -703,16 +662,7 @@ async fn test_mempool_retry_after_failures() {
         .mount(&mock_rpc_server)
         .await;
 
-    Mock::given(method("POST"))
-        .and(path("/"))
-        .and(body_partial_json(json!({"method": "ping"})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": null
-        })))
-        .mount(&mock_rpc_server)
-        .await;
+    setup_common_rpc_mocks(&mock_rpc_server).await;
 
     struct SeqResponder {
         n: Arc<AtomicUsize>,

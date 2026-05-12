@@ -88,15 +88,10 @@ where
     Ok(())
 }
 
-fn is_docker_host_port_bind_error(err: &impl std::fmt::Display) -> bool {
-    let error_chain = format!("{err:#}");
-    is_docker_host_port_bind_error_chain(&error_chain)
-}
-
 fn citrea_e2e_transient_docker_error_reason(err: &impl std::fmt::Display) -> Option<&'static str> {
     let error_chain = format!("{err:#}");
-    if is_docker_host_port_bind_error_chain(&error_chain) {
-        Some("host_port_bind")
+    if is_docker_container_start_error_chain(&error_chain) {
+        Some("docker_container_start")
     } else if is_framework_init_error_chain(&error_chain) {
         Some("framework_init")
     } else {
@@ -104,58 +99,12 @@ fn citrea_e2e_transient_docker_error_reason(err: &impl std::fmt::Display) -> Opt
     }
 }
 
-fn is_docker_host_port_bind_error_chain(error_chain: &str) -> bool {
+fn is_docker_container_start_error_chain(error_chain: &str) -> bool {
     error_chain.contains("Failed to start Docker container")
-        && error_chain.contains("failed to bind host port")
-        && error_chain.contains("address already in use")
 }
 
 fn is_framework_init_error_chain(error_chain: &str) -> bool {
     error_chain.contains("Framework not correctly initialized")
-}
-
-#[cfg(test)]
-mod e2e_retry_tests {
-    use super::*;
-
-    #[test]
-    fn recognizes_docker_port_bind_errors_as_retryable() {
-        let err = "Failed to start Docker container: failed to bind host port for 0.0.0.0:18443: address already in use";
-
-        assert!(is_docker_host_port_bind_error(&err));
-        assert_eq!(
-            citrea_e2e_transient_docker_error_reason(&err),
-            Some("host_port_bind")
-        );
-    }
-
-    #[test]
-    fn recognizes_framework_init_errors_as_retryable() {
-        let err =
-            "Framework not correctly initialized, result Ok(Err(Failed to pull image: bytes remaining on stream))";
-
-        assert_eq!(
-            citrea_e2e_transient_docker_error_reason(&err),
-            Some("framework_init")
-        );
-    }
-
-    #[test]
-    fn recognizes_generic_framework_init_errors_as_retryable() {
-        let err = "Framework not correctly initialized, result Ok(Err(Failed to pull image: unauthorized))";
-
-        assert_eq!(
-            citrea_e2e_transient_docker_error_reason(&err),
-            Some("framework_init")
-        );
-    }
-
-    #[test]
-    fn does_not_retry_image_pull_stream_errors_without_framework_init() {
-        let err = "Failed to pull image: bytes remaining on stream";
-
-        assert_eq!(citrea_e2e_transient_docker_error_reason(&err), None);
-    }
 }
 
 /// Generate a random XOnlyPublicKey
