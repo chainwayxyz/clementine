@@ -55,29 +55,31 @@ use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
 
-const CITREA_E2E_DOCKER_PORT_BIND_RETRIES: usize = 5;
+const CITREA_E2E_TRANSIENT_DOCKER_RETRIES: usize = 5;
 
-/// Retries citrea-e2e startup when Docker fails to start due to conflicting port bindings.
+/// Retries citrea-e2e startup when Docker hits known transient setup failures.
 pub async fn run_citrea_e2e_with_docker_port_retry<F, Fut>(mut run: F) -> citrea_e2e::Result<()>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = citrea_e2e::Result<()>>,
 {
-    for attempt in 1..=CITREA_E2E_DOCKER_PORT_BIND_RETRIES {
+    for attempt in 1..=CITREA_E2E_TRANSIENT_DOCKER_RETRIES {
         let result = run().await;
         match result {
             Ok(()) => return Ok(()),
-            Err(err)
-                if attempt < CITREA_E2E_DOCKER_PORT_BIND_RETRIES
-                    && is_docker_host_port_bind_error(&err) =>
-            {
+            Err(err) if attempt < CITREA_E2E_TRANSIENT_DOCKER_RETRIES => {
+                let Some(reason) = citrea_e2e_transient_docker_error_reason(&err) else {
+                    return Err(err);
+                };
+
                 tracing::warn!(
                     attempt,
-                    max_attempts = CITREA_E2E_DOCKER_PORT_BIND_RETRIES,
+                    max_attempts = CITREA_E2E_TRANSIENT_DOCKER_RETRIES,
                     error = %err,
-                    "Retrying citrea-e2e test after Docker host port bind failure"
+                    reason,
+                    "Retrying citrea-e2e test after transient Docker failure"
                 );
-                tokio::time::sleep(Duration::from_millis(250 * attempt as u64)).await;
+                tokio::time::sleep(Duration::from_secs(2 * attempt as u64)).await;
             }
             Err(err) => return Err(err),
         }
@@ -88,9 +90,72 @@ where
 
 fn is_docker_host_port_bind_error(err: &impl std::fmt::Display) -> bool {
     let error_chain = format!("{err:#}");
+    is_docker_host_port_bind_error_chain(&error_chain)
+}
+
+fn citrea_e2e_transient_docker_error_reason(err: &impl std::fmt::Display) -> Option<&'static str> {
+    let error_chain = format!("{err:#}");
+    if is_docker_host_port_bind_error_chain(&error_chain) {
+        Some("host_port_bind")
+    } else if is_framework_init_error_chain(&error_chain) {
+        Some("framework_init")
+    } else {
+        None
+    }
+}
+
+fn is_docker_host_port_bind_error_chain(error_chain: &str) -> bool {
     error_chain.contains("Failed to start Docker container")
         && error_chain.contains("failed to bind host port")
         && error_chain.contains("address already in use")
+}
+
+fn is_framework_init_error_chain(error_chain: &str) -> bool {
+    error_chain.contains("Framework not correctly initialized")
+}
+
+#[cfg(test)]
+mod e2e_retry_tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_docker_port_bind_errors_as_retryable() {
+        let err = "Failed to start Docker container: failed to bind host port for 0.0.0.0:18443: address already in use";
+
+        assert!(is_docker_host_port_bind_error(&err));
+        assert_eq!(
+            citrea_e2e_transient_docker_error_reason(&err),
+            Some("host_port_bind")
+        );
+    }
+
+    #[test]
+    fn recognizes_framework_init_errors_as_retryable() {
+        let err =
+            "Framework not correctly initialized, result Ok(Err(Failed to pull image: bytes remaining on stream))";
+
+        assert_eq!(
+            citrea_e2e_transient_docker_error_reason(&err),
+            Some("framework_init")
+        );
+    }
+
+    #[test]
+    fn recognizes_generic_framework_init_errors_as_retryable() {
+        let err = "Framework not correctly initialized, result Ok(Err(Failed to pull image: unauthorized))";
+
+        assert_eq!(
+            citrea_e2e_transient_docker_error_reason(&err),
+            Some("framework_init")
+        );
+    }
+
+    #[test]
+    fn does_not_retry_image_pull_stream_errors_without_framework_init() {
+        let err = "Failed to pull image: bytes remaining on stream";
+
+        assert_eq!(citrea_e2e_transient_docker_error_reason(&err), None);
+    }
 }
 
 /// Generate a random XOnlyPublicKey
