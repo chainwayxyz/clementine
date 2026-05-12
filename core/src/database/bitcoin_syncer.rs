@@ -376,6 +376,41 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Returns the canonical txid and block metadata that spend `outpoint`, if the
+    /// bitcoin syncer observed the spend at or before `max_block_height`.
+    pub async fn get_spending_txid_of_outpoint(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        outpoint: OutPoint,
+        max_block_height: u32,
+    ) -> Result<Option<(u32, BlockHash, Txid)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, BlockHashDB, TxidDB)>(
+            "SELECT bs.height, bs.blockhash, bspu.spending_txid
+                FROM bitcoin_syncer_spent_utxos bspu
+                INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
+                WHERE bspu.txid = $1
+                    AND bspu.vout = $2
+                    AND bs.height <= $3
+                    AND bs.is_canonical = true",
+        )
+        .bind(TxidDB(outpoint.txid))
+        .bind(outpoint.vout as i64)
+        .bind(i32::try_from(max_block_height).wrap_err(BridgeError::IntConversionError)?);
+
+        let result: Option<(i32, BlockHashDB, TxidDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|(height, block_hash, spending_txid)| {
+                Ok((
+                    u32::try_from(height).wrap_err(BridgeError::IntConversionError)?,
+                    block_hash.0,
+                    spending_txid.0,
+                ))
+            })
+            .transpose()
+    }
+
     /// Checks if the utxo is spent, if so checks if the spending tx is finalized
     /// Returns true if the utxo is spent and the spending tx is finalized, false otherwise
     pub async fn check_if_utxo_spending_tx_is_finalized(

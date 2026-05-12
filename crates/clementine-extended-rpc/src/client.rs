@@ -252,7 +252,6 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// A vector of transactions that created the inputs of the given transaction.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_prevout_txs(
         &self,
         tx: &bitcoin::Transaction,
@@ -608,7 +607,7 @@ impl ExtendedBitcoinRpc {
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
-                        Amount::from_sat(new_fee_rate.to_sat_per_vb_ceil()),
+                        Amount::from_sat(new_fee_rate.to_sat_per_kvb()),
                     )),
                     replaceable: Some(true),
                     ..Default::default()
@@ -692,15 +691,15 @@ impl ExtendedBitcoinRpc {
             .wrap_err("Failed to get block by height")?)
     }
 
-    /// Gets the current recommended fee rate in sat/vb from Mempool Space and Bitcoin Core and selects the minimum.
-    /// For Regtest and Signet, it uses a fixed fee rate of 1 sat/vB.
+    /// Gets the current recommended fee rate in sat/kvB from Mempool Space and Bitcoin Core and selects the minimum.
+    /// For Regtest and Signet, it uses a fixed fee rate of 1000 sat/kvB.
     /// # Logic
-    /// *   **Regtest:** Uses a fixed fee rate of 1 sat/vB for simplicity.
+    /// *   **Regtest:** Uses a fixed fee rate of 1000 sat/kvB for simplicity.
     /// *   **Mainnet, Testnet4 and Signet:** Fetches fee rates from both Mempool Space API and Bitcoin Core RPC and takes the minimum.
     /// *   **Hard Cap:** Applies a hard cap from configuration to prevent excessive fees.
     /// # Fallbacks
     /// *   If one source fails, it uses the other.
-    /// *   If both fail, it falls back to a default of 1 sat/vB.
+    /// *   If both fail, it falls back to a default of 1000 sat/kvB.
     pub async fn get_fee_rate_kvb(
         &self,
         network: Network,
@@ -736,7 +735,7 @@ impl ExtendedBitcoinRpc {
         match network {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {
-                tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
+                tracing::debug!("Using fixed fee rate of 1000 sat/kvB for {network} network");
                 Ok(1000)
             }
 
@@ -817,7 +816,7 @@ impl ExtendedBitcoinRpc {
                     }
                     (Err(mempool_err), Err(rpc_err)) => {
                         tracing::warn!(
-                            "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
+                            "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1000 sat/kvB",
                             mempool_err, rpc_err
                         );
                         Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
@@ -829,14 +828,14 @@ impl ExtendedBitcoinRpc {
                 // Apply hard cap from config
                 if fee_sat_kvb > fee_rate_hard_cap * 1000 {
                     tracing::warn!(
-                        "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
+                        "Fee rate {} sat/kvB exceeds hard cap {} sat/kvB, using hard cap",
                         fee_sat_kvb,
                         fee_rate_hard_cap * 1000
                     );
                     fee_sat_kvb = fee_rate_hard_cap * 1000;
                 }
 
-                tracing::debug!("Final fee rate: {} sat/kvb", fee_sat_kvb);
+                tracing::debug!("Final fee rate: {} sat/kvB", fee_sat_kvb);
                 Ok(fee_sat_kvb)
             }
 
@@ -852,7 +851,7 @@ impl ExtendedBitcoinRpc {
 
 /// Fetches the current recommended fee rate from the provider. Currently only supports
 /// Mempool Space API.
-/// This function is used to get the fee rate in sat/vkb (satoshis per kilovbyte).
+/// This function is used to get the fee rate in sat/kvB (satoshis per kilovbyte).
 /// See [Mempool Space API](https://mempool.space/docs/api/rest#get-recommended-fees) for more details.
 pub async fn get_fee_rate_from_mempool_space(
     url: &Option<String>,

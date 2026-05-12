@@ -147,11 +147,11 @@ impl Task for AggregatorMetricPublisher {
                     if let Some(fee_rate) = status.btc_fee_rate_sat_vb {
                         metrics.bitcoin_fee_rate_sat_vb.set(fee_rate as f64);
                     }
-                    if let Some(height) = status.citrea_l2_block_height {
-                        metrics.citrea_l2_block_height.set(height as f64);
-                    }
                     if let Some(height) = status.lcp_synced_height {
                         metrics.lcp_synced_height.set(height as f64);
+                    }
+                    if let Some(height) = status.citrea_l2_block_height {
+                        metrics.citrea_l2_block_height.set(height as f64);
                     }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {

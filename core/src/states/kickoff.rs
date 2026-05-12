@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use bitcoin::{OutPoint, Transaction, Witness};
 use eyre::Context;
-use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
@@ -16,7 +15,7 @@ use clementine_primitives::TransactionType;
 use super::{
     block_cache::BlockCache,
     context::{Duty, StateContext},
-    matcher::{BlockMatcher, Matcher},
+    matcher::{BlockMatcher, Matcher, MatcherMap},
     Owner, StateMachineError,
 };
 
@@ -95,12 +94,10 @@ pub enum KickoffEvent {
 /// - The state machine interacts with the owner to perform protocol duties (e.g., sending challenges, asserts, or disproves) as required by the protocol logic.
 ///
 /// This design ensures that all protocol-critical events related to a kickoff are tracked and handled in a robust, stateful manner, supporting both normal and adversarial scenarios.
-#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KickoffStateMachine<T: Owner> {
     /// Maps matchers to the resulting kickoff events.
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
+    pub(crate) matchers: MatcherMap<KickoffEvent>,
     /// Indicates if the state machine has unsaved changes that need to be persisted on db.
     /// dirty flag is set if any matcher matches the current block.
     /// the flag is set to true in on_transition and on_dispatch
@@ -141,16 +138,7 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
     type StateEvent = KickoffEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
-        self.matchers
-            .iter()
-            .filter_map(|(matcher, kickoff_event)| {
-                matcher.matches(block).map(|ord| (ord, kickoff_event))
-            })
-            .min()
-            .map(|(_, kickoff_event)| kickoff_event)
-            .into_iter()
-            .cloned()
-            .collect()
+        self.matchers.match_block(block)
     }
 }
 
@@ -167,7 +155,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             deposit_data,
             payout_blockhash,
             latest_blockhash: Witness::default(),
-            matchers: HashMap::new(),
+            matchers: MatcherMap::new(),
             dirty: true,
             challenged: false,
             phantom: std::marker::PhantomData,
@@ -213,11 +201,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             tracing::trace!(?self.kickoff_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
-            // Remove the matcher corresponding to the event.
-            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-                let matcher = matcher.clone();
-                self.matchers.remove(&matcher);
-            }
+            // Consume the matched event so it is not emitted again.
+            self.matchers.remove_event(evt);
         }
     }
 

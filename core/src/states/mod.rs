@@ -185,6 +185,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             Arc::new(BlockCache::from_block(block.clone(), block_height)),
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
@@ -198,6 +200,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             block_cache,
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
@@ -260,12 +264,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .get_last_processed_lcp(Some(&mut dbtx), owner_type)
             .await?;
 
-        self.last_processed_lcp = last_processed_lcp
+        let loaded_last_processed_lcp = last_processed_lcp
             .map(|lcp| u32::try_from(lcp).wrap_err("Last processed LCP doesn't fit into u32"))
             .transpose()?;
 
         // If no state is saved, return early
-        self.next_height_to_process = match status {
+        let loaded_next_height_to_process = match status {
             Some(block_height) => {
                 u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
             }
@@ -277,18 +281,18 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tracing::info!(
             "Loading state machines from block height {}",
-            self.next_height_to_process.saturating_sub(1)
+            loaded_next_height_to_process.saturating_sub(1)
         );
 
-        let last_height = self.next_height_to_process.saturating_sub(1);
+        let last_height = loaded_next_height_to_process.saturating_sub(1);
 
-        self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
+        let loaded_last_finalized_block = Arc::new(BlockCache::from_block(
             match self.db.get_full_block(None, last_height).await? {
                 Some(block) => block,
                 None => self.rpc.get_block_by_height(last_height.into()).await?,
             },
             last_height,
-        )));
+        ));
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -304,14 +308,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         let init_dbtx = Arc::new(Mutex::new(dbtx));
 
-        let mut ctx = self.new_context_with_block_cache(
-            init_dbtx.clone(),
-            self.last_finalized_block
-                .clone()
-                .expect("Initialized before"),
-        )?;
+        let mut ctx = self
+            .new_context_with_block_cache(init_dbtx.clone(), loaded_last_finalized_block.clone())?;
 
         // Process and recreate kickoff machines
+        let mut loaded_kickoff_machines = Vec::with_capacity(kickoff_machines.len());
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
             tracing::debug!(
                 "Loaded kickoff machine: state={}, block_height={}",
@@ -327,7 +328,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 Ok(uninitialized) => {
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
-                    self.kickoff_machines.push(initialized);
+                    loaded_kickoff_machines.push(initialized);
                 }
                 Err(e) => {
                     return Err(eyre::eyre!(
@@ -341,6 +342,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         }
 
         // Process and recreate round machines
+        let mut loaded_round_machines = Vec::with_capacity(round_machines.len());
         for (state_json, operator_xonly_pk, saved_block_height) in &round_machines {
             tracing::debug!(
                 "Loaded round machine: state={}, block_height={}",
@@ -356,7 +358,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 Ok(uninitialized) => {
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
-                    self.round_machines.push(initialized);
+                    loaded_round_machines.push(initialized);
                 }
                 Err(e) => {
                     return Err(eyre::eyre!(
@@ -381,8 +383,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tracing::info!(
             "Loaded {} kickoff machines and {} round machines from the database",
-            kickoff_machines.len(),
-            round_machines.len()
+            loaded_kickoff_machines.len(),
+            loaded_round_machines.len()
         );
 
         Arc::into_inner(init_dbtx)
@@ -390,6 +392,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .into_inner()
             .commit()
             .await?;
+
+        self.last_processed_lcp = loaded_last_processed_lcp;
+        self.next_height_to_process = loaded_next_height_to_process;
+        self.last_finalized_block = Some(loaded_last_finalized_block);
+        self.kickoff_machines = loaded_kickoff_machines;
+        self.round_machines = loaded_round_machines;
 
         Ok(())
     }

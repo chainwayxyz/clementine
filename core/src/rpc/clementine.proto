@@ -3,18 +3,14 @@ package clementine;
 
 message Empty {}
 
-message Txid {
-  bytes txid = 1;
-}
+message Txid { bytes txid = 1; }
 
 message Outpoint {
   Txid txid = 1;
   uint32 vout = 2;
 }
 
-message Outpoints {
-  repeated Outpoint outpoints = 1;
-}
+message Outpoints { repeated Outpoint outpoints = 1; }
 
 message NofnResponse {
   bytes nofn_xonly_pk = 1;
@@ -23,8 +19,8 @@ message NofnResponse {
 
 enum NormalSignatureKind {
   NormalSignatureUnknown = 0;
-  // Used for TxHandlers that verifiers don't care. These will have signatures created
-  // by the operator on the fly.
+  // Used for TxHandlers that verifiers don't care. These will have signatures
+  // created by the operator on the fly.
   OperatorSighashDefault = 1;
   Challenge = 2;
   DisproveTimeout2 = 3;
@@ -50,8 +46,8 @@ enum NormalSignatureKind {
 // Asserts are needed multiple times
 enum NumberedSignatureKind {
   NumberedSignatureUnknown = 0;
-  // Used for TxHandlers that verifiers don't care. These will have signatures created
-  // by the operator on the fly.
+  // Used for TxHandlers that verifiers don't care. These will have signatures
+  // created by the operator on the fly.
   NumberedNotStored = 1;
   OperatorChallengeNack1 = 2;
   OperatorChallengeNack2 = 3;
@@ -66,17 +62,16 @@ enum NumberedSignatureKind {
   WatchtowerChallenge = 12;
 }
 
-message NormalSignatureId {
-  NormalSignatureKind signature_kind = 1;
-}
+message NormalSignatureId { NormalSignatureKind signature_kind = 1; }
 
 message NumberedSignatureId {
   NumberedSignatureKind signature_kind = 1;
   int32 idx = 2;
 }
 
-// A tagged signature struct that identifies the transaction-input that the signature is for.
-// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
+// A tagged signature struct that identifies the transaction-input that the
+// signature is for. The id is left as NotStored for signatures that are created
+// on the fly by the operator (they're also not stored).
 message TaggedSignature {
   oneof signature_id {
     NormalSignatureId normal_signature = 1;
@@ -87,13 +82,9 @@ message TaggedSignature {
 
 message DepositSignatures { repeated TaggedSignature signatures = 1; }
 
-message ChallengeACKDigest {
-  bytes hash = 1;
-}
+message ChallengeACKDigest { bytes hash = 1; }
 
-message WinternitzPubkey {
-  repeated bytes digit_pubkey = 3;
-}
+message WinternitzPubkey { repeated bytes digit_pubkey = 3; }
 
 message DepositParams {
   Deposit deposit = 1;
@@ -119,7 +110,8 @@ message Actors {
   /// Public keys of verifiers that will participate in the deposit.
   VerifierPublicKeys verifiers = 1;
   /// X-only public keys of watchtowers that will participate in the deposit.
-  /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+  /// NOTE: verifiers are automatically considered watchtowers. This field is
+  /// only for additional watchtowers.
   XOnlyPublicKeys watchtowers = 2;
   /// X-only public keys of operators that will participate in the deposit.
   XOnlyPublicKeys operators = 3;
@@ -147,37 +139,37 @@ enum FeeType {
 }
 
 enum NormalTransactionId {
-    UNSPECIFIED_TRANSACTION_TYPE = 0;
-    ROUND = 1;
-    KICKOFF = 2;
-    MOVE_TO_VAULT = 3;
-    PAYOUT = 4;
-    CHALLENGE = 5;
-    DISPROVE = 6;
-    DISPROVE_TIMEOUT = 7;
-    REIMBURSE = 8;
-    ALL_NEEDED_FOR_DEPOSIT = 9;
-    DUMMY = 10;
-    READY_TO_REIMBURSE = 11;
-    KICKOFF_NOT_FINALIZED = 12;
-    CHALLENGE_TIMEOUT = 13;
-    BURN_UNUSED_KICKOFF_CONNECTORS = 14;
-    YIELD_KICKOFF_TXID = 15;
-    REPLACEMENT_DEPOSIT = 17;
-    LATEST_BLOCKHASH_TIMEOUT = 18;
-    LATEST_BLOCKHASH = 19;
-    OPTIMISTIC_PAYOUT = 20;
+  UNSPECIFIED_TRANSACTION_TYPE = 0;
+  ROUND = 1;
+  KICKOFF = 2;
+  MOVE_TO_VAULT = 3;
+  PAYOUT = 4;
+  CHALLENGE = 5;
+  DISPROVE = 6;
+  DISPROVE_TIMEOUT = 7;
+  REIMBURSE = 8;
+  ALL_NEEDED_FOR_DEPOSIT = 9;
+  DUMMY = 10;
+  READY_TO_REIMBURSE = 11;
+  KICKOFF_NOT_FINALIZED = 12;
+  CHALLENGE_TIMEOUT = 13;
+  BURN_UNUSED_KICKOFF_CONNECTORS = 14;
+  YIELD_KICKOFF_TXID = 15;
+  REPLACEMENT_DEPOSIT = 17;
+  LATEST_BLOCKHASH_TIMEOUT = 18;
+  LATEST_BLOCKHASH = 19;
+  OPTIMISTIC_PAYOUT = 20;
 }
 
 enum NumberedTransactionType {
-    UNSPECIFIED_INDEXED_TRANSACTION_TYPE = 0;
-    WATCHTOWER_CHALLENGE = 1;
-    OPERATOR_CHALLENGE_NACK = 2;
-    OPERATOR_CHALLENGE_ACK = 3;
-    ASSERT_TIMEOUT = 4;
-    UNSPENT_KICKOFF = 5;
-    MINI_ASSERT = 6;
-    WATCHTOWER_CHALLENGE_TIMEOUT = 7;
+  UNSPECIFIED_INDEXED_TRANSACTION_TYPE = 0;
+  WATCHTOWER_CHALLENGE = 1;
+  OPERATOR_CHALLENGE_NACK = 2;
+  OPERATOR_CHALLENGE_ACK = 3;
+  ASSERT_TIMEOUT = 4;
+  UNSPENT_KICKOFF = 5;
+  MINI_ASSERT = 6;
+  WATCHTOWER_CHALLENGE_TIMEOUT = 7;
 }
 
 message NumberedTransactionId {
@@ -203,7 +195,8 @@ message TransactionRequest {
   KickoffId kickoff_id = 2;
 }
 
-// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
+// Includes the deposit params and the nonce gen initial responses (pubkeys and
+// their signatures from all verifiers)
 message DepositSignSession {
   DepositParams deposit_params = 1;
   repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
@@ -241,9 +234,7 @@ message OperatorKeys {
   repeated ChallengeACKDigest challenge_ack_digests = 2;
 }
 
-message SchnorrSig {
-  bytes schnorr_sig = 1;
-}
+message SchnorrSig { bytes schnorr_sig = 1; }
 
 message WithdrawParams {
   // The ID of the withdrawal in Citrea
@@ -253,29 +244,24 @@ message WithdrawParams {
   bytes input_signature = 2;
   // User's UTXO to claim the deposit
   Outpoint input_outpoint = 3;
-  // The withdrawal output's script_pubkey (user's signature is only valid for this pubkey)
+  // The withdrawal output's script_pubkey (user's signature is only valid for
+  // this pubkey)
   bytes output_script_pubkey = 4;
-  // The withdrawal output's amount (user's signature is only valid for this amount)
+  // The withdrawal output's amount (user's signature is only valid for this
+  // amount)
   uint64 output_amount = 5;
 }
-
 
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
   Outpoint deposit_outpoint = 2;
 }
 
-message XOnlyPublicKeyRpc {
-  bytes xonly_public_key = 1;
-}
+message XOnlyPublicKeyRpc { bytes xonly_public_key = 1; }
 
-message StoppedTasks {
-  repeated string stopped_tasks = 1;
-}
+message StoppedTasks { repeated string stopped_tasks = 1; }
 
-message EntityError {
-  string error = 1;
-}
+message EntityError { string error = 1; }
 
 message EntityStatus {
   bool automation = 1;
@@ -312,7 +298,9 @@ message EntityStatusWithId {
   }
 }
 
-// Parameters related to protocol configuration that can affect contract transactions, Citrea syncing, and version compatibility. This must not include sensitive information.
+// Parameters related to protocol configuration that can affect contract
+// transactions, Citrea syncing, and version compatibility. This must not
+// include sensitive information.
 message CompatibilityParamsRPC {
   // Protocol paramset in JSON format
   string protocol_paramset = 1;
@@ -335,9 +323,7 @@ message EntitiesCompatibilityData {
   repeated EntityDataWithId entities_compatibility_data = 1;
 }
 
-message EntityStatuses {
-  repeated EntityStatusWithId entity_statuses = 1;
-}
+message EntityStatuses { repeated EntityStatusWithId entity_statuses = 1; }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
 // chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
@@ -349,8 +335,8 @@ service ClementineOperator {
   // Used by aggregator inside setup
   rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
 
-  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-  // for checking compatibility
+  // Returns the protocol params that can affect the transactions in the
+  // contract, syncing with citrea and version number for checking compatibility
   rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
 
   // Returns an operator's parameters. It will be called once, by the
@@ -365,22 +351,25 @@ service ClementineOperator {
   rpc GetParams(Empty) returns (stream OperatorParams) {}
 
   // Returns an operator's deposit keys.
-  // Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
+  // Deposit keys include Assert BitVM winternitz keys, and challenge ACK
+  // hashes.
   //
   // Used by aggregator inside new_deposit
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
 
-  // Returns the current status of tasks running on the operator and their last synced heights.
+  // Returns the current status of tasks running on the operator and their last
+  // synced heights.
   rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
   // Sends the given outpoints to the operator's btc wallet.
   // The transaction will also be broadcasted to the network.
-  // Each outpoint must pay to the operator's taproot address (xonly key, no merkle root).
-  // The rpc also checks if any outpoint is the collateral of the operator, and rejects the request if so.
-  // # Parameters
+  // Each outpoint must pay to the operator's taproot address (xonly key, no
+  // merkle root). The rpc also checks if any outpoint is the collateral of the
+  // operator, and rejects the request if so. # Parameters
   // - outpoints: The outpoints to send to the operator's btc wallet
   // # Returns
-  // - Raw signed tx that transfers the given outpoints to the operator's btc wallet address
+  // - Raw signed tx that transfers the given outpoints to the operator's btc
+  // wallet address
   rpc TransferToBtcWallet(Outpoints) returns (RawSignedTx) {}
 
   // Signs everything that includes Operator's burn connector.
@@ -398,24 +387,27 @@ service ClementineOperator {
   // Restarts the background tasks for the operator.
   rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-  // Note: This is intended for operator's own use, so it doesn't include a signature from aggregator.
-  rpc InternalWithdraw(WithdrawParams)
-    returns (RawSignedTx) {}
+  // Prepares a withdrawal if it's profitable and the withdrawal is correct and
+  // registered in Citrea bridge contract. If withdrawal is accepted, the payout
+  // tx will be added to the TxSender and success is returned, otherwise an
+  // error is returned. If automation is disabled, the withdrawal will not be
+  // accepted and an error will be returned. Note: This is intended for
+  // operator's own use, so it doesn't include a signature from aggregator.
+  rpc InternalWithdraw(WithdrawParams) returns (RawSignedTx) {}
 
+  // First, if verification address in operator's config is set, the signature
+  // in rpc is checked to see if it was signed by the verification address. Then
+  // prepares a withdrawal if it's profitable and the withdrawal is correct and
+  // registered in Citrea bridge contract. If withdrawal is accepted, the payout
+  // tx will be added to the TxSender and success is returned, otherwise an
+  // error is returned. If automation is disabled, the withdrawal will not be
+  // accepted and an error will be returned.
+  rpc Withdraw(WithdrawParamsWithSig) returns (RawSignedTx) {}
 
-  // First, if verification address in operator's config is set, the signature in rpc is checked to see if it was signed by the verification address.
-  // Then prepares a withdrawal if it's profitable and the withdrawal is correct and registered in Citrea bridge contract.
-  // If withdrawal is accepted, the payout tx will be added to the TxSender and success is returned, otherwise an error is returned.
-  // If automation is disabled, the withdrawal will not be accepted and an error will be returned.
-  rpc Withdraw(WithdrawParamsWithSig)
-    returns (RawSignedTx) {}
-
-  // For a given deposit outpoint, determines the next step in the kickoff process the operator is in,
-  // and returns the raw signed txs that the operator needs to send next, for enabling reimbursement process
-  // without automation.
+  // For a given deposit outpoint, determines the next step in the kickoff
+  // process the operator is in, and returns the raw signed txs that the
+  // operator needs to send next, for enabling reimbursement process without
+  // automation.
   //
   // # Parameters
   // - deposit_outpoint: Deposit outpoint to create the kickoff for
@@ -424,9 +416,11 @@ service ClementineOperator {
   // - Raw signed txs that the operator needs to send next
   rpc GetReimbursementTxs(Outpoint) returns (SignedTxsWithType) {}
 
-  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  // Signs all tx's it can according to given transaction type (use it with
+  // AllNeededForDeposit to get almost all tx's) Creates the transactions
+  // denoted by the deposit and operator_idx, round_idx, and kickoff_idx. It
+  // will create the transaction and sign it with the operator's private key
+  // and/or saved nofn signatures.
   //
   // # Parameters
   // - deposit_params: User's deposit information
@@ -434,21 +428,22 @@ service ClementineOperator {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+  // - Raw signed transactions that the entity can sign (no asserts and
+  // watchtower challenge)
   //
   // Only used in tests
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
-  // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
-  // in the same order.
-  // # Parameters
+  // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd),
+  // signs them, and returns the raw txs in the same order. # Parameters
   // - deposit_params: User's deposit information
   // - kickoff_id: Operator's kickoff ID
   // - commit_data: Commitment data for each MiniAssert tx's
   //
   // # Returns
   // - Raw signed assert transactions
-  rpc InternalCreateAssertCommitmentTxs(TransactionRequest) returns (SignedTxsWithType) {}
+  rpc InternalCreateAssertCommitmentTxs(TransactionRequest)
+      returns (SignedTxsWithType) {}
 
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
@@ -459,17 +454,11 @@ service ClementineOperator {
 
 // Verifier --------------------------------------------------------------------
 
-message VerifierParams {
-  bytes public_key = 1;
-}
+message VerifierParams { bytes public_key = 1; }
 
-message PartialSig {
-  bytes partial_sig = 1;
-}
+message PartialSig { bytes partial_sig = 1; }
 
-message NonceGenRequest {
-  uint32 num_nonces = 1;
-}
+message NonceGenRequest { uint32 num_nonces = 1; }
 
 message NonceGenFirstResponse {
   // ID of the nonce session (used to store nonces in verifier's memory)
@@ -488,24 +477,27 @@ message NonceGenResponse {
 message OptimisticWithdrawParams {
   WithdrawParams withdrawal = 1;
   // An ECDSA signature (of citrea/aggregator) over the withdrawal params
-  // to authenticate the withdrawal params. This will be signed manually by citrea
-  // after manual verification of the optimistic payout.
+  // to authenticate the withdrawal params. This will be signed manually by
+  // citrea after manual verification of the optimistic payout.
   optional string verification_signature = 2;
 }
 
 message WithdrawParamsWithSig {
   WithdrawParams withdrawal = 1;
   // An ECDSA signature (of citrea/aggregator) over the withdrawal params
-  // to authenticate the withdrawal params. This will be signed manually by citrea
-  // after manual verification of the optimistic payout.
-  // This message contains same data as the one in Optimistic Payout signature, but with a different message name,
-  // so that the same signature can't be used for both optimistic payout and normal withdrawal.
+  // to authenticate the withdrawal params. This will be signed manually by
+  // citrea after manual verification of the optimistic payout. This message
+  // contains same data as the one in Optimistic Payout signature, but with a
+  // different message name, so that the same signature can't be used for both
+  // optimistic payout and normal withdrawal.
   optional string verification_signature = 2;
 }
 
 // Input of the aggregator's withdraw function.
-// It contains the withdrawal params along with the verification signature that signs the withdrawal params.
-// It also contains the operator's xonly public keys that the withdrawal request should be sent to. If the list is empty, the withdrawal will be sent to all operators.
+// It contains the withdrawal params along with the verification signature that
+// signs the withdrawal params. It also contains the operator's xonly public
+// keys that the withdrawal request should be sent to. If the list is empty, the
+// withdrawal will be sent to all operators.
 message AggregatorWithdrawalInput {
   WithdrawParamsWithSig withdrawal = 1;
   repeated XOnlyPublicKeyRpc operator_xonly_pks = 2;
@@ -538,13 +530,9 @@ message VerifierDepositFinalizeResponse {
   bytes emergency_stop_partial_sig = 2;
 }
 
-message VerifierPublicKeys {
-  repeated bytes verifier_public_keys = 1;
-}
+message VerifierPublicKeys { repeated bytes verifier_public_keys = 1; }
 
-message TxDebugRequest {
-  uint32 tx_id = 1;
-}
+message TxDebugRequest { uint32 tx_id = 1; }
 
 message TxDebugSubmissionError {
   string error_message = 1;
@@ -584,34 +572,32 @@ message TxDebugInfo {
   TxMetadata metadata = 12;
 }
 
-message XOnlyPublicKeys {
-  repeated bytes xonly_public_keys = 1;
-}
+message XOnlyPublicKeys { repeated bytes xonly_public_keys = 1; }
 
-
-message VergenResponse {
-  string response = 1;
-}
+message VergenResponse { string response = 1; }
 
 service ClementineVerifier {
   // Returns verifiers' metadata. Needs to be called once per setup.
   //
-  // Used by aggregator inside setup to let all verifiers know all other verifier pks
+  // Used by aggregator inside setup to let all verifiers know all other
+  // verifier pks
   rpc GetParams(Empty) returns (VerifierParams) {}
 
-  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-  // for checking compatibility
+  // Returns the protocol params that can affect the transactions in the
+  // contract, syncing with citrea and version number for checking compatibility
   rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
 
   // Saves an operator.
   //
-  // Used by aggregator inside setup to let all verifiers know all other operator pks
+  // Used by aggregator inside setup to let all verifiers know all other
+  // operator pks
   rpc SetOperator(stream OperatorParams) returns (Empty) {}
 
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them
   // into the db.
   //
-  // Used by aggregator inside new_deposit to let all verifiers know all other operators' deposit information
+  // Used by aggregator inside new_deposit to let all verifiers know all other
+  // operators' deposit information
   rpc SetOperatorKeys(OperatorKeysWithDeposit) returns (Empty) {}
 
   // Generates nonces for a deposit.
@@ -628,7 +614,7 @@ service ClementineVerifier {
   //
   // Used by aggregator inside new_deposit
   rpc DepositSign(stream VerifierDepositSignParams)
-    returns (stream PartialSig) {}
+      returns (stream PartialSig) {}
 
   // Signs the optimistic payout tx with given aggNonce and withdrawal info.
   rpc OptimisticPayoutSign(OptimisticPayoutParams) returns (PartialSig) {}
@@ -637,7 +623,7 @@ service ClementineVerifier {
   //
   // Used by aggregator inside new_deposit
   rpc DepositFinalize(stream VerifierDepositFinalizeParams)
-    returns (VerifierDepositFinalizeResponse) {}
+      returns (VerifierDepositFinalizeResponse) {}
 
   // Debug a transaction by retrieving its current state and history
   rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
@@ -645,15 +631,20 @@ service ClementineVerifier {
   // Restarts the background tasks for the verifier.
   rpc RestartBackgroundTasks(Empty) returns (Empty) {}
 
-  // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+  // Checks if the kickoff tx is malicious, and logs if it is. Additionally, on
+  // networks other than mainnet and testnet4, it will send the challenge tx.
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
 
-  // Returns the current status of tasks running on the verifier and their last synced heights.
+  // Returns the current status of tasks running on the verifier and their last
+  // synced heights.
   rpc GetCurrentStatus(Empty) returns (EntityStatus) {}
 
-  // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-  // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  // 1. Signs all tx's it can according to given transaction type (use it with
+  // AllNeededForDeposit to get almost all tx's)
+  // 2. Creates the transactions denoted by the deposit and operator_idx,
+  // round_idx, and kickoff_idx.
+  // 3. It will create the transaction and sign it with the operator's private
+  // key and/or saved nofn signatures.
   //
   // # Parameters
   // - deposit_params: User's deposit information
@@ -661,51 +652,54 @@ service ClementineVerifier {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+  // - Raw signed transactions that the entity can sign (no asserts and
+  // watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
   // Signs the verifiers own watchtower challenge tx in the corresponding
   // kickoff and returns the signed raw tx
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawTxWithRbfInfo) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest)
+      returns (RawTxWithRbfInfo) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }
 
 // Aggregator ------------------------------------------------------------------
 
-message RawSignedTx {
-  bytes raw_tx = 1;
-}
+message RawSignedTx { bytes raw_tx = 1; }
 
 message SendTxRequest {
   RawSignedTx raw_tx = 1;
   FeeType fee_type = 2;
 }
 
-message RawSignedTxs {
-  repeated RawSignedTx raw_txs = 1;
-}
+message RawSignedTxs { repeated RawSignedTx raw_txs = 1; }
 
 message SignedTxWithType {
   GrpcTransactionId transaction_type = 1;
   bytes raw_tx = 2;
 }
 
-message SignedTxsWithType {
-  repeated SignedTxWithType signed_txs = 1;
+message SignedTxsWithType { repeated SignedTxWithType signed_txs = 1; }
+
+message RbfSigningKeyPathRpc {
+  // Key path spend tweak merkle root (optional).
+  bytes merkle_root = 1;
+}
+
+message RbfSigningScriptPathRpc {
+  bytes control_block = 1;
+  bytes script = 2;
 }
 
 message RbfSigningInfoRpc {
-  // Key path spend tweak merkle root (optional; empty for script path).
-  bytes merkle_root = 1;
-  // Output index of the UTXO to be re-signed.
-  uint32 vout = 2;
-  // Script path control block (optional; empty for key path).
-  bytes control_block = 3;
-  // Script path tapscript (optional; empty for key path).
-  bytes script = 4;
+  uint32 vout = 1;
+  oneof spend_path {
+    RbfSigningKeyPathRpc key_path = 2;
+    RbfSigningScriptPathRpc script_path = 3;
+  }
   // Taproot sighash type as raw byte.
-  uint32 tap_sighash_type = 5;
+  uint32 tap_sighash_type = 4;
 }
 
 message RawTxWithRbfInfo {
@@ -725,9 +719,7 @@ message AggregatorWithdrawResponse {
   repeated OperatorWithrawalResponse withdraw_responses = 1;
 }
 
-message GetEmergencyStopTxRequest {
-  repeated Txid txids = 1;
-}
+message GetEmergencyStopTxRequest { repeated Txid txids = 1; }
 
 message GetEmergencyStopTxResponse {
   repeated Txid txids = 1;
@@ -739,18 +731,17 @@ message SendMoveTxRequest {
   Outpoint deposit_outpoint = 2;
 }
 
-message GetEntityStatusesRequest {
-  bool restart_tasks = 1;
-}
+message GetEntityStatusesRequest { bool restart_tasks = 1; }
 
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
   // Returns the compatibility data from all entities
-  rpc GetCompatibilityDataFromEntities(Empty) returns (EntitiesCompatibilityData) {}
+  rpc GetCompatibilityDataFromEntities(Empty)
+      returns (EntitiesCompatibilityData) {}
 
-  // Returns the protocol params that can affect the transactions in the contract, syncing with citrea and version number
-  // for checking compatibility
+  // Returns the protocol params that can affect the transactions in the
+  // contract, syncing with citrea and version number for checking compatibility
   rpc GetCompatibilityParams(Empty) returns (CompatibilityParamsRPC) {}
 
   // Sets up the system of verifiers, watchtowers and operators by:
@@ -775,13 +766,14 @@ service ClementineAggregator {
 
   // Call's withdraw on all operators
   // Used by the clementine-backend service to initiate a withdrawal
-  // If the operator's xonly public keys list is empty, the withdrawal will be sent to all operators.
-  // If not, only the operators in the list will be sent the withdrawal request.
-  rpc Withdraw(AggregatorWithdrawalInput)
-    returns (AggregatorWithdrawResponse) {}
+  // If the operator's xonly public keys list is empty, the withdrawal will be
+  // sent to all operators. If not, only the operators in the list will be sent
+  // the withdrawal request.
+  rpc Withdraw(AggregatorWithdrawalInput) returns (AggregatorWithdrawResponse) {
+  }
 
   // Perform an optimistic payout to reimburse a peg-out from Citrea
-  rpc OptimisticPayout(OptimisticWithdrawParams) returns (RawSignedTx)  {}
+  rpc OptimisticPayout(OptimisticWithdrawParams) returns (RawSignedTx) {}
 
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
@@ -789,13 +781,15 @@ service ClementineAggregator {
   rpc SendMoveToVaultTx(SendMoveTxRequest) returns (Txid) {}
 
   // Returns the current status of tasks running on the operators/verifiers.
-  // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
+  // If restart_tasks is true, it will restart the tasks on the entities if they
+  // are stopped.
   rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
 
   // Creates an emergency stop tx that won't be broadcasted.
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
-  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
+  rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest)
+      returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}
 }

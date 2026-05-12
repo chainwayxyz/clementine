@@ -279,6 +279,8 @@ where
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
+            #[cfg(test)]
+            &self.config.test_params,
         )?;
 
         self.signer

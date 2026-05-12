@@ -1,6 +1,7 @@
 use crate::config::BridgeConfig;
-use crate::database::DatabaseTransaction;
+use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData};
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::utils::NamedEntity;
 use clementine_primitives::RoundIndex;
 
@@ -187,6 +188,8 @@ pub struct StateContext<T: Owner> {
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
     pub config: BridgeConfig,
+    pub db: Database,
+    pub rpc: ExtendedBitcoinRpc,
     pub owner_type: String,
     pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
@@ -197,6 +200,8 @@ impl<T: Owner> StateContext<T> {
         owner: Arc<T>,
         cache: Arc<block_cache::BlockCache>,
         config: BridgeConfig,
+        db: Database,
+        rpc: ExtendedBitcoinRpc,
     ) -> Self {
         // Get the owner type string from the owner instance
         let owner_type = T::ENTITY_NAME.to_string();
@@ -209,6 +214,8 @@ impl<T: Owner> StateContext<T> {
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
             config,
+            db,
+            rpc,
             owner_type,
         }
     }

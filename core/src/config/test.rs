@@ -1,18 +1,23 @@
-use crate::deposit::DepositData;
-use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
-use bitcoin::blockdata::block::BlockHash;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::secp256k1::SecretKey;
-use bitcoin::Transaction;
+use crate::{
+    builder::transaction::{output::UnspentTxOut, TxHandlerBuilder},
+    deposit::DepositData,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
+    header_chain_prover::HeaderChainProver,
+};
+use bitcoin::{
+    blockdata::block::BlockHash,
+    secp256k1::{PublicKey, SecretKey},
+    ScriptBuf, Transaction, TxOut,
+};
 use bitvm::chunk::api::Assertions;
-use circuits_lib::bridge_circuit::structs::CircuitWitness;
-use circuits_lib::bridge_circuit::structs::{CircuitTxOut, WatchtowerInput};
-use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::bridge_circuit::{
+    structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
+    transaction::CircuitTransaction,
+};
+use clementine_config::MIN_TAPROOT_AMOUNT;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestParams {
@@ -55,6 +60,12 @@ pub struct TestParams {
 
     /// A flag to indicate whether to use large annexes in the watchtower challenge transactions.
     pub use_large_annex: bool,
+
+    /// A flag to indicate whether to use large outputs in the watchtower challenge transactions.
+    pub use_large_output: bool,
+
+    /// A flag to indicate whether to use large annexes and outputs in the watchtower challenge transactions.
+    pub use_large_annex_and_output: bool,
 
     /// A list of verifier indexes that should not attempt to send disprove transactions.
     pub verifier_do_not_send_disprove_indexes: Option<Vec<usize>>,
@@ -270,6 +281,38 @@ impl TestParams {
         latest_block_hash
     }
 
+    pub fn maybe_add_large_test_outputs(
+        &self,
+        mut builder: TxHandlerBuilder,
+    ) -> eyre::Result<TxHandlerBuilder> {
+        if self.use_large_annex_and_output || self.use_large_output {
+            for i in 0..2300 {
+                let mut test_taproot_address: [u8; 32] = [0; 32];
+                let num_to_use: u32 = 30000 + i;
+                let num_to_use_bytes = num_to_use.to_le_bytes();
+                // Last 4 bytes of test_taproot_address will be used to differentiate the outputs
+                test_taproot_address[28..32].copy_from_slice(&num_to_use_bytes);
+                let mut additional_taproot_script_vec = vec![0x51, 0x20];
+                additional_taproot_script_vec.extend_from_slice(&test_taproot_address);
+                let additional_taproot_script =
+                    ScriptBuf::from_bytes(additional_taproot_script_vec);
+                let additional_taproot_txout = TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: additional_taproot_script,
+                };
+                // Reassign the result of add_output back to builder
+                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+            }
+
+            if self.use_large_annex_and_output {
+                tracing::warn!("Using large annex and output");
+            } else {
+                tracing::warn!("Using large output");
+            }
+        }
+        Ok(builder)
+    }
+
     pub fn maybe_dump_bridge_circuit_params_to_file(
         &self,
         bridge_circuit_host_params: &impl borsh::BorshSerialize,
@@ -277,27 +320,35 @@ impl TestParams {
         use std::path::PathBuf;
 
         let cases = [
-        (
-            self.use_small_annex,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex.bin",
-        ),
-        (
-            self.use_large_annex,
-            "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex.bin",
-        ),
-        (
-            self.generate_varying_total_works,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works.bin",
-        ),
-        (
-            self.generate_varying_total_works_insufficient_total_work,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work.bin",
-        ),
-        (
-            self.generate_varying_total_works_first_two_valid,
-            "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid.bin",
-        ),
-    ];
+            (
+                self.use_small_annex,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex_large_op_return.bin",
+            ),
+            (
+                self.use_large_annex,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_large_op_return.bin",
+            ),
+            (
+                self.use_large_output,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_output_large_op_return.bin",
+            ),
+            (
+                self.use_large_annex_and_output,
+                "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_large_annex_and_output_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works_insufficient_total_work,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_insufficient_total_work_large_op_return.bin",
+            ),
+            (
+                self.generate_varying_total_works_first_two_valid,
+                "../bridge-circuit-host/bin-files/bch_params_varying_total_works_first_two_valid_large_op_return.bin",
+            ),
+        ];
 
         let active_cases: Vec<_> = cases.iter().filter(|(cond, _)| *cond).collect();
 
@@ -316,6 +367,15 @@ impl TestParams {
                 eyre::eyre!("Failed to write bridge circuit host params to file: {}", e)
             })?;
             tracing::info!("Bridge circuit host params written to {:?}", &path);
+            if std::env::var("CLEMENTINE_EXIT_AFTER_BRIDGE_CIRCUIT_PARAMS_DUMP").as_deref()
+                == Ok("1")
+            {
+                tracing::warn!(
+                    "Exiting after writing bridge circuit host params to {:?}",
+                    &path
+                );
+                std::process::exit(0);
+            }
         }
 
         Ok(())
@@ -381,6 +441,13 @@ impl TestParams {
                         .to_vec()[2..34]
                 )
             );
+            if std::env::var("CLEMENTINE_EXIT_AFTER_KICKOFF_AND_WTC_DUMP").as_deref() == Ok("1") {
+                tracing::warn!(
+                    "Exiting after writing kickoff and watchtower challenge tx data to {:?}",
+                    &path
+                );
+                std::process::exit(0);
+            }
         }
         Ok(())
     }
@@ -516,6 +583,8 @@ impl Default for TestParams {
             corrupted_public_input: false,
             use_small_annex: false,
             use_large_annex: false,
+            use_large_output: false,
+            use_large_annex_and_output: false,
             timeout_params: TimeoutTestParams::default(),
             verifier_do_not_send_disprove_indexes: None,
             generate_to_address: true,
