@@ -457,12 +457,60 @@ where
                 )
                 .await?;
             let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
+            let parent_txid = tx.compute_txid().to_string();
+            let expected_txids: Vec<String> = package
+                .iter()
+                .map(|tx| tx.compute_txid().to_string())
+                .collect();
 
             match client
-                .submit_package_with_fallback(&tx_hexes, cfg.client_code.as_ref())
+                .submit_package(&tx_hexes, cfg.client_code.as_ref())
                 .await
             {
                 Ok(res) => {
+                    let already_submitted = if let Some(rejection) =
+                        res.package_rejection(&expected_txids)
+                    {
+                        if rejection.is_potentially_idempotent()
+                            && client.transaction_found(&parent_txid).await
+                        {
+                            tracing::debug!(
+                                try_to_send_id,
+                                rejection = %rejection,
+                                parent_txid = %parent_txid,
+                                "Slipstream CPFP parent is known after package rejection; treating as idempotent success"
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "slipstream_submit_package_already_submitted",
+                                    true,
+                                )
+                                .await;
+                            true
+                        } else {
+                            log_error_for_tx!(
+                                self.db,
+                                try_to_send_id,
+                                format!("Slipstream submit-package rejected package: {rejection}")
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "slipstream_submit_package_failed",
+                                    true,
+                                )
+                                .await;
+                            return Err(SendTxError::Other(eyre!(
+                                "Slipstream submit-package rejected package: {rejection}"
+                            )));
+                        }
+                    } else {
+                        false
+                    };
+
                     tracing::debug!(
                         try_to_send_id,
                         tx_count = package.len(),
@@ -471,72 +519,84 @@ where
 
                     // Slipstream includes per-tx statuses in `result.tx-results` when present.
                     // Warn when per-tx details are missing for package entries.
-                    if let Some(result) = res.result.as_ref() {
-                        if let Some(package_msg) = result.package_msg.as_deref() {
-                            tracing::debug!(
-                                try_to_send_id,
-                                package_msg,
-                                replaced_transactions = result.replaced_transactions.len(),
-                                "Slipstream submit-package returned package result"
-                            );
-                        }
-
+                    if let Some(package_msg) = res.package_msg.as_deref() {
                         tracing::debug!(
                             try_to_send_id,
-                            statuses = result.tx_results.len(),
-                            "Slipstream submit-package returned per-tx results"
-                        );
-                        for t in &package {
-                            let txid = t.compute_txid().to_string();
-                            if let Some(tx_result) =
-                                result.tx_results.iter().find(|res| res.txid == txid)
-                            {
-                                tracing::debug!(
-                                    try_to_send_id,
-                                    txid,
-                                    returned_txid = tx_result.txid,
-                                    vsize = tx_result.vsize,
-                                    "Slipstream submit-package tx result"
-                                );
-                            } else {
-                                tracing::warn!(
-                                    try_to_send_id,
-                                    "Slipstream submit-package response missing tx result with txid {}",
-                                    txid
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            try_to_send_id,
-                            "Slipstream submit-package response missing optional result field"
+                            package_msg,
+                            replaced_transactions = res.replaced_transactions.len(),
+                            "Slipstream submit-package returned package result"
                         );
                     }
 
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "slipstream_submit_package_success",
-                            true,
-                        )
-                        .await;
+                    tracing::debug!(
+                        try_to_send_id,
+                        statuses = res.tx_results.len(),
+                        "Slipstream submit-package returned per-tx results"
+                    );
+                    for t in &package {
+                        let txid = t.compute_txid().to_string();
+                        if let Some(tx_result) = res.tx_results.iter().find(|res| res.txid == txid)
+                        {
+                            tracing::debug!(
+                                try_to_send_id,
+                                txid,
+                                returned_txid = tx_result.txid,
+                                vsize = tx_result.vsize,
+                                "Slipstream submit-package tx result"
+                            );
+                        } else {
+                            tracing::warn!(
+                                try_to_send_id,
+                                "Slipstream submit-package response missing tx result with txid {}",
+                                txid
+                            );
+                        }
+                    }
+
+                    if !already_submitted {
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "slipstream_submit_package_success",
+                                true,
+                            )
+                            .await;
+                    }
                 }
                 Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Slipstream submit-package failed: {e:?}")
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
+                    if matches!(e, SendTxError::SlipstreamPackageAlreadySubmitted)
+                        && client.transaction_found(&parent_txid).await
+                    {
+                        tracing::debug!(
                             try_to_send_id,
-                            "slipstream_submit_package_failed",
-                            true,
-                        )
-                        .await;
-                    return Err(e);
+                            parent_txid = %parent_txid,
+                            "Slipstream CPFP package was already submitted and parent is known; treating as idempotent success"
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "slipstream_submit_package_already_submitted",
+                                true,
+                            )
+                            .await;
+                    } else {
+                        log_error_for_tx!(
+                            self.db,
+                            try_to_send_id,
+                            format!("Slipstream submit-package failed: {e:?}")
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "slipstream_submit_package_failed",
+                                true,
+                            )
+                            .await;
+                        return Err(e);
+                    }
                 }
             }
         } else {

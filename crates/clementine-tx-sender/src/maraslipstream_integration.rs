@@ -114,45 +114,24 @@ where
             .await?;
         let tx_hex = Self::tx_to_hex(tx);
 
-        match client
-            .submit_tx_with_fallback(&tx_hex, cfg.client_code.as_ref())
-            .await
-        {
-            Ok(res) => {
-                // Slipstream returns the txid in `message` on success; verify it matches what
-                // we computed locally when parseable.
-                match res.message.parse::<Txid>() {
-                    Ok(returned_txid) => {
-                        if returned_txid != expected_txid {
-                            let err_msg = format!(
-                                "Slipstream returned unexpected txid {returned_txid} (expected {expected_txid})"
-                            );
-                            log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                            let _ = self
-                                .db
-                                .update_tx_debug_sending_state(
-                                    try_to_send_id,
-                                    &txid_mismatch_state,
-                                    true,
-                                )
-                                .await;
-                            return Err(eyre::eyre!("Slipstream returned unexpected txid").into());
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            try_to_send_id,
-                            "Slipstream submit-tx success response message was not a parseable txid; skipping txid comparison: message={}, error={}",
-                            res.message,
-                            e
-                        );
-                    }
+        match client.submit_tx(&tx_hex, cfg.client_code.as_ref()).await {
+            Ok(returned_txid) => {
+                if returned_txid != expected_txid {
+                    let err_msg = format!(
+                        "Slipstream returned unexpected txid {returned_txid} (expected {expected_txid})"
+                    );
+                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(try_to_send_id, &txid_mismatch_state, true)
+                        .await;
+                    return Err(eyre::eyre!("Slipstream returned unexpected txid").into());
                 }
 
                 tracing::debug!(
                     try_to_send_id,
                     "Successfully submitted tx to Slipstream: {}",
-                    res.message
+                    returned_txid
                 );
                 let _ = self
                     .db
@@ -190,10 +169,7 @@ where
             }
         };
 
-        match client
-            .get_rate_with_fallback(cfg.client_code.as_ref())
-            .await
-        {
+        match client.get_rate(cfg.client_code.as_ref()).await {
             Ok(info) => Some(info),
             Err(e) => {
                 tracing::warn!(

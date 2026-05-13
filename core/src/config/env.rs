@@ -67,6 +67,9 @@ fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
         read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
             .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
 
+    let tx_status_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_TX_STATUS_ENDPOINT")
+        .unwrap_or_else(|| maraslipstream::DEFAULT_TX_STATUS_ENDPOINT.to_string());
+
     let submit_tx_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
         .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
 
@@ -76,6 +79,7 @@ fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
         host,
         fee_rate_endpoint,
         submit_package_endpoint,
+        tx_status_endpoint,
         submit_tx_endpoint,
         client_code,
     })
