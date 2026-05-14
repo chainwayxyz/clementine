@@ -564,9 +564,16 @@ impl TxSender {
         current_tip_height: u32,
         needs_wtxid_grind: bool,
     ) -> Result<()> {
+        let db_effective_fee_rate = fee_rate;
+        let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
         let fee_rate = self
-            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(&tx, fee_rate, None)
+            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
+                &tx,
+                fee_rate,
+                nonstandard_slipstream_cfg,
+            )
             .await;
+        let fee_rate_was_slipstream_adjusted = fee_rate != db_effective_fee_rate;
 
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -1125,8 +1132,19 @@ impl TxSender {
             fee_rate
         };
 
+        let stored_effective_feerate = if fee_rate_was_slipstream_adjusted {
+            db_effective_fee_rate
+        } else {
+            effective_feerate
+        };
+
         self.db
-            .update_effective_fee_rate(None, try_to_send_id, effective_feerate, current_tip_height)
+            .update_effective_fee_rate(
+                None,
+                try_to_send_id,
+                stored_effective_feerate,
+                current_tip_height,
+            )
             .await
             .wrap_err("Failed to update effective fee rate")?;
 

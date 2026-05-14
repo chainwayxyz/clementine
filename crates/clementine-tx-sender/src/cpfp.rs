@@ -604,6 +604,7 @@ impl TxSender {
             return Ok(());
         }
 
+        let db_effective_fee_rate = fee_rate;
         let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
         let fee_rate = self
             .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
@@ -671,7 +672,12 @@ impl TxSender {
         // This ensures that even if the send fails, we track the attempt
         // so the 10-block stuck logic can trigger a bump
         self.db
-            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
+            .update_effective_fee_rate(
+                None,
+                try_to_send_id,
+                db_effective_fee_rate,
+                current_tip_height,
+            )
             .await
             .wrap_err("Failed to update effective fee rate")?;
 
