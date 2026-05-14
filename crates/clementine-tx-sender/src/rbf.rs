@@ -564,7 +564,9 @@ impl TxSender {
         current_tip_height: u32,
         needs_wtxid_grind: bool,
     ) -> Result<()> {
-        let (fee_rate, _slipstream_cfg) = self.slipstream_fee_rate_and_cfg(&tx, fee_rate).await;
+        let fee_rate = self
+            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(&tx, fee_rate, None)
+            .await;
 
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 

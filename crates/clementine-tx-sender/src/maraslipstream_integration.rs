@@ -174,7 +174,7 @@ impl TxSender {
         }
     }
 
-    pub(crate) async fn maybe_slipstream_adjust_fee_rate(
+    pub(crate) async fn maybe_adjust_fee_rate_for_slipstream_cfg(
         &self,
         fee_rate: FeeRateKvb,
         cfg: Option<&MaraSlipstreamConfig>,
@@ -225,15 +225,14 @@ impl TxSender {
         FeeRateKvb::from_sat_per_kvb(target_sat_kvb.ceil() as u64)
     }
 
-    pub(crate) async fn slipstream_fee_rate_and_cfg(
+    pub(crate) async fn maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
         &self,
         tx: &Transaction,
         base_fee_rate: FeeRateKvb,
-    ) -> (FeeRateKvb, Option<&MaraSlipstreamConfig>) {
-        let cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(tx);
-        let fee_rate = self
-            .maybe_slipstream_adjust_fee_rate(base_fee_rate, cfg)
-            .await;
-        (fee_rate, cfg)
+        cfg: Option<&MaraSlipstreamConfig>,
+    ) -> FeeRateKvb {
+        let cfg = cfg.or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(tx));
+        self.maybe_adjust_fee_rate_for_slipstream_cfg(base_fee_rate, cfg)
+            .await
     }
 }

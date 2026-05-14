@@ -604,7 +604,14 @@ impl TxSender {
             return Ok(());
         }
 
-        let (fee_rate, slipstream_cfg) = self.slipstream_fee_rate_and_cfg(&tx, fee_rate).await;
+        let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
+        let fee_rate = self
+            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
+                &tx,
+                fee_rate,
+                nonstandard_slipstream_cfg,
+            )
+            .await;
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.txout.value).sum();
@@ -674,7 +681,7 @@ impl TxSender {
             .update_tx_debug_sending_state(try_to_send_id, "submitting_package", true)
             .await;
 
-        if let Some(cfg) = slipstream_cfg {
+        if let Some(cfg) = nonstandard_slipstream_cfg {
             let client = self
                 .slipstream_client_or_mark_failed(
                     cfg,
