@@ -10,10 +10,6 @@ use crate::{
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use clementine_errors::BridgeError;
-#[cfg(feature = "automation")]
-use clementine_tx_sender::maraslipstream;
-#[cfg(feature = "automation")]
-use clementine_tx_sender::MaraSlipstreamConfig;
 use eyre::Context;
 use std::{path::PathBuf, str::FromStr, time::Duration};
 
@@ -33,61 +29,50 @@ where
 }
 
 #[cfg(feature = "automation")]
-fn trim_env_in_place(s: &mut String) {
-    // Trim end first (common case: trailing newline/space in env files).
-    let end_len = s.trim_end().len();
-    s.truncate(end_len);
+mod maraslipstream_env {
+    use clementine_tx_sender::{maraslipstream, MaraSlipstreamConfig};
 
-    // Trim start without allocating a new String.
-    let start_idx = s.find(|c: char| !c.is_whitespace()).unwrap_or(s.len());
-    s.drain(..start_idx);
-}
-
-#[cfg(feature = "automation")]
-fn read_optional_trimmed_env(env_var: &'static str) -> Option<String> {
-    let mut s = std::env::var(env_var).ok()?;
-    trim_env_in_place(&mut s);
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
+    fn read_optional_trimmed(env_var: &'static str) -> Option<String> {
+        let value = std::env::var(env_var).ok()?;
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
-}
 
-// MARA Slipstream config is optional and enabled when `MARASLIPSTREAM_HOST` is set.
-//
-// We provide sensible defaults for endpoints (as documented in the public Slipstream
-// swagger/UI) so environments that only define the host won't cause errors.
-// Slipstream is only available for Bitcoin mainnet/testnet4 (not regtest/signet).
-//
-// The client code is optional and, if used, is read from an env var.
-#[cfg(feature = "automation")]
-fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
-    let host = read_optional_trimmed_env("MARASLIPSTREAM_HOST")?;
+    // MARA Slipstream config is optional and enabled when `MARASLIPSTREAM_HOST` is set.
+    //
+    // We provide sensible defaults for endpoints (as documented in the public Slipstream
+    // swagger/UI) so environments that only define the host won't cause errors.
+    pub(super) fn read_config_from_env() -> Option<MaraSlipstreamConfig> {
+        let host = read_optional_trimmed("MARASLIPSTREAM_HOST")?;
 
-    let fee_rate_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
-        .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
+        let fee_rate_endpoint = read_optional_trimmed("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
 
-    let submit_package_endpoint =
-        read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
-            .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
+        let submit_package_endpoint =
+            read_optional_trimmed("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
+                .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
 
-    let tx_status_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_TX_STATUS_ENDPOINT")
-        .unwrap_or_else(|| maraslipstream::DEFAULT_TX_STATUS_ENDPOINT.to_string());
+        let tx_status_endpoint = read_optional_trimmed("MARASLIPSTREAM_TX_STATUS_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_TX_STATUS_ENDPOINT.to_string());
 
-    let submit_tx_endpoint = read_optional_trimmed_env("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
-        .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
+        let submit_tx_endpoint = read_optional_trimmed("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
 
-    let client_code = read_optional_trimmed_env("MARASLIPSTREAM_CLIENT_CODE").map(Into::into);
+        let client_code = read_optional_trimmed("MARASLIPSTREAM_CLIENT_CODE").map(Into::into);
 
-    Some(MaraSlipstreamConfig {
-        host,
-        fee_rate_endpoint,
-        submit_package_endpoint,
-        tx_status_endpoint,
-        submit_tx_endpoint,
-        client_code,
-    })
+        Some(MaraSlipstreamConfig {
+            host,
+            fee_rate_endpoint,
+            submit_package_endpoint,
+            tx_status_endpoint,
+            submit_tx_endpoint,
+            client_code,
+        })
+    }
 }
 
 impl GrpcLimitsExt for GrpcLimits {
@@ -253,7 +238,7 @@ impl BridgeConfig {
             .map(Duration::from_secs);
 
         #[cfg(feature = "automation")]
-        let maraslipstream_config = read_maraslipstream_config_from_env();
+        let maraslipstream_config = maraslipstream_env::read_config_from_env();
 
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
