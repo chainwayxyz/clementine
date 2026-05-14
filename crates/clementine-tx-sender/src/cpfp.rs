@@ -803,22 +803,44 @@ impl TxSender {
                     }
                 }
                 Err(e) => {
-                    if matches!(e, SendTxError::SlipstreamPackageAlreadySubmitted)
-                        && client.transaction_found(&parent_txid).await
-                    {
-                        tracing::debug!(
-                            try_to_send_id,
-                            parent_txid = %parent_txid,
-                            "Slipstream CPFP package was already submitted and parent is known; treating as idempotent success"
-                        );
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
+                    if matches!(e, SendTxError::SlipstreamPackageAlreadySubmitted) {
+                        if client.transaction_found(&parent_txid).await {
+                            tracing::debug!(
                                 try_to_send_id,
-                                "slipstream_submit_package_already_submitted",
-                                true,
-                            )
-                            .await;
+                                parent_txid = %parent_txid,
+                                "Slipstream CPFP package was already submitted and parent is known; treating as idempotent success"
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "slipstream_submit_package_already_submitted",
+                                    true,
+                                )
+                                .await;
+                        } else {
+                            tracing::warn!(
+                                try_to_send_id,
+                                parent_txid = %parent_txid,
+                                "Slipstream returned already-submitted for CPFP package but parent status was not found"
+                            );
+                            log_error_for_tx!(
+                                self.db,
+                                try_to_send_id,
+                                format!(
+                                    "Slipstream submit-package already-submitted but parent tx {parent_txid} was not found"
+                                )
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "slipstream_submit_package_already_submitted_parent_not_found",
+                                    true,
+                                )
+                                .await;
+                            return Err(e);
+                        }
                     } else {
                         log_error_for_tx!(
                             self.db,
