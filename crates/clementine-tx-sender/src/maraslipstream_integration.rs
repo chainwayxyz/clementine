@@ -1,22 +1,16 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use crate::maraslipstream_client::{MaraSlipstreamClient, SlipstreamRateInfo};
-use crate::{
-    log_error_for_tx, Result, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder,
-};
-use bitcoin::{consensus::encode::serialize, FeeRate, Transaction, Txid};
+use crate::{log_error_for_tx, Result, TxSender};
+use bitcoin::{consensus::encode::serialize, Transaction, Txid};
+use clementine_primitives::FeeRateKvb;
 
 const DISCOUNTED_MULTIPLIER_CAP: f64 = 3.0;
 const F64_EXACT_INT_LIMIT: u64 = 1u64 << 53;
 
-impl<S, D, B> TxSender<S, D, B>
-where
-    S: TxSenderSigner,
-    D: TxSenderDatabase,
-    B: TxSenderTxBuilder,
-{
+impl TxSender {
     pub(crate) fn slipstream_supported_network(&self) -> bool {
         matches!(
-            self.protocol_paramset.network,
+            self.network,
             bitcoin::Network::Bitcoin | bitcoin::Network::Testnet4
         )
     }
@@ -45,7 +39,7 @@ where
         let cfg = self.slipstream_cfg_if_enabled();
         if cfg.is_none() {
             tracing::warn!(
-                network = ?self.protocol_paramset.network,
+                network = ?self.network,
                 "Nonstandard tx on Slipstream-supported network but Slipstream config is not set; falling back to RPC submission"
             );
         }
@@ -182,9 +176,9 @@ where
 
     pub(crate) async fn maybe_slipstream_adjust_fee_rate(
         &self,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         cfg: Option<&MaraSlipstreamConfig>,
-    ) -> FeeRate {
+    ) -> FeeRateKvb {
         let Some(cfg) = cfg else {
             return fee_rate;
         };
@@ -207,38 +201,35 @@ where
             mult = DISCOUNTED_MULTIPLIER_CAP;
         }
 
-        let base_sat_kwu = fee_rate.to_sat_per_kwu();
+        let base_sat_kvb = fee_rate.to_sat_per_kvb();
         // Very unlikely, but warn if we cross the f64 exact-integer boundary for safety.
-        if base_sat_kwu >= F64_EXACT_INT_LIMIT {
+        if base_sat_kvb >= F64_EXACT_INT_LIMIT {
             tracing::warn!(
-                base_sat_kwu,
-                "Fee rate is at or above 2^53 sat/kwu; f64 conversion may lose precision"
+                base_sat_kvb,
+                "Fee rate is at or above 2^53 sat/kvb; f64 conversion may lose precision"
             );
         }
 
         // It should be safe to do the multiplication in f64 since fee rates are small.
-        let target_sat_kwu = (base_sat_kwu as f64) * mult;
+        let target_sat_kvb = (base_sat_kvb as f64) * mult;
 
-        if !target_sat_kwu.is_finite() || target_sat_kwu > (u64::MAX as f64) {
+        if !target_sat_kvb.is_finite() || target_sat_kvb > (u64::MAX as f64) {
             tracing::warn!(
-                base_sat_kwu,
+                base_sat_kvb,
                 mult,
                 "Slipstream fee rate multiplication overflowed; using original fee rate"
             );
             return fee_rate;
         }
 
-        let min_sat_kwu_u64 = FeeRate::BROADCAST_MIN.to_sat_per_kwu();
-
-        let target_sat_kwu_u64 = (target_sat_kwu.ceil() as u64).max(min_sat_kwu_u64);
-        FeeRate::from_sat_per_kwu(target_sat_kwu_u64)
+        FeeRateKvb::from_sat_per_kvb(target_sat_kvb.ceil() as u64)
     }
 
     pub(crate) async fn slipstream_fee_rate_and_cfg(
         &self,
         tx: &Transaction,
-        base_fee_rate: FeeRate,
-    ) -> (FeeRate, Option<&MaraSlipstreamConfig>) {
+        base_fee_rate: FeeRateKvb,
+    ) -> (FeeRateKvb, Option<&MaraSlipstreamConfig>) {
         let cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(tx);
         let fee_rate = self
             .maybe_slipstream_adjust_fee_rate(base_fee_rate, cfg)

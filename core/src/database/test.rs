@@ -4,8 +4,9 @@ use crate::{
     database::{Database, TxidDB},
     execute_query_with_tx,
 };
-use bitcoin::{Amount, FeeRate, Txid};
+use bitcoin::{Amount, Txid};
 use clementine_errors::BridgeError;
+use clementine_primitives::FeeRateKvb;
 use eyre::Context;
 
 impl Database {
@@ -59,12 +60,12 @@ impl Database {
         }
     }
 
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRate, current_tip_height: u32) {
+    pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         // Query all transactions that aren't confirmed yet
         let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
-            "SELECT id, txid, tx_metadata FROM tx_sender_try_to_send_txs WHERE seen_block_id IS NULL",
+            "SELECT id, txid, tx_metadata FROM tx_sender_try_to_send_txs WHERE seen_at_height IS NULL",
         )
         .fetch_all(&self.connection)
         .await
@@ -79,7 +80,8 @@ impl Database {
             }
         };
 
-        let sendable_txs = match self
+        let txsender_db = clementine_tx_sender::TxSenderDb::from_pool(self.get_pool());
+        let sendable_txs = match txsender_db
             .get_sendable_txs(None, fee_rate, current_tip_height)
             .await
         {
@@ -123,7 +125,7 @@ impl Database {
 
             // Check for txid activations that aren't active yet
             let txid_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB)>(
-                "SELECT seen_block_id, timelock, txid
+                "SELECT seen_at_height, timelock, txid
                 FROM tx_sender_activate_try_to_send_txids
                 WHERE activated_id = $1",
             )
@@ -141,40 +143,24 @@ impl Database {
                 }
             };
 
-            for (seen_block_id, timelock, txid) in txid_activations {
-                if seen_block_id.is_none() {
+            for (seen_at_height, timelock, txid) in txid_activations {
+                if seen_at_height.is_none() {
                     tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation {} has not been seen", id, txid.0);
                     continue;
                 }
 
-                let block_height = match sqlx::query_scalar::<_, i32>(
-                    "SELECT height FROM bitcoin_syncer WHERE id = $1",
-                )
-                .bind(seen_block_id.expect("it is unwrapped"))
-                .fetch_one(&self.connection)
-                .await
-                {
-                    Ok(height) => height,
-                    Err(e) => {
-                        tracing::error!(
-                            "TXSENDER_DBG_INACTIVE_TXS: Failed to get block height: {}",
-                            e
-                        );
-                        continue;
-                    }
-                };
-
-                if block_height + timelock as i32 > current_tip_height as i32 {
+                let seen_at_height = seen_at_height.expect("checked above");
+                if (seen_at_height as i64) + timelock > current_tip_height as i64 {
                     tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its txid activation timelock hasn't expired (seen_at_height: {}, timelock: {}, current_tip_height: {})",
+                        id, seen_at_height, timelock, current_tip_height
                     );
                 }
             }
 
             // Check for outpoint activations that aren't active yet
             let outpoint_activations = match sqlx::query_as::<_, (Option<i32>, i64, TxidDB, i32)>(
-                "SELECT seen_block_id, timelock, txid, vout
+                "SELECT seen_at_height, timelock, txid, vout
                 FROM tx_sender_activate_try_to_send_outpoints
                 WHERE activated_id = $1",
             )
@@ -192,33 +178,17 @@ impl Database {
                 }
             };
 
-            for (seen_block_id, timelock, txid, vout) in outpoint_activations {
-                if seen_block_id.is_none() {
+            for (seen_at_height, timelock, txid, vout) in outpoint_activations {
+                if seen_at_height.is_none() {
                     tracing::info!("TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation has not been seen ({}:{})", id, txid.0, vout);
                     continue;
                 }
 
-                let block_height = match sqlx::query_scalar::<_, i32>(
-                    "SELECT height FROM bitcoin_syncer WHERE id = $1",
-                )
-                .bind(seen_block_id.expect("it is unwrapped"))
-                .fetch_one(&self.connection)
-                .await
-                {
-                    Ok(height) => height,
-                    Err(e) => {
-                        tracing::error!(
-                            "TXSENDER_DBG_INACTIVE_TXS: Failed to get block height: {}",
-                            e
-                        );
-                        continue;
-                    }
-                };
-
-                if block_height + timelock as i32 > current_tip_height as i32 {
+                let seen_at_height = seen_at_height.expect("checked above");
+                if (seen_at_height as i64) + timelock > current_tip_height as i64 {
                     tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (block_height: {}, timelock: {}, current_tip_height: {})",
-                        id, block_height, timelock, current_tip_height
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its outpoint activation timelock hasn't expired (seen_at_height: {}, timelock: {}, current_tip_height: {})",
+                        id, seen_at_height, timelock, current_tip_height
                     );
                 }
             }
@@ -226,7 +196,7 @@ impl Database {
             // Check for cancelled conditions
             let cancelled_outpoints = match sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM tx_sender_cancel_try_to_send_outpoints
-                WHERE cancelled_id = $1 AND seen_block_id IS NOT NULL",
+                WHERE cancelled_id = $1 AND seen_at_height IS NOT NULL",
             )
             .bind(tx_id)
             .fetch_one(&self.connection)
@@ -248,7 +218,7 @@ impl Database {
 
             let cancelled_txids = match sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM tx_sender_cancel_try_to_send_txids
-                WHERE cancelled_id = $1 AND seen_block_id IS NOT NULL",
+                WHERE cancelled_id = $1 AND seen_at_height IS NOT NULL",
             )
             .bind(tx_id)
             .fetch_one(&self.connection)
@@ -287,10 +257,10 @@ impl Database {
             };
 
             if let Some(rate) = effective_fee_rate {
-                if rate >= fee_rate.to_sat_per_vb_ceil() as i64 {
+                if rate >= fee_rate.to_sat_per_kvb() as i64 {
                     tracing::info!(
-                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/vB) is >= the current fee rate ({} sat/vB)",
-                        id, rate, fee_rate.to_sat_per_vb_ceil()
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kvB) is >= the current fee rate ({} sat/kvB)",
+                        id, rate, fee_rate.to_sat_per_kvb()
                     );
                 }
             }

@@ -12,6 +12,7 @@ test-utils = []
 [dependencies]
 # Internal crates
 clementine-errors = { path = "../clementine-errors" }
+clementine-primitives = { path = "../clementine-primitives" }
 
 # Bitcoin
 bitcoincore-rpc = { workspace = true }

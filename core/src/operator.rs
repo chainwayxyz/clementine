@@ -24,7 +24,7 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use clementine_errors::BridgeError;
 use clementine_primitives::TransactionType;
 
-use crate::metrics::L1SyncStatusProvider;
+use crate::metrics::SyncStatusProvider;
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -74,6 +74,9 @@ use {
     circuits_lib::bridge_circuit::structs::LightClientProof,
 };
 
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
+
 pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
     background_tasks: BackgroundTaskManager,
@@ -88,7 +91,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     #[cfg(feature = "automation")]
-    pub tx_sender: TxSenderClient<Database>,
+    pub tx_sender: TxSenderClient,
     #[cfg(feature = "automation")]
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -153,10 +156,11 @@ where
 
         self.background_tasks
             .ensure_task_looping(
-                EntityMetricPublisher::<Operator<C>>::new(
+                EntityMetricPublisher::<Operator<C>, C>::new(
                     self.operator.db.clone(),
                     self.operator.rpc.clone(),
                     self.operator.config.clone(),
+                    self.operator.citrea_client.clone(),
                 )
                 .with_delay(ENTITY_METRIC_PUBLISHER_INTERVAL),
             )
@@ -189,10 +193,11 @@ where
         // Determine if automation is enabled
         let automation_enabled = cfg!(feature = "automation");
 
-        let sync_status = Operator::<C>::get_l1_status(
+        let sync_status = Operator::<C>::get_sync_status(
             &self.operator.db,
             &self.operator.rpc,
             &self.operator.config,
+            &self.operator.citrea_client,
         )
         .await?;
 
@@ -209,6 +214,8 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            lcp_synced_height: sync_status.lcp_synced_height,
+            citrea_l2_block_height: sync_status.citrea_l2_block_height,
         })
     }
 }
@@ -231,7 +238,8 @@ where
         .await?;
 
         #[cfg(feature = "automation")]
-        let tx_sender = TxSenderClient::new(db.clone(), Self::TX_SENDER_CONSUMER_ID.to_string());
+        let tx_sender =
+            TxSenderClient::new(clementine_tx_sender::TxSenderDb::from_pool(db.get_pool()));
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -254,7 +262,7 @@ where
             None => {
                 if config.protocol_paramset().network == bitcoin::Network::Bitcoin
                     && (config.operator_reimbursement_address.is_none()
-                        || config.operator_reimbursement_address.is_none())
+                        || config.operator_collateral_funding_outpoint.is_none())
                 {
                     let wallet_address = rpc.get_new_wallet_address().await?;
                     return Err(eyre::eyre!(
@@ -362,32 +370,6 @@ where
             header_chain_prover,
             reimburse_addr,
         })
-    }
-
-    #[cfg(feature = "automation")]
-    pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                Some(&mut dbtx),
-                Some(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: None,
-                    round_idx: Some(RoundIndex::Round(0)),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                round_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
-        dbtx.commit().await?;
-        Ok(())
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -654,9 +636,9 @@ where
         )
         .wrap_err("Failed to verify signature received from user for payout txin. Ensure the signature uses SinglePlusAnyoneCanPay sighash type.")?;
 
-        let fee_rate_result = self
+        let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset.network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -664,15 +646,7 @@ where
                 self.config.tx_sender_limits.mempool_fee_rate_offset_sat_kvb,
                 self.config.tx_sender_limits.fee_rate_hard_cap,
             )
-            .await;
-
-        let fee_rate_option = match fee_rate_result {
-            Ok(fee_rate) => Some(Amount::from_sat(fee_rate.to_sat_per_vb_ceil() * 1000)),
-            Err(e) => {
-                tracing::warn!("Failed to get fee rate from mempool API; funding tx with automatic fee rate. Error: {e:?}");
-                None
-            }
-        };
+            .await?;
 
         // send payout tx using RBF
         let funded_tx = self
@@ -681,12 +655,13 @@ where
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(1),
                     change_type: None,
                     include_watching: None,
                     lock_unspents: Some(false),
-                    fee_rate: fee_rate_option,
+                    fee_rate: Some(Amount::from_sat(fee_rate.to_sat_per_kvb())),
                     subtract_fee_from_outputs: None,
                     replaceable: None,
                     conf_target: None,
@@ -885,6 +860,11 @@ where
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
+        tracing::info!(
+            "Operator: Current round index: {}, round idx for kickoff: {}",
+            current_round_index,
+            round_idx
+        );
         #[cfg(feature = "automation")]
         if current_round_index != round_idx {
             // we currently have no free kickoff connectors in the current round, so we need to end round first
@@ -896,6 +876,9 @@ where
                     current_round_index, round_idx, deposit_outpoint
                 ).into());
             }
+            tracing::info!(
+                "Operator: Starting next round to be able to get reimbursement for the payout"
+            );
             // start the next round to be able to get reimbursement for the payout
             self.end_round(dbtx).await?;
         }
@@ -951,7 +934,7 @@ where
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -989,7 +972,7 @@ where
     #[cfg(feature = "automation")]
     async fn start_first_round(
         &self,
-        mut dbtx: DatabaseTransaction<'_>,
+        dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
         // try to send the first round tx
@@ -1008,7 +991,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: None,
@@ -1166,7 +1149,7 @@ where
 
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1187,7 +1170,7 @@ where
         // send ready to reimburse tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1208,7 +1191,7 @@ where
         // send next round tx
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
@@ -1433,9 +1416,9 @@ where
 
         #[cfg(test)]
         {
-            use bridge_circuit_host::utils::total_work_from_wt_tx;
+            use bridge_circuit_host::utils::total_work_from_wt_tx_test_util;
             for (_, tx) in watchtower_challenges.iter() {
-                let total_work = total_work_from_wt_tx(tx);
+                let total_work = total_work_from_wt_tx_test_util(tx);
                 total_works.push(total_work);
             }
             tracing::debug!("Total works: {:?}", total_works);
@@ -1558,11 +1541,6 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
-
         let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
         })
@@ -1635,7 +1613,7 @@ where
         for (tx_type, tx) in assert_txs {
             self.tx_sender
                 .add_tx_to_queue(
-                    Some(&mut dbtx),
+                    dbtx,
                     tx_type,
                     &tx,
                     &[],
@@ -1687,7 +1665,7 @@ where
         }
         self.tx_sender
             .add_tx_to_queue(
-                Some(dbtx),
+                dbtx,
                 tx_type,
                 &tx,
                 &[],
@@ -1987,7 +1965,7 @@ where
 
         let fee_rate = self
             .rpc
-            .get_fee_rate(
+            .get_fee_rate_kvb(
                 self.config.protocol_paramset().network,
                 &self.config.mempool_api_host,
                 &self.config.mempool_api_endpoint,
@@ -2002,9 +1980,10 @@ where
         self.signer
             .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
 
-        let tx_weight_wu = txhandler.get_cached_tx().weight().to_wu();
-        let fee_sat = (fee_rate.to_sat_per_kwu() * tx_weight_wu).div_ceil(1000);
-        let fee = Amount::from_sat(fee_sat);
+        let tx_weight = txhandler.get_cached_tx().weight();
+        let fee = fee_rate.fee_wu(tx_weight).ok_or_eyre(format!(
+            "Fee calculation overflow in transfer to wallet, current feerate: {fee_rate}"
+        ))?;
 
         output_txout.value = output_txout
             .value
@@ -2509,7 +2488,7 @@ where
                 | TransactionType::Reimburse => {
                     self.tx_sender
                         .add_tx_to_queue(
-                            Some(dbtx),
+                            dbtx,
                             *tx_type,
                             signed_tx,
                             &signed_txs,
@@ -2531,12 +2510,10 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "operator";
-    // operators use their verifier's tx sender
-    const TX_SENDER_CONSUMER_ID: &'static str = "verifier_tx_sender";
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
         "operator_finalized_block_fetcher_automation";
-    const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
-        "operator_finalized_block_fetcher_no_automation";
+    // operator uses verifier's lcp syncer
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 
 #[cfg(feature = "automation")]
@@ -2547,10 +2524,9 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner, StateManager};
+    use crate::states::{Duty, Owner, StateManager};
     use clementine_primitives::TransactionType;
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     #[tonic::async_trait]
     impl<C> Owner for Operator<C>
@@ -2573,7 +2549,20 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
-                Duty::AddRelevantTxsToTxSender {
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    // Why is this needed if these txs are already added when kickoff is created in handle_finalized_payout?
+                    // If it was created when operator had no automation, and now automation is enabled, we need to ensure the necessary txs are queued.
+                    // Or if operator lost db and is resyncing.
+                    tracing::info!("Operator {:?} called add necessary txs for kickoff with kickoff_data: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data);
+                    self.queue_relevant_txs_for_new_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::AddRelevantTxsToTxSenderIfChallenged {
                     kickoff_data,
                     deposit_data,
                 } => {
@@ -2618,7 +2607,6 @@ mod states {
                     txid,
                     block_height,
                     witness,
-                    challenged_before: _,
                 } => {
                     tracing::debug!(
                         "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -2649,6 +2637,8 @@ mod states {
 
                     Ok(DutyResult::Handled)
                 }
+                // Operators do not check if kickoffs are malicious
+                Duty::CheckIfKickoffMalicious { .. } => Ok(DutyResult::Handled),
             }
         }
 
@@ -2668,17 +2658,6 @@ mod states {
             )
             .await?;
             Ok(txhandlers)
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
 
         fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {

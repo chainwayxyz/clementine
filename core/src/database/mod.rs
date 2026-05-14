@@ -25,8 +25,6 @@ mod operator;
 mod state_machine;
 #[cfg(all(test, feature = "automation"))]
 mod test;
-#[cfg(feature = "automation")]
-mod tx_sender;
 mod verifier;
 mod wrapper;
 
@@ -74,9 +72,7 @@ impl Database {
     pub async fn new(config: &BridgeConfig) -> Result<Self, BridgeError> {
         let mut opt = PgConnectOptions::default();
         opt = opt.host(config.db_host.as_str());
-        opt = opt.port(
-            u16::try_from(config.db_port).wrap_err("Failed to convert database port to u16")?,
-        );
+        opt = opt.port(config.db_port);
         opt = opt.username(config.db_user.expose_secret());
         opt = opt.password(config.db_password.expose_secret());
         opt = opt.database(config.db_name.as_str());

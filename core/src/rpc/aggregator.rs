@@ -32,6 +32,8 @@ use crate::rpc::clementine::{
     EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
 };
 use crate::rpc::parser;
+#[cfg(feature = "automation")]
+use crate::tx_sender_queue::TxSenderClientQueueExt;
 use crate::utils::{
     flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
     try_join_all_combine_errors, ScriptBufExt,
@@ -931,7 +933,7 @@ impl Aggregator {
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
-                Some(&mut dbtx),
+                &mut dbtx,
                 Some(TxMetadata {
                     deposit_outpoint: None,
                     operator_xonly_pk: None,
@@ -958,6 +960,7 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for AggregatorServer {
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_params(
         &self,
         _request: Request<Empty>,
@@ -966,6 +969,7 @@ impl ClementineAggregator for AggregatorServer {
         Ok(Response::new(params.try_into().map_to_status()?))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_compatibility_data_from_entities(
         &self,
         _request: Request<Empty>,
@@ -979,16 +983,21 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         tracing::info!("Vergen rpc called");
         Ok(Response::new(get_vergen_response()))
     }
-
+    #[tracing::instrument(
+        skip_all,
+        fields(restart_tasks = %request.get_ref().restart_tasks),
+        err(level = tracing::Level::ERROR)
+    )]
     async fn get_entity_statuses(
         &self,
         request: Request<GetEntityStatusesRequest>,
     ) -> Result<Response<EntityStatuses>, Status> {
-        tracing::info!("Get entity statuses rpc called");
+        tracing::debug!("Get entity statuses rpc called");
         let request = request.into_inner();
         let restart_tasks = request.restart_tasks;
 
@@ -997,6 +1006,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn optimistic_payout(
         &self,
         request: tonic::Request<super::OptimisticWithdrawParams>,
@@ -1231,7 +1241,7 @@ impl ClementineAggregator for AggregatorServer {
                 let mut dbtx = self.db.begin_transaction().await?;
                 self.tx_sender
                     .add_tx_to_queue(
-                        Some(&mut dbtx),
+                        &mut dbtx,
                         TransactionType::OptimisticPayout,
                         opt_payout_tx,
                         &[],
@@ -1256,6 +1266,7 @@ impl ClementineAggregator for AggregatorServer {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_send_tx(
         &self,
         request: Request<clementine::SendTxRequest>,
@@ -1281,7 +1292,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    Some(&mut dbtx),
+                    &mut dbtx,
                     None,
                     &signed_tx,
                     fee_type.try_into()?,
@@ -1300,7 +1311,7 @@ impl ClementineAggregator for AggregatorServer {
         }
     }
 
-    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn setup(
         &self,
         _request: Request<Empty>,
@@ -1434,8 +1445,7 @@ impl ClementineAggregator for AggregatorServer {
     ///    - Nonce aggregation
     ///    - Nonce distribution
     ///    - Signature aggregation
-    ///    - Signature distribution
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn new_deposit(
         &self,
         request: Request<Deposit>,
@@ -1798,7 +1808,7 @@ impl ClementineAggregator for AggregatorServer {
         .await.map_err(Into::into)
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn withdraw(
         &self,
         request: Request<AggregatorWithdrawalInput>,
@@ -1830,7 +1840,7 @@ impl ClementineAggregator for AggregatorServer {
             })
             .collect::<Result<Vec<_>, Status>>()?;
 
-        tracing::warn!(
+        tracing::info!(
             "Parsed withdraw rpc params, withdrawal params: {:?}, operator xonly pks: {:?}",
             withdraw_params,
             operator_xonly_pks_from_rpc
@@ -1877,7 +1887,7 @@ impl ClementineAggregator for AggregatorServer {
 
         // collect responses from operators and return them as a vector of strings
         let responses = futures::future::join_all(withdraw_futures).await;
-        tracing::warn!(
+        tracing::info!(
             "Withdraw rpc completed successfully for withdrawal id: {}, operator xonly pks: {:?}, responses: {:?}",
             withdrawal_id,
             operator_xonly_pks_from_rpc
@@ -1905,9 +1915,10 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     async fn get_nofn_aggregated_xonly_pk(
         &self,
-        _: tonic::Request<super::Empty>,
+        _request: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
         tracing::info!("Get nofn aggregated xonly pk rpc called");
         let verifier_keys = self.fetch_verifier_keys().await?;
@@ -1924,6 +1935,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn internal_get_emergency_stop_tx(
         &self,
         request: Request<clementine::GetEmergencyStopTxRequest>,
@@ -1958,6 +1970,7 @@ impl ClementineAggregator for AggregatorServer {
         }))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
     async fn send_move_to_vault_tx(
         &self,
         request: Request<clementine::SendMoveTxRequest>,
@@ -2062,7 +2075,7 @@ impl ClementineAggregator for AggregatorServer {
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
-                    Some(&mut dbtx),
+                    &mut dbtx,
                     Some(TxMetadata {
                         deposit_outpoint: Some(deposit_outpoint),
                         operator_xonly_pk: None,

@@ -1,29 +1,34 @@
-use crate::{log_error_for_tx, TxSender, TxSenderDatabase, TxSenderSigner, TxSenderTxBuilder};
+use crate::{log_error_for_tx, TxSender};
+use bitcoin::absolute::{LockTime, LOCK_TIME_THRESHOLD};
+use bitcoin::hashes::Hash;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
-use bitcoin::taproot::{self};
-use bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
-use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
+use bitcoin::taproot::{self, LeafVersion};
+use bitcoin::{Address, Amount, ScriptBuf, TapLeafHash, Transaction};
+use bitcoin::{Psbt, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
-    BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
-    WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
+    BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, WalletCreateFundedPsbtOutput,
+    WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
 use bitcoincore_rpc::RpcApi;
+use clementine_config::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use clementine_errors::SendTxError;
+use clementine_primitives::FeeRateKvb;
 use clementine_utils::sign::TapTweakData;
-use clementine_utils::{RbfSigningInfo, TxMetadata};
+use clementine_utils::{RbfSigningInfo, RbfSigningSpendPath, TxMetadata};
 use eyre::Context;
 use eyre::{eyre, OptionExt};
 use std::str::FromStr;
 
 use super::Result;
 
-impl<S, D, B> TxSender<S, D, B>
-where
-    S: TxSenderSigner,
-    D: TxSenderDatabase,
-    B: TxSenderTxBuilder,
-{
+/// Prefix for the reveal transaction ids for wtxid grinding.
+#[cfg(feature = "testing")]
+pub const REVEAL_TX_PREFIX: &[u8] = &[2];
+#[cfg(not(feature = "testing"))]
+pub const REVEAL_TX_PREFIX: &[u8] = &[2, 2];
+
+impl TxSender {
     /// Calculates the appropriate fee rate for a Replace-By-Fee (RBF) transaction.
     ///
     /// This method determines the effective fee rate needed to successfully replace
@@ -40,32 +45,32 @@ where
     /// * `new_feerate` - The target fee rate requested for the replacement transaction
     ///
     /// # Returns
-    /// * `Ok(Some(FeeRate))` - The effective fee rate (in satoshis per kilo-wu) to use for the replacement
+    /// * `Ok(Some(FeeRateKvb))` - The effective fee rate (in satoshis per kvB) to use for the replacement
     /// * `Ok(None)` - If the original transaction already has a higher fee rate than requested
     /// * `Err(...)` - If there was an error retrieving or analyzing the original transaction
     pub async fn calculate_bump_feerate_if_needed(
         &self,
         txid: &Txid,
-        new_feerate: FeeRate,
-    ) -> Result<Option<FeeRate>> {
+        new_feerate: FeeRateKvb,
+    ) -> Result<Option<FeeRateKvb>> {
         let original_tx = self.rpc.get_tx_of_txid(txid).await.map_err(|e| eyre!(e))?;
 
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        //tracing::debug!("original_tx_fee: {}", original_tx_fee);
-
         let original_tx_weight = original_tx.weight();
 
         // Original fee rate calculation according to Bitcoin Core
-        // In Rust Bitcoin, the calculations are done in sat/kwu
-        // so some precision is lost. https://github.com/bitcoin/bitcoin/blob/a33bd767a37dccf39a094d03c2f62ea81633410f/src/policy/feerate.cpp#L11
-        let original_feerate_sat_per_kwu = FeeRate::from_sat_per_kwu(
-            (original_tx_fee.to_sat() * 1000) / (original_tx_weight.to_vbytes_ceil() * 4),
+        // Use sat/kvB to retain precision when converting to sat/vB.
+        let original_feerate_sat_per_kvb = FeeRateKvb::from_sat_per_kvb(
+            original_tx_fee
+                .to_sat()
+                .saturating_mul(1000)
+                .div_ceil(original_tx_weight.to_vbytes_ceil() as u64),
         );
 
         // If original feerate is already higher than target, avoid bumping
-        if original_feerate_sat_per_kwu >= new_feerate {
+        if original_feerate_sat_per_kvb >= new_feerate {
             return Ok(None);
         }
 
@@ -77,17 +82,17 @@ where
             .map_err(|e| eyre!(e))?
             .incremental_fee;
         let incremental_fee_rate_sat_per_kvb = incremental_fee_rate.to_sat();
-        let incremental_fee_rate = FeeRate::from_sat_per_kwu(incremental_fee_rate_sat_per_kvb / 4);
+        let incremental_fee_rate = FeeRateKvb::from_sat_per_kvb(incremental_fee_rate_sat_per_kvb);
 
         // Use max of target fee rate and original + minimum fee increment rate.
         let min_bump_feerate =
-            original_feerate_sat_per_kwu.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu();
+            original_feerate_sat_per_kvb.to_sat_per_kvb() + incremental_fee_rate.to_sat_per_kvb();
 
-        let effective_feerate_sat_per_kwu =
-            std::cmp::max(new_feerate.to_sat_per_kwu(), min_bump_feerate);
+        let effective_feerate_sat_per_kvb =
+            std::cmp::max(new_feerate.to_sat_per_kvb(), min_bump_feerate);
 
-        Ok(Some(FeeRate::from_sat_per_kwu(
-            effective_feerate_sat_per_kwu,
+        Ok(Some(FeeRateKvb::from_sat_per_kvb(
+            effective_feerate_sat_per_kvb,
         )))
     }
 
@@ -147,24 +152,12 @@ where
     pub async fn create_funded_psbt(
         &self,
         tx: &Transaction,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
     ) -> Result<WalletCreateFundedPsbtResult> {
-        // We need to carefully calculate the witness weight and factor that
-        // into the fee rate because wallet_create_funded_psbt does not factor
-        // in witnesses.
-
-        // The scaleup factor is the ratio of the total weight to the base weight
-        // The walletcreatefundedpsbt will use the base weight to calculate the fee
-        // and we'll scale up the fee rate by the scaleup factor to achieve our desired fee
-        let witness_scaleup = tx.weight().to_wu() as f64 / (tx.base_size() * 4) as f64;
-
-        let adjusted_fee_rate = FeeRate::from_sat_per_kwu(
-            (fee_rate.to_sat_per_kwu() as f64 * witness_scaleup).ceil() as u64,
-        );
-
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             add_inputs: Some(true), // Let the wallet add its inputs
+            include_unsafe: Some(self.include_unsafe),
             change_address: None,
             change_position: Some(tx.output.len() as u16), // Add change output at last index (so that SinglePlusAnyoneCanPay signatures stay valid)
             change_type: None,
@@ -172,7 +165,7 @@ where
             lock_unspent: None,
             // Bitcoincore expects BTC/kvbyte for fee_rate
             fee_rate: Some(
-                adjusted_fee_rate
+                fee_rate
                     .fee_vb(1000)
                     .ok_or_eyre("Failed to convert fee rate to BTC/kvbyte")?,
             ),
@@ -198,7 +191,7 @@ where
                 }
                 let address = Address::from_script(
                     &out.script_pubkey,
-                    self.protocol_paramset.network,
+                    self.network,
                 )
                 .map_err(|e| eyre!(e));
                 match address {
@@ -233,6 +226,12 @@ where
                         txid: inp.previous_output.txid,
                         vout: inp.previous_output.vout,
                         sequence: Some(inp.sequence.to_consensus_u32()),
+                        // give a specific weight if witness is not empty
+                        weight: if inp.witness.is_empty() {
+                            None
+                        } else {
+                            Some(inp.segwit_weight().to_wu())
+                        },
                     })
                     .collect::<Vec<_>>(),
                 outputs,
@@ -244,16 +243,20 @@ where
             .map_err(|e| eyre!(e).into())
     }
     /// Given a PSBT with inputs that've been signed by the wallet except for our new input,
-    /// we have to sign the first input with our self.signer actor.
+    /// we have to sign the input with our secret key.
     ///
-    /// Assumes that the first input is the input with our key.
+    /// # Arguments
+    /// * `psbt` - The PSBT to sign.
+    /// * `rbf_signing_info` - The RBF signing info.
+    /// * `cached_leaf_hash` - The cached leaf hash for script path spends.
     ///
     /// # Returns
     /// The signed PSBT as a base64-encoded string.
     pub async fn attempt_sign_psbt(
         &self,
         psbt: String,
-        rbf_signing_info: RbfSigningInfo,
+        rbf_signing_info: &RbfSigningInfo,
+        cached_leaf_hash: Option<TapLeafHash>,
     ) -> Result<String> {
         // Parse the PSBT from string
         let mut decoded_psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e))?;
@@ -269,88 +272,133 @@ where
         let tx = decoded_psbt.unsigned_tx.clone();
         let mut sighash_cache = SighashCache::new(&tx);
 
-        // Determine the sighash type (default to ALL if not specified)
-        let sighash_type = decoded_psbt.inputs[input_index]
-            .sighash_type
-            .unwrap_or((TapSighashType::Default).into());
+        let tap_sighash_type = rbf_signing_info.tap_sighash_type;
 
-        // For Taproot key path spending
-        if let Ok(tap_sighash_type) = sighash_type.taproot_hash_ty() {
-            // Calculate the sighash for this input
-            // Extract previous outputs from the PSBT
-            let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
-                .inputs
-                .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
+        // Calculate the sighash for this input
+        // Extract previous outputs from the PSBT
+        let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
+            .inputs
+            .iter()
+            .zip(tx.input.iter())
+            .map(|(psbt_input, tx_input)| {
+                // Try witness_utxo first (for segwit inputs)
+                if let Some(witness_utxo) = psbt_input.witness_utxo.clone() {
+                    Ok(witness_utxo)
+                } else if let Some(ref non_witness_tx) = psbt_input.non_witness_utxo {
+                    // For non-segwit inputs, extract the output from the previous transaction
+                    let vout = tx_input.previous_output.vout as usize;
+                    non_witness_tx
+                        .output
+                        .get(vout)
+                        .cloned()
+                        .ok_or_eyre(format!(
+                            "Output index {vout} out of bounds in previous transaction",
+                        ))
                         .map_err(SendTxError::Other)
-                })
-                .collect::<Result<Vec<_>>>()?;
+                } else {
+                    Err(eyre!(
+                        "Neither witness_utxo nor non_witness_utxo found for input"
+                    ))
+                    .map_err(SendTxError::Other)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-            let sighash = sighash_cache
+        let sighash = match &rbf_signing_info.spend_path {
+            RbfSigningSpendPath::KeyPath { .. } => sighash_cache
                 .taproot_key_spend_signature_hash(
                     input_index,
                     &Prevouts::All(&prevouts),
                     tap_sighash_type,
                 )
-                .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
-
-            #[cfg(test)]
-            let mut sighash = sighash;
-
-            #[cfg(test)]
-            {
-                use bitcoin::sighash::Annex;
-                // This should provide the Sighash for the key spend
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let annex = Annex::new(annex_bytes).unwrap();
-                    sighash = sighash_cache
-                        .taproot_signature_hash(
-                            input_index,
-                            &Prevouts::All(&prevouts),
-                            Some(annex),
-                            None,
-                            tap_sighash_type,
-                        )
-                        .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
-                }
-            }
-
-            // Sign the sighash with our signer
-            let signature = self
-                .signer
-                .sign_with_tweak_data(
-                    sighash,
-                    TapTweakData::KeyPath(rbf_signing_info.tweak_merkle_root),
+                .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?,
+            RbfSigningSpendPath::ScriptPath { .. } => sighash_cache
+                .taproot_script_spend_signature_hash(
+                    input_index,
+                    &Prevouts::All(&prevouts),
+                    match cached_leaf_hash {
+                        Some(leaf_hash) => leaf_hash,
+                        None => {
+                            return Err(eyre!(
+                                "Cached leaf hash expected but not found for RBF script spend"
+                            )
+                            .into())
+                        }
+                    },
+                    tap_sighash_type,
                 )
-                .map_err(|e| eyre!("Failed to sign input: {}", e))?;
+                .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?,
+        };
 
-            // Add the signature to the PSBT
-            decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot::Signature {
-                signature,
-                sighash_type: tap_sighash_type,
-            });
+        #[cfg(feature = "testing")]
+        let mut sighash = sighash;
 
-            decoded_psbt.inputs[input_index].final_script_witness =
-                Some(Witness::from_slice(&[signature.serialize()]));
-
-            #[cfg(test)]
-            {
-                if let Some(ref annex_bytes) = rbf_signing_info.annex {
-                    let mut witness = Witness::from_slice(&[signature.serialize()]);
-                    witness.push(annex_bytes);
-                    decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
-                    tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
+        #[cfg(feature = "testing")]
+        {
+            use bitcoin::sighash::Annex;
+            // This should provide the Sighash for the key spend
+            if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                if let RbfSigningSpendPath::ScriptPath { .. } = &rbf_signing_info.spend_path {
+                    return Err(eyre!("Script path RBF signing with annex not supported").into());
                 }
+                let annex = Annex::new(annex_bytes).unwrap();
+                sighash = sighash_cache
+                    .taproot_signature_hash(
+                        input_index,
+                        &Prevouts::All(&prevouts),
+                        Some(annex),
+                        None,
+                        tap_sighash_type,
+                    )
+                    .map_err(|e| eyre!("Failed to calculate sighash with annex: {}", e))?;
             }
-            // Serialize the signed PSBT back to base64
-            Ok(decoded_psbt.to_string())
-        } else {
-            Err(eyre!("Only Taproot key path signing is currently supported").into())
         }
+
+        // Sign the sighash with our signer
+        let tweak_data = match &rbf_signing_info.spend_path {
+            RbfSigningSpendPath::KeyPath { tweak_merkle_root } => {
+                TapTweakData::KeyPath(*tweak_merkle_root)
+            }
+            RbfSigningSpendPath::ScriptPath { .. } => TapTweakData::ScriptPath,
+        };
+
+        let signature = self
+            .signer
+            .sign_with_tweak_data(sighash, tweak_data)
+            .map_err(|e| eyre!("Failed to sign input: {}", e))?;
+
+        let mut witness = Witness::new();
+        let taproot_signature = taproot::Signature {
+            signature,
+            sighash_type: tap_sighash_type,
+        };
+
+        match &rbf_signing_info.spend_path {
+            RbfSigningSpendPath::KeyPath { .. } => {
+                witness.push(taproot_signature.serialize());
+                // Add the signature to the PSBT
+                decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot_signature);
+            }
+            RbfSigningSpendPath::ScriptPath {
+                control_block,
+                script,
+            } => {
+                witness.push(taproot_signature.serialize());
+                witness.push(script.clone());
+                witness.push(control_block.clone());
+            }
+        }
+
+        #[cfg(feature = "testing")]
+        {
+            if let Some(ref annex_bytes) = rbf_signing_info.annex {
+                witness.push(annex_bytes);
+                tracing::info!("Decoded PSBT: {:?}", decoded_psbt);
+            }
+        }
+        decoded_psbt.inputs[input_index].final_script_witness = Some(witness);
+        // Serialize the signed PSBT back to base64
+        Ok(decoded_psbt.to_string())
     }
 
     #[track_caller]
@@ -385,6 +433,82 @@ where
         psbt.inputs.len() > original_tx.input.len()
     }
 
+    /// Reorders PSBT outputs so that the original transaction outputs appear first
+    /// in the same order, followed by any newly added outputs (e.g., change outputs).
+    ///
+    /// This is important for watchtower challenge transactions where the OP_RETURN
+    /// output is expected to remain at a specific index.
+    pub fn reorder_psbt_outputs(&self, psbt: &mut Psbt, original_tx: &Transaction) -> Result<()> {
+        if psbt.unsigned_tx.output.len() != psbt.outputs.len() {
+            return Err(SendTxError::Other(eyre!(
+                "PSBT outputs length mismatch: unsigned_tx outputs={} psbt outputs={}",
+                psbt.unsigned_tx.output.len(),
+                psbt.outputs.len()
+            )));
+        }
+
+        let mut used = vec![false; psbt.unsigned_tx.output.len()];
+        let mut new_outputs = Vec::with_capacity(psbt.unsigned_tx.output.len());
+        let mut new_psbt_outputs = Vec::with_capacity(psbt.outputs.len());
+
+        for original_out in &original_tx.output {
+            let mut found_idx = None;
+            for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+                if !used[idx]
+                    && out.value == original_out.value
+                    && out.script_pubkey == original_out.script_pubkey
+                {
+                    found_idx = Some(idx);
+                    break;
+                }
+            }
+
+            let Some(idx) = found_idx else {
+                return Err(SendTxError::Other(eyre!(
+                    "Failed to find original output in PSBT"
+                )));
+            };
+
+            used[idx] = true;
+            new_outputs.push(psbt.unsigned_tx.output[idx].clone());
+            new_psbt_outputs.push(psbt.outputs[idx].clone());
+        }
+
+        for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+            if !used[idx] {
+                new_outputs.push(out.clone());
+                new_psbt_outputs.push(psbt.outputs[idx].clone());
+            }
+        }
+
+        psbt.unsigned_tx.output = new_outputs;
+        psbt.outputs = new_psbt_outputs;
+
+        Ok(())
+    }
+
+    fn extract_final_tx_from_psbt(psbt: &str) -> Result<Transaction> {
+        let psbt = Psbt::from_str(psbt).map_err(|e| eyre!(e))?;
+        if psbt.inputs.len() != psbt.unsigned_tx.input.len() {
+            return Err(eyre!("PSBT input count mismatch").into());
+        }
+
+        let mut tx = psbt.unsigned_tx.clone();
+        for (idx, input) in tx.input.iter_mut().enumerate() {
+            let psbt_input = &psbt.inputs[idx];
+            if psbt_input.final_script_witness.is_none() && psbt_input.final_script_sig.is_none() {
+                return Err(eyre!("PSBT input {idx} is not finalized").into());
+            }
+            if let Some(witness) = psbt_input.final_script_witness.clone() {
+                input.witness = witness;
+            }
+            if let Some(sig) = psbt_input.final_script_sig.clone() {
+                input.script_sig = sig;
+            }
+        }
+        Ok(tx)
+    }
+
     pub async fn get_tx_fee(&self, tx: &Transaction) -> Result<Amount> {
         let inputs = {
             let mut inputs = Amount::ZERO;
@@ -410,12 +534,13 @@ where
     /// It interacts with the database to track the latest RBF attempt (`last_rbf_txid`).
     ///
     /// # Logic:
-    /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
+    /// 1.  **Check for Existing RBF Tx:** Retrieves RBF txids for the `try_to_send_id` and
+    ///     selects the most recent one still in the mempool.
+    /// 2.  **Bump Existing Tx:** If a mempool tx exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
     ///
-    /// 3.  **Send Initial RBF Tx:** If no `last_rbf_txid` exists (first attempt):
+    /// 3.  **Send Initial RBF Tx:** If no RBF tx is found in the mempool:
     ///     - It uses `fund_raw_transaction` RPC to let the wallet add (potentially) inputs,
     ///       outputs, set the fee according to `fee_rate`, and mark the transaction as replaceable.
     ///     - Uses `sign_raw_transaction_with_wallet` RPC to sign the funded transaction.
@@ -427,14 +552,17 @@ where
     /// * `tx` - The original transaction intended for RBF (used only on the first attempt).
     /// * `tx_metadata` - Optional metadata associated with the transaction.
     /// * `fee_rate` - The target fee rate for the RBF replacement.
-    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    #[tracing::instrument(skip_all, fields(try_to_send_id, tx_meta=?tx_metadata))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_rbf_tx(
         &self,
         try_to_send_id: u32,
-        tx: Transaction,
+        mut tx: Transaction,
         tx_metadata: Option<TxMetadata>,
-        fee_rate: FeeRate,
+        fee_rate: FeeRateKvb,
         rbf_signing_info: Option<RbfSigningInfo>,
+        current_tip_height: u32,
+        needs_wtxid_grind: bool,
     ) -> Result<()> {
         let (fee_rate, _slipstream_cfg) = self.slipstream_fee_rate_and_cfg(&tx, fee_rate).await;
 
@@ -447,26 +575,60 @@ where
             .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", true)
             .await;
 
-        let mut dbtx = self
+        let rbf_txids = self
             .db
-            .begin_transaction()
+            .list_rbf_txids_for_id(None, try_to_send_id)
             .await
-            .wrap_err("Failed to begin database transaction")?;
+            .wrap_err("Failed to list RBF txids")?;
 
-        let last_rbf_txid = self
-            .db
-            .get_last_rbf_txid(Some(&mut dbtx), try_to_send_id)
-            .await
-            .wrap_err("Failed to get last RBF txid")?;
+        // We check all bumps here but technically as wallet bumpfee rpcs do not use unsafe utxos, if the last rbf txid is
+        // evicted all should be evicted as well. Only while funding the first rbf tx can unsafe outputs be used.
+        let mut bump_from_txid = None;
+        for txid in rbf_txids {
+            match self.rpc.get_mempool_entry(&txid).await {
+                Ok(_) => {
+                    bump_from_txid = Some(txid);
+                    break;
+                }
+                Err(e) => {
+                    // If not in mempool, either evicted or already confirmed/replaced.
+                    if !e.to_string().contains("Transaction not in mempool") {
+                        return Err(eyre!("Failed to get mempool entry for {txid}: {e}").into());
+                    }
 
-        if let Some(last_rbf_txid) = last_rbf_txid {
+                    if let Ok(tx_info) = self.rpc.get_transaction(&txid, None).await {
+                        if tx_info.info.blockhash.is_some() && tx_info.info.confirmations > 0 {
+                            tracing::debug!(
+                                ?try_to_send_id,
+                                "RBF tx {txid} already confirmed, skipping bump"
+                            );
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // cache the leaf hash for script path spends
+        let cached_leaf_hash = match &rbf_signing_info {
+            Some(rbf_signing_info) => match &rbf_signing_info.spend_path {
+                RbfSigningSpendPath::ScriptPath { script, .. } => Some(TapLeafHash::from_script(
+                    ScriptBuf::from_bytes(script.clone()).as_script(),
+                    LeafVersion::TapScript,
+                )),
+                _ => None,
+            },
+            None => None,
+        };
+
+        let effective_feerate = if let Some(bump_from_txid) = bump_from_txid {
             tracing::debug!(
                 ?try_to_send_id,
-                "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
+                "Attempting to bump fee for txid {bump_from_txid} using psbt_bump_fee"
             );
 
             let effective_feerate = self
-                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
+                .calculate_bump_feerate_if_needed(&bump_from_txid, fee_rate)
                 .await?;
 
             let Some(effective_feerate) = effective_feerate else {
@@ -480,31 +642,28 @@ where
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
-                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
-                    effective_feerate.to_sat_per_vb_ceil(),
-                ))),
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_kvbyte(
+                    Amount::from_sat(effective_feerate.to_sat_per_kvb()),
+                )),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
             };
 
             let bump_result = self
                 .rpc
-                .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
+                .psbt_bump_fee(&bump_from_txid, Some(&psbt_bump_opts))
                 .await;
 
-            let bumped_psbt = match bump_result {
+            let mut bumped_psbt = match bump_result {
                 Err(e) => {
                     // Check for common errors indicating the tx is already confirmed or spent
                     let rpc_error_str = e.to_string();
                     if rpc_error_str.contains("Transaction already in block chain") {
                         tracing::debug!(
                             ?try_to_send_id,
-                            "RBF bump failed for {last_rbf_txid}, likely confirmed or spent: {e}"
+                            "RBF bump failed for {bump_from_txid}, likely confirmed or spent: {e}"
                         );
                         // No need to return error, just log and proceed
-                        self.db.commit_transaction(dbtx).await.wrap_err(
-                            "Failed to commit database transaction after failed bump check",
-                        )?;
                         return Ok(());
                     } else {
                         // Other potentially transient errors
@@ -543,98 +702,94 @@ where
                 }
             };
 
+            self.fill_in_utxo_info(&mut bumped_psbt)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_fill_in_utxo_info_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
+
             let bumped_psbt = self
                 .copy_witnesses(bumped_psbt, &tx)
                 .await
                 .wrap_err("Failed to fill SAP signatures")?;
 
-            // Wallet first pass
-            // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
-            let process_result = self
-                .rpc
-                .wallet_process_psbt(&bumped_psbt, Some(true), None, None) // sign=true
-                .await;
+            let mut unsigned_psbt = Psbt::from_str(&bumped_psbt).map_err(|e| eyre!(e))?;
 
-            let processed_psbt = match process_result {
-                Ok(res) if res.complete => res.psbt,
-                // attempt to sign
-                Ok(res) => {
-                    let Some(rbf_signing_info) = rbf_signing_info else {
-                        return Err(eyre!(
-                            "RBF signing info is required for non SighashSingle RBF txs"
-                        )
-                        .into());
-                    };
-                    self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?
-                }
-                Err(e) => {
-                    let err_msg = format!("wallet_process_psbt error: {e}");
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
-                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(try_to_send_id, "rbf_psbt_sign_failed", true)
-                        .await;
-                    return Err(SendTxError::Other(eyre!(e)));
-                }
-            };
+            if let Err(err) = self.reorder_psbt_outputs(&mut unsigned_psbt, &tx) {
+                let err_msg = format!("Failed to reorder bumped PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
+            }
+            let mut current_locktime = unsigned_psbt.unsigned_tx.lock_time;
 
-            // Finalize the PSBT
-            let finalize_result = self
-                .rpc
-                .finalize_psbt(&processed_psbt, None) // extract=true by default
-                .await;
+            let final_tx = loop {
+                unsigned_psbt.unsigned_tx.lock_time = current_locktime;
+                let bumped_psbt = unsigned_psbt.to_string();
 
-            let final_tx_hex = match finalize_result {
-                Ok(FinalizePsbtResult {
-                    hex: Some(hex),
-                    complete: true,
-                    ..
-                }) => hex,
-                Ok(res) => {
-                    let err_msg = format!("Could not finalize PSBT: {res:?}");
-                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                // Wallet first pass
+                // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
+                let process_result = self
+                    .rpc
+                    .wallet_process_psbt(&bumped_psbt, Some(true), None, None) // sign=true
+                    .await;
 
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_psbt_finalize_incomplete",
-                            true,
-                        )
-                        .await;
-                    return Err(SendTxError::PsbtError(err_msg));
-                }
-                Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("finalize_psbt error: {}", e)
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_psbt_finalize_failed",
-                            true,
-                        )
-                        .await;
-                    return Err(SendTxError::Other(eyre!(e)));
+                let processed_psbt = match process_result {
+                    Ok(res) if res.complete => res.psbt,
+                    // attempt to sign
+                    Ok(res) => {
+                        let Some(rbf_signing_info) = &rbf_signing_info else {
+                            return Err(eyre!(
+                                "RBF signing info is required for non SighashSingle RBF txs"
+                            )
+                            .into());
+                        };
+                        self.attempt_sign_psbt(res.psbt, rbf_signing_info, cached_leaf_hash)
+                            .await?
+                    }
+                    Err(e) => {
+                        let err_msg = format!("wallet_process_psbt error: {e}");
+                        tracing::warn!(?try_to_send_id, "{}", err_msg);
+                        log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "rbf_psbt_sign_failed",
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(e)));
+                    }
+                };
+
+                let final_tx = Self::extract_final_tx_from_psbt(&processed_psbt)?;
+                if !needs_wtxid_grind
+                    || final_tx
+                        .compute_wtxid()
+                        .as_raw_hash()
+                        .to_byte_array()
+                        .starts_with(REVEAL_TX_PREFIX)
+                {
+                    break final_tx;
+                } else {
+                    current_locktime = LockTime::from_consensus(std::cmp::max(
+                        current_locktime.to_consensus_u32() + 1,
+                        LOCK_TIME_THRESHOLD,
+                    ));
                 }
             };
 
-            // Deserialize final tx to get txid
-            let final_tx: Transaction = match consensus::deserialize(&final_tx_hex) {
-                Ok(tx) => tx,
-                Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Failed to deserialize final RBF tx hex: {}", e)
-                    );
-                    return Err(SendTxError::Other(eyre!(e)));
-                }
-            };
             let bumped_txid = final_tx.compute_txid();
 
             let sent_txid = if self
@@ -694,7 +849,7 @@ where
 
             tracing::debug!(
                 ?try_to_send_id,
-                "RBF tx {last_rbf_txid} successfully bumped and sent as {sent_txid}"
+                "RBF tx {bump_from_txid} successfully bumped and sent as {sent_txid}"
             );
 
             let _ = self
@@ -703,9 +858,11 @@ where
                 .await;
 
             self.db
-                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
+                .save_rbf_txid(None, try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save new RBF txid after bump")?;
+
+            effective_feerate
         } else {
             tracing::debug!(
                 ?try_to_send_id,
@@ -716,6 +873,47 @@ where
                 .db
                 .update_tx_debug_sending_state(try_to_send_id, "creating_initial_rbf_psbt", true)
                 .await;
+
+            // for accurate fee calculation, fill in the witness with dummy data if its empty
+            if let Some(rbf_signing_info) = &rbf_signing_info {
+                let vout = rbf_signing_info.vout as usize;
+                let input_count = tx.input.len();
+                let input = tx.input.get_mut(vout).ok_or_else(|| {
+                    SendTxError::from(eyre!(
+                        "Input at vout {} given in RBF signing info does not exist in transaction (has {} inputs)",
+                        vout,
+                        input_count
+                    ))
+                })?;
+                if input.witness.is_empty() {
+                    match &rbf_signing_info.spend_path {
+                        RbfSigningSpendPath::KeyPath { .. } => {
+                            input.witness = Witness::from_slice(&[&[0u8; 65]]);
+                        }
+                        RbfSigningSpendPath::ScriptPath {
+                            script,
+                            control_block,
+                        } => {
+                            let mut witness = Witness::new();
+                            witness.push([0u8; 65]);
+                            witness.push(script.clone());
+                            witness.push(control_block.clone());
+                            input.witness = witness;
+                        }
+                    }
+                }
+            }
+
+            let mut added_dummy_output = false;
+            // if the tx has no outputs, btc core wallet fund transaction will fail, so we add a dummy output
+            // which we will remove later to save on fees.
+            if tx.output.is_empty() {
+                tx.output.push(TxOut {
+                    value: NON_EPHEMERAL_ANCHOR_AMOUNT,
+                    script_pubkey: ScriptBuf::from_hex("51024e73").expect("valid anchor script"),
+                });
+                added_dummy_output = true;
+            }
 
             let create_result = self
                 .create_funded_psbt(&tx, fee_rate)
@@ -733,98 +931,127 @@ where
                     "Transaction has not been funded and is being sent as is. This transaction will have to be manually bumped as the wallet will not add it to itself."
                 );
             }
+            let mut funded_psbt_str = create_result.psbt;
 
-            // replace locktime and version
-            let mut psbt = Psbt::from_str(&create_result.psbt).map_err(|e| eyre!(e))?;
-            psbt.unsigned_tx.lock_time = tx.lock_time;
-            psbt.unsigned_tx.version = tx.version;
-
-            tracing::debug!(
-                try_to_send_id,
-                "Successfully created initial RBF PSBT with fee {}",
-                create_result.fee
-            );
-
-            let mut psbt = psbt.to_string();
-
-            self.fill_in_utxo_info(&mut psbt).await.map_err(|err| {
-                let err = eyre!(err).wrap_err("Failed to fill in utxo info");
-                self.handle_err(
-                    format!("{err:?}"),
-                    "rbf_fill_in_utxo_info_failed",
-                    try_to_send_id,
-                );
-
-                err
-            })?;
-
-            psbt = self.copy_witnesses(psbt, &tx).await.map_err(|err| {
-                let err = eyre!(err).wrap_err("Failed to copy witnesses");
-                self.handle_err(
-                    format!("{err:?}"),
-                    "rbf_copy_witnesses_failed",
-                    try_to_send_id,
-                );
-
-                err
-            })?;
-
-            // 2. Process the PSBT (let the wallet sign its inputs)
-            let process_result = self
-                .rpc
-                .wallet_process_psbt(&psbt, Some(true), None, None)
+            self.fill_in_utxo_info(&mut funded_psbt_str)
                 .await
                 .map_err(|err| {
-                    let err = eyre!(err).wrap_err("Failed to process initial RBF PSBT");
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
                     self.handle_err(
                         format!("{err:?}"),
-                        "rbf_psbt_process_failed",
+                        "rbf_fill_in_utxo_info_failed",
                         try_to_send_id,
                     );
 
                     err
                 })?;
 
-            if let Some(rbf_signing_info) = rbf_signing_info {
-                psbt = self
-                    .attempt_sign_psbt(process_result.psbt, rbf_signing_info)
+            funded_psbt_str = self
+                .copy_witnesses(funded_psbt_str, &tx)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to copy witnesses");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_copy_witnesses_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
+
+            let mut funded_psbt = Psbt::from_str(&funded_psbt_str).map_err(|e| eyre!(e))?;
+            if added_dummy_output {
+                // we delete the first output which is the dummy output we added earlier
+                // we also adjust the amount of the change output to compensate for removal of the dummy output.
+                let dummy_output_weight = funded_psbt.unsigned_tx.output[0].weight();
+                let dummy_output_value = funded_psbt.unsigned_tx.output[0].value;
+                let needed_fee_for_dummy_output = fee_rate.fee_wu(dummy_output_weight).ok_or_eyre(format!("Fee overflow occurred for dummy output: current fee rate: {fee_rate}, dummy_output_weight: {dummy_output_weight}"))?;
+                funded_psbt.unsigned_tx.output.remove(0);
+                funded_psbt.outputs.remove(0);
+                let Some(change_output) = funded_psbt.unsigned_tx.output.last_mut() else {
+                    let err_msg = "Failed to remove dummy output: funded no-output RBF transaction has no change output";
+                    return Err(SendTxError::Other(eyre!(err_msg)));
+                };
+                change_output.value += needed_fee_for_dummy_output + dummy_output_value;
+            } else if let Err(err) = self.reorder_psbt_outputs(&mut funded_psbt, &tx) {
+                // fund transaction shouldn't reorder but keep it here in case it does
+                let err_msg = format!("Failed to reorder initial PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
+            }
+            let mut current_locktime = tx.lock_time;
+
+            let final_tx = loop {
+                // replace locktime and version
+                funded_psbt.unsigned_tx.lock_time = current_locktime;
+                funded_psbt.unsigned_tx.version = tx.version;
+
+                tracing::debug!(
+                    try_to_send_id,
+                    "Successfully created initial RBF PSBT with fee {}",
+                    create_result.fee
+                );
+
+                let mut psbt = funded_psbt.to_string();
+
+                // 2. Process the PSBT (let the wallet sign its inputs)
+                let process_result = self
+                    .rpc
+                    .wallet_process_psbt(&psbt, Some(true), None, None)
                     .await
                     .map_err(|err| {
-                        let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
-                        self.handle_err(format!("{err:?}"), "rbf_psbt_sign_failed", try_to_send_id);
+                        let err = eyre!(err).wrap_err("Failed to process initial RBF PSBT");
+                        self.handle_err(
+                            format!("{err:?}"),
+                            "rbf_psbt_process_failed",
+                            try_to_send_id,
+                        );
 
                         err
                     })?;
-            } else {
-                psbt = process_result.psbt;
-            }
 
-            tracing::debug!(try_to_send_id, "Successfully processed initial RBF PSBT");
+                if let Some(rbf_signing_info) = &rbf_signing_info {
+                    psbt = self
+                        .attempt_sign_psbt(process_result.psbt, rbf_signing_info, cached_leaf_hash)
+                        .await
+                        .map_err(|err| {
+                            let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
+                            self.handle_err(
+                                format!("{err:?}"),
+                                "rbf_psbt_sign_failed",
+                                try_to_send_id,
+                            );
 
-            let final_tx = {
-                // Extract tx
-                let psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e)).map_err(|err| {
-                    let err = eyre!(err).wrap_err("Failed to deserialize initial RBF PSBT");
-                    self.handle_err(
-                        format!("{err:?}"),
-                        "rbf_psbt_deserialize_failed",
-                        try_to_send_id,
-                    );
-                    err
-                })?;
-
-                let mut tx = psbt.unsigned_tx.clone();
-
-                for (idx, input) in tx.input.iter_mut().enumerate() {
-                    if let Some(witness) = psbt.inputs[idx].final_script_witness.clone() {
-                        input.witness = witness;
-                    }
-                    if let Some(sig) = psbt.inputs[idx].final_script_sig.clone() {
-                        input.script_sig = sig;
-                    }
+                            err
+                        })?;
+                } else {
+                    psbt = process_result.psbt;
                 }
 
-                tx
+                tracing::debug!(try_to_send_id, "Successfully processed initial RBF PSBT");
+
+                let final_tx = Self::extract_final_tx_from_psbt(&psbt)?;
+                // check if wtxid prefix is correct if grinding is needed
+                if !needs_wtxid_grind
+                    || final_tx
+                        .compute_wtxid()
+                        .as_raw_hash()
+                        .to_byte_array()
+                        .starts_with(REVEAL_TX_PREFIX)
+                {
+                    break final_tx;
+                } else {
+                    // increase locktime by 1 time unit
+                    current_locktime = LockTime::from_consensus(std::cmp::max(
+                        current_locktime.to_consensus_u32() + 1,
+                        LOCK_TIME_THRESHOLD,
+                    ));
+                }
             };
 
             let initial_txid = final_tx.compute_txid();
@@ -889,15 +1116,17 @@ where
                 .await;
 
             self.db
-                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, sent_txid)
+                .save_rbf_txid(None, try_to_send_id, sent_txid)
                 .await
                 .wrap_err("Failed to save initial RBF txid")?;
-        }
+
+            fee_rate
+        };
 
         self.db
-            .commit_transaction(dbtx)
+            .update_effective_fee_rate(None, try_to_send_id, effective_feerate, current_tip_height)
             .await
-            .wrap_err("Failed to commit database transaction")?;
+            .wrap_err("Failed to update effective fee rate")?;
 
         Ok(())
     }

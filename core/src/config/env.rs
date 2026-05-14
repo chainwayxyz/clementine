@@ -10,7 +10,9 @@ use crate::{
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use clementine_errors::BridgeError;
+#[cfg(feature = "automation")]
 use clementine_tx_sender::maraslipstream;
+#[cfg(feature = "automation")]
 use clementine_tx_sender::MaraSlipstreamConfig;
 use eyre::Context;
 use std::{path::PathBuf, str::FromStr, time::Duration};
@@ -30,6 +32,7 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
 }
 
+#[cfg(feature = "automation")]
 fn trim_env_in_place(s: &mut String) {
     // Trim end first (common case: trailing newline/space in env files).
     let end_len = s.trim_end().len();
@@ -40,6 +43,7 @@ fn trim_env_in_place(s: &mut String) {
     s.drain(..start_idx);
 }
 
+#[cfg(feature = "automation")]
 fn read_optional_trimmed_env(env_var: &'static str) -> Option<String> {
     let mut s = std::env::var(env_var).ok()?;
     trim_env_in_place(&mut s);
@@ -57,6 +61,7 @@ fn read_optional_trimmed_env(env_var: &'static str) -> Option<String> {
 // Slipstream is only available for Bitcoin mainnet/testnet4 (not regtest/signet).
 //
 // The client code is optional and, if used, is read from an env var.
+#[cfg(feature = "automation")]
 fn read_maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
     let host = read_optional_trimmed_env("MARASLIPSTREAM_HOST")?;
 
@@ -131,6 +136,12 @@ impl TxSenderLimitsExt for TxSenderLimits {
                 "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
             )
             .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
+            fee_bump_after_blocks: read_string_from_env_then_parse::<u32>(
+                "TX_SENDER_FEE_BUMP_AFTER_BLOCKS",
+            )
+            .unwrap_or(defaults.fee_bump_after_blocks),
+            min_bump_kvb: read_string_from_env_then_parse::<u64>("TX_SENDER_MIN_BUMP_KVB")
+                .unwrap_or(defaults.min_bump_kvb),
         })
     }
 }
@@ -241,6 +252,7 @@ impl BridgeConfig {
             .and_then(|timeout| timeout.parse::<u64>().ok())
             .map(Duration::from_secs);
 
+        #[cfg(feature = "automation")]
         let maraslipstream_config = read_maraslipstream_config_from_env();
 
         let config = BridgeConfig {
@@ -257,9 +269,10 @@ impl BridgeConfig {
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
             mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
             mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
+            #[cfg(feature = "automation")]
             maraslipstream_config,
             db_host: read_string_from_env("DB_HOST")?,
-            db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
+            db_port: read_string_from_env_then_parse::<u16>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),
             db_password: read_string_from_env("DB_PASSWORD")?.into(),
             db_name: read_string_from_env("DB_NAME")?,

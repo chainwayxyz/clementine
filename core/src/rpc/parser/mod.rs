@@ -1,6 +1,7 @@
 use super::clementine::{
-    self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
-    TransactionRequest, WinternitzPubkey,
+    self, rbf_signing_info_rpc, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc,
+    RbfSigningKeyPathRpc, RbfSigningScriptPathRpc, SchnorrSig, TransactionRequest,
+    WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
@@ -13,11 +14,12 @@ use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, TapNodeHash, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use clementine_errors::BridgeError;
 use clementine_errors::TransactionType;
 use clementine_primitives::RoundIndex;
+use clementine_utils::RbfSigningSpendPath;
 use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -85,11 +87,26 @@ macro_rules! fetch_next_optional_message_from_stream {
 
 impl From<RbfSigningInfo> for RbfSigningInfoRpc {
     fn from(value: RbfSigningInfo) -> Self {
+        let spend_path = Some(match value.spend_path {
+            RbfSigningSpendPath::KeyPath { tweak_merkle_root } => {
+                rbf_signing_info_rpc::SpendPath::KeyPath(RbfSigningKeyPathRpc {
+                    merkle_root: tweak_merkle_root
+                        .map_or(vec![], |root| root.to_byte_array().to_vec()),
+                })
+            }
+            RbfSigningSpendPath::ScriptPath {
+                control_block,
+                script,
+            } => rbf_signing_info_rpc::SpendPath::ScriptPath(RbfSigningScriptPathRpc {
+                control_block,
+                script,
+            }),
+        });
+
         RbfSigningInfoRpc {
-            merkle_root: value
-                .tweak_merkle_root
-                .map_or(vec![], |root| root.to_byte_array().to_vec()),
             vout: value.vout,
+            spend_path,
+            tap_sighash_type: value.tap_sighash_type as u32,
         }
     }
 }
@@ -98,21 +115,48 @@ impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
     type Error = BridgeError;
 
     fn try_from(value: RbfSigningInfoRpc) -> Result<Self, Self::Error> {
-        Ok(RbfSigningInfo {
-            tweak_merkle_root: if value.merkle_root.is_empty() {
-                None
-            } else {
-                Some(
-                    TapNodeHash::from_slice(&value.merkle_root).wrap_err(eyre::eyre!(
-                        "Failed to convert merkle root bytes from rpc to TapNodeHash"
-                    ))?,
-                )
-            },
-            vout: value.vout,
-            // Always None when deserializing from RPC - these fields are only used in tests
-            annex: None,
-            additional_taproot_output_count: None,
-        })
+        let spend_path =
+            match value
+                .spend_path
+                .ok_or(BridgeError::Parser(ParserError::RPCRequiredParam(
+                    "rbf_info.spend_path",
+                )))? {
+                rbf_signing_info_rpc::SpendPath::KeyPath(key_path) => {
+                    RbfSigningSpendPath::KeyPath {
+                        tweak_merkle_root: (!key_path.merkle_root.is_empty())
+                            .then(|| TapNodeHash::from_slice(&key_path.merkle_root))
+                            .transpose()
+                            .wrap_err(eyre::eyre!(
+                                "Failed to convert merkle root bytes from rpc to TapNodeHash"
+                            ))?,
+                    }
+                }
+                rbf_signing_info_rpc::SpendPath::ScriptPath(script_path) => {
+                    RbfSigningSpendPath::ScriptPath {
+                        control_block: script_path.control_block,
+                        script: script_path.script,
+                    }
+                }
+            };
+
+        let tap_sighash_type = TapSighashType::from_consensus_u8(
+            u8::try_from(value.tap_sighash_type).map_err(|e| {
+                BridgeError::Parser(ParserError::RPCParamMalformed(format!(
+                    "invalid tap_sighash_type: {e}"
+                )))
+            })?,
+        )
+        .map_err(|e| {
+            BridgeError::Parser(ParserError::RPCParamMalformed(format!(
+                "invalid tap_sighash_type: {e}"
+            )))
+        })?;
+
+        Ok(RbfSigningInfo::new(
+            value.vout,
+            spend_path,
+            tap_sighash_type,
+        ))
     }
 }
 
@@ -187,6 +231,7 @@ impl From<FeePayingType> for FeeType {
         match value {
             FeePayingType::CPFP => FeeType::Cpfp,
             FeePayingType::RBF => FeeType::Rbf,
+            FeePayingType::RbfWtxidGrind => FeeType::RbfWtxidGrind,
             FeePayingType::NoFunding => FeeType::NoFunding,
         }
     }
@@ -200,6 +245,7 @@ impl TryFrom<FeeType> for FeePayingType {
             FeeType::Cpfp => Ok(FeePayingType::CPFP),
             FeeType::Rbf => Ok(FeePayingType::RBF),
             FeeType::NoFunding => Ok(FeePayingType::NoFunding),
+            FeeType::RbfWtxidGrind => Ok(FeePayingType::RbfWtxidGrind),
             _ => Err(Status::invalid_argument("Invalid FeeType variant")),
         }
     }

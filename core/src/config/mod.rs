@@ -68,12 +68,13 @@ pub struct BridgeConfig {
     /// mempool.space API endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
     pub mempool_api_endpoint: Option<String>,
     /// Optional configuration for using MARA Slipstream APIs (fee rate, tx/package submission).
+    #[cfg(feature = "automation")]
     pub maraslipstream_config: Option<clementine_tx_sender::MaraSlipstreamConfig>,
 
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
-    pub db_port: usize,
+    pub db_port: u16,
     /// PostgreSQL database user name.
     pub db_user: SecretString,
     /// PostgreSQL database user password.
@@ -334,10 +335,49 @@ impl BridgeConfig {
         Ok(())
     }
 
+    #[cfg(feature = "automation")]
     pub fn mempool_config(&self) -> clementine_tx_sender::MempoolConfig {
         clementine_tx_sender::MempoolConfig {
             host: self.mempool_api_host.clone(),
             endpoint: self.mempool_api_endpoint.clone(),
+        }
+    }
+
+    /// Build a tx-sender standalone config from this bridge config.
+    ///
+    /// This keeps tx-sender wiring centralized in the config module, so core can
+    /// run tx-sender using a single derived config object.
+    #[cfg(feature = "automation")]
+    pub fn tx_sender_config(&self) -> clementine_tx_sender::config::TxSenderConfig {
+        use clementine_tx_sender::config::{
+            TxSenderBitcoinRpcConfig, TxSenderConfig, TxSenderPostgresConfig,
+        };
+
+        TxSenderConfig {
+            network: self.protocol_paramset.network,
+            secret_key: self.secret_key,
+            private_da_key: None,
+            postgres: TxSenderPostgresConfig {
+                host: self.db_host.clone(),
+                port: self.db_port,
+                user: self.db_user.clone(),
+                password: self.db_password.clone(),
+                dbname: self.db_name.clone(),
+            },
+            bitcoin_rpc: TxSenderBitcoinRpcConfig {
+                url: self.bitcoin_rpc_url.clone(),
+                user: self.bitcoin_rpc_user.clone(),
+                password: self.bitcoin_rpc_password.clone(),
+            },
+            mempool: self.mempool_config(),
+            limits: self.tx_sender_limits.clone(),
+            finality_depth: self.protocol_paramset.finality_depth,
+            // poll_delay_ms not used in clementine, poll delay for txsender is defined in core/src/task/tx_sender.rs
+            poll_delay_ms: 60_000,
+            include_unsafe: false,
+            #[cfg(feature = "automation")]
+            maraslipstream_config: self.maraslipstream_config.clone(),
+            jsonrpc: None,
         }
     }
 }
@@ -406,6 +446,7 @@ impl Default for BridgeConfig {
             bitcoin_rpc_password: "admin".to_string().into(),
             mempool_api_host: None,
             mempool_api_endpoint: None,
+            #[cfg(feature = "automation")]
             maraslipstream_config: None,
 
             db_host: "127.0.0.1".to_string(),

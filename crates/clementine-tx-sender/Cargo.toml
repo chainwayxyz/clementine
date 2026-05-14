@@ -7,7 +7,7 @@ homepage = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-bitcoin = { workspace = true, features = ["serde"] }
+bitcoin = { workspace = true, features = ["serde", "rand-std"] }
 bitcoincore-rpc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -17,15 +17,35 @@ tokio = { workspace = true, features = ["full"] }
 async-trait = { workspace = true }
 eyre = { workspace = true }
 reqwest = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 secrecy = { workspace = true }
+log = { workspace = true }
+jsonrpsee = { workspace = true, optional = true, features = ["macros", "server", "client", "http-client"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+sha2 = { workspace = true, optional = true }
+tempfile = { workspace = true }
+borsh = { workspace = true, optional = true }
+tokio-retry = { workspace = true }
 
 clementine-errors = { path = "../clementine-errors" }
 clementine-primitives = { path = "../clementine-primitives" }
 clementine-config = { path = "../clementine-config" }
 clementine-utils = { path = "../clementine-utils" }
 clementine-extended-rpc = { path = "../clementine-extended-rpc" }
+tx-sender-types = { path = "../tx-sender-types", default-features = false, features = ["clementine"] }
+tx-sender-jsonrpc-client = { path = "../tx-sender-jsonrpc-client", default-features = false, optional = true }
+
+[features]
+json-rpc = [
+	"dep:jsonrpsee",
+	"dep:tx-sender-jsonrpc-client",
+	"tx-sender-jsonrpc-client/clementine",
+]
+citrea = ["dep:sha2", "tx-sender-types/citrea", "tx-sender-jsonrpc-client?/citrea", "dep:borsh"]
+testing = ["clementine-utils/test-fields", "tx-sender-types/test-fields"]
 
 [dev-dependencies]
-rand = { workspace = true }
 secrecy = { workspace = true }
+rand = { workspace = true }
+clementine-extended-rpc = { path = "../clementine-extended-rpc", features = ["test-utils"] }
+clementine-tx-sender = { path = ".", features = ["testing"] }
