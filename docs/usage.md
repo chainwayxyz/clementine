@@ -103,13 +103,12 @@ Before running Clementine:
    ```
 
 8. **For automation mode only**: Install additional dependencies required for automation features:
-
    - **skopeo**: Required for pulling and verifying Docker images
    - **curl**: Required for installing udocker
    - **python3**: Required by udocker
    - **udocker**: Required for running Docker containers without root privileges
 
-   ```sh
+   ````sh
    # On Debian/Ubuntu:
    sudo apt-get update
    sudo apt-get install -y python3 python-is-python3 tar skopeo curl
@@ -117,19 +116,27 @@ Before running Clementine:
    # Download and install udocker (instructions by udocker: https://indigo-dc.github.io/udocker/installation_manual.html)
    wget https://github.com/indigo-dc/udocker/releases/download/1.3.17/udocker-1.3.17.tar.gz
    tar zxvf udocker-1.3.17.tar.gz
-   export PATH=`pwd`/udocker-1.3.17/udocker:$PATH
-
-   # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
-   udocker install
-   # If you install as root, use: udocker --allow-root install
-   ```
+   export PATH=$(pwd)/udocker-1.3.17/udocker:$PATH
 
    To make the PATH change permanent, add it to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
-   ```sh
-   echo 'export PATH="'`pwd`'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
+   echo 'export PATH="'$(pwd)'/udocker-1.3.17/udocker:${PATH}"' >> ~/.bashrc
    source ~/.bashrc
-   ```
+
+   # Install udocker (run the install command as the user that will run clementine; do not use sudo/root)
+
+   udocker install
+
+   # If you install as root, use: udocker --allow-root install
+   ````
+
+   When proving in automation mode, Clementine also requires an unlimited stack
+   size limit. Configure the host so the hard limit allows an unlimited stack,
+   then set the runtime limit before starting Clementine:
+
+   ```sh
+   ulimit -s unlimited
+   ````
 
 ## Configure Clementine
 
@@ -171,7 +178,6 @@ The `.env.example` file can be taken as a reference for this matter.
 Clementine uses the following logic to determine the configuration source:
 
 1. **Main Configuration**:
-
    - If `READ_CONFIG_FROM_ENV=1` or `READ_CONFIG_FROM_ENV=on`, configuration is read from environment variables
    - If `READ_CONFIG_FROM_ENV=0` or `READ_CONFIG_FROM_ENV=off` or not set, configuration is read from the specified config file
 

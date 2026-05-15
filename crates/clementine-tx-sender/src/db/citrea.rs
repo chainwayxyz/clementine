@@ -5,7 +5,6 @@ use super::{TxSenderDb, TxSenderDbTx};
 use crate::txsender_execute_query_with_tx;
 use bitcoin::OutPoint;
 use clementine_errors::BridgeError;
-use eyre::OptionExt;
 
 use crate::citrea::{calculate_sha256, TransactionKind};
 
@@ -77,6 +76,7 @@ impl TxSenderDb {
     }
 
     /// Inserts a single non-chunked Citrea raw tx row.
+    /// Uses the row body itself as the `body_hash` dedupe input.
     /// Returns the insertion_id assigned to this row.
     pub async fn insert_citrea_raw_tx_single(
         &self,
@@ -84,36 +84,69 @@ impl TxSenderDb {
         transaction_kind: TransactionKind,
         body: &[u8],
     ) -> Result<i64, BridgeError> {
+        let body_hash = calculate_sha256(body);
         let (insertion_id, _) = self
-            .insert_citrea_raw_tx_single_with_status(tx, transaction_kind, body)
+            .insert_citrea_raw_tx_with_hash_status(tx, transaction_kind, Some(body), &body_hash)
             .await?;
         Ok(insertion_id)
     }
 
-    /// Inserts a single non-chunked Citrea raw tx row and returns whether it was newly inserted.
-    /// If the body already exists, returns the existing insertion_id with `inserted = false`.
-    async fn insert_citrea_raw_tx_single_with_status(
+    /// Inserts a single Citrea raw tx row using an explicit `body_hash`.
+    ///
+    /// This is used for `BatchProof` so Complete and chunked encodings of the
+    /// same proof share one dedupe key, even though the stored row body differs.
+    /// Returns the insertion_id assigned to this row.
+    pub(crate) async fn insert_citrea_raw_tx_single_with_hash(
         &self,
         tx: TxSenderDbTx<'_>,
         transaction_kind: TransactionKind,
         body: &[u8],
+        body_hash: &[u8],
+    ) -> Result<i64, BridgeError> {
+        let (insertion_id, _) = self
+            .insert_citrea_raw_tx_with_hash_status(tx, transaction_kind, Some(body), body_hash)
+            .await?;
+        Ok(insertion_id)
+    }
+
+    /// Inserts a Citrea raw tx row and returns whether it was newly inserted.
+    ///
+    /// `body_hash` is the unique dedupe key. It usually hashes this row's `body`,
+    /// but callers may pass the hash of a larger logical payload when several rows
+    /// represent one request.
+    /// If the body hash already exists, returns the existing insertion_id with `inserted = false`.
+    async fn insert_citrea_raw_tx_with_hash_status(
+        &self,
+        tx: TxSenderDbTx<'_>,
+        transaction_kind: TransactionKind,
+        body: Option<&[u8]>,
+        body_hash: &[u8],
     ) -> Result<(i64, bool), BridgeError> {
-        let body_hash = calculate_sha256(body).to_vec();
-        let query = sqlx::query_as::<_, (i64, bool)>(
+        let body = body.map(Vec::from);
+        let insert_query = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO tx_sender_citrea_raw_tx_queue (transaction_kind, body, body_hash)
             VALUES ($1, $2, $3)
-            ON CONFLICT (body_hash) DO UPDATE
-            SET body = EXCLUDED.body
-            RETURNING insertion_id, (xmax = 0) AS inserted
+            ON CONFLICT (body_hash) DO NOTHING
+            RETURNING insertion_id
             "#,
         )
         .bind(transaction_kind.as_i16())
         .bind(body)
         .bind(body_hash);
 
-        let (insertion_id, inserted) = query.fetch_one(&mut **tx).await?;
-        Ok((insertion_id, inserted))
+        if let Some(insertion_id) = insert_query.fetch_optional(&mut **tx).await? {
+            return Ok((insertion_id, true));
+        }
+
+        let insertion_id = sqlx::query_scalar::<_, i64>(
+            "SELECT insertion_id FROM tx_sender_citrea_raw_tx_queue WHERE body_hash = $1",
+        )
+        .bind(body_hash)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        Ok((insertion_id, false))
     }
 
     /// Sets the commit outpoint for a specific Citrea raw tx row.
@@ -135,54 +168,47 @@ impl TxSenderDb {
 
     /// Inserts chunked Citrea raw tx data: N chunk rows + 1 aggregate row.
     /// All rows share the same insertion_id.
+    ///
+    /// The aggregate placeholder carries `full_body_hash` as the dedupe key for
+    /// the original proof. Chunk rows intentionally keep `body_hash` NULL; we do
+    /// not dedupe individual chunks against unrelated requests.
     /// Returns the insertion_id assigned to this group.
     pub async fn insert_citrea_raw_tx_chunks(
         &self,
         tx: TxSenderDbTx<'_>,
         chunks: &[Vec<u8>],
+        full_body_hash: &[u8],
     ) -> Result<i64, BridgeError> {
-        // First, get a new insertion_id by inserting the first chunk
-        let first_chunk = chunks.first().ok_or_eyre("Chunks vector cannot be empty")?;
+        if chunks.is_empty() {
+            return Err(eyre::eyre!("Chunks vector cannot be empty").into());
+        }
 
-        // insert first chunk and generate the insertion_id, all others will be added with same insertion id
+        // The aggregate row anchors deduplication for the whole proof body.
         let (insertion_id, inserted) = self
-            .insert_citrea_raw_tx_single_with_status(tx, TransactionKind::Chunks, first_chunk)
+            .insert_citrea_raw_tx_with_hash_status(
+                tx,
+                TransactionKind::Aggregate,
+                None,
+                full_body_hash,
+            )
             .await?;
         if !inserted {
             return Ok(insertion_id);
         }
 
-        // Insert remaining chunks (1..N-1)
-        for chunk in chunks.iter().skip(1) {
+        for chunk in chunks {
             let query = sqlx::query(
                 r#"
                 INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2, $3, NULL)
                 "#,
             )
             .bind(insertion_id)
             .bind(TransactionKind::Chunks.as_i16())
-            .bind(chunk.as_slice())
-            .bind(calculate_sha256(chunk).to_vec());
+            .bind(chunk.as_slice());
 
             query.execute(&mut **tx).await?;
         }
-
-        // Insert aggregate placeholder row, do not add a duplicate
-        let aggregate_query = sqlx::query(
-            r#"
-            INSERT INTO tx_sender_citrea_raw_tx_queue (insertion_id, transaction_kind, body, body_hash)
-            SELECT $1, $2, NULL, NULL
-            WHERE NOT EXISTS (
-                SELECT 1 FROM tx_sender_citrea_raw_tx_queue 
-                WHERE insertion_id = $1 AND transaction_kind = $2
-            )
-            "#,
-        )
-        .bind(insertion_id)
-        .bind(TransactionKind::Aggregate.as_i16());
-
-        aggregate_query.execute(&mut **tx).await?;
 
         Ok(insertion_id)
     }
@@ -249,9 +275,9 @@ impl TxSenderDb {
         Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
-    /// Returns non-aggregate citrea transactions with commit_outpoint where
-    /// try_to_send_id is NULL or the try_to_send tx has not been seen yet.
-    pub async fn get_citrea_txs_with_unseen_try_to_send(
+    /// Returns Citrea transactions with commit_outpoint where try_to_send_id is
+    /// NULL or the try-to-send tx has not been seen yet.
+    pub async fn get_citrea_txs_with_commit_outpoint_unseen_try_to_send(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
     ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
@@ -271,42 +297,25 @@ impl TxSenderDb {
         Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
-    /// Clears commit_outpoint and try_to_send_id for all citrea rows in an insertion group.
-    pub async fn clear_citrea_commit_and_try_to_send_by_insertion_id(
+    /// Clears commit_outpoint and try_to_send_id for specific Citrea rows.
+    pub async fn clear_citrea_commit_and_try_to_send_by_ids(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
-        insertion_id: i64,
+        ids: &[i64],
     ) -> Result<(), BridgeError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+
         let query = sqlx::query(
             "UPDATE tx_sender_citrea_raw_tx_queue
              SET commit_outpoint = NULL, try_to_send_id = NULL
-             WHERE insertion_id = $1",
+             WHERE id = ANY($1)",
         )
-        .bind(insertion_id);
+        .bind(ids);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
-    }
-
-    /// Lists distinct try_to_send_ids for an insertion group.
-    pub async fn list_citrea_try_to_send_ids_by_insertion_id(
-        &self,
-        tx: Option<TxSenderDbTx<'_>>,
-        insertion_id: i64,
-    ) -> Result<Vec<u32>, BridgeError> {
-        let query = sqlx::query_scalar::<_, i32>(
-            "SELECT DISTINCT try_to_send_id
-             FROM tx_sender_citrea_raw_tx_queue
-             WHERE insertion_id = $1
-               AND try_to_send_id IS NOT NULL",
-        )
-        .bind(insertion_id);
-
-        let results: Vec<i32> = txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
-        results
-            .into_iter()
-            .map(|id| u32::try_from(id).map_err(|_| BridgeError::IntConversionError))
-            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     /// Sets the try_to_send_id for a specific Citrea raw tx row.
@@ -368,26 +377,27 @@ impl TxSenderDb {
         Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
     }
 
-    /// Updates the body and hash for a Citrea row, resetting commit/try_to_send state.
-    pub async fn update_citrea_body_and_reset(
+    /// Updates the body for an aggregate Citrea row, resetting commit/try_to_send state.
+    ///
+    /// The `body_hash` remains the original full proof hash rather than being
+    /// recomputed from the aggregate body, so repeated BatchProof submissions
+    /// still dedupe to this insertion group.
+    pub async fn update_citrea_aggregate_body_and_reset(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         id: i64,
         body: &[u8],
     ) -> Result<(), BridgeError> {
-        let body_hash = calculate_sha256(body).to_vec();
         let query = sqlx::query(
             "UPDATE tx_sender_citrea_raw_tx_queue
              SET body = $2,
-                 body_hash = $3,
                  commit_outpoint = NULL,
                  try_to_send_id = NULL,
                  aggregate_finalized = FALSE
              WHERE id = $1",
         )
         .bind(id)
-        .bind(body)
-        .bind(body_hash);
+        .bind(body);
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())

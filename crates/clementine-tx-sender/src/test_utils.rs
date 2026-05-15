@@ -302,7 +302,7 @@ pub fn get_current_test_name() -> String {
     if test_name == "main" {
         // Use the Process ID. It is unique for every parallel test.
         let pid = std::process::id();
-        format!("{pid}")
+        format!("tx_sender_{pid}")
     } else {
         test_name
     }

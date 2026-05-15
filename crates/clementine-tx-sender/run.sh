@@ -17,7 +17,7 @@ export NETWORK="${NETWORK:-regtest}"
 export SECRET_KEY="${SECRET_KEY:-1111111111111111111111111111111111111111111111111111111111111111}"
 
 # Optional Citrea DA blob signing key. If not set, SECRET_KEY is used.
-export PRIVATE_DA_KEY="${PRIVATE_DA_KEY:-}"
+# export PRIVATE_DA_KEY="${PRIVATE_DA_KEY:-}"
 
 # Postgres
 export DB_HOST="${DB_HOST:-127.0.0.1}"
@@ -31,11 +31,12 @@ export BITCOIN_RPC_URL="${BITCOIN_RPC_URL:-http://127.0.0.1:18443}"
 export BITCOIN_RPC_USER="${BITCOIN_RPC_USER:-admin}"
 export BITCOIN_RPC_PASSWORD="${BITCOIN_RPC_PASSWORD:-admin}"
 
-# Enable JSON-RPC server (required by standalone main).
+# Enable JSON-RPC server.
 export TX_SENDER_JSONRPC_BIND="${TX_SENDER_JSONRPC_BIND:-127.0.0.1}"
 export TX_SENDER_JSONRPC_PORT="${TX_SENDER_JSONRPC_PORT:-3030}"
 export TX_SENDER_POLL_DELAY_MS="${TX_SENDER_POLL_DELAY_MS:-500}"
 export TX_SENDER_FINALITY_DEPTH="${TX_SENDER_FINALITY_DEPTH:-1}"
+export TX_SENDER_INCLUDE_UNSAFE="${TX_SENDER_INCLUDE_UNSAFE:-false}"
 
 # Extra bitcoin-cli flags used for the smoke test.
 export BITCOIN_CLI_RPCPORT="${BITCOIN_CLI_RPCPORT:-18443}"
@@ -169,8 +170,8 @@ PY
     -H 'content-type: application/json' \
     --data "${req}" \
     "${url}" \
-    | python3 -c 'import sys, json; r=json.load(sys.stdin); 
-if "error" in r: 
+    | python3 -c 'import sys, json; r=json.load(sys.stdin);
+if "error" in r:
   raise SystemExit("JSON-RPC error: %s" % r["error"])
 print(r["result"])'
 }
@@ -209,14 +210,14 @@ ensure_wallet_funded() {
   bal="$(bitcoin_cli getbalance \
     | python3 -c 'import sys; print(float(sys.stdin.read().strip() or "0"))')"
 
-  python3 - <<PY
+  if python3 - <<PY
 import sys
 bal = float("${bal}")
 need = float("${min_required_btc}")
 if bal + 1e-12 < need:
   sys.exit(1)
 PY
-  if [[ $? -eq 0 ]]; then
+  then
     echo "Wallet already funded (balance=${bal} BTC). Skipping mining."
     return 0
   fi
@@ -262,7 +263,7 @@ echo "Checking tx is mempool-acceptable (sufficient fees)..."
 ensure_mempool_accepts "${RAW_TX_HEX}"
 
 echo "Starting standalone txsender (JSON-RPC on ${TX_SENDER_JSONRPC_BIND}:${TX_SENDER_JSONRPC_PORT})..."
-cargo run -p clementine-tx-sender --features standalone &
+cargo run -p clementine-tx-sender --features json-rpc &
 TXSENDER_PID="$!"
 trap 'echo "Stopping txsender (pid=${TXSENDER_PID})"; kill "${TXSENDER_PID}" >/dev/null 2>&1 || true' EXIT
 
@@ -283,4 +284,3 @@ echo "Checking confirmations..."
 assert_confirmed "${TXID}"
 
 echo "OK: tx ${TXID} confirmed."
-

@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
+use crate::{TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -278,7 +278,7 @@ impl TxSender {
     /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
     /// by this child transaction.
     ///
-    /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
+    /// The remaining value (total input value - `required_fee`) is sent to the CPFP change script.
     ///
     /// # Signing
     /// We sign the input spending the P2A anchor and all fee payer UTXOs.
@@ -300,7 +300,19 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        let change_script_pubkey = self.cpfp_change_script_pubkey.clone();
+        let change_script_pubkey = self
+            .cpfp_change_script_pubkey
+            .get_or_try_init(|| async {
+                Ok::<_, SendTxError>(
+                    self.rpc
+                        .get_new_wallet_address()
+                        .await
+                        .wrap_err("Failed to get CPFP change address")?
+                        .script_pubkey(),
+                )
+            })
+            .await?
+            .clone();
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -558,7 +570,7 @@ impl TxSender {
     /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
     /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
-    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    ///     mempool, updates the effective fee rate in the database. If failed, returns an error.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
@@ -678,30 +690,36 @@ impl TxSender {
             return Ok(());
         }
 
-        for (_txid, result) in submit_result.tx_results {
+        let mut package_errors = Vec::new();
+        let mut has_replacement_error = false;
+
+        for result in submit_result.tx_results.into_values() {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 if crate::rpc_errors::is_rejecting_replacement_error(&error) {
-                    tracing::debug!(
-                        try_to_send_id,
-                        "Package tx rejected (tx already in mempool): {error}"
-                    );
-                } else {
-                    tracing::error!(
-                        try_to_send_id,
-                        "Error submitting package: {:?}, package: {:?}",
-                        error,
-                        package_refs
-                            .iter()
-                            .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                            .collect::<Vec<_>>()
-                    );
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Failed to submit package: {error}")
-                    );
+                    has_replacement_error = true;
                 }
+                package_errors.push(error);
             }
+        }
+
+        if has_replacement_error {
+            tracing::debug!(
+                try_to_send_id,
+                "Package tx rejected (tx already in mempool): {:?}",
+                package_errors
+            );
+            return Ok(());
+        }
+
+        if !package_errors.is_empty() {
+            return Err(SendTxError::Other(eyre!(
+                "Failed to submit package: {:?}, package: {:?}",
+                package_errors,
+                package_refs
+                    .iter()
+                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                    .collect::<Vec<_>>()
+            )));
         }
 
         Ok(())

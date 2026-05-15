@@ -205,7 +205,7 @@ impl BridgeConfig {
             mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
             mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
             db_host: read_string_from_env("DB_HOST")?,
-            db_port: read_string_from_env_then_parse::<usize>("DB_PORT")?,
+            db_port: read_string_from_env_then_parse::<u16>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),
             db_password: read_string_from_env("DB_PASSWORD")?.into(),
             db_name: read_string_from_env("DB_NAME")?,

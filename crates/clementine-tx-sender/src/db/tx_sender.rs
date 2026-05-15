@@ -42,6 +42,13 @@ pub struct FeePayerTrackingRow {
 
 impl TxSenderDb {
     /// Saves a fee payer transaction to the database.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The id of the transaction funded by this fee payer.
+    /// * `fee_payer_txid` - The txid of the fee payer transaction.
+    /// * `vout` - The output index of the fee payer UTXO.
+    /// * `amount` - The amount in satoshis.
+    /// * `replacement_of_id` - The fee payer UTXO this row replaces, if any.
     #[allow(clippy::too_many_arguments)]
     pub async fn save_fee_payer_tx(
         &self,
@@ -71,6 +78,20 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns all unconfirmed fee payer UTXOs.
+    ///
+    /// UTXOs whose replacement chain already has a confirmed member are excluded. If no
+    /// replacement in the chain is confirmed, all unconfirmed replacements are returned.
+    ///
+    /// # Returns
+    ///
+    /// A vector of fee payer UTXO details:
+    /// - [`u32`]: id of the fee payer UTXO row.
+    /// - [`u32`]: id of the bumped transaction.
+    /// - [`Txid`]: txid of the fee payer transaction.
+    /// - [`u32`]: output index of the UTXO.
+    /// - [`Amount`]: amount in satoshis.
+    /// - [`Option<u32>`]: replaced fee payer UTXO id, if this is a replacement.
     pub async fn get_all_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -84,7 +105,8 @@ impl TxSenderDb {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE COALESCE(x.replacement_of_id, x.id)
+                        = COALESCE(fpu.replacement_of_id, fpu.id)
                     AND x.seen_at_height IS NOT NULL
               )
             ",
@@ -115,6 +137,21 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Returns unconfirmed fee payer UTXOs for one try-to-send transaction.
+    ///
+    /// UTXOs whose replacement chain already has a confirmed member are excluded. If no
+    /// replacement in the chain is confirmed, all unconfirmed replacements are returned.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The id of the transaction funded by the fee payer UTXOs.
+    ///
+    /// # Returns
+    ///
+    /// A vector of fee payer UTXO details:
+    /// - [`u32`]: id of the fee payer UTXO row.
+    /// - [`Txid`]: txid of the fee payer transaction.
+    /// - [`u32`]: output index of the UTXO.
+    /// - [`Amount`]: amount in satoshis.
     pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -130,7 +167,8 @@ impl TxSenderDb {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE COALESCE(x.replacement_of_id, x.id)
+                        = COALESCE(fpu.replacement_of_id, fpu.id)
                     AND x.seen_at_height IS NOT NULL
               )
             ",
@@ -155,15 +193,19 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Marks a fee payer UTXO and all of its replacements as evicted.
+    ///
+    /// Evicted fee payer UTXOs are no longer selected for bumps, because their wallet
+    /// inputs may already have been reused elsewhere.
     pub async fn mark_fee_payer_utxo_as_evicted(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         id: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos 
-                SET is_evicted = true 
-                WHERE id = $1 
+            "UPDATE tx_sender_fee_payer_utxos
+                SET is_evicted = true
+                WHERE id = $1
                 OR replacement_of_id = $1",
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
@@ -201,6 +243,9 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Returns the tx-sender row id for `txid` if it already exists.
+    ///
+    /// This is used before inserting to avoid adding duplicate transactions to the queue.
     pub async fn check_if_tx_exists_on_txsender(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -231,11 +276,11 @@ impl TxSenderDb {
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             r#"
-            INSERT INTO tx_sender_try_to_send_txs 
-            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) 
-            VALUES ($1, $2::fee_paying_type, $3, $4, $5) 
-            ON CONFLICT (txid) 
-            DO UPDATE SET txid = EXCLUDED.txid 
+            INSERT INTO tx_sender_try_to_send_txs
+            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info)
+            VALUES ($1, $2::fee_paying_type, $3, $4, $5)
+            ON CONFLICT (txid)
+            DO UPDATE SET txid = EXCLUDED.txid
             RETURNING id
             "#,
         )
@@ -260,9 +305,12 @@ impl TxSenderDb {
         id: u32,
         txid: Txid,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
-            .bind(TxidDB(txid));
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
+        .bind(TxidDB(txid));
 
         txsender_execute_query_with_tx!(&self.pool, tx, query, execute)?;
         Ok(())
@@ -315,6 +363,21 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns unconfirmed try-to-send transactions that satisfy all queue conditions.
+    ///
+    /// A transaction is sendable when:
+    /// - all activation dependencies have been seen and their relative block timelocks passed;
+    /// - zero-timelock txid activations are either seen on-chain or currently in mempool;
+    /// - the transaction itself has not been seen on-chain;
+    /// - its inputs have not exceeded the unavailable-input retry limit;
+    /// - its previous effective fee rate is lower than `fee_rate`, or it has never been sent.
+    ///
+    /// Passing a very high `fee_rate` is used by callers to retrieve all active transactions
+    /// after a new block, even when the market fee did not increase.
+    ///
+    /// # Returns
+    ///
+    /// A vector of tx-sender database ids that are ready to send or bump.
     pub async fn get_sendable_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -421,6 +484,9 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns the effective fee rate and block height from the last actual fee bump.
+    ///
+    /// Returns `(None, None)` if no effective fee rate has been recorded yet.
     pub async fn get_effective_fee_rate(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -444,6 +510,13 @@ impl TxSenderDb {
         }
     }
 
+    /// Updates the effective fee rate and last bump block height for a transaction.
+    ///
+    /// The row is updated only when the fee rate changes, or when the previous fee rate
+    /// is `NULL`. This preserves `last_bump_block_height` across retries at the same
+    /// fee rate, so the stuck-for-N-blocks counter continues from the last real bump.
+    ///
+    /// `effective_fee_rate` is stored in sat/kvB.
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -452,8 +525,8 @@ impl TxSenderDb {
         block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs 
-             SET effective_fee_rate = $1, last_bump_block_height = $2 
+            "UPDATE tx_sender_try_to_send_txs
+             SET effective_fee_rate = $1, last_bump_block_height = $2
              WHERE id = $3 AND (effective_fee_rate IS NULL OR effective_fee_rate != $1)",
         )
         .bind(
@@ -693,6 +766,7 @@ impl TxSenderDb {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
+    /// Saves a transaction submission error to the debug table.
     pub async fn save_tx_debug_submission_error(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -709,6 +783,10 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Updates or inserts the transaction's current debug sending state.
+    ///
+    /// This intentionally does not accept a database transaction. It is debug-only
+    /// metadata and callers should use it after the tx-sender row has been committed.
     pub async fn update_tx_debug_sending_state(
         &self,
         tx_id: u32,
@@ -744,6 +822,7 @@ impl TxSenderDb {
         Ok(())
     }
 
+    /// Returns the current debug sending state for a transaction.
     pub async fn get_tx_debug_info(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -765,6 +844,7 @@ impl TxSenderDb {
         }
     }
 
+    /// Returns all recorded submission errors for a transaction, ordered by timestamp.
     pub async fn get_tx_debug_submission_errors(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -803,6 +883,7 @@ impl TxSenderDb {
         Ok(result.map(|(error_message,)| error_message))
     }
 
+    /// Returns all fee payer UTXOs for a transaction with their confirmation status.
     pub async fn get_tx_debug_fee_payer_utxos(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -939,10 +1020,41 @@ impl TxSenderDb {
                     );
                 }
             }
+
+            let effective_fee_rate = match sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT effective_fee_rate FROM tx_sender_try_to_send_txs WHERE id = $1",
+            )
+            .bind(tx_id)
+            .fetch_one(&self.pool)
+            .await
+            {
+                Ok(rate) => rate,
+                Err(e) => {
+                    tracing::error!(
+                        "TXSENDER_DBG_INACTIVE_TXS: Failed to query effective fee rate: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            if let Some(rate) = effective_fee_rate {
+                if rate >= fee_rate.to_sat_per_kvb() as i64 {
+                    tracing::info!(
+                        "TXSENDER_DBG_INACTIVE_TXS: TX {} is inactive because its effective fee rate ({} sat/kvB) is >= the current fee rate ({} sat/kvB)",
+                        id,
+                        rate,
+                        fee_rate.to_sat_per_kvb()
+                    );
+                }
+            }
         }
     }
 
     /// Lists all unfinalized try-to-send transactions that should be checked for confirmation.
+    ///
+    /// Transactions whose inputs have repeatedly been unavailable past the configured retry limit
+    /// are excluded, because txsender assumes at least one of its inputs were spent in another tx, so it's impossible to send the tx.
     pub async fn list_unfinalized_try_to_send_txs(
         &self,
         tx: Option<TxSenderDbTx<'_>>,
@@ -1324,5 +1436,124 @@ impl TxSenderDb {
         Ok(result
             .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
             .transpose()?)
+    }
+}
+
+#[cfg(all(test, feature = "testing"))]
+mod tests {
+    use super::*;
+    use crate::test_utils::create_test_environment;
+    use bitcoin::hashes::Hash as _;
+    use bitcoin::transaction::Version;
+    use bitcoin::{absolute, Transaction, Txid};
+
+    fn txid(byte: u8) -> Txid {
+        Txid::from_byte_array([byte; 32])
+    }
+
+    fn empty_tx() -> Transaction {
+        Transaction {
+            version: Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        }
+    }
+
+    async fn save_fee_payer_chain(db: &TxSenderDb, txid_prefix: u8) -> (u32, u32, u32) {
+        let mut dbtx = db.begin_transaction().await.unwrap();
+        let bumped_id = db
+            .save_tx(
+                &mut dbtx,
+                None,
+                &empty_tx(),
+                FeePayingType::CPFP,
+                txid(txid_prefix),
+                None,
+            )
+            .await
+            .unwrap();
+        db.commit_transaction(dbtx).await.unwrap();
+
+        let root_txid = txid(txid_prefix + 1);
+        db.save_fee_payer_tx(
+            None,
+            bumped_id,
+            root_txid,
+            0,
+            Amount::from_sat(10_000),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let initial: Vec<(u32, u32, Txid, u32, Amount, Option<u32>)> =
+            db.get_all_unconfirmed_fee_payer_txs(None).await.unwrap();
+        let root_id = initial
+            .iter()
+            .find_map(|(id, chain_bumped_id, txid, _, _, _)| {
+                (*chain_bumped_id == bumped_id && *txid == root_txid).then_some(*id)
+            })
+            .unwrap();
+
+        let replacement_txid = txid(txid_prefix + 2);
+        db.save_fee_payer_tx(
+            None,
+            bumped_id,
+            replacement_txid,
+            0,
+            Amount::from_sat(10_000),
+            Some(root_id),
+        )
+        .await
+        .unwrap();
+
+        let replacement_id: i32 = sqlx::query_scalar(
+            "SELECT id FROM tx_sender_fee_payer_utxos WHERE fee_payer_txid = $1",
+        )
+        .bind(TxidDB(replacement_txid))
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        let unconfirmed = db
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
+            .await
+            .unwrap();
+        assert_eq!(unconfirmed.len(), 2);
+
+        (bumped_id, root_id, replacement_id as u32)
+    }
+
+    async fn assert_no_unconfirmed_fee_payers(db: &TxSenderDb, bumped_id: u32) {
+        assert!(db
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn confirmed_fee_payer_chain_has_no_unconfirmed_txs() {
+        let db = create_test_environment(true, false).await.1.unwrap();
+
+        let (root_confirmed_bumped_id, root_id, _) = save_fee_payer_chain(&db, 10).await;
+        db.set_fee_payer_seen_at_height(None, root_id, Some(100))
+            .await
+            .unwrap();
+        assert_no_unconfirmed_fee_payers(&db, root_confirmed_bumped_id).await;
+
+        let (replacement_confirmed_bumped_id, _, replacement_id) =
+            save_fee_payer_chain(&db, 20).await;
+        db.set_fee_payer_seen_at_height(None, replacement_id, Some(101))
+            .await
+            .unwrap();
+        assert_no_unconfirmed_fee_payers(&db, replacement_confirmed_bumped_id).await;
+
+        assert!(db
+            .get_all_unconfirmed_fee_payer_txs(None)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

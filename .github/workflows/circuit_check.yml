@@ -36,7 +36,7 @@ jobs:
       - name: Install risc0
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           curl -L https://risczero.com/install | bash
           export PATH="$PATH:$HOME/.risc0/bin"

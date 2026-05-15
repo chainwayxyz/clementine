@@ -13,7 +13,6 @@
 use crate::cli;
 use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
 use crate::config::protocol::BLOCKS_PER_HOUR;
-use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::deposit::SecurityCouncil;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
@@ -72,7 +71,7 @@ pub struct BridgeConfig {
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
-    pub db_port: usize,
+    pub db_port: u16,
     /// PostgreSQL database user name.
     pub db_user: SecretString,
     /// PostgreSQL database user password.
@@ -357,7 +356,7 @@ impl BridgeConfig {
             private_da_key: None,
             postgres: TxSenderPostgresConfig {
                 host: self.db_host.clone(),
-                port: u16::try_from(self.db_port).unwrap_or(5432),
+                port: self.db_port,
                 user: self.db_user.clone(),
                 password: self.db_password.clone(),
                 dbname: self.db_name.clone(),
@@ -371,7 +370,7 @@ impl BridgeConfig {
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
             // Must match core/src/task/tx_sender.rs POLL_DELAY for retry-time derivations. (max retries derivation depends on this)
-            poll_delay_ms: 30_000,
+            poll_delay_ms: crate::task::tx_sender::POLL_DELAY.as_millis() as u64,
             input_unspent_max_retries: None,
             include_unsafe: false,
             jsonrpc: None,
@@ -436,7 +435,7 @@ impl Default for BridgeConfig {
             )
             .expect("known valid input"),
 
-            operator_withdrawal_fee_sats: Some(NON_EPHEMERAL_ANCHOR_AMOUNT),
+            operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string().into(),

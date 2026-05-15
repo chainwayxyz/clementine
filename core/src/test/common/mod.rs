@@ -19,7 +19,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
-use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _};
+use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, RetryConfig, TestRpcExtensions as _};
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
@@ -34,12 +34,12 @@ use clementine_errors::BridgeError;
 use clementine_primitives::EVMAddress;
 use eyre::Context;
 pub use setup_utils::*;
+use std::future::Future;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use test_actors::TestActors;
-use tokio_retry::strategy::ExponentialBackoff;
 use tokio_retry::Retry;
 use tonic::Request;
 
@@ -54,6 +54,58 @@ pub mod tx_utils;
 use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
+
+const CITREA_E2E_TRANSIENT_DOCKER_RETRIES: usize = 5;
+
+/// Retries citrea-e2e startup when Docker hits known transient setup failures.
+pub async fn run_citrea_e2e_with_docker_port_retry<F, Fut>(mut run: F) -> citrea_e2e::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = citrea_e2e::Result<()>>,
+{
+    for attempt in 1..=CITREA_E2E_TRANSIENT_DOCKER_RETRIES {
+        let result = run().await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt < CITREA_E2E_TRANSIENT_DOCKER_RETRIES => {
+                let Some(reason) = citrea_e2e_transient_docker_error_reason(&err) else {
+                    return Err(err);
+                };
+
+                tracing::warn!(
+                    attempt,
+                    max_attempts = CITREA_E2E_TRANSIENT_DOCKER_RETRIES,
+                    error = %err,
+                    reason,
+                    "Retrying citrea-e2e test after transient Docker failure"
+                );
+                tokio::time::sleep(Duration::from_secs(2 * attempt as u64)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Ok(())
+}
+
+fn citrea_e2e_transient_docker_error_reason(err: &impl std::fmt::Display) -> Option<&'static str> {
+    let error_chain = format!("{err:#}");
+    if is_docker_container_start_error_chain(&error_chain) {
+        Some("docker_container_start")
+    } else if is_framework_init_error_chain(&error_chain) {
+        Some("framework_init")
+    } else {
+        None
+    }
+}
+
+fn is_docker_container_start_error_chain(error_chain: &str) -> bool {
+    error_chain.contains("Failed to start Docker container")
+}
+
+fn is_framework_init_error_chain(error_chain: &str) -> bool {
+    error_chain.contains("Framework not correctly initialized")
+}
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -139,9 +191,8 @@ pub async fn poll_get<T>(
 }
 
 /// Checks if all clementine nodes are synced.
-/// State managers must be synced to the last finalized height. (If they are running)
+/// State managers and LCP syncers must be synced to the latest finalized block.
 /// Tx senders must be synced to at least current height.
-/// LCPs must be synced to the last finalized height. (We add +1 internally because its not "next" height like state manager but last synced height)
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
@@ -159,14 +210,16 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
     let tx_sender_threshold = current_chain_height;
 
-    let mut min_next_sync_height = u32::MAX;
-    let mut all_tx_sender_synced = true;
+    let should_check_state_manager = cfg!(feature = "automation")
+        && actors
+            .aggregator
+            .config
+            .test_params
+            .should_run_state_manager;
 
-    let state_manager_running = actors
-        .aggregator
-        .config
-        .test_params
-        .should_run_state_manager;
+    let mut lcp_synced = true;
+    let mut state_manager_synced = true;
+    let mut tx_sender_synced = true;
 
     for entity in &entity_statuses.entity_statuses {
         let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
@@ -178,27 +231,31 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
             ));
         };
 
+        // LCP syncer runs even without automation.
+        let lcp_next_height = status
+            .lcp_synced_height
+            .map(|height| height.saturating_add(1))
+            .unwrap_or(0);
+        if lcp_next_height <= current_finalized_chain_height {
+            lcp_synced = false;
+        }
+
         if status.automation {
-            min_next_sync_height = min_next_sync_height.min(
-                status
-                    .state_manager_next_height
-                    .unwrap_or(match state_manager_running {
-                        true => 0,
-                        false => u32::MAX,
-                    })
-                    .min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0)),
-            );
+            if should_check_state_manager {
+                let state_manager_next_height = status.state_manager_next_height.unwrap_or(0);
+                if state_manager_next_height <= current_finalized_chain_height {
+                    state_manager_synced = false;
+                }
+            }
+
             let tx_sender_height = status.tx_sender_synced_height.unwrap_or(0);
             if tx_sender_height < tx_sender_threshold {
-                all_tx_sender_synced = false;
+                tx_sender_synced = false;
             }
-        } else {
-            min_next_sync_height =
-                min_next_sync_height.min(status.lcp_synced_height.map(|h| h + 1).unwrap_or(0));
         }
     }
 
-    Ok((min_next_sync_height > current_finalized_chain_height) && all_tx_sender_synced)
+    Ok(lcp_synced && state_manager_synced && tx_sender_synced)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
@@ -384,7 +441,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let actor = Actor::new(config.secret_key, config.protocol_paramset().network);
 
     let setup_start = std::time::Instant::now();
-    let strategy = ExponentialBackoff::from_millis(2).factor(500).take(3);
+    // Matches ExponentialBackoff::from_millis(2).factor(500).take(3): 1s, 2s, 4s.
+    let strategy = RetryConfig::new(1_000, Duration::from_secs(4), 3, 2, false).get_strategy();
     let verifiers_public_keys: Vec<PublicKey> = Retry::spawn(strategy, || {
         let mut aggregator = actors.get_aggregator();
         async move {

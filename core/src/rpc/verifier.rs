@@ -69,7 +69,11 @@ where
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR))]
+    #[tracing::instrument(
+        skip_all,
+        fields(optimistic_withdraw_params = ?request.get_ref().opt_withdrawal.as_ref()),
+        err(level = tracing::Level::ERROR)
+    )]
     async fn optimistic_payout_sign(
         &self,
         request: Request<OptimisticPayoutParams>,
@@ -710,6 +714,7 @@ where
     ) -> Result<Response<clementine::EntityStatus>, Status> {
         tracing::debug!("Called get_current_status rpc");
         let status = self.get_current_status().await?;
+        tracing::debug!("Get current status rpc completed successfully");
         Ok(Response::new(status))
     }
 }

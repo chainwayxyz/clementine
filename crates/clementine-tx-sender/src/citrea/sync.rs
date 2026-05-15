@@ -11,7 +11,50 @@ use bitcoincore_rpc::RpcApi;
 use clementine_primitives::FeeRateKvb;
 use clementine_utils::RbfSigningInfo;
 use eyre::{Context, OptionExt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+type BlockTxPositionCache = HashMap<bitcoin::BlockHash, (u32, Vec<bitcoin::Txid>)>;
+
+/// Chain position and witness id for a confirmed transaction.
+///
+/// Aggregate bodies need both the legacy txid and wtxid of each confirmed
+/// chunk reveal. The block position is used to reject aggregate reveals that
+/// appear before a chunk reveal they reference.
+#[derive(Debug, Clone, Copy)]
+struct ConfirmedTxInfo {
+    txid: bitcoin::Txid,
+    wtxid: bitcoin::Wtxid,
+    block_height: u32,
+    tx_index: usize,
+}
+
+impl ConfirmedTxInfo {
+    /// Returns true when `self` is strictly after `other` in chain order.
+    fn is_after(&self, other: &Self) -> bool {
+        self.block_height > other.block_height
+            || (self.block_height == other.block_height && self.tx_index > other.tx_index)
+    }
+}
+
+/// Confirmed chunk reveal ids in Citrea aggregate-body order.
+struct ConfirmedChunkReveals {
+    reveal_txids: Vec<[u8; 32]>,
+    reveal_wtxids: Vec<[u8; 32]>,
+    confirmed_txs: Vec<ConfirmedTxInfo>,
+}
+
+/// Returns a Citrea row's optional try-to-send id as a checked unsigned id.
+fn optional_citrea_try_to_send_id(row: &CitreaRawTxRow) -> Result<Option<u32>, eyre::Report> {
+    row.try_to_send_id
+        .map(u32::try_from)
+        .transpose()
+        .wrap_err("Failed to convert citrea try_to_send_id to u32")
+}
+
+/// Returns a Citrea row's try-to-send id as a checked unsigned id.
+fn citrea_try_to_send_id(row: &CitreaRawTxRow) -> Result<u32, eyre::Report> {
+    optional_citrea_try_to_send_id(row)?.ok_or_eyre("Expected citrea try_to_send_id to be present")
+}
 
 impl TxSender {
     /// Syncs citrea transactions, creating commit transactions for txs without it.
@@ -108,26 +151,32 @@ impl TxSender {
     /// These check is only required because commit_tx creation uses include_unsafe = true, if some unsafe input is
     /// spent in another way, commit tx will become invalid.
     async fn check_evicted_commit_txs(&self) -> Result<(), eyre::Report> {
-        let committed_rows = self.db.get_citrea_txs_with_unseen_try_to_send(None).await?;
+        let committed_rows = self
+            .db
+            .get_citrea_txs_with_commit_outpoint_unseen_try_to_send(None)
+            .await?;
 
-        let mut committed_by_insertion_id: BTreeMap<i64, Vec<CitreaRawTxRow>> = BTreeMap::new();
+        let mut committed_by_commit_txid: BTreeMap<bitcoin::Txid, Vec<CitreaRawTxRow>> =
+            BTreeMap::new();
         for row in committed_rows {
-            committed_by_insertion_id
-                .entry(row.insertion_id)
+            let commit_txid = row
+                .commit_outpoint
+                .ok_or_eyre("Expected commit_outpoint to be present")?
+                .txid;
+            committed_by_commit_txid
+                .entry(commit_txid)
                 .or_default()
                 .push(row);
         }
 
-        for (insertion_id, rows) in committed_by_insertion_id {
-            let commit_outpoint = rows
-                .first()
-                .and_then(|row| row.commit_outpoint)
-                .ok_or_eyre("Expected commit_outpoint to be present")?;
+        for (commit_txid, rows) in committed_by_commit_txid {
+            let insertion_ids = rows
+                .iter()
+                .map(|row| row.insertion_id)
+                .collect::<BTreeSet<_>>();
 
-            let Some((in_mempool, seen_at_height)) = self
-                .db
-                .get_activate_txid_status(None, commit_outpoint.txid)
-                .await?
+            let Some((in_mempool, seen_at_height)) =
+                self.db.get_activate_txid_status(None, commit_txid).await?
             else {
                 continue;
             };
@@ -138,22 +187,18 @@ impl TxSender {
             // We don't want to mark commit tx as evicted if it is present in rpc (mempool or confirmed).
             // To be sure if it shows as evicted in db check rpc for it too.
 
-            let rpc_present = match self
-                .rpc
-                .get_raw_transaction_info(&commit_outpoint.txid, None)
-                .await
-            {
+            let rpc_present = match self.rpc.get_raw_transaction_info(&commit_txid, None).await {
                 Ok(info) => {
                     if info.confirmations.unwrap_or(0) > 0 {
                         true
                     } else {
-                        match self.rpc.get_mempool_entry(&commit_outpoint.txid).await {
+                        match self.rpc.get_mempool_entry(&commit_txid).await {
                             Ok(_) => true,
                             Err(e) if is_mempool_not_found_error(&e) => false,
                             Err(e) => {
                                 tracing::warn!(
-                                    insertion_id,
-                                    commit_txid = %commit_outpoint.txid,
+                                    ?insertion_ids,
+                                    %commit_txid,
                                     error = %e,
                                     "RPC mempool check failed; skipping eviction"
                                 );
@@ -165,8 +210,8 @@ impl TxSender {
                 Err(e) if is_not_found_error(&e) => false,
                 Err(e) => {
                     tracing::warn!(
-                        insertion_id,
-                        commit_txid = %commit_outpoint.txid,
+                        ?insertion_ids,
+                        %commit_txid,
                         error = %e,
                         "RPC tx lookup failed; skipping eviction"
                     );
@@ -176,27 +221,30 @@ impl TxSender {
 
             if rpc_present {
                 tracing::debug!(
-                    insertion_id,
-                    commit_txid = %commit_outpoint.txid,
+                    ?insertion_ids,
+                    %commit_txid,
                     "Commit tx present according to RPC; skipping eviction"
                 );
                 continue;
             }
             tracing::warn!(
-                insertion_id,
-                commit_txid = %commit_outpoint.txid,
+                ?insertion_ids,
+                %commit_txid,
                 "Commit tx evicted; clearing commit_outpoint and deleting reveal RBF entries"
             );
 
             let mut dbtx = self.db.begin_transaction().await?;
 
-            let try_to_send_ids = self
-                .db
-                .list_citrea_try_to_send_ids_by_insertion_id(Some(&mut dbtx), insertion_id)
-                .await?;
+            let row_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+            let try_to_send_ids = rows
+                .iter()
+                .filter_map(|row| row.try_to_send_id)
+                .map(u32::try_from)
+                .collect::<Result<BTreeSet<_>, _>>()
+                .wrap_err("Failed to convert citrea try_to_send_id to u32")?;
 
             self.db
-                .clear_citrea_commit_and_try_to_send_by_insertion_id(Some(&mut dbtx), insertion_id)
+                .clear_citrea_commit_and_try_to_send_by_ids(Some(&mut dbtx), &row_ids)
                 .await?;
 
             for try_to_send_id in try_to_send_ids {
@@ -213,8 +261,9 @@ impl TxSender {
     /// Build and send aggregate reveal transactions once all chunk reveals are confirmed.
     ///
     /// Computes the aggregate body from confirmed chunk reveal txids/wtxids (ordered by chunk row id),
-    /// updates/reset aggregate rows on mismatch (reorg), then runs the same commit/reveal flow. Marks
-    /// aggregate rows as finalized once the aggregate reveal is seen and finalized.
+    /// updates/reset aggregate rows on mismatch or invalid post-reorg ordering, then runs the same
+    /// commit/reveal flow. Marks aggregate rows as finalized only after the aggregate reveal and all
+    /// chunk reveals are finalized.
     async fn send_aggregate_txs(&self, fee_rate: FeeRateKvb) -> Result<(), eyre::Report> {
         let aggregate_rows = self.db.get_citrea_aggregate_rows_pending(None).await?;
         if aggregate_rows.is_empty() {
@@ -232,16 +281,13 @@ impl TxSender {
                 continue;
             }
 
-            let mut chunk_try_to_send_ids = Vec::with_capacity(chunk_rows.len());
             if chunk_rows.iter().any(|row| row.try_to_send_id.is_none()) {
                 continue;
             }
-            for row in &chunk_rows {
-                chunk_try_to_send_ids.push(
-                    row.try_to_send_id
-                        .expect("try_to_send_id should be present") as u32,
-                );
-            }
+            let chunk_try_to_send_ids = chunk_rows
+                .iter()
+                .map(citrea_try_to_send_id)
+                .collect::<Result<Vec<_>, _>>()?;
 
             let statuses = self
                 .db
@@ -252,9 +298,15 @@ impl TxSender {
                 .iter()
                 .all(|id| statuses.get(id).and_then(|(seen, _)| *seen).is_some());
 
+            // Aggregate can only reference chunk reveals once every chunk is seen.
             if !all_seen {
                 continue;
             }
+
+            // Finalizing the aggregate row also requires all referenced chunks to be final.
+            let all_chunks_finalized = chunk_try_to_send_ids
+                .iter()
+                .all(|id| statuses.get(id).is_some_and(|(_, finalized)| *finalized));
 
             let rbf_txids = self
                 .db
@@ -266,67 +318,100 @@ impl TxSender {
                 rbf_txids_by_id.entry(id).or_default().push(txid);
             }
 
-            let mut reveal_txids = Vec::with_capacity(chunk_rows.len());
-            let mut reveal_wtxids = Vec::with_capacity(chunk_rows.len());
-
-            let mut missing_confirmed = false;
-            for row in &chunk_rows {
-                let try_to_send_id = row.try_to_send_id.expect("checked above") as u32;
-                let txids = rbf_txids_by_id.get(&try_to_send_id).map(Vec::as_slice);
-                let Some(confirmed_txid) = self
-                    .select_confirmed_txid(txids.unwrap_or_default())
-                    .await?
-                else {
-                    missing_confirmed = true;
-                    break;
-                };
-
-                let confirmed_tx = self
-                    .rpc
-                    .get_tx_of_txid(&confirmed_txid)
-                    .await
-                    .wrap_err("Failed to fetch confirmed reveal tx")?;
-
-                reveal_txids.push(confirmed_txid.to_byte_array());
-                reveal_wtxids.push(confirmed_tx.compute_wtxid().to_byte_array());
-            }
-
-            if missing_confirmed {
+            let mut block_tx_position_cache = BlockTxPositionCache::new();
+            let Some(confirmed_chunk_reveals) = self
+                .collect_confirmed_chunk_reveals(
+                    &chunk_rows,
+                    &rbf_txids_by_id,
+                    &mut block_tx_position_cache,
+                )
+                .await?
+            else {
                 continue;
-            }
+            };
+            let ConfirmedChunkReveals {
+                reveal_txids,
+                reveal_wtxids,
+                confirmed_txs: confirmed_chunk_txs,
+            } = confirmed_chunk_reveals;
 
             let aggregate = DataOnDa::Aggregate(reveal_txids, reveal_wtxids);
             let aggregate_body: Vec<u8> =
                 borsh::to_vec(&aggregate).wrap_err("Failed to serialize aggregate body")?;
 
             let body_matches = aggregate_row.body == aggregate_body;
+            let aggregate_try_to_send_id = optional_citrea_try_to_send_id(&aggregate_row)?;
             let mut commit_outpoint = if body_matches {
                 aggregate_row.commit_outpoint
             } else {
                 None
             };
-            let try_to_send_id = if body_matches {
-                aggregate_row.try_to_send_id.map(|id| id as u32)
+            let mut try_to_send_id = if body_matches {
+                aggregate_try_to_send_id
             } else {
                 None
             };
 
+            // A changed aggregate body means chunk reveal txids/wtxids changed under us.
             if !body_matches {
-                self.db
-                    .update_citrea_body_and_reset(None, aggregate_row.id, &aggregate_body)
-                    .await?;
+                self.reset_citrea_aggregate_and_delete_try_to_send(
+                    aggregate_row.id,
+                    &aggregate_body,
+                    aggregate_try_to_send_id,
+                )
+                .await?;
             } else if let Some(existing_try_to_send_id) = try_to_send_id {
-                // if body matches, and the tx we try to send is already finalized, we can mark aggregate as finalized too so we don't check it anymore
-                let status = self
+                let aggregate_rbf_txids = self
                     .db
-                    .list_try_to_send_statuses_by_ids(None, &[existing_try_to_send_id])
+                    .list_rbf_txids_for_id(None, existing_try_to_send_id)
                     .await?;
-                if let Some((seen_at_height, is_finalized)) = status.get(&existing_try_to_send_id) {
-                    if seen_at_height.is_some() && *is_finalized {
-                        self.db
-                            .set_citrea_aggregate_finalized(None, aggregate_row.id)
-                            .await?;
-                        continue;
+
+                let aggregate_confirmed_tx = self
+                    .select_confirmed_tx_info(&aggregate_rbf_txids, &mut block_tx_position_cache)
+                    .await?;
+
+                // Only validate ordering/finality once an aggregate reveal is on-chain.
+                if let Some(aggregate_confirmed_tx) = aggregate_confirmed_tx {
+                    let status = self
+                        .db
+                        .list_try_to_send_statuses_by_ids(None, &[existing_try_to_send_id])
+                        .await?;
+
+                    if let Some((aggregate_seen_at_height, is_aggregate_finalized)) =
+                        status.get(&existing_try_to_send_id)
+                    {
+                        // No seen height yet means confirmation sync has not caught this tx.
+                        if aggregate_seen_at_height.is_some() {
+                            let aggregate_after_chunks = confirmed_chunk_txs
+                                .iter()
+                                .all(|chunk_tx| aggregate_confirmed_tx.is_after(chunk_tx));
+
+                            // Aggregate reveal must be strictly after every chunk reveal it names.
+                            if !aggregate_after_chunks {
+                                tracing::warn!(
+                                    insertion_id,
+                                    aggregate_try_to_send_id = existing_try_to_send_id,
+                                    aggregate_txid = %aggregate_confirmed_tx.txid,
+                                    aggregate_height = aggregate_confirmed_tx.block_height,
+                                    aggregate_index = aggregate_confirmed_tx.tx_index,
+                                    "Aggregate reveal confirmed before at least one chunk reveal; resetting aggregate send state"
+                                );
+                                self.reset_citrea_aggregate_and_delete_try_to_send(
+                                    aggregate_row.id,
+                                    &aggregate_body,
+                                    Some(existing_try_to_send_id),
+                                )
+                                .await?;
+                                commit_outpoint = None;
+                                try_to_send_id = None;
+                            } else if all_chunks_finalized && *is_aggregate_finalized {
+                                // Safe to stop processing only when chunks and aggregate are final.
+                                self.db
+                                    .set_citrea_aggregate_finalized(None, aggregate_row.id)
+                                    .await?;
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -334,20 +419,22 @@ impl TxSender {
             let signing_data =
                 self.create_reveal_script(TransactionKind::Aggregate, &aggregate_body);
 
+            // Missing/stale commit state is recreated after a body/order reset.
             if commit_outpoint.is_none() {
                 let rows_with_scripts = vec![(aggregate_row.clone(), signing_data.clone())];
-                let commit_txid = self
+                let Some(commit_txid) = self
                     .create_commit_outpoints_for_rows(fee_rate, insertion_id, rows_with_scripts)
-                    .await?;
-                if commit_txid.is_none() {
+                    .await?
+                else {
                     continue;
-                }
+                };
                 commit_outpoint = Some(bitcoin::OutPoint {
-                    txid: commit_txid.expect("checked above"),
+                    txid: commit_txid,
                     vout: 0,
                 });
             }
 
+            // Missing/stale reveal state is recreated after commit state is available.
             if try_to_send_id.is_none() {
                 let commit_outpoint = commit_outpoint.expect("commit_outpoint must be set");
                 let _new_try_to_send_id = self
@@ -463,14 +550,14 @@ impl TxSender {
                 None,
                 &reveal_tx,
                 clementine_utils::FeePayingType::RbfWtxidGrind,
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    spend_path: clementine_utils::RbfSigningSpendPath::ScriptPath {
+                Some(RbfSigningInfo::new(
+                    0,
+                    clementine_utils::RbfSigningSpendPath::ScriptPath {
                         control_block: signing_data.control_block.serialize(),
                         script: signing_data.reveal_script.into_bytes(),
                     },
-                    tap_sighash_type: TapSighashType::Default,
-                }),
+                    TapSighashType::Default,
+                )),
                 &[],
             )
             .await?;
@@ -483,20 +570,135 @@ impl TxSender {
         Ok(try_to_send_id)
     }
 
-    async fn select_confirmed_txid(
+    /// Resets an aggregate row to the supplied body and removes its stale reveal
+    /// tracking row in one DB transaction.
+    ///
+    /// `update_citrea_aggregate_body_and_reset` clears the aggregate row's
+    /// foreign-key reference before `delete_try_to_send_tx` removes the linked
+    /// tx-sender rows.
+    async fn reset_citrea_aggregate_and_delete_try_to_send(
+        &self,
+        aggregate_row_id: i64,
+        aggregate_body: &[u8],
+        try_to_send_id: Option<u32>,
+    ) -> Result<(), eyre::Report> {
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        self.db
+            .update_citrea_aggregate_body_and_reset(
+                Some(&mut dbtx),
+                aggregate_row_id,
+                aggregate_body,
+            )
+            .await?;
+
+        if let Some(try_to_send_id) = try_to_send_id {
+            self.db
+                .delete_try_to_send_tx(Some(&mut dbtx), try_to_send_id)
+                .await?;
+        }
+
+        self.db.commit_transaction(dbtx).await?;
+        Ok(())
+    }
+
+    /// Returns confirmed chunk reveal information in chunk row order.
+    ///
+    /// `None` means the database has enough seen state to consider the chunks,
+    /// but the current Bitcoin RPC view does not have a confirmed RBF member for
+    /// at least one chunk. That can happen transiently around reorgs or before
+    /// confirmation sync catches up.
+    async fn collect_confirmed_chunk_reveals(
+        &self,
+        chunk_rows: &[CitreaRawTxRow],
+        rbf_txids_by_id: &HashMap<u32, Vec<bitcoin::Txid>>,
+        block_tx_position_cache: &mut BlockTxPositionCache,
+    ) -> Result<Option<ConfirmedChunkReveals>, eyre::Report> {
+        let mut reveal_txids = Vec::with_capacity(chunk_rows.len());
+        let mut reveal_wtxids = Vec::with_capacity(chunk_rows.len());
+        let mut confirmed_txs = Vec::with_capacity(chunk_rows.len());
+
+        for row in chunk_rows {
+            let try_to_send_id = citrea_try_to_send_id(row)?;
+            let txids = rbf_txids_by_id.get(&try_to_send_id).map(Vec::as_slice);
+            let Some(confirmed_tx) = self
+                .select_confirmed_tx_info(txids.unwrap_or_default(), block_tx_position_cache)
+                .await?
+            else {
+                return Ok(None);
+            };
+
+            reveal_txids.push(confirmed_tx.txid.to_byte_array());
+            reveal_wtxids.push(confirmed_tx.wtxid.to_byte_array());
+            confirmed_txs.push(confirmed_tx);
+        }
+
+        Ok(Some(ConfirmedChunkReveals {
+            reveal_txids,
+            reveal_wtxids,
+            confirmed_txs,
+        }))
+    }
+
+    /// Selects the newest confirmed member from an RBF txid history.
+    ///
+    /// The input is expected in newest-first insertion order, matching the
+    /// tx-sender RBF query helpers. Confirmed transactions include their wtxid
+    /// and block position so aggregate bodies can reference chunk reveals and
+    /// aggregate ordering can be validated after reorgs.
+    async fn select_confirmed_tx_info(
         &self,
         txids: &[bitcoin::Txid],
-    ) -> Result<Option<bitcoin::Txid>, eyre::Report> {
+        block_tx_position_cache: &mut BlockTxPositionCache,
+    ) -> Result<Option<ConfirmedTxInfo>, eyre::Report> {
         for txid in txids {
-            let confirmations = match self.rpc.get_raw_transaction_info(txid, None).await {
-                Ok(info) => info.confirmations.filter(|c| *c > 0),
-                Err(e) if is_not_found_error(&e) => None,
+            let tx_info = match self.rpc.get_raw_transaction_info(txid, None).await {
+                Ok(info) => info,
+                Err(e) if is_not_found_error(&e) => continue,
                 Err(e) => return Err(eyre::eyre!(e)),
             };
 
-            if confirmations.is_some() {
-                return Ok(Some(*txid));
+            if tx_info
+                .confirmations
+                .is_none_or(|confirmations| confirmations == 0)
+            {
+                continue;
             }
+
+            let blockhash = tx_info.blockhash.ok_or_eyre(format!(
+                "Confirmed transaction {txid} missing blockhash in RPC response"
+            ))?;
+
+            match block_tx_position_cache.get(&blockhash) {
+                Some(_) => {}
+                None => {
+                    let block_info = self
+                        .rpc
+                        .get_block_info(&blockhash)
+                        .await
+                        .wrap_err("Failed to fetch confirmed transaction block info")?;
+                    let block_height = u32::try_from(block_info.height)
+                        .wrap_err("Failed to convert confirmed transaction block height to u32")?;
+                    block_tx_position_cache.insert(blockhash, (block_height, block_info.tx));
+                }
+            }
+
+            let (block_height, block_txids) = block_tx_position_cache
+                .get(&blockhash)
+                .expect("block info was inserted above");
+            let tx_index = block_txids
+                .iter()
+                .position(|block_txid| block_txid == txid)
+                .ok_or_eyre(format!(
+                    "Confirmed transaction {txid} missing from block {blockhash}"
+                ))?;
+
+            return Ok(Some(ConfirmedTxInfo {
+                txid: *txid,
+                wtxid: tx_info.hash,
+                block_height: *block_height,
+                tx_index,
+            }));
         }
 
         Ok(None)

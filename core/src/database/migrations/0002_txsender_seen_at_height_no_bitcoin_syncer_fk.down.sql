@@ -3,24 +3,25 @@
 
 -- 1) Re-add legacy columns (no-ops if they already exist)
 ALTER TABLE tx_sender_try_to_send_txs
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
 ALTER TABLE tx_sender_fee_payer_utxos
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
 ALTER TABLE tx_sender_cancel_try_to_send_outpoints
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
 ALTER TABLE tx_sender_cancel_try_to_send_txids
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
 ALTER TABLE tx_sender_activate_try_to_send_txids
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
 ALTER TABLE tx_sender_activate_try_to_send_outpoints
-ADD COLUMN IF NOT EXISTS seen_block_id INT DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS seen_block_id INT REFERENCES bitcoin_syncer(id) DEFAULT NULL;
 
--- 2) Drop the new columns
+-- 2) Drop the new columns. Legacy txsender will rebuild seen_block_id from
+-- its bitcoin_syncer event consumer cursor when it starts.
 ALTER TABLE tx_sender_try_to_send_txs
 DROP COLUMN IF EXISTS seen_at_height;
 
@@ -119,4 +120,3 @@ DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sen
 CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
 AFTER
 INSERT ON tx_sender_activate_try_to_send_outpoints FOR EACH ROW EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
-

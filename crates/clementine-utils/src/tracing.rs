@@ -87,7 +87,7 @@ pub fn initialize_logger(default_level: Option<LevelFilter>) -> Result<(), Bridg
             });
         }));
 
-    // When JSON logs are enabled, use a theme without color codes
+    // When JSON logs are enabled, use a theme without color codes.
     if is_json_logs() {
         hook_builder = hook_builder.theme(color_eyre::config::Theme::new());
     }

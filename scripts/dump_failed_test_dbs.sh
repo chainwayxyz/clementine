@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Dumps the dbs that failed test into the specified output directory.
 # Locally, use a command like this to import the db (it will overwrite your own dbs with same name):
-# PGPASSWORD=clementine psql -h localhost -p 5432 -U clementine -f db_dump_operator_transfer_to_btc_wallet.sql 
+# PGPASSWORD=clementine psql -h localhost -p 5432 -U clementine -f db_dump_operator_transfer_to_btc_wallet.sql
 
 
 if [[ $# -lt 2 ]]; then
