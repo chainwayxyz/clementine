@@ -1,8 +1,5 @@
-use crate::{log_error_for_tx, TxDebugState, TxSender};
-use bitcoin::consensus::serialize;
+use crate::TxSender;
 use bitcoin::Transaction;
-use clementine_errors::SendTxError;
-use std::collections::HashMap;
 
 impl TxSender {
     /// Checks if a bridge transaction is nonstandard. Keep in mind that these are not all cases where a transaction is nonstandard.
