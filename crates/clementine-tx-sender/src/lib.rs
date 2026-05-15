@@ -60,6 +60,10 @@ use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
 use signer::TxSenderSigningKey;
 
+fn force_resend_sendable_fee_rate() -> FeeRateKvb {
+    FeeRateKvb::from_sat_per_kvb(u32::MAX as u64)
+}
+
 /// Default sequence for transactions.
 pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
 
@@ -335,26 +339,26 @@ impl TxSender {
         // some error occurred on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
         // if block height is increased, we use a dummy high fee rate to get all sendable txs
-        let (get_sendable_txs_fee_rate, get_sendable_nonstandard_txs_fee_rate) =
-            if is_tip_height_increased {
-                let max_fee_rate = FeeRateKvb::from_sat_per_kvb(u32::MAX as u64);
-                (max_fee_rate, max_fee_rate)
-            } else {
-                (
-                    new_fee_rate,
-                    self.maybe_adjust_fee_rate_for_slipstream_cfg(
-                        new_fee_rate,
-                        self.slipstream_cfg_if_enabled(),
-                    )
-                    .await,
-                )
-            };
+        let standard_sendable_fee_rate = if is_tip_height_increased {
+            force_resend_sendable_fee_rate()
+        } else {
+            new_fee_rate
+        };
+        let nonstandard_sendable_fee_rate = if is_tip_height_increased {
+            force_resend_sendable_fee_rate()
+        } else {
+            self.maybe_adjust_fee_rate_for_slipstream_cfg(
+                new_fee_rate,
+                self.slipstream_cfg_if_enabled(),
+            )
+            .await
+        };
         let txs = self
             .db
             .get_sendable_txs(
                 None,
-                get_sendable_txs_fee_rate,
-                get_sendable_nonstandard_txs_fee_rate,
+                standard_sendable_fee_rate,
+                nonstandard_sendable_fee_rate,
                 current_tip_height,
             )
             .await
@@ -371,8 +375,8 @@ impl TxSender {
         if std::env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
             self.db
                 .debug_inactive_txs(
-                    get_sendable_txs_fee_rate,
-                    get_sendable_nonstandard_txs_fee_rate,
+                    standard_sendable_fee_rate,
+                    nonstandard_sendable_fee_rate,
                     current_tip_height,
                 )
                 .await;
@@ -460,7 +464,6 @@ impl TxSender {
                 }
             };
 
-            // The selected threshold can be above the final fee after cap/min-bump logic.
             // Avoid same-height resends unless the final fee actually increases.
             if !is_tip_height_increased
                 && previous_effective_fee_rate.is_some_and(|prev| adjusted_fee_rate <= prev)
