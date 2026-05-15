@@ -1,3 +1,5 @@
+use crate::maraslipstream::MaraSlipstreamConfig;
+use crate::maraslipstream_integration::SlipstreamSubmitTxLabel;
 use crate::{log_error_for_tx, TxSender};
 use bitcoin::absolute::{LockTime, LOCK_TIME_THRESHOLD};
 use bitcoin::hashes::Hash;
@@ -563,18 +565,8 @@ impl TxSender {
         rbf_signing_info: Option<RbfSigningInfo>,
         current_tip_height: u32,
         needs_wtxid_grind: bool,
+        nonstandard_slipstream_cfg: Option<&MaraSlipstreamConfig>,
     ) -> Result<()> {
-        let db_effective_fee_rate = fee_rate;
-        let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
-        let fee_rate = self
-            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
-                &tx,
-                fee_rate,
-                nonstandard_slipstream_cfg,
-            )
-            .await;
-        let fee_rate_was_slipstream_adjusted = fee_rate != db_effective_fee_rate;
-
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
         tracing::debug!(?try_to_send_id, "Attempting to send.");
@@ -806,7 +798,8 @@ impl TxSender {
                     &final_tx,
                     bumped_txid,
                     try_to_send_id,
-                    "rbf_slipstream",
+                    SlipstreamSubmitTxLabel::Rbf,
+                    nonstandard_slipstream_cfg,
                 )
                 .await?
                 .is_some()
@@ -1070,7 +1063,8 @@ impl TxSender {
                     &final_tx,
                     initial_txid,
                     try_to_send_id,
-                    "rbf_initial_slipstream",
+                    SlipstreamSubmitTxLabel::InitialRbf,
+                    nonstandard_slipstream_cfg,
                 )
                 .await?
                 .is_some()
@@ -1132,19 +1126,8 @@ impl TxSender {
             fee_rate
         };
 
-        let stored_effective_feerate = if fee_rate_was_slipstream_adjusted {
-            db_effective_fee_rate
-        } else {
-            effective_feerate
-        };
-
         self.db
-            .update_effective_fee_rate(
-                None,
-                try_to_send_id,
-                stored_effective_feerate,
-                current_tip_height,
-            )
+            .update_effective_fee_rate(None, try_to_send_id, effective_feerate, current_tip_height)
             .await
             .wrap_err("Failed to update effective fee rate")?;
 

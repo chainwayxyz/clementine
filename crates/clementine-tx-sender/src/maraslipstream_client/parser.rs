@@ -42,10 +42,9 @@ pub(super) fn parse_rate_response(
             .map_err(|e| SendTxError::Other(eyre!(e).wrap_err("Slipstream getrate invalid JSON")));
     }
 
-    Err(parse_endpoint_error(
+    Err(api_error_to_send_tx_error(
         SlipstreamOperation::GetRate,
-        status,
-        body,
+        classify_api_error(status, body),
     ))
 }
 
@@ -54,10 +53,9 @@ pub(super) fn parse_submit_tx_response(
     body: &str,
 ) -> Result<Txid, SendTxError> {
     if !status.is_success() {
-        return Err(parse_endpoint_error(
+        return Err(api_error_to_send_tx_error(
             SlipstreamOperation::SubmitTx,
-            status,
-            body,
+            classify_api_error(status, body),
         ));
     }
 
@@ -74,10 +72,9 @@ pub(super) fn parse_submit_tx_response(
     }
 
     if res.status.eq_ignore_ascii_case(STATUS_ERROR) {
-        return Err(parse_endpoint_error(
+        return Err(api_error_to_send_tx_error(
             SlipstreamOperation::SubmitTx,
-            status,
-            body,
+            classify_api_error(status, body),
         ));
     }
 
@@ -93,10 +90,9 @@ pub(super) fn parse_submit_package_response(
     body: &str,
 ) -> Result<SlipstreamPackageSubmitResult, SendTxError> {
     if !status.is_success() {
-        return Err(parse_endpoint_error(
+        return Err(api_error_to_send_tx_error(
             SlipstreamOperation::SubmitPackage,
-            status,
-            body,
+            classify_api_error(status, body),
         ));
     }
 
@@ -113,10 +109,9 @@ pub(super) fn parse_submit_package_response(
     }
 
     if res.status.eq_ignore_ascii_case(STATUS_ERROR) && res.error.is_some() {
-        return Err(parse_endpoint_error(
+        return Err(api_error_to_send_tx_error(
             SlipstreamOperation::SubmitPackage,
-            status,
-            body,
+            classify_api_error(status, body),
         ));
     }
 
@@ -157,10 +152,9 @@ pub(super) fn parse_transaction_status_response(
                 eyre!(e).wrap_err("Slipstream transaction status invalid JSON"),
             ))
         }
-        Err(_) => Err(parse_endpoint_error(
+        Err(_) => Err(api_error_to_send_tx_error(
             SlipstreamOperation::TransactionStatus,
-            status,
-            body,
+            classify_api_error(status, body),
         )),
     }
 }
@@ -171,7 +165,7 @@ fn classify_api_error(status: StatusCode, body: &str) -> SlipstreamApiError {
         (StatusCode::BAD_REQUEST, Some(PACKAGE_ALREADY_SUBMITTED_MSG)) => {
             SlipstreamApiErrorKind::PackageAlreadySubmitted
         }
-        (StatusCode::BAD_REQUEST, Some(TRANSACTION_NOT_FOUND_MSG)) => {
+        (StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND, Some(TRANSACTION_NOT_FOUND_MSG)) => {
             SlipstreamApiErrorKind::TransactionNotFound
         }
         (StatusCode::BAD_REQUEST, _) => SlipstreamApiErrorKind::BadRequest,
@@ -201,10 +195,6 @@ fn extract_error_message(body: &str) -> Option<String> {
         }
         _ => None,
     }
-}
-
-fn parse_endpoint_error(op: SlipstreamOperation, status: StatusCode, body: &str) -> SendTxError {
-    api_error_to_send_tx_error(op, classify_api_error(status, body))
 }
 
 fn api_error_to_send_tx_error(op: SlipstreamOperation, err: SlipstreamApiError) -> SendTxError {

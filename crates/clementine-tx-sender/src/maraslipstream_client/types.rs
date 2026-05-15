@@ -94,12 +94,6 @@ pub enum SlipstreamPackageRejection {
     MissingTxResult(String),
 }
 
-impl SlipstreamPackageRejection {
-    pub fn is_potentially_idempotent(&self) -> bool {
-        !matches!(self, Self::MissingTxResult(_))
-    }
-}
-
 impl std::fmt::Display for SlipstreamPackageRejection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

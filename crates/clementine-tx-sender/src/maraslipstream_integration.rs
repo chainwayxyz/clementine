@@ -4,8 +4,86 @@ use crate::{log_error_for_tx, Result, TxSender};
 use bitcoin::{consensus::encode::serialize, Transaction, Txid};
 use clementine_primitives::FeeRateKvb;
 
-const DISCOUNTED_MULTIPLIER_CAP: f64 = 3.0;
-const F64_EXACT_INT_LIMIT: u64 = 1u64 << 53;
+const SLIPSTREAM_FEE_RATE_CAP_MULTIPLIER: u64 = 3;
+const DISCOUNTED_MULTIPLIER_CAP: f64 = SLIPSTREAM_FEE_RATE_CAP_MULTIPLIER as f64;
+
+pub(crate) enum SlipstreamDebugState {
+    SubmitRbfTxClientFailed,
+    SubmitRbfTxFailed,
+    SubmitRbfTxSent,
+    SubmitRbfTxTxidMismatch,
+    SubmitInitialRbfTxClientFailed,
+    SubmitInitialRbfTxFailed,
+    SubmitInitialRbfTxSent,
+    SubmitInitialRbfTxTxidMismatch,
+    SubmitPackageClientFailed,
+    SubmitPackageFailed,
+    SubmitPackageSuccess,
+    SubmitPackageAlreadySubmitted,
+    SubmitPackageAlreadySubmittedStatusFailed,
+    SubmitPackageAlreadySubmittedParentNotFound,
+}
+
+impl SlipstreamDebugState {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::SubmitRbfTxClientFailed => "rbf_slipstream_client_failed",
+            Self::SubmitRbfTxFailed => "rbf_slipstream_send_failed",
+            Self::SubmitRbfTxSent => "rbf_slipstream_sent",
+            Self::SubmitRbfTxTxidMismatch => "rbf_slipstream_txid_mismatch",
+            Self::SubmitInitialRbfTxClientFailed => "rbf_initial_slipstream_client_failed",
+            Self::SubmitInitialRbfTxFailed => "rbf_initial_slipstream_send_failed",
+            Self::SubmitInitialRbfTxSent => "rbf_initial_slipstream_sent",
+            Self::SubmitInitialRbfTxTxidMismatch => "rbf_initial_slipstream_txid_mismatch",
+            Self::SubmitPackageClientFailed => "slipstream_submit_package_client_failed",
+            Self::SubmitPackageFailed => "slipstream_submit_package_failed",
+            Self::SubmitPackageSuccess => "slipstream_submit_package_success",
+            Self::SubmitPackageAlreadySubmitted => "slipstream_submit_package_already_submitted",
+            Self::SubmitPackageAlreadySubmittedStatusFailed => {
+                "slipstream_submit_package_already_submitted_status_failed"
+            }
+            Self::SubmitPackageAlreadySubmittedParentNotFound => {
+                "slipstream_submit_package_already_submitted_parent_not_found"
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SlipstreamSubmitTxLabel {
+    Rbf,
+    InitialRbf,
+}
+
+impl SlipstreamSubmitTxLabel {
+    fn client_failed_state(self) -> SlipstreamDebugState {
+        match self {
+            Self::Rbf => SlipstreamDebugState::SubmitRbfTxClientFailed,
+            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxClientFailed,
+        }
+    }
+
+    fn failed_state(self) -> SlipstreamDebugState {
+        match self {
+            Self::Rbf => SlipstreamDebugState::SubmitRbfTxFailed,
+            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxFailed,
+        }
+    }
+
+    fn sent_state(self) -> SlipstreamDebugState {
+        match self {
+            Self::Rbf => SlipstreamDebugState::SubmitRbfTxSent,
+            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxSent,
+        }
+    }
+
+    fn txid_mismatch_state(self) -> SlipstreamDebugState {
+        match self {
+            Self::Rbf => SlipstreamDebugState::SubmitRbfTxTxidMismatch,
+            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxTxidMismatch,
+        }
+    }
+}
 
 impl TxSender {
     pub(crate) fn slipstream_supported_network(&self) -> bool {
@@ -59,7 +137,7 @@ impl TxSender {
         &self,
         cfg: &MaraSlipstreamConfig,
         try_to_send_id: u32,
-        failed_state: &str,
+        failed_state: SlipstreamDebugState,
     ) -> Result<MaraSlipstreamClient> {
         match self.slipstream_client(cfg) {
             Ok(client) => Ok(client),
@@ -71,7 +149,7 @@ impl TxSender {
                 );
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(try_to_send_id, failed_state, true)
+                    .update_tx_debug_sending_state(try_to_send_id, failed_state.as_str(), true)
                     .await;
                 Err(e)
             }
@@ -93,18 +171,15 @@ impl TxSender {
         tx: &Transaction,
         expected_txid: Txid,
         try_to_send_id: u32,
-        state_prefix: &str,
+        label: SlipstreamSubmitTxLabel,
+        cfg: Option<&MaraSlipstreamConfig>,
     ) -> Result<Option<Txid>> {
-        let Some(cfg) = self.maybe_slipstream_cfg_for_nonstandard_tx(tx) else {
+        let Some(cfg) = cfg.or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(tx)) else {
             return Ok(None);
         };
 
-        let txid_mismatch_state = format!("{state_prefix}_txid_mismatch");
-        let sent_state = format!("{state_prefix}_sent");
-        let send_failed_state = format!("{state_prefix}_send_failed");
-
         let client = self
-            .slipstream_client_or_mark_failed(cfg, try_to_send_id, &send_failed_state)
+            .slipstream_client_or_mark_failed(cfg, try_to_send_id, label.client_failed_state())
             .await?;
         let tx_hex = Self::tx_to_hex(tx);
 
@@ -117,7 +192,11 @@ impl TxSender {
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db
-                        .update_tx_debug_sending_state(try_to_send_id, &txid_mismatch_state, true)
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            label.txid_mismatch_state().as_str(),
+                            true,
+                        )
                         .await;
                     return Err(eyre::eyre!("Slipstream returned unexpected txid").into());
                 }
@@ -129,7 +208,11 @@ impl TxSender {
                 );
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(try_to_send_id, &sent_state, true)
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        label.sent_state().as_str(),
+                        true,
+                    )
                     .await;
 
                 Ok(Some(expected_txid))
@@ -142,7 +225,11 @@ impl TxSender {
                 );
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(try_to_send_id, &send_failed_state, true)
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        label.failed_state().as_str(),
+                        true,
+                    )
                     .await;
                 Err(e)
             }
@@ -201,19 +288,12 @@ impl TxSender {
             mult = DISCOUNTED_MULTIPLIER_CAP;
         }
 
-        let base_sat_kvb = fee_rate.to_sat_per_kvb();
-        // Very unlikely, but warn if we cross the f64 exact-integer boundary for safety.
-        if base_sat_kvb >= F64_EXACT_INT_LIMIT {
-            tracing::warn!(
-                base_sat_kvb,
-                "Fee rate is at or above 2^53 sat/kvb; f64 conversion may lose precision"
-            );
-        }
+        let max_slipstream_fee_rate = self.max_slipstream_fee_rate();
 
         // It should be safe to do the multiplication in f64 since fee rates are small.
+        let base_sat_kvb = fee_rate.to_sat_per_kvb();
         let target_sat_kvb = (base_sat_kvb as f64) * mult;
-
-        if !target_sat_kvb.is_finite() || target_sat_kvb > (u64::MAX as f64) {
+        if !target_sat_kvb.is_finite() || target_sat_kvb < 0.0 {
             tracing::warn!(
                 base_sat_kvb,
                 mult,
@@ -222,7 +302,11 @@ impl TxSender {
             return fee_rate;
         }
 
-        FeeRateKvb::from_sat_per_kvb(target_sat_kvb.ceil() as u64)
+        let max_sat_kvb = max_slipstream_fee_rate.to_sat_per_kvb() as f64;
+        let target_fee_rate =
+            FeeRateKvb::from_sat_per_kvb(target_sat_kvb.min(max_sat_kvb).ceil() as u64);
+
+        target_fee_rate
     }
 
     pub(crate) async fn maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
@@ -234,5 +318,11 @@ impl TxSender {
         let cfg = cfg.or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(tx));
         self.maybe_adjust_fee_rate_for_slipstream_cfg(base_fee_rate, cfg)
             .await
+    }
+
+    pub(crate) fn max_slipstream_fee_rate(&self) -> FeeRateKvb {
+        self.fee_rate_hard_cap()
+            .checked_mul(SLIPSTREAM_FEE_RATE_CAP_MULTIPLIER)
+            .unwrap_or_else(|| self.fee_rate_hard_cap())
     }
 }

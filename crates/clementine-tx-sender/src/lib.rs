@@ -333,14 +333,28 @@ impl TxSender {
         // some error occurred on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
         // if block height is increased, we use a dummy high fee rate to get all sendable txs
-        let get_sendable_txs_fee_rate = if is_tip_height_increased {
-            FeeRateKvb::from_sat_per_kvb(u32::MAX as u64)
-        } else {
-            new_fee_rate
-        };
+        let (get_sendable_txs_fee_rate, get_sendable_nonstandard_txs_fee_rate) =
+            if is_tip_height_increased {
+                let max_fee_rate = FeeRateKvb::from_sat_per_kvb(u32::MAX as u64);
+                (max_fee_rate, max_fee_rate)
+            } else {
+                (
+                    new_fee_rate,
+                    self.maybe_adjust_fee_rate_for_slipstream_cfg(
+                        new_fee_rate,
+                        self.slipstream_cfg_if_enabled(),
+                    )
+                    .await,
+                )
+            };
         let txs = self
             .db
-            .get_sendable_txs(None, get_sendable_txs_fee_rate, current_tip_height)
+            .get_sendable_txs(
+                None,
+                get_sendable_txs_fee_rate,
+                get_sendable_nonstandard_txs_fee_rate,
+                current_tip_height,
+            )
             .await
             .map_to_eyre()?;
 
@@ -354,7 +368,11 @@ impl TxSender {
 
         if std::env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
             self.db
-                .debug_inactive_txs(get_sendable_txs_fee_rate, current_tip_height)
+                .debug_inactive_txs(
+                    get_sendable_txs_fee_rate,
+                    get_sendable_nonstandard_txs_fee_rate,
+                    current_tip_height,
+                )
                 .await;
         }
 
@@ -405,15 +423,30 @@ impl TxSender {
                     }
                 };
 
+            let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
+            let target_fee_rate = self
+                .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
+                    &tx,
+                    new_fee_rate,
+                    nonstandard_slipstream_cfg,
+                )
+                .await;
+            let target_fee_rate_cap = if nonstandard_slipstream_cfg.is_some() {
+                self.max_slipstream_fee_rate()
+            } else {
+                self.fee_rate_hard_cap()
+            };
+
             // Calculate adjusted fee rate considering:
             // 1. If new_fee_rate > previous_effective_fee_rate + min_bump_kvb, use max(new_fee_rate, previous_effective_fee_rate + incremental_fee_rate)
             // 2. If tx has been stuck for 10+ blocks, bump with incremental fee
             let adjusted_fee_rate = match self
-                .calculate_target_fee_rate(
+                .calculate_target_fee_rate_with_cap(
                     previous_effective_fee_rate,
-                    new_fee_rate,
+                    target_fee_rate,
                     last_bump_block_height,
                     current_tip_height,
+                    target_fee_rate_cap,
                 )
                 .await
             {
@@ -427,18 +460,38 @@ impl TxSender {
                     continue;
                 }
             };
+            if nonstandard_slipstream_cfg.is_some()
+                && !is_tip_height_increased
+                && previous_effective_fee_rate.is_some_and(|prev| adjusted_fee_rate <= prev)
+            {
+                tracing::debug!(
+                    try_to_send_id = id,
+                    previous_effective_fee_rate = ?previous_effective_fee_rate,
+                    adjusted_fee_rate = ?adjusted_fee_rate,
+                    "Skipping tx because adjusted fee rate is not higher than current effective fee rate"
+                );
+                continue;
+            }
 
             let result = match fee_paying_type {
                 // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
                 // As mempool uses out of band payment, we don't need to do cpfp or rbf.
                 _ if self.network == bitcoin::Network::Testnet4
-                    && self.is_bridge_tx_nonstandard(&tx) =>
+                    && self.is_bridge_tx_nonstandard(&tx)
+                    && nonstandard_slipstream_cfg.is_none() =>
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
                 FeePayingType::CPFP => {
-                    self.send_cpfp_tx(id, tx, tx_metadata, adjusted_fee_rate, current_tip_height)
-                        .await
+                    self.send_cpfp_tx(
+                        id,
+                        tx,
+                        tx_metadata,
+                        adjusted_fee_rate,
+                        current_tip_height,
+                        nonstandard_slipstream_cfg,
+                    )
+                    .await
                 }
                 FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
                     self.send_rbf_tx(
@@ -449,6 +502,7 @@ impl TxSender {
                         rbf_signing_info,
                         current_tip_height,
                         fee_paying_type == FeePayingType::RbfWtxidGrind,
+                        nonstandard_slipstream_cfg,
                     )
                     .await
                 }
@@ -490,10 +544,24 @@ impl TxSender {
         last_bump_block_height: Option<u32>,
         current_tip_height: u32,
     ) -> Result<FeeRateKvb> {
-        // Hard cap from config (in sat/vB), convert to sat/kvB
-        let hard_cap = FeeRateKvb::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
-            .expect("fee_rate_hard_cap should be valid");
+        self.calculate_target_fee_rate_with_cap(
+            previous_effective_fee_rate,
+            new_fee_rate,
+            last_bump_block_height,
+            current_tip_height,
+            self.fee_rate_hard_cap(),
+        )
+        .await
+    }
 
+    async fn calculate_target_fee_rate_with_cap(
+        &self,
+        previous_effective_fee_rate: Option<FeeRateKvb>,
+        new_fee_rate: FeeRateKvb,
+        last_bump_block_height: Option<u32>,
+        current_tip_height: u32,
+        hard_cap: FeeRateKvb,
+    ) -> Result<FeeRateKvb> {
         let Some(previous_rate) = previous_effective_fee_rate else {
             // No previous effective fee rate, use the new fee rate (capped)
             return Ok(std::cmp::min(new_fee_rate, hard_cap));
@@ -554,6 +622,11 @@ impl TxSender {
             return Ok(capped_result);
         }
         Ok(previous_rate)
+    }
+
+    pub(crate) fn fee_rate_hard_cap(&self) -> FeeRateKvb {
+        FeeRateKvb::from_sat_per_vb(self.tx_sender_limits.fee_rate_hard_cap)
+            .expect("fee_rate_hard_cap should be valid")
     }
 
     /// Sends a transaction that is already fully funded and signed.

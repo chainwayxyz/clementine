@@ -107,11 +107,22 @@ impl MaraSlipstreamClient {
         parse_transaction_status_response(status, &body, txid)
     }
 
-    pub async fn transaction_found(&self, txid: &str) -> bool {
-        matches!(
-            self.transaction_status(txid).await,
-            Ok(SlipstreamTransactionStatus::Found(status)) if status.transaction.txid == txid
-        )
+    pub async fn transaction_found(&self, txid: &str) -> Result<bool, SendTxError> {
+        match self.transaction_status(txid).await? {
+            SlipstreamTransactionStatus::Found(status) => Ok(status.transaction.txid == txid),
+            SlipstreamTransactionStatus::Error { api_error, .. }
+                if matches!(api_error.kind, SlipstreamApiErrorKind::TransactionNotFound) =>
+            {
+                Ok(false)
+            }
+            SlipstreamTransactionStatus::Error { api_error, .. } => Err(SendTxError::Other(eyre!(
+                "Slipstream transaction-status HTTP {} ({:?}, retryable={}): {}",
+                api_error.status,
+                api_error.kind,
+                api_error.retryable,
+                api_error.message.as_deref().unwrap_or(&api_error.raw)
+            ))),
+        }
     }
 }
 

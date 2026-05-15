@@ -18,11 +18,7 @@ impl TxSender {
     /// Returns:
     /// * `true` if the transaction is nonstandard, `false` otherwise.
     pub fn is_bridge_tx_nonstandard(&self, tx: &Transaction) -> bool {
-        tx.output.iter().any(|output| {
-            output.value.to_sat() == 0
-                && !self.is_p2a_anchor(output)
-                && !output.script_pubkey.is_op_return()
-        }) || tx.weight().to_wu() > 400_000
+        is_bridge_tx_nonstandard(tx)
     }
 
     /// Sends a nonstandard transaction to testnet4 using the mempool.space accelerator.
@@ -176,4 +172,12 @@ impl TxSender {
             )))
         }
     }
+}
+
+pub(crate) fn is_bridge_tx_nonstandard(tx: &Transaction) -> bool {
+    tx.output.iter().any(|output| {
+        output.value.to_sat() == 0
+            && !clementine_utils::address::is_p2a_anchor(output)
+            && !output.script_pubkey.is_op_return()
+    }) || tx.weight().to_wu() > 400_000
 }

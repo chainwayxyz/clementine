@@ -18,6 +18,8 @@
 //! send.
 
 use super::Result;
+use crate::maraslipstream::MaraSlipstreamConfig;
+use crate::maraslipstream_integration::SlipstreamDebugState;
 use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
@@ -579,6 +581,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRateKvb,
         current_tip_height: u32,
+        nonstandard_slipstream_cfg: Option<&MaraSlipstreamConfig>,
     ) -> Result<()> {
         let unconfirmed = self
             .db
@@ -604,15 +607,8 @@ impl TxSender {
             return Ok(());
         }
 
-        let db_effective_fee_rate = fee_rate;
-        let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
-        let fee_rate = self
-            .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
-                &tx,
-                fee_rate,
-                nonstandard_slipstream_cfg,
-            )
-            .await;
+        let nonstandard_slipstream_cfg = nonstandard_slipstream_cfg
+            .or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(&tx));
 
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.txout.value).sum();
@@ -672,12 +668,7 @@ impl TxSender {
         // This ensures that even if the send fails, we track the attempt
         // so the 10-block stuck logic can trigger a bump
         self.db
-            .update_effective_fee_rate(
-                None,
-                try_to_send_id,
-                db_effective_fee_rate,
-                current_tip_height,
-            )
+            .update_effective_fee_rate(None, try_to_send_id, fee_rate, current_tip_height)
             .await
             .wrap_err("Failed to update effective fee rate")?;
 
@@ -692,7 +683,7 @@ impl TxSender {
                 .slipstream_client_or_mark_failed(
                     cfg,
                     try_to_send_id,
-                    "slipstream_submit_package_failed",
+                    SlipstreamDebugState::SubmitPackageClientFailed,
                 )
                 .await?;
             let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
@@ -707,48 +698,24 @@ impl TxSender {
                 .await
             {
                 Ok(res) => {
-                    let already_submitted = if let Some(rejection) =
-                        res.package_rejection(&expected_txids)
-                    {
-                        if rejection.is_potentially_idempotent()
-                            && client.transaction_found(&parent_txid).await
-                        {
-                            tracing::debug!(
+                    if let Some(rejection) = res.package_rejection(&expected_txids) {
+                        log_error_for_tx!(
+                            self.db,
+                            try_to_send_id,
+                            format!("Slipstream submit-package rejected package: {rejection}")
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                rejection = %rejection,
-                                parent_txid = %parent_txid,
-                                "Slipstream CPFP parent is known after package rejection; treating as idempotent success"
-                            );
-                            let _ = self
-                                .db
-                                .update_tx_debug_sending_state(
-                                    try_to_send_id,
-                                    "slipstream_submit_package_already_submitted",
-                                    true,
-                                )
-                                .await;
-                            true
-                        } else {
-                            log_error_for_tx!(
-                                self.db,
-                                try_to_send_id,
-                                format!("Slipstream submit-package rejected package: {rejection}")
-                            );
-                            let _ = self
-                                .db
-                                .update_tx_debug_sending_state(
-                                    try_to_send_id,
-                                    "slipstream_submit_package_failed",
-                                    true,
-                                )
-                                .await;
-                            return Err(SendTxError::Other(eyre!(
-                                "Slipstream submit-package rejected package: {rejection}"
-                            )));
-                        }
-                    } else {
-                        false
-                    };
+                                SlipstreamDebugState::SubmitPackageFailed.as_str(),
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(
+                            "Slipstream submit-package rejected package: {rejection}"
+                        )));
+                    }
 
                     tracing::debug!(
                         try_to_send_id,
@@ -791,20 +758,40 @@ impl TxSender {
                         }
                     }
 
-                    if !already_submitted {
-                        let _ = self
-                            .db
-                            .update_tx_debug_sending_state(
-                                try_to_send_id,
-                                "slipstream_submit_package_success",
-                                true,
-                            )
-                            .await;
-                    }
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            SlipstreamDebugState::SubmitPackageSuccess.as_str(),
+                            true,
+                        )
+                        .await;
                 }
                 Err(e) => {
                     if matches!(e, SendTxError::SlipstreamPackageAlreadySubmitted) {
-                        if client.transaction_found(&parent_txid).await {
+                        let parent_found = match client.transaction_found(&parent_txid).await {
+                            Ok(found) => found,
+                            Err(status_err) => {
+                                log_error_for_tx!(
+                                    self.db,
+                                    try_to_send_id,
+                                    format!(
+                                        "Slipstream submit-package already-submitted but parent status check failed: {status_err:?}"
+                                    )
+                                );
+                                let _ = self
+                                    .db
+                                    .update_tx_debug_sending_state(
+                                        try_to_send_id,
+                                        SlipstreamDebugState::SubmitPackageAlreadySubmittedStatusFailed.as_str(),
+                                        true,
+                                    )
+                                    .await;
+                                return Err(status_err);
+                            }
+                        };
+
+                        if parent_found {
                             tracing::debug!(
                                 try_to_send_id,
                                 parent_txid = %parent_txid,
@@ -814,7 +801,7 @@ impl TxSender {
                                 .db
                                 .update_tx_debug_sending_state(
                                     try_to_send_id,
-                                    "slipstream_submit_package_already_submitted",
+                                    SlipstreamDebugState::SubmitPackageAlreadySubmitted.as_str(),
                                     true,
                                 )
                                 .await;
@@ -835,7 +822,7 @@ impl TxSender {
                                 .db
                                 .update_tx_debug_sending_state(
                                     try_to_send_id,
-                                    "slipstream_submit_package_already_submitted_parent_not_found",
+                                    SlipstreamDebugState::SubmitPackageAlreadySubmittedParentNotFound.as_str(),
                                     true,
                                 )
                                 .await;
@@ -851,7 +838,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "slipstream_submit_package_failed",
+                                SlipstreamDebugState::SubmitPackageFailed.as_str(),
                                 true,
                             )
                             .await;
