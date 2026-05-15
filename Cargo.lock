@@ -8811,6 +8811,7 @@ dependencies = [
  "bitcoin",
  "clementine-primitives",
  "serde",
+ "serde_json",
  "sqlx",
 ]
 

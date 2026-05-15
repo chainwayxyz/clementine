@@ -16,6 +16,12 @@ pub use tx_sender_types::{
     ActivatedWithTxid, FeePayingType, InsertTryToSendParams, RbfSigningInfo, RbfSigningSpendPath,
     TxMetadata,
 };
+pub use tx_sender_types::{
+    ActivationBlocker, ActivationBlockerReason, ActivationState, BitcoinTxStatus, TrackRequest,
+    TrackResponse, TrackStatus, TxStatus,
+};
+#[cfg(feature = "citrea")]
+pub use tx_sender_types::{CommitRevealKind, CommitRevealStatus, RevealStatus};
 
 #[derive(Debug, Clone)]
 pub struct JsonRpcTxSenderClient {
@@ -67,6 +73,12 @@ impl JsonRpcTxSenderClient {
 
         self.inner
             .request::<i64, _>("send_citrea_tx", rpc_params![req])
+            .await
+    }
+
+    pub async fn track_tx(&self, request: TrackRequest) -> Result<TrackResponse, JsonRpcError> {
+        self.inner
+            .request::<TrackResponse, _>("track_tx", rpc_params![request])
             .await
     }
 }

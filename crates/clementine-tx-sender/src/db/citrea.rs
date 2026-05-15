@@ -55,6 +55,26 @@ impl From<CitreaRawTxRowDb> for CitreaRawTxRow {
 }
 
 impl TxSenderDb {
+    /// Returns all citrea rows for a given insertion group.
+    pub async fn get_citrea_rows_by_insertion_id(
+        &self,
+        tx: Option<TxSenderDbTx<'_>>,
+        insertion_id: i64,
+    ) -> Result<Vec<CitreaRawTxRow>, BridgeError> {
+        let query = sqlx::query_as::<_, CitreaRawTxRowDb>(
+            "SELECT id, insertion_id, transaction_kind, body, commit_outpoint, try_to_send_id, aggregate_finalized
+             FROM tx_sender_citrea_raw_tx_queue
+             WHERE insertion_id = $1
+             ORDER BY id ASC",
+        )
+        .bind(insertion_id);
+
+        let results: Vec<CitreaRawTxRowDb> =
+            txsender_execute_query_with_tx!(&self.pool, tx, query, fetch_all)?;
+
+        Ok(results.into_iter().map(CitreaRawTxRow::from).collect())
+    }
+
     /// Inserts a single non-chunked Citrea raw tx row.
     /// Uses the row body itself as the `body_hash` dedupe input.
     /// Returns the insertion_id assigned to this row.

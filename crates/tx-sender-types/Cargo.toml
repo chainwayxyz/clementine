@@ -18,7 +18,10 @@ sqlx = ["dep:sqlx"]
 test-fields = []
 
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, features = ["alloc"] }
 bitcoin = { workspace = true, optional = true }
 clementine-primitives = { path = "../clementine-primitives", optional = true }
 sqlx = { workspace = true, optional = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
