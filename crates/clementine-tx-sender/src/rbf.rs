@@ -1,6 +1,5 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
-use crate::maraslipstream_integration::SlipstreamSubmitTxLabel;
-use crate::{log_error_for_tx, TxSender};
+use crate::{log_error_for_tx, SlipstreamSubmitTxLabel, TxDebugState, TxSender};
 use bitcoin::absolute::{LockTime, LOCK_TIME_THRESHOLD};
 use bitcoin::hashes::Hash;
 use bitcoin::script::Instruction;
@@ -573,7 +572,11 @@ impl TxSender {
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::PreparingRbf.as_str(),
+                true,
+            )
             .await;
 
         let rbf_txids = self
@@ -674,7 +677,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "rbf_psbt_bump_failed",
+                                TxDebugState::RbfPsbtBumpFailed.as_str(),
                                 true,
                             )
                             .await;
@@ -688,7 +691,7 @@ impl TxSender {
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
                     self.handle_err(
                         format!("psbt_bump_fee failed: {errors:?}"),
-                        "rbf_psbt_bump_failed",
+                        TxDebugState::RbfPsbtBumpFailed.as_str(),
                         try_to_send_id,
                     );
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
@@ -766,7 +769,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "rbf_psbt_sign_failed",
+                                TxDebugState::RbfPsbtSignFailed.as_str(),
                                 true,
                             )
                             .await;
@@ -856,7 +859,11 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped_sent", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::RbfBumpedSent.as_str(),
+                    true,
+                )
                 .await;
 
             self.db
@@ -873,7 +880,11 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "creating_initial_rbf_psbt", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::CreatingInitialRbfPsbt.as_str(),
+                    true,
+                )
                 .await;
 
             // for accurate fee calculation, fill in the witness with dummy data if its empty
@@ -1025,7 +1036,7 @@ impl TxSender {
                             let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
                             self.handle_err(
                                 format!("{err:?}"),
-                                "rbf_psbt_sign_failed",
+                                TxDebugState::RbfPsbtSignFailed.as_str(),
                                 try_to_send_id,
                             );
 
@@ -1115,7 +1126,11 @@ impl TxSender {
             // Update debug sending state
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "rbf_initial_sent", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::RbfInitialSent.as_str(),
+                    true,
+                )
                 .await;
 
             self.db

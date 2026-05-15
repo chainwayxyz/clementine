@@ -19,8 +19,7 @@
 
 use super::Result;
 use crate::maraslipstream::MaraSlipstreamConfig;
-use crate::maraslipstream_integration::SlipstreamDebugState;
-use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
+use crate::{log_error_for_tx, TxDebugState, TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -600,7 +599,7 @@ impl TxSender {
                 .db
                 .update_tx_debug_sending_state(
                     try_to_send_id,
-                    "waiting_for_utxo_confirmation",
+                    TxDebugState::WaitingForUtxoConfirmation.as_str(),
                     true,
                 )
                 .await;
@@ -615,7 +614,11 @@ impl TxSender {
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::CreatingPackage.as_str(),
+                true,
+            )
             .await;
 
         let package = match self
@@ -637,7 +640,7 @@ impl TxSender {
                     .db
                     .update_tx_debug_sending_state(
                         try_to_send_id,
-                        "waiting_for_fee_payer_utxos",
+                        TxDebugState::WaitingForFeePayerUtxos.as_str(),
                         true,
                     )
                     .await;
@@ -675,7 +678,11 @@ impl TxSender {
         // Update sending state to submitting_package
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "submitting_package", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::SubmittingPackage.as_str(),
+                true,
+            )
             .await;
 
         if let Some(cfg) = nonstandard_slipstream_cfg {
@@ -683,7 +690,7 @@ impl TxSender {
                 .slipstream_client_or_mark_failed(
                     cfg,
                     try_to_send_id,
-                    SlipstreamDebugState::SubmitPackageClientFailed,
+                    TxDebugState::SlipstreamSubmitPackageClientFailed,
                 )
                 .await?;
             let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
@@ -708,7 +715,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                SlipstreamDebugState::SubmitPackageFailed.as_str(),
+                                TxDebugState::SlipstreamSubmitPackageFailed.as_str(),
                                 true,
                             )
                             .await;
@@ -762,7 +769,7 @@ impl TxSender {
                         .db
                         .update_tx_debug_sending_state(
                             try_to_send_id,
-                            SlipstreamDebugState::SubmitPackageSuccess.as_str(),
+                            TxDebugState::SlipstreamSubmitPackageSuccess.as_str(),
                             true,
                         )
                         .await;
@@ -783,7 +790,7 @@ impl TxSender {
                                     .db
                                     .update_tx_debug_sending_state(
                                         try_to_send_id,
-                                        SlipstreamDebugState::SubmitPackageAlreadySubmittedStatusFailed.as_str(),
+                                        TxDebugState::SlipstreamSubmitPackageAlreadySubmittedStatusFailed.as_str(),
                                         true,
                                     )
                                     .await;
@@ -801,7 +808,7 @@ impl TxSender {
                                 .db
                                 .update_tx_debug_sending_state(
                                     try_to_send_id,
-                                    SlipstreamDebugState::SubmitPackageAlreadySubmitted.as_str(),
+                                    TxDebugState::SlipstreamSubmitPackageAlreadySubmitted.as_str(),
                                     true,
                                 )
                                 .await;
@@ -822,7 +829,7 @@ impl TxSender {
                                 .db
                                 .update_tx_debug_sending_state(
                                     try_to_send_id,
-                                    SlipstreamDebugState::SubmitPackageAlreadySubmittedParentNotFound.as_str(),
+                                    TxDebugState::SlipstreamSubmitPackageAlreadySubmittedParentNotFound.as_str(),
                                     true,
                                 )
                                 .await;
@@ -838,7 +845,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                SlipstreamDebugState::SubmitPackageFailed.as_str(),
+                                TxDebugState::SlipstreamSubmitPackageFailed.as_str(),
                                 true,
                             )
                             .await;

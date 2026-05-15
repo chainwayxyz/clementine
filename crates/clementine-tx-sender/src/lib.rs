@@ -10,6 +10,7 @@ pub mod config;
 mod confirmations;
 pub mod cpfp;
 pub mod db;
+mod debug_state;
 #[cfg(feature = "json-rpc")]
 pub mod jsonrpc;
 pub mod maraslipstream;
@@ -41,6 +42,7 @@ macro_rules! log_error_for_tx {
 
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
+pub(crate) use debug_state::{SlipstreamSubmitTxLabel, TxDebugState};
 pub use maraslipstream::MaraSlipstreamConfig;
 pub use maraslipstream_client::MaraSlipstreamClient;
 pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
@@ -403,7 +405,7 @@ impl TxSender {
                 // Update sending state
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(id, "confirmed", true)
+                    .update_tx_debug_sending_state(id, TxDebugState::Confirmed.as_str(), true)
                     .await;
 
                 continue;
@@ -425,12 +427,9 @@ impl TxSender {
 
             let nonstandard_slipstream_cfg = self.maybe_slipstream_cfg_for_nonstandard_tx(&tx);
             let target_fee_rate = self
-                .maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
-                    &tx,
-                    new_fee_rate,
-                    nonstandard_slipstream_cfg,
-                )
+                .maybe_adjust_fee_rate_for_slipstream_cfg(new_fee_rate, nonstandard_slipstream_cfg)
                 .await;
+
             let target_fee_rate_cap = if nonstandard_slipstream_cfg.is_some() {
                 self.max_slipstream_fee_rate()
             } else {
@@ -460,8 +459,10 @@ impl TxSender {
                     continue;
                 }
             };
-            if nonstandard_slipstream_cfg.is_some()
-                && !is_tip_height_increased
+
+            // The selected threshold can be above the final fee after cap/min-bump logic.
+            // Avoid same-height resends unless the final fee actually increases.
+            if !is_tip_height_increased
                 && previous_effective_fee_rate.is_some_and(|prev| adjusted_fee_rate <= prev)
             {
                 tracing::debug!(
@@ -474,14 +475,6 @@ impl TxSender {
             }
 
             let result = match fee_paying_type {
-                // Send nonstandard transactions to testnet4 using the mempool.space accelerator.
-                // As mempool uses out of band payment, we don't need to do cpfp or rbf.
-                _ if self.network == bitcoin::Network::Testnet4
-                    && self.is_bridge_tx_nonstandard(&tx)
-                    && nonstandard_slipstream_cfg.is_none() =>
-                {
-                    self.send_testnet4_nonstandard_tx(&tx, id).await
-                }
                 FeePayingType::CPFP => {
                     self.send_cpfp_tx(
                         id,
@@ -664,7 +657,11 @@ impl TxSender {
                 );
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_success", true)
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        TxDebugState::NoFundingSendSuccess.as_str(),
+                        true,
+                    )
                     .await;
             }
             Err(e) => {
@@ -687,7 +684,11 @@ impl TxSender {
                 }
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
+                    .update_tx_debug_sending_state(
+                        try_to_send_id,
+                        TxDebugState::NoFundingSendFailed.as_str(),
+                        true,
+                    )
                     .await;
                 return Err(SendTxError::Other(eyre::eyre!(e)));
             }

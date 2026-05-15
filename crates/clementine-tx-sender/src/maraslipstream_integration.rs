@@ -1,89 +1,12 @@
 use crate::maraslipstream::MaraSlipstreamConfig;
 use crate::maraslipstream_client::{MaraSlipstreamClient, SlipstreamRateInfo};
 use crate::{log_error_for_tx, Result, TxSender};
+use crate::{SlipstreamSubmitTxLabel, TxDebugState};
 use bitcoin::{consensus::encode::serialize, Transaction, Txid};
 use clementine_primitives::FeeRateKvb;
 
 const SLIPSTREAM_FEE_RATE_CAP_MULTIPLIER: u64 = 3;
 const DISCOUNTED_MULTIPLIER_CAP: f64 = SLIPSTREAM_FEE_RATE_CAP_MULTIPLIER as f64;
-
-pub(crate) enum SlipstreamDebugState {
-    SubmitRbfTxClientFailed,
-    SubmitRbfTxFailed,
-    SubmitRbfTxSent,
-    SubmitRbfTxTxidMismatch,
-    SubmitInitialRbfTxClientFailed,
-    SubmitInitialRbfTxFailed,
-    SubmitInitialRbfTxSent,
-    SubmitInitialRbfTxTxidMismatch,
-    SubmitPackageClientFailed,
-    SubmitPackageFailed,
-    SubmitPackageSuccess,
-    SubmitPackageAlreadySubmitted,
-    SubmitPackageAlreadySubmittedStatusFailed,
-    SubmitPackageAlreadySubmittedParentNotFound,
-}
-
-impl SlipstreamDebugState {
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::SubmitRbfTxClientFailed => "rbf_slipstream_client_failed",
-            Self::SubmitRbfTxFailed => "rbf_slipstream_send_failed",
-            Self::SubmitRbfTxSent => "rbf_slipstream_sent",
-            Self::SubmitRbfTxTxidMismatch => "rbf_slipstream_txid_mismatch",
-            Self::SubmitInitialRbfTxClientFailed => "rbf_initial_slipstream_client_failed",
-            Self::SubmitInitialRbfTxFailed => "rbf_initial_slipstream_send_failed",
-            Self::SubmitInitialRbfTxSent => "rbf_initial_slipstream_sent",
-            Self::SubmitInitialRbfTxTxidMismatch => "rbf_initial_slipstream_txid_mismatch",
-            Self::SubmitPackageClientFailed => "slipstream_submit_package_client_failed",
-            Self::SubmitPackageFailed => "slipstream_submit_package_failed",
-            Self::SubmitPackageSuccess => "slipstream_submit_package_success",
-            Self::SubmitPackageAlreadySubmitted => "slipstream_submit_package_already_submitted",
-            Self::SubmitPackageAlreadySubmittedStatusFailed => {
-                "slipstream_submit_package_already_submitted_status_failed"
-            }
-            Self::SubmitPackageAlreadySubmittedParentNotFound => {
-                "slipstream_submit_package_already_submitted_parent_not_found"
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum SlipstreamSubmitTxLabel {
-    Rbf,
-    InitialRbf,
-}
-
-impl SlipstreamSubmitTxLabel {
-    fn client_failed_state(self) -> SlipstreamDebugState {
-        match self {
-            Self::Rbf => SlipstreamDebugState::SubmitRbfTxClientFailed,
-            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxClientFailed,
-        }
-    }
-
-    fn failed_state(self) -> SlipstreamDebugState {
-        match self {
-            Self::Rbf => SlipstreamDebugState::SubmitRbfTxFailed,
-            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxFailed,
-        }
-    }
-
-    fn sent_state(self) -> SlipstreamDebugState {
-        match self {
-            Self::Rbf => SlipstreamDebugState::SubmitRbfTxSent,
-            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxSent,
-        }
-    }
-
-    fn txid_mismatch_state(self) -> SlipstreamDebugState {
-        match self {
-            Self::Rbf => SlipstreamDebugState::SubmitRbfTxTxidMismatch,
-            Self::InitialRbf => SlipstreamDebugState::SubmitInitialRbfTxTxidMismatch,
-        }
-    }
-}
 
 impl TxSender {
     pub(crate) fn slipstream_supported_network(&self) -> bool {
@@ -137,7 +60,7 @@ impl TxSender {
         &self,
         cfg: &MaraSlipstreamConfig,
         try_to_send_id: u32,
-        failed_state: SlipstreamDebugState,
+        failed_state: TxDebugState,
     ) -> Result<MaraSlipstreamClient> {
         match self.slipstream_client(cfg) {
             Ok(client) => Ok(client),
@@ -307,17 +230,6 @@ impl TxSender {
             FeeRateKvb::from_sat_per_kvb(target_sat_kvb.min(max_sat_kvb).ceil() as u64);
 
         target_fee_rate
-    }
-
-    pub(crate) async fn maybe_adjust_fee_rate_for_nonstandard_slipstream_tx(
-        &self,
-        tx: &Transaction,
-        base_fee_rate: FeeRateKvb,
-        cfg: Option<&MaraSlipstreamConfig>,
-    ) -> FeeRateKvb {
-        let cfg = cfg.or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(tx));
-        self.maybe_adjust_fee_rate_for_slipstream_cfg(base_fee_rate, cfg)
-            .await
     }
 
     pub(crate) fn max_slipstream_fee_rate(&self) -> FeeRateKvb {
