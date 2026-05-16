@@ -67,6 +67,9 @@ pub struct BridgeConfig {
     pub mempool_api_host: Option<String>,
     /// mempool.space API endpoint for retrieving the fee rate. If None, Bitcoin Core RPC will be used.
     pub mempool_api_endpoint: Option<String>,
+    /// Optional configuration for using MARA Slipstream APIs (fee rate, tx/package submission).
+    #[cfg(feature = "automation")]
+    pub maraslipstream_config: Option<clementine_tx_sender::MaraSlipstreamConfig>,
 
     /// PostgreSQL database host address.
     pub db_host: String,
@@ -372,6 +375,8 @@ impl BridgeConfig {
             // poll_delay_ms not used in clementine, poll delay for txsender is defined in core/src/task/tx_sender.rs
             poll_delay_ms: 60_000,
             include_unsafe: false,
+            #[cfg(feature = "automation")]
+            maraslipstream_config: self.maraslipstream_config.clone(),
             jsonrpc: None,
         }
     }
@@ -441,6 +446,8 @@ impl Default for BridgeConfig {
             bitcoin_rpc_password: "admin".to_string().into(),
             mempool_api_host: None,
             mempool_api_endpoint: None,
+            #[cfg(feature = "automation")]
+            maraslipstream_config: None,
 
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,

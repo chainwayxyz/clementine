@@ -1,4 +1,5 @@
-use crate::{log_error_for_tx, TxSender};
+use crate::maraslipstream::MaraSlipstreamConfig;
+use crate::{log_error_for_tx, SlipstreamSubmitTxLabel, TxDebugState, TxSender};
 use bitcoin::absolute::{LockTime, LOCK_TIME_THRESHOLD};
 use bitcoin::hashes::Hash;
 use bitcoin::script::Instruction;
@@ -563,6 +564,7 @@ impl TxSender {
         rbf_signing_info: Option<RbfSigningInfo>,
         current_tip_height: u32,
         needs_wtxid_grind: bool,
+        nonstandard_slipstream_cfg: Option<&MaraSlipstreamConfig>,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
@@ -570,7 +572,11 @@ impl TxSender {
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::PreparingRbf.as_str(),
+                true,
+            )
             .await;
 
         let rbf_txids = self
@@ -671,7 +677,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "rbf_psbt_bump_failed",
+                                TxDebugState::RbfPsbtBumpFailed.as_str(),
                                 true,
                             )
                             .await;
@@ -685,7 +691,7 @@ impl TxSender {
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
                     self.handle_err(
                         format!("psbt_bump_fee failed: {errors:?}"),
-                        "rbf_psbt_bump_failed",
+                        TxDebugState::RbfPsbtBumpFailed.as_str(),
                         try_to_send_id,
                     );
                     return Err(SendTxError::Other(eyre!(errors.join(", "))));
@@ -763,7 +769,7 @@ impl TxSender {
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "rbf_psbt_sign_failed",
+                                TxDebugState::RbfPsbtSignFailed.as_str(),
                                 true,
                             )
                             .await;
@@ -790,41 +796,59 @@ impl TxSender {
 
             let bumped_txid = final_tx.compute_txid();
 
-            // Broadcast the finalized transaction
-            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
-                Ok(sent_txid) if sent_txid == bumped_txid => sent_txid,
-                Ok(other_txid) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!(
-                            "send_raw_transaction returned unexpected txid {} (expected {})",
-                            other_txid, bumped_txid
-                        )
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
+            let sent_txid = if self
+                .maybe_submit_tx_via_slipstream(
+                    &final_tx,
+                    bumped_txid,
+                    try_to_send_id,
+                    SlipstreamSubmitTxLabel::Rbf,
+                    nonstandard_slipstream_cfg,
+                )
+                .await?
+                .is_some()
+            {
+                bumped_txid
+            } else {
+                // Broadcast the finalized transaction
+                match self.rpc.send_raw_transaction(&final_tx).await {
+                    Ok(sent_txid) if sent_txid == bumped_txid => sent_txid,
+                    Ok(other_txid) => {
+                        log_error_for_tx!(
+                            self.db,
                             try_to_send_id,
-                            "rbf_send_txid_mismatch",
-                            true,
-                        )
-                        .await;
-                    return Err(SendTxError::Other(eyre!(
-                        "send_raw_transaction returned unexpected txid"
-                    )));
-                }
-                Err(e) => {
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("send_raw_transaction error for bumped RBF tx: {}", e)
-                    );
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(try_to_send_id, "rbf_bump_send_failed", true)
-                        .await;
-                    return Err(SendTxError::Other(eyre!(e)));
+                            format!(
+                                "send_raw_transaction returned unexpected txid {} (expected {})",
+                                other_txid, bumped_txid
+                            )
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "rbf_send_txid_mismatch",
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(
+                            "send_raw_transaction returned unexpected txid"
+                        )));
+                    }
+                    Err(e) => {
+                        log_error_for_tx!(
+                            self.db,
+                            try_to_send_id,
+                            format!("send_raw_transaction error for bumped RBF tx: {}", e)
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "rbf_bump_send_failed",
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(e)));
+                    }
                 }
             };
 
@@ -835,7 +859,11 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped_sent", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::RbfBumpedSent.as_str(),
+                    true,
+                )
                 .await;
 
             self.db
@@ -852,7 +880,11 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "creating_initial_rbf_psbt", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::CreatingInitialRbfPsbt.as_str(),
+                    true,
+                )
                 .await;
 
             // for accurate fee calculation, fill in the witness with dummy data if its empty
@@ -1004,7 +1036,7 @@ impl TxSender {
                             let err = eyre!(err).wrap_err("Failed to sign initial RBF PSBT");
                             self.handle_err(
                                 format!("{err:?}"),
-                                "rbf_psbt_sign_failed",
+                                TxDebugState::RbfPsbtSignFailed.as_str(),
                                 try_to_send_id,
                             );
 
@@ -1037,50 +1069,68 @@ impl TxSender {
 
             let initial_txid = final_tx.compute_txid();
 
-            // 4. Broadcast the finalized transaction
-            let sent_txid = match self.rpc.send_raw_transaction(&final_tx).await {
-                Ok(sent_txid) => {
-                    if sent_txid != initial_txid {
-                        let err_msg = format!(
-                            "send_raw_transaction returned unexpected txid {sent_txid} (expected {initial_txid}) for initial RBF",
+            let sent_txid = if self
+                .maybe_submit_tx_via_slipstream(
+                    &final_tx,
+                    initial_txid,
+                    try_to_send_id,
+                    SlipstreamSubmitTxLabel::InitialRbf,
+                    nonstandard_slipstream_cfg,
+                )
+                .await?
+                .is_some()
+            {
+                initial_txid
+            } else {
+                // 4. Broadcast the finalized transaction
+                match self.rpc.send_raw_transaction(&final_tx).await {
+                    Ok(sent_txid) => {
+                        if sent_txid != initial_txid {
+                            let err_msg = format!(
+                                "send_raw_transaction returned unexpected txid {sent_txid} (expected {initial_txid}) for initial RBF",
+                            );
+                            log_error_for_tx!(self.db, try_to_send_id, err_msg);
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "rbf_initial_send_txid_mismatch",
+                                    true,
+                                )
+                                .await;
+                            return Err(SendTxError::Other(eyre!(err_msg)));
+                        }
+                        tracing::debug!(
+                            try_to_send_id,
+                            "Successfully sent initial RBF tx with txid {sent_txid}"
                         );
+                        sent_txid
+                    }
+                    Err(e) => {
+                        tracing::error!("RBF failed for: {:?}", final_tx);
+                        let err_msg = format!("send_raw_transaction error for initial RBF tx: {e}");
                         log_error_for_tx!(self.db, try_to_send_id, err_msg);
                         let _ = self
                             .db
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
-                                "rbf_initial_send_txid_mismatch",
+                                "rbf_initial_send_failed",
                                 true,
                             )
                             .await;
-                        return Err(SendTxError::Other(eyre!(err_msg)));
+                        return Err(SendTxError::Other(eyre!(e)));
                     }
-                    tracing::debug!(
-                        try_to_send_id,
-                        "Successfully sent initial RBF tx with txid {sent_txid}"
-                    );
-                    sent_txid
-                }
-                Err(e) => {
-                    tracing::error!("RBF failed for: {:?}", final_tx);
-                    let err_msg = format!("send_raw_transaction error for initial RBF tx: {e}");
-                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
-                    let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_initial_send_failed",
-                            true,
-                        )
-                        .await;
-                    return Err(SendTxError::Other(eyre!(e)));
                 }
             };
 
             // Update debug sending state
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "rbf_initial_sent", true)
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    TxDebugState::RbfInitialSent.as_str(),
+                    true,
+                )
                 .await;
 
             self.db

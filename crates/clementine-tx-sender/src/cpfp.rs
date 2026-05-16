@@ -18,7 +18,8 @@
 //! send.
 
 use super::Result;
-use crate::{TxSender, TxSenderTransaction};
+use crate::maraslipstream::MaraSlipstreamConfig;
+use crate::{log_error_for_tx, TxDebugState, TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -579,6 +580,7 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRateKvb,
         current_tip_height: u32,
+        nonstandard_slipstream_cfg: Option<&MaraSlipstreamConfig>,
     ) -> Result<()> {
         let unconfirmed = self
             .db
@@ -597,19 +599,26 @@ impl TxSender {
                 .db
                 .update_tx_debug_sending_state(
                     try_to_send_id,
-                    "waiting_for_utxo_confirmation",
+                    TxDebugState::WaitingForUtxoConfirmation.as_str(),
                     true,
                 )
                 .await;
             return Ok(());
         }
 
+        let nonstandard_slipstream_cfg = nonstandard_slipstream_cfg
+            .or_else(|| self.maybe_slipstream_cfg_for_nonstandard_tx(&tx));
+
         let confirmed = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let total_amount: Amount = confirmed.iter().map(|u| u.txout.value).sum();
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::CreatingPackage.as_str(),
+                true,
+            )
             .await;
 
         let package = match self
@@ -631,7 +640,7 @@ impl TxSender {
                     .db
                     .update_tx_debug_sending_state(
                         try_to_send_id,
-                        "waiting_for_fee_payer_utxos",
+                        TxDebugState::WaitingForFeePayerUtxos.as_str(),
                         true,
                     )
                     .await;
@@ -669,50 +678,224 @@ impl TxSender {
         // Update sending state to submitting_package
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "submitting_package", true)
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                TxDebugState::SubmittingPackage.as_str(),
+                true,
+            )
             .await;
 
-        let submit_result = self
-            .rpc
-            .submit_package(&package_refs, Some(Amount::ZERO), None)
-            .await
-            .wrap_err("Failed to submit package")?;
+        if let Some(cfg) = nonstandard_slipstream_cfg {
+            let client = self
+                .slipstream_client_or_mark_failed(
+                    cfg,
+                    try_to_send_id,
+                    TxDebugState::SlipstreamSubmitPackageClientFailed,
+                )
+                .await?;
+            let tx_hexes: Vec<String> = package.iter().map(Self::tx_to_hex).collect();
+            let parent_txid = tx.compute_txid().to_string();
+            let expected_txids: Vec<String> = package
+                .iter()
+                .map(|tx| tx.compute_txid().to_string())
+                .collect();
 
-        // If tx_results is empty, it means the txs were already accepted by the network.
-        if submit_result.tx_results.is_empty() {
-            return Ok(());
-        }
+            match client
+                .submit_package(&tx_hexes, cfg.client_code.as_ref())
+                .await
+            {
+                Ok(res) => {
+                    if let Some(rejection) = res.package_rejection(&expected_txids) {
+                        log_error_for_tx!(
+                            self.db,
+                            try_to_send_id,
+                            format!("Slipstream submit-package rejected package: {rejection}")
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                TxDebugState::SlipstreamSubmitPackageFailed.as_str(),
+                                true,
+                            )
+                            .await;
+                        return Err(SendTxError::Other(eyre!(
+                            "Slipstream submit-package rejected package: {rejection}"
+                        )));
+                    }
 
-        let mut package_errors = Vec::new();
-        let mut has_replacement_error = false;
+                    tracing::debug!(
+                        try_to_send_id,
+                        tx_count = package.len(),
+                        "Successfully submitted CPFP package to Slipstream"
+                    );
 
-        for result in submit_result.tx_results.into_values() {
-            if let PackageTransactionResult::Failure { error, .. } = result {
-                if crate::rpc_errors::is_rejecting_replacement_error(&error) {
-                    has_replacement_error = true;
+                    if let Some(package_msg) = res.package_msg.as_deref() {
+                        tracing::debug!(
+                            try_to_send_id,
+                            package_msg,
+                            replaced_transactions = res.replaced_transactions.len(),
+                            "Slipstream submit-package returned package result"
+                        );
+                    }
+
+                    tracing::debug!(
+                        try_to_send_id,
+                        statuses = res.tx_results.len(),
+                        "Slipstream submit-package returned per-tx results"
+                    );
+
+                    for tx in &package {
+                        let txid = tx.compute_txid().to_string();
+                        if let Some(tx_result) = res.tx_results.iter().find(|res| res.txid == txid)
+                        {
+                            tracing::debug!(
+                                try_to_send_id,
+                                txid,
+                                returned_txid = tx_result.txid,
+                                vsize = tx_result.vsize,
+                                "Slipstream submit-package tx result"
+                            );
+                        } else {
+                            tracing::warn!(
+                                try_to_send_id,
+                                "Slipstream submit-package response missing tx result with txid {}",
+                                txid
+                            );
+                        }
+                    }
+
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            TxDebugState::SlipstreamSubmitPackageSuccess.as_str(),
+                            true,
+                        )
+                        .await;
                 }
-                package_errors.push(error);
+                Err(e) => {
+                    if matches!(e, SendTxError::SlipstreamPackageAlreadySubmitted) {
+                        let parent_found = match client.transaction_found(&parent_txid).await {
+                            Ok(found) => found,
+                            Err(status_err) => {
+                                log_error_for_tx!(
+                                    self.db,
+                                    try_to_send_id,
+                                    format!(
+                                        "Slipstream submit-package already-submitted but parent status check failed: {status_err:?}"
+                                    )
+                                );
+                                let _ = self
+                                    .db
+                                    .update_tx_debug_sending_state(
+                                        try_to_send_id,
+                                        TxDebugState::SlipstreamSubmitPackageAlreadySubmittedStatusFailed.as_str(),
+                                        true,
+                                    )
+                                    .await;
+                                return Err(status_err);
+                            }
+                        };
+
+                        if parent_found {
+                            tracing::debug!(
+                                try_to_send_id,
+                                parent_txid = %parent_txid,
+                                "Slipstream CPFP package was already submitted and parent is known; treating as idempotent success"
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    TxDebugState::SlipstreamSubmitPackageAlreadySubmitted.as_str(),
+                                    true,
+                                )
+                                .await;
+                        } else {
+                            tracing::warn!(
+                                try_to_send_id,
+                                parent_txid = %parent_txid,
+                                "Slipstream returned already-submitted for CPFP package but parent status was not found"
+                            );
+                            log_error_for_tx!(
+                                self.db,
+                                try_to_send_id,
+                                format!(
+                                    "Slipstream submit-package already-submitted but parent tx {parent_txid} was not found"
+                                )
+                            );
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    TxDebugState::SlipstreamSubmitPackageAlreadySubmittedParentNotFound.as_str(),
+                                    true,
+                                )
+                                .await;
+                            return Err(e);
+                        }
+                    } else {
+                        log_error_for_tx!(
+                            self.db,
+                            try_to_send_id,
+                            format!("Slipstream submit-package failed: {e:?}")
+                        );
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                TxDebugState::SlipstreamSubmitPackageFailed.as_str(),
+                                true,
+                            )
+                            .await;
+                        return Err(e);
+                    }
+                }
             }
-        }
+        } else {
+            let submit_result = self
+                .rpc
+                .submit_package(&package_refs, Some(Amount::ZERO), None)
+                .await
+                .wrap_err("Failed to submit package")?;
 
-        if has_replacement_error {
-            tracing::debug!(
-                try_to_send_id,
-                "Package tx rejected (tx already in mempool): {:?}",
-                package_errors
-            );
-            return Ok(());
-        }
+            // If tx_results is empty, it means the txs were already accepted by the network.
+            if submit_result.tx_results.is_empty() {
+                return Ok(());
+            }
 
-        if !package_errors.is_empty() {
-            return Err(SendTxError::Other(eyre!(
-                "Failed to submit package: {:?}, package: {:?}",
-                package_errors,
-                package_refs
-                    .iter()
-                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                    .collect::<Vec<_>>()
-            )));
+            let mut package_errors = Vec::new();
+            let mut has_replacement_error = false;
+
+            for result in submit_result.tx_results.into_values() {
+                if let PackageTransactionResult::Failure { error, .. } = result {
+                    if crate::rpc_errors::is_rejecting_replacement_error(&error) {
+                        has_replacement_error = true;
+                    }
+                    package_errors.push(error);
+                }
+            }
+
+            if has_replacement_error {
+                tracing::debug!(
+                    try_to_send_id,
+                    "Package tx rejected (tx already in mempool): {:?}",
+                    package_errors
+                );
+                return Ok(());
+            }
+
+            if !package_errors.is_empty() {
+                return Err(SendTxError::Other(eyre!(
+                    "Failed to submit package: {:?}, package: {:?}",
+                    package_errors,
+                    package_refs
+                        .iter()
+                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                        .collect::<Vec<_>>()
+                )));
+            }
         }
 
         Ok(())

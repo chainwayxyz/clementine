@@ -28,6 +28,53 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
 }
 
+#[cfg(feature = "automation")]
+mod maraslipstream_env {
+    use clementine_tx_sender::{maraslipstream, MaraSlipstreamConfig};
+
+    fn read_optional_trimmed(env_var: &'static str) -> Option<String> {
+        let value = std::env::var(env_var).ok()?;
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    // MARA Slipstream config is optional and enabled when `MARASLIPSTREAM_HOST` is set.
+    //
+    // We provide sensible defaults for endpoints (as documented in the public Slipstream
+    // swagger/UI) so environments that only define the host won't cause errors.
+    pub(super) fn read_config_from_env() -> Option<MaraSlipstreamConfig> {
+        let host = read_optional_trimmed("MARASLIPSTREAM_HOST")?;
+
+        let fee_rate_endpoint = read_optional_trimmed("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
+
+        let submit_package_endpoint =
+            read_optional_trimmed("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
+                .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
+
+        let tx_status_endpoint = read_optional_trimmed("MARASLIPSTREAM_TX_STATUS_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_TX_STATUS_ENDPOINT.to_string());
+
+        let submit_tx_endpoint = read_optional_trimmed("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
+            .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
+
+        let client_code = read_optional_trimmed("MARASLIPSTREAM_CLIENT_CODE").map(Into::into);
+
+        Some(MaraSlipstreamConfig {
+            host,
+            fee_rate_endpoint,
+            submit_package_endpoint,
+            tx_status_endpoint,
+            submit_tx_endpoint,
+            client_code,
+        })
+    }
+}
+
 impl GrpcLimitsExt for GrpcLimits {
     fn from_env() -> Result<GrpcLimits, BridgeError> {
         let defaults = default_grpc_limits();
@@ -190,6 +237,9 @@ impl BridgeConfig {
             .and_then(|timeout| timeout.parse::<u64>().ok())
             .map(Duration::from_secs);
 
+        #[cfg(feature = "automation")]
+        let maraslipstream_config = maraslipstream_env::read_config_from_env();
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -204,6 +254,8 @@ impl BridgeConfig {
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?.into(),
             mempool_api_host: read_string_from_env("MEMPOOL_API_HOST").ok(),
             mempool_api_endpoint: read_string_from_env("MEMPOOL_API_ENDPOINT").ok(),
+            #[cfg(feature = "automation")]
+            maraslipstream_config,
             db_host: read_string_from_env("DB_HOST")?,
             db_port: read_string_from_env_then_parse::<u16>("DB_PORT")?,
             db_user: read_string_from_env("DB_USER")?.into(),

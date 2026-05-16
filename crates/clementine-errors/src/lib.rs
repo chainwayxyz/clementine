@@ -174,6 +174,9 @@ pub enum SendTxError {
     #[error("Network error: {0}")]
     NetworkError(String),
 
+    #[error("Slipstream package already submitted")]
+    SlipstreamPackageAlreadySubmitted,
+
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }

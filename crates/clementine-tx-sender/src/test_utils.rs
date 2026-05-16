@@ -42,6 +42,7 @@ pub async fn create_test_environment(
         finality_depth: 1,
         poll_delay_ms: 500,
         include_unsafe: true,
+        maraslipstream_config: None,
         jsonrpc: None,
         mempool: MempoolConfig {
             host: None,

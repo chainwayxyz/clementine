@@ -60,7 +60,12 @@ impl Database {
         }
     }
 
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
+    pub async fn debug_inactive_txs(
+        &self,
+        fee_rate: FeeRateKvb,
+        nonstandard_fee_rate: FeeRateKvb,
+        current_tip_height: u32,
+    ) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         // Query all transactions that aren't confirmed yet
@@ -82,7 +87,7 @@ impl Database {
 
         let txsender_db = clementine_tx_sender::TxSenderDb::from_pool(self.get_pool());
         let sendable_txs = match txsender_db
-            .get_sendable_txs(None, fee_rate, current_tip_height)
+            .get_sendable_txs(None, fee_rate, nonstandard_fee_rate, current_tip_height)
             .await
         {
             Ok(txs) => txs,

@@ -1,0 +1,354 @@
+use super::types::{
+    SlipstreamApiError, SlipstreamApiErrorKind, SlipstreamErrorResponse,
+    SlipstreamPackageSubmitResponse, SlipstreamPackageSubmitResult, SlipstreamRateInfo,
+    SlipstreamTransactionStatus, SlipstreamTransactionStatusResponse, SlipstreamTxSubmitResponse,
+    STATUS_ERROR, STATUS_SUCCESS,
+};
+use bitcoin::Txid;
+use clementine_errors::SendTxError;
+use eyre::eyre;
+use reqwest::StatusCode;
+use serde::Deserialize;
+
+// Mara does not expose an error code for this; update if the response text changes.
+const PACKAGE_ALREADY_SUBMITTED_MSG: &str = "Your transactions already submitted";
+const TRANSACTION_NOT_FOUND_MSG: &str = "Transaction not found";
+
+#[derive(Clone, Copy)]
+enum SlipstreamOperation {
+    GetRate,
+    SubmitTx,
+    SubmitPackage,
+    TransactionStatus,
+}
+
+impl SlipstreamOperation {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::GetRate => "getrate",
+            Self::SubmitTx => "submit-tx",
+            Self::SubmitPackage => "submit-package",
+            Self::TransactionStatus => "transaction-status",
+        }
+    }
+}
+
+pub(super) fn parse_rate_response(
+    status: StatusCode,
+    body: &str,
+) -> Result<SlipstreamRateInfo, SendTxError> {
+    if status.is_success() {
+        return serde_json::from_str(body)
+            .map_err(|e| SendTxError::Other(eyre!(e).wrap_err("Slipstream getrate invalid JSON")));
+    }
+
+    Err(api_error_to_send_tx_error(
+        SlipstreamOperation::GetRate,
+        classify_api_error(status, body),
+    ))
+}
+
+pub(super) fn parse_submit_tx_response(
+    status: StatusCode,
+    body: &str,
+) -> Result<Txid, SendTxError> {
+    if !status.is_success() {
+        return Err(api_error_to_send_tx_error(
+            SlipstreamOperation::SubmitTx,
+            classify_api_error(status, body),
+        ));
+    }
+
+    let res: SlipstreamTxSubmitResponse = serde_json::from_str(body)
+        .map_err(|e| SendTxError::Other(eyre!(e).wrap_err("Slipstream submit-tx invalid JSON")))?;
+
+    if res.status.eq_ignore_ascii_case(STATUS_SUCCESS) {
+        return res.message.parse::<Txid>().map_err(|e| {
+            SendTxError::Other(eyre!(e).wrap_err(format!(
+                "Slipstream submit-tx returned invalid txid: {}",
+                res.message
+            )))
+        });
+    }
+
+    if res.status.eq_ignore_ascii_case(STATUS_ERROR) {
+        return Err(api_error_to_send_tx_error(
+            SlipstreamOperation::SubmitTx,
+            classify_api_error(status, body),
+        ));
+    }
+
+    Err(unexpected_response_body(
+        SlipstreamOperation::SubmitTx,
+        status,
+        body,
+    ))
+}
+
+pub(super) fn parse_submit_package_response(
+    status: StatusCode,
+    body: &str,
+) -> Result<SlipstreamPackageSubmitResult, SendTxError> {
+    if !status.is_success() {
+        return Err(api_error_to_send_tx_error(
+            SlipstreamOperation::SubmitPackage,
+            classify_api_error(status, body),
+        ));
+    }
+
+    let res: SlipstreamPackageSubmitResponse = serde_json::from_str(body).map_err(|e| {
+        SendTxError::Other(eyre!(e).wrap_err("Slipstream submit-package invalid JSON"))
+    })?;
+
+    if res.status.eq_ignore_ascii_case(STATUS_SUCCESS) {
+        return res.result.ok_or_else(|| {
+            SendTxError::Other(eyre!(
+                "Slipstream submit-package success response missing result"
+            ))
+        });
+    }
+
+    if res.status.eq_ignore_ascii_case(STATUS_ERROR) && res.error.is_some() {
+        return Err(api_error_to_send_tx_error(
+            SlipstreamOperation::SubmitPackage,
+            classify_api_error(status, body),
+        ));
+    }
+
+    Err(unexpected_response_body(
+        SlipstreamOperation::SubmitPackage,
+        status,
+        body,
+    ))
+}
+
+pub(super) fn parse_transaction_status_response(
+    status: StatusCode,
+    body: &str,
+    txid: &str,
+) -> Result<SlipstreamTransactionStatus, SendTxError> {
+    match serde_json::from_str::<SlipstreamTransactionStatusResponse>(body) {
+        Ok(SlipstreamTransactionStatusResponse::Found(res)) if status.is_success() => {
+            Ok(SlipstreamTransactionStatus::Found(res))
+        }
+        Ok(SlipstreamTransactionStatusResponse::Error(err)) => {
+            let api_error = classify_api_error(status, body);
+            Ok(SlipstreamTransactionStatus::Error {
+                message: err.message,
+                api_error,
+            })
+        }
+        Ok(SlipstreamTransactionStatusResponse::Found(_)) => Err(unexpected_response_body(
+            SlipstreamOperation::TransactionStatus,
+            status,
+            body,
+        )),
+        Err(e) if status.is_success() => {
+            tracing::warn!(
+                txid,
+                "Slipstream transaction status response JSON parse error: {e:?}; body was: {body}"
+            );
+            Err(SendTxError::Other(
+                eyre!(e).wrap_err("Slipstream transaction status invalid JSON"),
+            ))
+        }
+        Err(_) => Err(api_error_to_send_tx_error(
+            SlipstreamOperation::TransactionStatus,
+            classify_api_error(status, body),
+        )),
+    }
+}
+
+fn classify_api_error(status: StatusCode, body: &str) -> SlipstreamApiError {
+    let message = extract_error_message(body);
+    let kind = match (status, message.as_deref()) {
+        (StatusCode::BAD_REQUEST, Some(PACKAGE_ALREADY_SUBMITTED_MSG)) => {
+            SlipstreamApiErrorKind::PackageAlreadySubmitted
+        }
+        (StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND, Some(TRANSACTION_NOT_FOUND_MSG)) => {
+            SlipstreamApiErrorKind::TransactionNotFound
+        }
+        (StatusCode::BAD_REQUEST, _) => SlipstreamApiErrorKind::BadRequest,
+        _ => SlipstreamApiErrorKind::Unknown,
+    };
+    let retryable = matches!(kind, SlipstreamApiErrorKind::Unknown) && status.is_server_error();
+
+    SlipstreamApiError {
+        kind,
+        retryable,
+        status,
+        message,
+        raw: body.to_string(),
+    }
+}
+
+fn extract_error_message(body: &str) -> Option<String> {
+    match serde_json::from_str::<SlipstreamErrorBody>(body).ok()? {
+        SlipstreamErrorBody::Standard(err) if !err.is_success => Some(err.message),
+        SlipstreamErrorBody::TxSubmit(err) if err.status.eq_ignore_ascii_case(STATUS_ERROR) => {
+            Some(err.message)
+        }
+        SlipstreamErrorBody::PackageSubmit(err)
+            if err.status.eq_ignore_ascii_case(STATUS_ERROR) =>
+        {
+            err.error
+        }
+        _ => None,
+    }
+}
+
+fn api_error_to_send_tx_error(op: SlipstreamOperation, err: SlipstreamApiError) -> SendTxError {
+    if matches!(err.kind, SlipstreamApiErrorKind::PackageAlreadySubmitted) {
+        return SendTxError::SlipstreamPackageAlreadySubmitted;
+    }
+
+    let detail = err.message.as_deref().unwrap_or(&err.raw);
+    let op = op.as_str();
+    SendTxError::Other(eyre!(
+        "Slipstream {op} HTTP {} ({:?}, retryable={}): {detail}",
+        err.status,
+        err.kind,
+        err.retryable
+    ))
+}
+
+fn unexpected_response_body(
+    op: SlipstreamOperation,
+    status: StatusCode,
+    body: &str,
+) -> SendTxError {
+    let op = op.as_str();
+    SendTxError::Other(eyre!("Slipstream {op} HTTP {status}: {body}"))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SlipstreamErrorBody {
+    Standard(SlipstreamErrorResponse),
+    TxSubmit(SlipstreamTxSubmitResponse),
+    PackageSubmit(SlipstreamPackageSubmitResponse),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::maraslipstream_client::types::{
+        SlipstreamPackageRejection, SlipstreamTransactionStatusResponse,
+    };
+
+    #[test]
+    fn package_rejection_detects_per_tx_error() {
+        let result = parse_submit_package_response(
+            StatusCode::OK,
+            r#"{
+                "status": "success",
+                "result": {
+                    "package_msg": "success",
+                    "replaced-transactions": [],
+                    "tx-results": {
+                        "wtxid": {
+                            "txid": "abc",
+                            "error": "txn-already-in-mempool"
+                        }
+                    }
+                }
+            }"#,
+        )
+        .expect("valid response");
+
+        let rejection = result
+            .package_rejection(&["abc".to_string()])
+            .expect("per tx error should reject");
+
+        assert_eq!(
+            rejection,
+            SlipstreamPackageRejection::TxError {
+                txid: "abc".to_string(),
+                error: "txn-already-in-mempool".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn package_rejection_detects_missing_expected_txid() {
+        let result = parse_submit_package_response(
+            StatusCode::OK,
+            r#"{
+                "status": "success",
+                "result": {
+                    "package_msg": "success",
+                    "replaced-transactions": [],
+                    "tx-results": {}
+                }
+            }"#,
+        )
+        .expect("valid response");
+
+        assert_eq!(
+            result.package_rejection(&["abc".to_string()]),
+            Some(SlipstreamPackageRejection::MissingTxResult(
+                "abc".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn maps_already_submitted_package_error_to_typed_error() {
+        let err = parse_submit_package_response(
+            StatusCode::BAD_REQUEST,
+            r#"{"status":"error","error":"Your transactions already submitted"}"#,
+        );
+
+        assert!(matches!(
+            err,
+            Err(SendTxError::SlipstreamPackageAlreadySubmitted)
+        ));
+    }
+
+    #[test]
+    fn submit_tx_success_returns_txid() {
+        let txid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let parsed = parse_submit_tx_response(
+            StatusCode::OK,
+            &format!(r#"{{"status":"success","message":"{txid}"}}"#),
+        )
+        .expect("valid tx submit response");
+
+        assert_eq!(parsed.to_string(), txid);
+    }
+
+    #[test]
+    fn status_response_parses_error_shape() {
+        let parsed: SlipstreamTransactionStatusResponse =
+            serde_json::from_str(r#"{"is_success":false,"message":"Transaction not found"}"#)
+                .expect("valid status error response");
+
+        match parsed {
+            SlipstreamTransactionStatusResponse::Error(err) => {
+                assert_eq!(err.message, "Transaction not found");
+            }
+            SlipstreamTransactionStatusResponse::Found(_) => {
+                panic!("status error response parsed as found")
+            }
+        }
+    }
+
+    #[test]
+    fn classify_error_handles_status_not_found() {
+        let err = classify_api_error(
+            StatusCode::BAD_REQUEST,
+            r#"{"is_success":false,"message":"Transaction not found"}"#,
+        );
+
+        assert_eq!(err.kind, SlipstreamApiErrorKind::TransactionNotFound);
+        assert!(!err.retryable);
+    }
+
+    #[test]
+    fn classify_error_marks_server_errors_retryable() {
+        let err = classify_api_error(StatusCode::INTERNAL_SERVER_ERROR, "upstream exploded");
+
+        assert_eq!(err.kind, SlipstreamApiErrorKind::Unknown);
+        assert!(err.retryable);
+    }
+}
