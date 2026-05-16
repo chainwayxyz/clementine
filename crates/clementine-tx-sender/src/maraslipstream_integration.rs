@@ -226,10 +226,7 @@ impl TxSender {
         }
 
         let max_sat_kvb = max_slipstream_fee_rate.to_sat_per_kvb() as f64;
-        let target_fee_rate =
-            FeeRateKvb::from_sat_per_kvb(target_sat_kvb.min(max_sat_kvb).ceil() as u64);
-
-        target_fee_rate
+        FeeRateKvb::from_sat_per_kvb(target_sat_kvb.min(max_sat_kvb).ceil() as u64)
     }
 
     pub(crate) fn max_slipstream_fee_rate(&self) -> FeeRateKvb {

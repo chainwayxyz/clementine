@@ -239,6 +239,7 @@ impl TxSenderDb {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_tx(
         &self,
         tx: TxSenderDbTx<'_>,
