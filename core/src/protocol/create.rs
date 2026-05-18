@@ -9,7 +9,7 @@ use crate::protocol::ids::{Input, Output, TransactionType};
 use crate::protocol::spec::{ExternalInput, InputSource, InputSpec, TxSpec};
 use crate::protocol::tx;
 use bitcoin::Address;
-use clementine_errors::BridgeError;
+use clementine_errors::{BridgeError, TxError};
 use eyre::eyre;
 
 #[derive(Debug, Clone)]
@@ -134,7 +134,10 @@ where
         | (TransactionType::OptimisticPayout, ExternalInput::WithdrawalUtxo) => {
             tx::payout::materialize_withdrawal_input(ctx)
         }
-        _ => unreachable!("unsupported external input {external:?} for tx type {tx_type:?}"),
+        _ => Err(TxError::Other(eyre!(
+            "unsupported external input {external:?} for tx type {tx_type:?}"
+        ))
+        .into()),
     }
 }
 
@@ -346,15 +349,21 @@ where
             |input, tx_type, ctx| Ok(input.resolve(tx_type, ctx)),
             |output, tx_type, ctx, cache| output.materialize(tx_type, ctx, cache),
         ),
-        TransactionType::BurnUnusedKickoffConnectors(_, indices) => create_from_spec(
-            ctx,
-            tx_type,
-            tx::burn_unused_kickoff_connectors::spec(&indices, ctx),
-            cache,
-            visiting,
-            |input, tx_type, ctx| Ok(input.resolve(tx_type, ctx)),
-            |output, tx_type, ctx, cache| output.materialize(tx_type, ctx, cache),
-        ),
+        TransactionType::BurnUnusedKickoffConnectors(_, indices) => {
+            tx::burn_unused_kickoff_connectors::validate_indices(
+                &indices,
+                ctx.params().num_kickoffs_per_round,
+            )?;
+            create_from_spec(
+                ctx,
+                tx_type,
+                tx::burn_unused_kickoff_connectors::spec(&indices, ctx),
+                cache,
+                visiting,
+                |input, tx_type, ctx| Ok(input.resolve(tx_type, ctx)),
+                |output, tx_type, ctx, cache| output.materialize(tx_type, ctx, cache),
+            )
+        }
         TransactionType::Kickoff(_, _) => create_from_spec(
             ctx,
             tx_type,
@@ -366,9 +375,9 @@ where
             visiting,
             |input, tx_type, ctx| Ok(input.resolve(tx_type, ctx)),
             |output, tx_type, ctx, cache| {
-                Ok(output
+                output
                     .materialize(tx_type, ctx, cache)?
-                    .expect("kickoff outputs are always present in the realized spec"))
+                    .ok_or_else(|| TxError::TxOutputNotFound.into())
             },
         ),
         TransactionType::MoveToVault => create_from_spec(

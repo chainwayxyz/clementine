@@ -3,12 +3,15 @@
 //! This transaction burns unused kickoff connectors after the one-block timeout
 //! passes, optionally returning change when the remainder is large enough.
 
+use std::collections::HashSet;
+
 use crate::builder::transaction::{anchor_output, DataSources, TxCache, TxCacheExt, UnspentTxOut};
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::protocol::ids::{Actor, Input, Output, TransactionType};
 use crate::protocol::spec::{InputSpec, TxSpec};
 use bitcoin::{Amount, TapSighashType, TxOut};
-use clementine_errors::BridgeError;
+use clementine_errors::{BridgeError, TxError};
+use eyre::eyre;
 
 use super::round::{RoundLeaf, RoundOutput};
 
@@ -21,6 +24,29 @@ pub enum BurnUnusedKickoffConnectorsInput {
 pub enum BurnUnusedKickoffConnectorsOutput {
     Change,
     Anchor,
+}
+
+pub(crate) fn validate_indices(indices: &[usize], num_kickoffs: usize) -> Result<(), BridgeError> {
+    if indices.is_empty() {
+        return Err(TxError::EmptyBurnUnusedKickoffConnectors.into());
+    }
+
+    let mut seen = HashSet::new();
+    for &idx in indices {
+        if idx >= num_kickoffs {
+            return Err(TxError::BurnUnusedKickoffConnectorIndexOutOfRange {
+                index: idx,
+                num_kickoffs,
+            }
+            .into());
+        }
+
+        if !seen.insert(idx) {
+            return Err(TxError::DuplicateBurnUnusedKickoffConnector(idx).into());
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn has_change_output(indices: &[usize], datasources: &impl DataSources) -> bool {
@@ -129,9 +155,10 @@ impl BurnUnusedKickoffConnectorsOutput {
                         script_pubkey: datasources.burn_change_address()?.script_pubkey(),
                     }))
                 } else {
-                    unreachable!(
-                        "spec only includes change output when the change output is present"
-                    )
+                    Err(TxError::Other(eyre!(
+                        "burn-unused change output requested without enough input value"
+                    ))
+                    .into())
                 }
             }
             Self::Anchor => Ok(UnspentTxOut::from_partial(anchor_output(
@@ -144,5 +171,43 @@ impl BurnUnusedKickoffConnectorsOutput {
 impl From<BurnUnusedKickoffConnectorsOutput> for Output {
     fn from(value: BurnUnusedKickoffConnectorsOutput) -> Self {
         Output::BurnUnusedKickoffConnectors(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_indices_rejects_empty_input() {
+        assert!(matches!(
+            validate_indices(&[], 10),
+            Err(BridgeError::Transaction(
+                TxError::EmptyBurnUnusedKickoffConnectors
+            ))
+        ));
+    }
+
+    #[test]
+    fn validate_indices_rejects_duplicates() {
+        assert!(matches!(
+            validate_indices(&[1, 1], 10),
+            Err(BridgeError::Transaction(
+                TxError::DuplicateBurnUnusedKickoffConnector(1)
+            ))
+        ));
+    }
+
+    #[test]
+    fn validate_indices_rejects_out_of_range_indices() {
+        assert!(matches!(
+            validate_indices(&[10], 10),
+            Err(BridgeError::Transaction(
+                TxError::BurnUnusedKickoffConnectorIndexOutOfRange {
+                    index: 10,
+                    num_kickoffs: 10,
+                }
+            ))
+        ));
     }
 }

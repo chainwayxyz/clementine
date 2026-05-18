@@ -249,6 +249,14 @@ pub enum TxError {
     InvalidRoundIndex(BridgeRound),
     #[error("Index overflow")]
     IndexOverflow,
+    #[error("Burn-unused kickoff connectors transaction requires at least one connector")]
+    EmptyBurnUnusedKickoffConnectors,
+    #[error("Duplicate burn-unused kickoff connector index {0}")]
+    DuplicateBurnUnusedKickoffConnector(usize),
+    #[error(
+        "Burn-unused kickoff connector index {index} is out of range for {num_kickoffs} kickoff connectors"
+    )]
+    BurnUnusedKickoffConnectorIndexOutOfRange { index: usize, num_kickoffs: usize },
     #[error("Kickoff winternitz keys in DB has wrong size compared to paramset")]
     KickoffWinternitzKeysDBInconsistency,
     #[error(transparent)]
