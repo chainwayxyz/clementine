@@ -3,8 +3,6 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     XChaCha20Poly1305, XNonce,
 };
-#[cfg(test)]
-use x25519_dalek::StaticSecret as X25519StaticSecret;
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 
 /// Encrypts a message for a recipient using X25519 key agreement and XChaCha20Poly1305 authenticated encryption.
@@ -79,7 +77,7 @@ pub fn decrypt_bytes(recipient_privkey: &[u8], encrypted: &[u8]) -> Result<Vec<u
     let recipient_priv_bytes: [u8; 32] = recipient_privkey
         .try_into()
         .map_err(|_| eyre::eyre!("Invalid recipient private key length"))?;
-    let recipient_secret = X25519StaticSecret::from(recipient_priv_bytes);
+    let recipient_secret = x25519_dalek::StaticSecret::from(recipient_priv_bytes);
 
     let shared_secret = recipient_secret.diffie_hellman(&ephemeral_pubkey);
     let cipher = XChaCha20Poly1305::new_from_slice(shared_secret.as_bytes())

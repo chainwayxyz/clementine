@@ -6,23 +6,108 @@ use super::common::test_actors::TestActors;
 use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{DepositInfo, KickoffData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::protocol::ids::{KickoffIdx, RoundIdx, TransactionType};
 use crate::rpc::clementine::{Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
-use clementine_primitives::RoundIndex;
-use clementine_primitives::TransactionType as TxType;
+use clementine_primitives::BridgeRound;
 use eyre::{Context, Result};
 use tonic::Request;
 
-const BLOCKS_PER_DAY: u64 = 144;
+fn round_idx(round: usize) -> RoundIdx {
+    RoundIdx::new(round)
+}
+
+fn kickoff_idx(kickoff_idx: u32) -> KickoffIdx {
+    KickoffIdx::new(kickoff_idx as usize)
+}
+
+fn tx_round(round: usize) -> TransactionType {
+    TransactionType::Round(round_idx(round))
+}
+
+fn tx_ready_to_reimburse(round: usize) -> TransactionType {
+    TransactionType::ReadyToReimburse(round_idx(round))
+}
+
+fn tx_kickoff(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::Kickoff(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_challenge(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::Challenge(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_challenge_timeout(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::ChallengeTimeout(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_watchtower_challenge(
+    round: usize,
+    kickoff_index: u32,
+    watchtower_idx: usize,
+) -> TransactionType {
+    TransactionType::WatchtowerChallenge(
+        round_idx(round),
+        kickoff_idx(kickoff_index),
+        watchtower_idx,
+    )
+}
+
+fn tx_operator_challenge_ack(
+    round: usize,
+    kickoff_index: u32,
+    watchtower_idx: usize,
+) -> TransactionType {
+    TransactionType::OperatorChallengeAck(
+        round_idx(round),
+        kickoff_idx(kickoff_index),
+        watchtower_idx,
+    )
+}
+
+fn tx_operator_challenge_nack(
+    round: usize,
+    kickoff_index: u32,
+    watchtower_idx: usize,
+) -> TransactionType {
+    TransactionType::OperatorChallengeNack(
+        round_idx(round),
+        kickoff_idx(kickoff_index),
+        watchtower_idx,
+    )
+}
+
+fn tx_mini_assert(round: usize, kickoff_index: u32, assert_idx: usize) -> TransactionType {
+    TransactionType::MiniAssert(round_idx(round), kickoff_idx(kickoff_index), assert_idx)
+}
+
+fn tx_disprove_timeout(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::DisproveTimeout(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_reimburse(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::Reimburse(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_kickoff_not_finalized(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::KickoffNotFinalized(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_disprove(round: usize, kickoff_index: u32) -> TransactionType {
+    TransactionType::Disprove(round_idx(round), kickoff_idx(kickoff_index))
+}
+
+fn tx_unspent_kickoff(round: usize, _kickoff_idx: u32, connector_idx: usize) -> TransactionType {
+    TransactionType::UnspentKickoff(round_idx(round), kickoff_idx(connector_idx as u32))
+}
 
 /// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
@@ -82,7 +167,7 @@ async fn base_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: RoundIndex::Round(0),
+                bridge_round: BridgeRound::Round(0),
                 kickoff_idx,
             }
             .into(),
@@ -160,28 +245,39 @@ pub async fn run_operator_end_round(
 pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
 
-    let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
+    let (actors, tx_senders, _dep_params, kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
-    // Wait 1 week
-    rpc.mine_blocks(7 * 24 * 6).await?;
+    rpc.mine_blocks(
+        config
+            .protocol_paramset()
+            .operator_challenge_timeout_timelock as u64,
+    )
+    .await?;
 
     tracing::info!("Sending challenge timeout transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ChallengeTimeout).await?;
+    send_tx_with_type(
+        &rpc,
+        &tx_sender,
+        &all_txs,
+        tx_challenge_timeout(0, kickoff_idx),
+    )
+    .await?;
 
     // Send Ready to Reimburse Reimburse Transaction
     tracing::info!("Sending ready to reimburse transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_ready_to_reimburse(0)).await?;
 
-    rpc.mine_blocks(6 * 24 * 2 + 1).await?;
+    rpc.mine_blocks(config.protocol_paramset().operator_reimburse_timelock as u64)
+        .await?;
 
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
@@ -191,7 +287,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: RoundIndex::Round(1),
+                    bridge_round: BridgeRound::Round(1),
                     kickoff_idx: 0,
                 }
                 .into(),
@@ -201,11 +297,11 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         .await?
         .into_inner();
 
-    send_tx_with_type(&rpc, &tx_sender, &all_txs_2, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs_2, tx_round(1)).await?;
 
     // Send Happy Reimburse Transaction
     tracing::info!("Sending happy reimburse transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Reimburse).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_reimburse(0, kickoff_idx)).await?;
 
     tracing::info!("Reimburse transaction sent successfully");
     tracing::info!("Happy path test completed successfully");
@@ -226,22 +322,22 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
 pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Happy Path 2 test");
 
-    let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
+    let (actors, tx_senders, _deposit_info, kickoff_idx, base_tx_req, all_txs, op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
     // Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_challenge(0, kickoff_idx)).await?;
 
     // Send Watchtower Challenge Transactions
     // Each watchtower challenge must use its corresponding tx_sender for correct RBF re-signing
@@ -259,7 +355,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             &tx_senders[verifier_idx].clone(),
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
-            TxType::WatchtowerChallenge(verifier_idx),
+            tx_watchtower_challenge(0, kickoff_idx, verifier_idx),
             None,
         )
         .await
@@ -284,12 +380,13 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             .signed_txs
             .iter()
             .find(|tx| {
-                tx.transaction_type == Some(TxType::OperatorChallengeAck(verifier_idx).into())
+                tx.transaction_type
+                    == Some(tx_operator_challenge_ack(0, kickoff_idx, verifier_idx).into())
             })
             .unwrap();
         operator_ack_txs_to_send.push(TxToSend {
             raw_tx: tx.raw_tx.clone(),
-            tx_type: TxType::OperatorChallengeAck(verifier_idx),
+            tx_type: tx_operator_challenge_ack(0, kickoff_idx, verifier_idx),
             rbf_info: None,
         });
     }
@@ -308,7 +405,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         tracing::info!("Preparing mini assert transaction {}", assert_idx);
         assert_txs_to_send.push(TxToSend {
             raw_tx: tx.raw_tx.clone(),
-            tx_type: TxType::MiniAssert(assert_idx),
+            tx_type: tx_mini_assert(0, kickoff_idx, assert_idx),
             rbf_info: None,
         });
     }
@@ -316,16 +413,24 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         .await
         .context("failed to send mini assert transactions")?;
 
-    rpc.mine_blocks(BLOCKS_PER_DAY * 5).await?;
+    rpc.mine_blocks(config.protocol_paramset().disprove_timeout_timelock as u64)
+        .await?;
     // Send Disprove Timeout Transaction
     tracing::info!("Sending disprove timeout transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::DisproveTimeout).await?;
+    send_tx_with_type(
+        &rpc,
+        &tx_sender,
+        &all_txs,
+        tx_disprove_timeout(0, kickoff_idx),
+    )
+    .await?;
 
     // Send Ready to Reimburse Reimburse Transaction
     tracing::info!("Sending ready to reimburse transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_ready_to_reimburse(0)).await?;
 
-    rpc.mine_blocks(6 * 24 * 2 + 1).await?;
+    rpc.mine_blocks(config.protocol_paramset().operator_reimburse_timelock as u64)
+        .await?;
 
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
@@ -334,7 +439,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
-                    round_idx: RoundIndex::Round(1),
+                    bridge_round: BridgeRound::Round(1),
                     kickoff_idx: 0,
                 }
                 .into(),
@@ -345,20 +450,20 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc
         .into_inner();
 
     // Send Round 2
-    send_tx_with_type(&rpc, &tx_sender, &all_txs_2, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs_2, tx_round(1)).await?;
 
     // Send Reimburse Transaction
     tracing::info!("Sending reimburse transaction");
     let reimburse_tx = all_txs
         .signed_txs
         .iter()
-        .find(|tx| tx.transaction_type == Some(TxType::Reimburse.into()))
+        .find(|tx| tx.transaction_type == Some(tx_reimburse(0, kickoff_idx).into()))
         .unwrap();
     send_tx(
         &tx_sender,
         &rpc,
         reimburse_tx.raw_tx.as_slice(),
-        TxType::Reimburse,
+        tx_reimburse(0, kickoff_idx),
         None,
     )
     .await
@@ -375,27 +480,25 @@ pub async fn run_simple_assert_flow(
 ) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
 
-    let (actors, tx_senders, _deposit_info, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
+    let (actors, tx_senders, _deposit_info, kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
     // Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_challenge(0, kickoff_idx)).await?;
 
     // Directly create and send assert transactions directly
     tracing::info!("Creating and sending assert transactions directly");
 
-    // Get deposit data and kickoff ID for assert creation
-    rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
     // Create assert transactions for operator 0
     let mut operator0 = actors.get_operator_client_by_index(0);
     let assert_txs = operator0
@@ -412,7 +515,12 @@ pub async fn run_simple_assert_flow(
         );
         assert_txs_to_send.push(TxToSend {
             raw_tx: tx.raw_tx.clone(),
-            tx_type: tx.transaction_type.unwrap().try_into().unwrap(),
+            tx_type: tx
+                .transaction_type
+                .clone()
+                .expect("assert transaction should include transaction type")
+                .try_into()
+                .unwrap(),
             rbf_info: None,
         });
     }
@@ -438,22 +546,22 @@ pub async fn run_simple_assert_flow(
 pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 1 test");
 
-    let (actors, tx_senders, _dep_params, _kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
+    let (actors, tx_senders, _dep_params, kickoff_idx, base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
     // Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_challenge(0, kickoff_idx)).await?;
 
     // Send Watchtower Challenge Transaction (just for the first watchtower)
     // Send Watchtower Challenge Transactions
@@ -475,7 +583,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         &tx_sender,
         &rpc,
         watchtower_challenge_tx.raw_tx.as_slice(),
-        TxType::WatchtowerChallenge(watchtower_idx),
+        tx_watchtower_challenge(0, kickoff_idx, watchtower_idx),
         None,
     )
     .await
@@ -483,7 +591,8 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         "failed to send watchtower challenge transaction for watchtower {watchtower_idx}"
     ))?;
 
-    rpc.mine_blocks(BLOCKS_PER_DAY * 3).await?;
+    rpc.mine_blocks(config.protocol_paramset().operator_challenge_nack_timelock as u64)
+        .await?;
 
     // Send Operator Challenge Negative Acknowledgment Transaction
     tracing::info!(
@@ -494,7 +603,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         &rpc,
         &tx_sender,
         &all_txs,
-        TxType::OperatorChallengeNack(watchtower_idx),
+        tx_operator_challenge_nack(0, kickoff_idx, watchtower_idx),
     )
     .await?;
 
@@ -514,28 +623,34 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
 pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 2 test");
 
-    let (_actors, tx_senders, _dep_params, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+    let (_actors, tx_senders, _dep_params, kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
     // Send Challenge Transaction
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_challenge(0, kickoff_idx)).await?;
 
     // Ready to reimburse without finalized kickoff
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_ready_to_reimburse(0)).await?;
 
     // Kickoff is not finalized, burn
     tracing::info!("Sending kickoff not finalized transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::KickoffNotFinalized).await?;
+    send_tx_with_type(
+        &rpc,
+        &tx_sender,
+        &all_txs,
+        tx_kickoff_not_finalized(0, kickoff_idx),
+    )
+    .await?;
 
     tracing::info!("Bad Path 2 test completed successfully");
     Ok(())
@@ -554,21 +669,21 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
 pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 3 test");
 
-    let (actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+    let (actors, tx_senders, _deposit_info, kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_kickoff(0, kickoff_idx)).await?;
 
     // Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_challenge(0, kickoff_idx)).await?;
 
     // Send Watchtower Challenge Transactions
     // Each watchtower challenge must use its corresponding tx_sender for correct RBF re-signing
@@ -581,7 +696,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
             &rpc,
             tx_sender,
             &all_txs,
-            TxType::WatchtowerChallenge(watchtower_idx),
+            tx_watchtower_challenge(0, kickoff_idx, watchtower_idx),
         )
         .await?;
     }
@@ -597,12 +712,13 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
             .signed_txs
             .iter()
             .find(|tx| {
-                tx.transaction_type == Some(TxType::OperatorChallengeAck(verifier_idx).into())
+                tx.transaction_type
+                    == Some(tx_operator_challenge_ack(0, kickoff_idx, verifier_idx).into())
             })
             .unwrap();
         operator_ack_txs_to_send.push(TxToSend {
             raw_tx: tx.raw_tx.clone(),
-            tx_type: TxType::OperatorChallengeAck(verifier_idx),
+            tx_type: tx_operator_challenge_ack(0, kickoff_idx, verifier_idx),
             rbf_info: None,
         });
     }
@@ -618,11 +734,13 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
         let tx = all_txs
             .signed_txs
             .iter()
-            .find(|tx| tx.transaction_type == Some(TxType::MiniAssert(assert_idx).into()))
+            .find(|tx| {
+                tx.transaction_type == Some(tx_mini_assert(0, kickoff_idx, assert_idx).into())
+            })
             .unwrap();
         assert_txs_to_send.push(TxToSend {
             raw_tx: tx.raw_tx.clone(),
-            tx_type: TxType::MiniAssert(assert_idx),
+            tx_type: tx_mini_assert(0, kickoff_idx, assert_idx),
             rbf_info: None,
         });
     }
@@ -632,7 +750,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedBitcoinRpc) 
 
     // Send Disprove Transaction
     tracing::info!("Sending disprove transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Disprove).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_disprove(0, kickoff_idx)).await?;
 
     tracing::info!("Bad Path 3 test completed successfully");
     Ok(())
@@ -645,18 +763,18 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     config: &mut BridgeConfig,
     rpc: ExtendedBitcoinRpc,
 ) -> Result<()> {
-    let (_actors, tx_senders, _deposit_info, _kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
+    let (_actors, tx_senders, _deposit_info, kickoff_idx, _base_tx_req, all_txs, _op0_xonly_pk) =
         base_setup(config, &rpc).await?;
 
     let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_round(0)).await?;
 
     // state machine should burn the collateral after ready to reimburse tx gets sent
     let ready_to_reimburse_tx =
-        get_tx_from_signed_txs_with_type(&all_txs, TxType::ReadyToReimburse)?;
+        get_tx_from_signed_txs_with_type(&all_txs, tx_ready_to_reimburse(0))?;
     let collateral_utxo = OutPoint {
         txid: ready_to_reimburse_tx.compute_txid(),
         vout: 0,
@@ -664,14 +782,16 @@ pub async fn run_unspent_kickoffs_with_state_machine(
 
     // Send Ready to Reimburse Reimburse Transaction
     tracing::info!("Sending ready to reimburse transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, tx_ready_to_reimburse(0)).await?;
 
     let collateral_burn_txid = get_txid_where_utxo_is_spent(&rpc, collateral_utxo).await?;
 
     // calculate unspent kickoff tx txids and check if any of them is where collateral was spent
     let is_spent_by_unspent_kickoff_tx = (0..config.protocol_paramset().num_kickoffs_per_round)
         .map(|i| {
-            let tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::UnspentKickoff(i)).unwrap();
+            let tx =
+                get_tx_from_signed_txs_with_type(&all_txs, tx_unspent_kickoff(0, kickoff_idx, i))
+                    .unwrap();
             tx.compute_txid()
         })
         .any(|txid| txid == collateral_burn_txid);

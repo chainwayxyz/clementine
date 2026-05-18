@@ -1,12 +1,12 @@
 use crate::bitvm_client::SECP;
-use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
-use crate::rpc::clementine::NormalSignatureKind;
+use crate::protocol::ids::TransactionType;
+use crate::protocol::spec::SpendSpec;
+use crate::protocol::tx::{move_to_vault::MoveToVaultOutput, payout::PayoutInput};
 use crate::test::common::*;
 use crate::{
     bitvm_client,
@@ -16,13 +16,15 @@ use crate::{
 };
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
+use bitcoin::{hashes::Hash, script, Amount};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
 use secp256k1::musig::AggregatedNonce;
-use std::sync::Arc;
+use tx_builder::script::{ScriptLeaf, ScriptNode};
+use tx_builder::scripts::{CheckSig, OtherSpendable};
+use tx_builder::witness::WitnessInput;
+use tx_builder::witness_material::WitnessMaterialExt;
 
 #[cfg(test)]
 fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, Vec<PublicKey>) {
@@ -92,26 +94,36 @@ async fn key_spend() {
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
-    let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
+    let mut tx_details = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::new(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
-            SpendPath::Unknown,
+            PayoutInput::WithdrawalUtxo,
+            crate::builder::transaction::spendable_txin(
+                utxo,
+                prevout,
+                vec![],
+                vec![],
+                Some(from_address_spend_info.clone()),
+            ),
             Sequence::default(),
+            crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
         )
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: Amount::from_sat(99_000_000),
-                script_pubkey: to_address.script_pubkey(),
-            },
-            vec![],
-            Some(to_address_spend.clone()),
-        ))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            crate::builder::transaction::unspent_txout(
+                TxOut {
+                    value: Amount::from_sat(99_000_000),
+                    script_pubkey: to_address.script_pubkey(),
+                },
+                vec![],
+                vec![],
+                Some(to_address_spend.clone()),
+            ),
+        )
         .finalize();
 
     let message = Message::from_digest(
         tx_details
-            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+            .tap_sighash_for_input(PayoutInput::WithdrawalUtxo)
             .unwrap()
             .to_byte_array(),
     );
@@ -155,12 +167,13 @@ async fn key_spend() {
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details
-        .set_p2tr_key_spend_witness(
-            &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
-            0,
+        .fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::KeySpend(
+                taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+            )),
         )
         .unwrap();
-    rpc.send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.transaction())
         .await
         .unwrap();
 }
@@ -177,7 +190,7 @@ async fn key_spend_with_script() {
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let dummy_script = script::Builder::new().push_int(1).into_script();
-    let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(OtherSpendable::new(dummy_script))];
+    let scripts = [ScriptLeaf::Other(OtherSpendable::new(dummy_script))];
 
     let (to_address, _to_address_spend) =
         builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
@@ -195,28 +208,32 @@ async fn key_spend_with_script() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
+    let mut builder = TxHandlerBuilder::new(TransactionType::MoveToVault);
     builder = builder
         .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::new(
+            PayoutInput::WithdrawalUtxo,
+            crate::builder::transaction::spendable_txin(
                 utxo,
                 prevout.clone(),
-                scripts.clone(),
+                scripts.iter().cloned().map(ScriptNode::from).collect(),
+                vec![],
                 Some(from_address_spend_info.clone()),
             ),
-            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
+            crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: Amount::from_sat(99_000_000),
-            script_pubkey: to_address.script_pubkey(),
-        }));
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: to_address.script_pubkey(),
+            }),
+        );
 
     let mut tx_details = builder.finalize();
     let message = Message::from_digest(
         tx_details
-            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+            .tap_sighash_for_input(PayoutInput::WithdrawalUtxo)
             .unwrap()
             .to_byte_array(),
     );
@@ -262,12 +279,13 @@ async fn key_spend_with_script() {
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details
-        .set_p2tr_key_spend_witness(
-            &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
-            0,
+        .fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::KeySpend(
+                taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+            )),
         )
         .unwrap();
-    rpc.send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.transaction())
         .await
         .unwrap();
 }
@@ -286,7 +304,7 @@ async fn script_spend() {
     let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
 
     let agg_xonly_pubkey = bitcoin::XOnlyPublicKey::from_slice(&agg_pk.serialize()).unwrap();
-    let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(agg_xonly_pubkey))];
+    let scripts = [ScriptLeaf::CheckSig(CheckSig::new(agg_xonly_pubkey))];
 
     let to_address = bitcoin::Address::p2tr(
         &SECP,
@@ -308,26 +326,40 @@ async fn script_spend() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
+    let named_leaves = vec![(
+        crate::protocol::tx::move_to_vault::MoveToVaultLeaf::NofnSpend.into(),
+        scripts[0].clone(),
+    )];
+    let mut tx_details = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::new(
+            PayoutInput::WithdrawalUtxo,
+            crate::builder::transaction::spendable_txin(
                 utxo,
                 prevout.clone(),
-                scripts,
+                scripts.iter().cloned().map(ScriptNode::from).collect(),
+                named_leaves,
                 Some(from_address_spend_info.clone()),
             ),
-            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
+            crate::builder::transaction::input_descriptor(SpendSpec::named_leaf(
+                crate::protocol::tx::move_to_vault::MoveToVaultLeaf::NofnSpend.into(),
+            )),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: Amount::from_sat(99_000_000),
-            script_pubkey: to_address.script_pubkey(),
-        }))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: to_address.script_pubkey(),
+            }),
+        )
         .finalize();
     let message = Message::from_digest(
         tx_details
-            .calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)
+            .tap_script_sighash_for_input_script(
+                PayoutInput::WithdrawalUtxo,
+                scripts[0].to_script_buf().as_script(),
+                bitcoin::TapSighashType::Default,
+            )
             .unwrap()
             .to_byte_array(),
     );
@@ -363,14 +395,17 @@ async fn script_spend() {
         .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
         .unwrap();
 
-    let witness_elements = vec![final_signature.as_ref()];
     tx_details
-        .set_p2tr_script_spend_witness(&witness_elements, 0, 0)
+        .fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::RawWitness(vec![
+                final_signature.as_ref().to_vec(),
+            ])),
+        )
         .unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
 
-    rpc.send_raw_transaction(tx_details.get_cached_tx())
+    rpc.send_raw_transaction(tx_details.transaction())
         .await
         .unwrap();
 }
@@ -403,8 +438,8 @@ async fn key_and_script_spend() {
 
     // -- Script Setup --
     // Tapscript for script spending of NofN sig
-    let musig2_script = Arc::new(CheckSig::new(agg_pk));
-    let scripts: Vec<Arc<dyn SpendableScript>> = vec![musig2_script];
+    let musig2_script = ScriptLeaf::CheckSig(CheckSig::new(agg_pk));
+    let scripts = [musig2_script];
 
     // -- UTXO Setup --
     // Both script and key spend in P2TR address
@@ -451,51 +486,69 @@ async fn key_and_script_spend() {
     );
 
     // Test Transactions
-    let mut test_txhandler_1 = TxHandlerBuilder::new(TransactionType::Dummy)
+    let named_leaves = vec![(
+        crate::protocol::tx::move_to_vault::MoveToVaultLeaf::NofnSpend.into(),
+        scripts[0].clone(),
+    )];
+    let mut test_txhandler_1 = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::new(
+            PayoutInput::WithdrawalUtxo,
+            crate::builder::transaction::spendable_txin(
                 utxo_1,
                 prevout_1,
-                scripts.clone(),
+                scripts.iter().cloned().map(ScriptNode::from).collect(),
+                named_leaves,
                 Some(from_address_spend_info.clone()),
             ),
-            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
+            crate::builder::transaction::input_descriptor(SpendSpec::named_leaf(
+                crate::protocol::tx::move_to_vault::MoveToVaultLeaf::NofnSpend.into(),
+            )),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: Amount::from_sat(99_000_000),
-            script_pubkey: to_address.script_pubkey(),
-        }))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: to_address.script_pubkey(),
+            }),
+        )
         .finalize();
 
-    let mut test_txhandler_2 = TxHandlerBuilder::new(TransactionType::Dummy)
+    let mut test_txhandler_2 = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::new(
+            PayoutInput::WithdrawalUtxo,
+            crate::builder::transaction::spendable_txin(
                 utxo_2,
                 prevout_2,
-                scripts,
+                scripts.iter().cloned().map(ScriptNode::from).collect(),
+                vec![],
                 Some(from_address_spend_info.clone()),
             ),
-            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
+            crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: Amount::from_sat(99_000_000),
-            script_pubkey: to_address.script_pubkey(),
-        }))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: to_address.script_pubkey(),
+            }),
+        )
         .finalize();
 
     let sighash_1 = Message::from_digest(
         test_txhandler_1
-            .calculate_script_spend_sighash_indexed(0, 0, TapSighashType::Default)
+            .tap_script_sighash_for_input_script(
+                PayoutInput::WithdrawalUtxo,
+                scripts[0].to_script_buf().as_script(),
+                TapSighashType::Default,
+            )
             .unwrap()
             .to_byte_array(),
     );
     let sighash_2 = Message::from_digest(
         test_txhandler_2
-            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+            .tap_sighash_for_input(PayoutInput::WithdrawalUtxo)
             .unwrap()
             .to_byte_array(),
     );
@@ -576,16 +629,19 @@ async fn key_and_script_spend() {
         .unwrap();
 
     // Set up the witness for the script spend
-    let witness_elements = vec![final_signature_1.as_ref()];
     test_txhandler_1
-        .set_p2tr_script_spend_witness(&witness_elements, 0, 0)
+        .fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::RawWitness(vec![
+                final_signature_1.as_ref().to_vec(),
+            ])),
+        )
         .unwrap();
 
     // Mine a block to confirm previous transaction
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.send_raw_transaction(test_txhandler_1.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_1.transaction())
         .await
         .unwrap();
 
@@ -598,16 +654,17 @@ async fn key_and_script_spend() {
         .unwrap();
 
     (test_txhandler_2)
-        .set_p2tr_key_spend_witness(
-            &taproot::Signature::from_slice(final_signature_2.as_ref()).unwrap(),
-            0,
+        .fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::KeySpend(
+                taproot::Signature::from_slice(final_signature_2.as_ref()).unwrap(),
+            )),
         )
         .unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
-    rpc.send_raw_transaction(test_txhandler_2.get_cached_tx())
+    rpc.send_raw_transaction(test_txhandler_2.transaction())
         .await
         .unwrap();
 }

@@ -17,31 +17,20 @@ pub use clementine_extended_rpc::{
 };
 
 use async_trait::async_trait;
-#[cfg(test)]
-use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoincore_rpc::RpcApi;
-use eyre::eyre;
 use eyre::Context;
 
 use crate::builder::address::create_taproot_address;
-use crate::builder::transaction::create_round_txhandlers;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::KickoffWinternitzKeys;
-use crate::builder::transaction::TxHandler;
+use crate::builder::transaction::{KickoffWinternitzKeys, RoundBuildContext, TxCache, TxCacheExt};
 use crate::config::protocol::ProtocolParamset;
 use crate::deposit::OperatorData;
+use crate::protocol::create::BatchName;
+use crate::protocol::ids::TransactionType;
+use crate::protocol::tx::{ready_to_reimburse::ReadyToReimburseOutput, round::RoundOutput};
 use clementine_errors::BridgeError;
-use clementine_errors::TransactionType;
-use clementine_primitives::RoundIndex;
+use clementine_primitives::BridgeRound;
 
-#[cfg(test)]
-use crate::test::common::citrea::CitreaE2EData;
-#[cfg(test)]
-use crate::{
-    citrea::CitreaClientT,
-    test::common::{are_all_nodes_synced, test_actors::TestActors},
-};
 #[cfg(test)]
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
@@ -152,41 +141,26 @@ impl BridgeRpcQueries for ExtendedBitcoinRpc {
         }
 
         let mut current_collateral_outpoint: OutPoint = operator_data.collateral_funding_outpoint;
-        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let mut tx_cache = TxCache::new();
         // iterate over all rounds
-        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs) {
-            // create round and ready to reimburse txs for the round
-            let txhandlers = create_round_txhandlers(
+        for round_idx in BridgeRound::iter_rounds(paramset.num_round_txs) {
+            let round = round_idx.to_round_idx()?;
+            let mut ctx = RoundBuildContext::new(
                 paramset,
                 round_idx,
-                operator_data,
-                kickoff_wpks,
-                prev_ready_to_reimburse.as_ref(),
+                operator_data.clone(),
+                kickoff_wpks.clone(),
+            );
+            let txhandlers = crate::builder::transaction::build_batch_cached(
+                &mut ctx,
+                &BatchName::RoundChain { round },
+                &mut tx_cache,
             )?;
+            let round_txhandler = txhandlers.get_required(TransactionType::Round(round))?;
+            let ready_to_reimburse_txhandler =
+                txhandlers.get_required(TransactionType::ReadyToReimburse(round))?;
 
-            let mut round_txhandler_opt = None;
-            let mut ready_to_reimburse_txhandler_opt = None;
-            for txhandler in &txhandlers {
-                match txhandler.get_transaction_type() {
-                    TransactionType::Round => round_txhandler_opt = Some(txhandler),
-                    TransactionType::ReadyToReimburse => {
-                        ready_to_reimburse_txhandler_opt = Some(txhandler)
-                    }
-                    _ => {}
-                }
-            }
-            if round_txhandler_opt.is_none() || ready_to_reimburse_txhandler_opt.is_none() {
-                return Err(eyre!(
-                    "Failed to create round and ready to reimburse txs for round {:?} for operator {}",
-                    round_idx,
-                    operator_data.xonly_pk
-                ).into());
-            }
-
-            let round_txid = round_txhandler_opt
-                .expect("Round txhandler should exist, checked above")
-                .get_cached_tx()
-                .compute_txid();
+            let round_txid = round_txhandler.transaction().compute_txid();
             let is_round_tx_on_chain = self.is_tx_on_chain(&round_txid).await?;
             if !is_round_tx_on_chain {
                 break;
@@ -208,17 +182,14 @@ impl BridgeRpcQueries for ExtendedBitcoinRpc {
             }
             current_collateral_outpoint = OutPoint {
                 txid: round_txid,
-                vout: UtxoVout::CollateralInRound.get_vout(),
+                vout: round_txhandler.output_index(RoundOutput::RemainingCollateral)?,
             };
-            if round_idx == RoundIndex::Round(paramset.num_round_txs - 1) {
+            if round_idx == BridgeRound::Round(paramset.num_round_txs - 1) {
                 // for the last round, only check round tx, as if the operator sent the ready to reimburse tx of last round,
                 // it cannot create more kickoffs anymore
                 break;
             }
-            let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler_opt
-                .expect("Ready to reimburse txhandler should exist");
-            let ready_to_reimburse_txid =
-                ready_to_reimburse_txhandler.get_cached_tx().compute_txid();
+            let ready_to_reimburse_txid = ready_to_reimburse_txhandler.transaction().compute_txid();
             let is_ready_to_reimburse_tx_on_chain =
                 self.is_tx_on_chain(&ready_to_reimburse_txid).await?;
             if !is_ready_to_reimburse_tx_on_chain {
@@ -227,10 +198,9 @@ impl BridgeRpcQueries for ExtendedBitcoinRpc {
 
             current_collateral_outpoint = OutPoint {
                 txid: ready_to_reimburse_txid,
-                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+                vout: ready_to_reimburse_txhandler
+                    .output_index(ReadyToReimburseOutput::Collateral)?,
             };
-
-            prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
         }
 
         // if the collateral utxo we found latest in the round tx chain is spent, operators collateral is spent from Clementine
@@ -245,23 +215,23 @@ impl BridgeRpcQueries for ExtendedBitcoinRpc {
 #[async_trait]
 pub trait TestRpcExtensions {
     /// A helper fn to safely mine blocks while waiting for all actors to be synced.
-    async fn mine_blocks_while_synced<C: CitreaClientT>(
+    async fn mine_blocks_while_synced<C: crate::citrea::CitreaClientT>(
         &self,
         block_num: u64,
-        actors: &TestActors<C>,
-        e2e: Option<&CitreaE2EData<'_>>,
-    ) -> Result<Vec<BlockHash>>;
+        actors: &crate::test::common::test_actors::TestActors<C>,
+        e2e: Option<&crate::test::common::citrea::CitreaE2EData<'_>>,
+    ) -> Result<Vec<bitcoin::BlockHash>>;
 }
 
 #[cfg(test)]
 #[async_trait]
 impl TestRpcExtensions for ExtendedBitcoinRpc {
-    async fn mine_blocks_while_synced<C: CitreaClientT>(
+    async fn mine_blocks_while_synced<C: crate::citrea::CitreaClientT>(
         &self,
         block_num: u64,
-        actors: &TestActors<C>,
-        e2e: Option<&CitreaE2EData<'_>>,
-    ) -> Result<Vec<BlockHash>> {
+        actors: &crate::test::common::test_actors::TestActors<C>,
+        e2e: Option<&crate::test::common::citrea::CitreaE2EData<'_>>,
+    ) -> Result<Vec<bitcoin::BlockHash>> {
         match e2e {
             Some(e2e) if e2e.bitcoin_nodes.iter().count() > 1 => {
                 use bitcoin::secp256k1::rand::{thread_rng, Rng};
@@ -276,7 +246,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
 
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
-                    if !are_all_nodes_synced(self, actors).await? {
+                    if !crate::test::common::are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
@@ -307,7 +277,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
                     .await
                     .map_err(|e| eyre::eyre!("Failed to wait for sync: {}", e))?;
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
-                    if !are_all_nodes_synced(self, actors).await? {
+                    if !crate::test::common::are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }
@@ -322,7 +292,7 @@ impl TestRpcExtensions for ExtendedBitcoinRpc {
             _ => {
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
-                    if !are_all_nodes_synced(self, actors).await? {
+                    if !crate::test::common::are_all_nodes_synced(self, actors).await? {
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
                     }

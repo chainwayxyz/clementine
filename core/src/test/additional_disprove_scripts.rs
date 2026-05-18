@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use super::common::citrea::get_bridge_params;
-use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::{CitreaClient, CitreaClientT};
+use crate::config::protocol::REGTEST_PARAMSET;
+use crate::protocol::tx::{
+    kickoff::KickoffOutput,
+    round::{self, RoundOutput},
+};
 use crate::test::common::citrea::{CitreaE2EData, SECRET_KEYS};
 use crate::test::common::clementine_utils::disprove_tests_common_setup;
 use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_synced;
@@ -164,7 +168,12 @@ impl TestCase for AdditionalDisproveTest {
 
         let disprove_outpoint = OutPoint {
             txid: kickoff_txid,
-            vout: UtxoVout::Disprove.get_vout(),
+            vout: crate::protocol::tx::kickoff::spec(
+                crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs(),
+                0,
+            )
+            .output_index(&KickoffOutput::Disprove)
+            .expect("kickoff disprove output must exist") as u32,
         };
 
         tracing::info!(
@@ -188,7 +197,9 @@ impl TestCase for AdditionalDisproveTest {
 
         let burn_connector = OutPoint {
             txid: round_txid,
-            vout: UtxoVout::CollateralInRound.get_vout(),
+            vout: round::spec(REGTEST_PARAMSET.num_kickoffs_per_round)
+                .output_index(&RoundOutput::RemainingCollateral)
+                .expect("round remaining collateral output must exist") as u32,
         };
 
         let add_disprove_tx = rpc.get_raw_transaction(&txid, None).await?;

@@ -41,7 +41,7 @@ pub use client::TxSenderClient;
 pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
 
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
+use bitcoin::{Amount, OutPoint, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
 use clementine_config::tx_sender::TxSenderLimits;
 use clementine_errors::{BridgeError, ResultExt};
@@ -53,8 +53,7 @@ use clementine_utils::{FeePayingType, TxMetadata};
 use eyre::OptionExt;
 use signer::TxSenderSigningKey;
 
-/// Default sequence for transactions.
-pub const DEFAULT_SEQUENCE: Sequence = Sequence(0xFFFFFFFD);
+pub use clementine_primitives::DEFAULT_SEQUENCE;
 
 /// Once a tx/outpoint has been observed confirmed/spent for at least this many
 /// blocks, we treat it as final and skip further RPC re-checks.

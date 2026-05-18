@@ -74,6 +74,7 @@ clementine-errors = { path = "../crates/clementine-errors" }
 clementine-primitives = { path = "../crates/clementine-primitives" }
 clementine-config = { path = "../crates/clementine-config" }
 clementine-utils = { path = "../crates/clementine-utils" }
+tx-builder = { path = "../crates/tx-builder" }
 clementine-extended-rpc = { path = "../crates/clementine-extended-rpc", features = ["test-utils"] }
 # There is a problem with not using citrea feature for txsender for now because they are in the same workspace when --all-features is used, we can remove it when we move tx-sender outside
 clementine-tx-sender = { path = "../crates/clementine-tx-sender", optional = true }

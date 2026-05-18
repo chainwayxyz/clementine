@@ -195,13 +195,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
     use tonic::async_trait;
 
     use crate::{
-        builder::transaction::{ContractContext, TxHandler},
         config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
@@ -209,7 +206,6 @@ mod tests {
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
-    use clementine_primitives::TransactionType;
 
     use super::*;
 
@@ -233,13 +229,8 @@ mod tests {
             Ok(DutyResult::Handled)
         }
 
-        async fn create_txhandlers(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _: TransactionType,
-            _: ContractContext,
-        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            Ok(BTreeMap::new())
+        fn database(&self) -> Database {
+            unreachable!("mock state task owner should not need a database")
         }
     }
 

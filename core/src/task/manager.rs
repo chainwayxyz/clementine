@@ -8,8 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, RwLock};
 use tokio::task::{AbortHandle, JoinHandle};
-#[cfg(test)]
-use tokio::time::sleep;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TaskStatus {
@@ -241,7 +239,7 @@ impl BackgroundTaskManager {
                 break;
             }
 
-            sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 

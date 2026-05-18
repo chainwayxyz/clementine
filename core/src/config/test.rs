@@ -1,5 +1,4 @@
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TxHandlerBuilder;
+use crate::builder::transaction::{TxHandlerBuilder, UnspentTxOut};
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -55,10 +54,12 @@ pub struct TestParams {
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
 
-    /// A flag to indicate whether to use small annexes in the watchtower challenge transactions.
+    /// No-op placeholder kept so older annex-oriented test knobs still deserialize and remain
+    /// discoverable while annex behavior is disabled everywhere.
     pub use_small_annex: bool,
 
-    /// A flag to indicate whether to use large annexes in the watchtower challenge transactions.
+    /// No-op placeholder kept so older large-annex test knobs still deserialize and remain
+    /// discoverable while annex behavior is disabled everywhere.
     pub use_large_annex: bool,
 
     /// A flag to indicate whether to use large outputs in the watchtower challenge transactions.
@@ -301,7 +302,10 @@ impl TestParams {
                     script_pubkey: additional_taproot_script,
                 };
                 // Reassign the result of add_output back to builder
-                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+                builder = builder.add_output(
+                    crate::protocol::tx::watchtower_challenge::WatchtowerChallengeOutput::Anchor,
+                    UnspentTxOut::from_partial(additional_taproot_txout),
+                );
             }
 
             if self.use_large_annex_and_output {
@@ -320,6 +324,8 @@ impl TestParams {
         use std::path::PathBuf;
 
         let cases = [
+            // No-op placeholders retained so the old annex fixture names stay visible, even though
+            // annex-specific generation is disabled right now.
             (
                 self.use_small_annex,
                 "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex_large_op_return.bin",

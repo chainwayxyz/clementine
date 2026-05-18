@@ -9,19 +9,20 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    builder::transaction::create_move_to_vault_txhandler,
+    builder::transaction::DepositBuildContext,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
 };
 use crate::{
     execute_query_with_tx,
+    protocol::ids::TransactionType,
     rpc::clementine::{DepositSignatures, TaggedSignature},
 };
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use clementine_errors::BridgeError;
-use clementine_primitives::{PublicHash, RoundIndex};
+use clementine_primitives::{BridgeRound, PublicHash};
 use eyre::{eyre, Context};
 use risc0_zkvm::Receipt;
 use std::str::FromStr;
@@ -132,7 +133,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
@@ -149,7 +150,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_>>,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
         let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2")
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
@@ -363,9 +364,11 @@ impl Database {
         paramset: &'static ProtocolParamset,
     ) -> Result<u32, BridgeError> {
         // compute move to vault txid
-        let move_to_vault_txid = create_move_to_vault_txhandler(deposit_data, paramset)?
-            .get_cached_tx()
-            .compute_txid();
+        let mut ctx = DepositBuildContext::new(paramset, deposit_data.clone());
+        let move_to_vault_txid =
+            crate::builder::transaction::build_tx(&mut ctx, TransactionType::MoveToVault)?
+                .transaction()
+                .compute_txid();
 
         let query = sqlx::query_as::<_, (i32,)>(
             "INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
@@ -488,7 +491,7 @@ impl Database {
         mut tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         kickoff_idx: usize,
         kickoff_txid: Txid,
         signatures: Vec<TaggedSignature>,
@@ -595,7 +598,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_>>,
         deposit_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         kickoff_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
         let query = sqlx::query_as::<_, (SignaturesDB,)>(
@@ -638,7 +641,7 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint))
         .bind(XOnlyPublicKeyDB(kickoff_data.operator_xonly_pk))
-        .bind(kickoff_data.round_idx.to_index() as i32)
+        .bind(kickoff_data.bridge_round.to_index() as i32)
         .bind(kickoff_data.kickoff_idx as i32);
 
         let result: Result<(TxidDB,), sqlx::Error> =
@@ -711,7 +714,7 @@ impl Database {
                     .wrap_err("Can't convert deposit params")?,
                 KickoffData {
                     operator_xonly_pk: operator_xonly_pk.0,
-                    round_idx: RoundIndex::from_index(
+                    bridge_round: BridgeRound::from_index(
                         usize::try_from(round_idx)
                             .wrap_err("Failed to convert round idx to usize")?,
                     ),
@@ -833,7 +836,7 @@ impl Database {
     pub async fn mark_kickoff_connector_as_used(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         kickoff_connector_idx: u32,
         kickoff_txid: Option<Txid>,
     ) -> Result<(), BridgeError> {
@@ -858,7 +861,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_>>,
         kickoff_txid: Txid,
-    ) -> Result<(RoundIndex, u32), BridgeError> {
+    ) -> Result<(BridgeRound, u32), BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32)>(
             "SELECT round_idx, kickoff_connector_idx FROM used_kickoff_connectors WHERE kickoff_txid = $1;",
         )
@@ -866,7 +869,7 @@ impl Database {
 
         let result: (i32, i32) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
-            RoundIndex::from_index(
+            BridgeRound::from_index(
                 result
                     .0
                     .try_into()
@@ -882,7 +885,7 @@ impl Database {
     pub async fn get_kickoff_txid_for_used_kickoff_connector(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         kickoff_connector_idx: u32,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
@@ -904,7 +907,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_>>,
         deposit_id: u32,
         operator_xonly_pk: XOnlyPublicKey,
-    ) -> Result<Option<(RoundIndex, u32)>, BridgeError> {
+    ) -> Result<Option<(BridgeRound, u32)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
                     SELECT round_idx
@@ -935,7 +938,7 @@ impl Database {
 
         match result {
             Some((round_idx, kickoff_connector_idx)) => Ok(Some((
-                RoundIndex::from_index(
+                BridgeRound::from_index(
                     usize::try_from(round_idx).wrap_err("Failed to convert round idx to u32")?,
                 ),
                 u32::try_from(kickoff_connector_idx)
@@ -948,11 +951,11 @@ impl Database {
     pub async fn get_current_round_index(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
-    ) -> Result<RoundIndex, BridgeError> {
+    ) -> Result<BridgeRound, BridgeError> {
         let query =
             sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(RoundIndex::from_index(
+        Ok(BridgeRound::from_index(
             usize::try_from(result.0).wrap_err(BridgeError::IntConversionError)?,
         ))
     }
@@ -960,7 +963,7 @@ impl Database {
     pub async fn update_current_round_index(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1")
             .bind(round_idx.to_index() as i32);
@@ -975,17 +978,32 @@ impl Database {
 mod tests {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use crate::operator::Operator;
-    use crate::rpc::clementine::{
-        DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
+    use crate::protocol::ids::{Input, KickoffIdx, RoundIdx, TransactionType};
+    use crate::protocol::tx::{
+        operator_challenge_nack::OperatorChallengeNackInput, reimburse::ReimburseInput,
+        unspent_kickoff::UnspentKickoffInput,
     };
+    use crate::rpc::clementine::{DepositSignatures, GrpcInputId, TaggedSignature};
     use crate::test::common::citrea::MockCitreaClient;
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
     use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
-    use clementine_primitives::RoundIndex;
+    use clementine_primitives::BridgeRound;
     use std::str::FromStr;
+
+    fn tagged_signature(
+        tx_type: TransactionType,
+        input_id: Input,
+        signature: Vec<u8>,
+    ) -> TaggedSignature {
+        TaggedSignature {
+            signature,
+            tx_id: Some(tx_type.into()),
+            input_id: Some(GrpcInputId::from(input_id)),
+        }
+    }
 
     #[tokio::test]
     async fn test_set_get_operator() {
@@ -1180,22 +1198,26 @@ mod tests {
         let round_idx = 1;
         let signatures = DepositSignatures {
             signatures: vec![
-                TaggedSignature {
-                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 1).into()),
-                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
-                },
-                TaggedSignature {
-                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 1).into()),
-                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
-                },
-                TaggedSignature {
-                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 2).into()),
-                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
-                },
-                TaggedSignature {
-                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 2).into()),
-                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
-                },
+                tagged_signature(
+                    TransactionType::UnspentKickoff(RoundIdx::new(round_idx), KickoffIdx::new(1)),
+                    UnspentKickoffInput::CollateralInReadyToReimburse.into(),
+                    vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                ),
+                tagged_signature(
+                    TransactionType::UnspentKickoff(RoundIdx::new(round_idx), KickoffIdx::new(1)),
+                    UnspentKickoffInput::Kickoff.into(),
+                    vec![0x2F; SCHNORR_SIGNATURE_SIZE],
+                ),
+                tagged_signature(
+                    TransactionType::UnspentKickoff(RoundIdx::new(round_idx), KickoffIdx::new(2)),
+                    UnspentKickoffInput::CollateralInReadyToReimburse.into(),
+                    vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                ),
+                tagged_signature(
+                    TransactionType::UnspentKickoff(RoundIdx::new(round_idx), KickoffIdx::new(2)),
+                    UnspentKickoffInput::Kickoff.into(),
+                    vec![0x2F; SCHNORR_SIGNATURE_SIZE],
+                ),
             ],
         };
 
@@ -1206,21 +1228,21 @@ mod tests {
             .insert_unspent_kickoff_sigs_if_not_exist(
                 None,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 signatures.signatures.clone(),
             )
             .await
             .unwrap();
 
         let result = database
-            .get_unspent_kickoff_sigs(None, operator_xonly_pk, RoundIndex::Round(round_idx))
+            .get_unspent_kickoff_sigs(None, operator_xonly_pk, BridgeRound::Round(round_idx))
             .await
             .unwrap()
             .unwrap();
         assert_eq!(result, signatures.signatures);
 
         let non_existent = database
-            .get_unspent_kickoff_sigs(None, non_existent_xonly_pk, RoundIndex::Round(round_idx))
+            .get_unspent_kickoff_sigs(None, non_existent_xonly_pk, BridgeRound::Round(round_idx))
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -1229,7 +1251,7 @@ mod tests {
             .get_unspent_kickoff_sigs(
                 None,
                 non_existent_xonly_pk,
-                RoundIndex::Round(round_idx + 1),
+                BridgeRound::Round(round_idx + 1),
             )
             .await
             .unwrap();
@@ -1486,14 +1508,23 @@ mod tests {
         let kickoff_idx = 1;
         let signatures = DepositSignatures {
             signatures: vec![
-                TaggedSignature {
-                    signature_id: Some(NormalSignatureKind::Reimburse1.into()),
-                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
-                },
-                TaggedSignature {
-                    signature_id: Some((NumberedSignatureKind::OperatorChallengeNack1, 1).into()),
-                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
-                },
+                tagged_signature(
+                    TransactionType::Reimburse(
+                        RoundIdx::new(round_idx),
+                        KickoffIdx::new(kickoff_idx),
+                    ),
+                    ReimburseInput::DepositInMove.into(),
+                    vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                ),
+                tagged_signature(
+                    TransactionType::OperatorChallengeNack(
+                        RoundIdx::new(round_idx),
+                        KickoffIdx::new(kickoff_idx),
+                        1,
+                    ),
+                    OperatorChallengeNackInput::WatchtowerChallengeAck.into(),
+                    vec![0x2F; SCHNORR_SIGNATURE_SIZE],
+                ),
             ],
         };
 
@@ -1502,7 +1533,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 kickoff_idx,
                 Txid::all_zeros(),
                 signatures.signatures.clone(),
@@ -1515,7 +1546,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 kickoff_idx,
                 Txid::all_zeros(),
                 signatures.signatures.clone(),
@@ -1528,7 +1559,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 kickoff_idx,
                 Txid::from_slice(&[0x1F; 32]).unwrap(),
                 signatures.signatures.clone(),
@@ -1541,7 +1572,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 kickoff_idx,
             )
             .await
@@ -1554,7 +1585,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_xonly_pk,
-                RoundIndex::Round(round_idx + 1),
+                BridgeRound::Round(round_idx + 1),
                 kickoff_idx + 1,
             )
             .await
@@ -1566,7 +1597,7 @@ mod tests {
                 None,
                 OutPoint::null(),
                 unset_operator_xonly_pk,
-                RoundIndex::Round(round_idx),
+                BridgeRound::Round(round_idx),
                 kickoff_idx,
             )
             .await

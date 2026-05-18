@@ -1,11 +1,13 @@
 //! # Clementine related functions to do common operations
 
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::CitreaClient;
 use crate::database::Database;
 use crate::deposit::KickoffData;
 use crate::extended_bitcoin_rpc::TestRpcExtensions as _;
+use crate::protocol::ids::{KickoffIdx, RoundIdx, TransactionType};
+use crate::protocol::tx::kickoff::KickoffOutput;
+use crate::protocol::tx::move_to_vault::{self, MoveToVaultOutput};
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::{
     OptimisticWithdrawParams, TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
@@ -18,7 +20,6 @@ use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use clementine_primitives::TransactionType;
 
 use super::test_actors::TestActors;
 use super::tx_utils::{
@@ -116,7 +117,12 @@ pub async fn payout_and_start_kickoff(
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(
+            ClementineBitVMPublicKeys::number_of_assert_txs(),
+            0,
+        )
+        .output_index(&KickoffOutput::Reimburse)
+        .expect("kickoff reimburse output must exist") as u32,
     };
 
     let kickoff_block_height =
@@ -174,7 +180,9 @@ pub async fn reimburse_with_optimistic_payout(
         e2e.rpc,
         OutPoint {
             txid: move_txid,
-            vout: (UtxoVout::DepositInMove).get_vout(),
+            vout: move_to_vault::spec()
+                .output_index(&MoveToVaultOutput::DepositInMove)
+                .expect("move to vault deposit output must exist") as u32,
         },
         actors,
         Some(e2e),
@@ -240,7 +248,7 @@ pub async fn disprove_tests_common_setup(
         kickoff_id: Some(
             KickoffData {
                 operator_xonly_pk: op0_xonly_pk,
-                round_idx: clementine_primitives::RoundIndex::Round(0),
+                bridge_round: clementine_primitives::BridgeRound::Round(0),
                 kickoff_idx: kickoff_idx as u32,
             }
             .into(),
@@ -258,7 +266,16 @@ pub async fn disprove_tests_common_setup(
         &all_txs
             .signed_txs
             .iter()
-            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+            .find(|tx| {
+                tx.transaction_type
+                    == Some(
+                        TransactionType::Challenge(
+                            RoundIdx::new(0),
+                            KickoffIdx::new(kickoff_idx as usize),
+                        )
+                        .into(),
+                    )
+            })
             .unwrap()
             .raw_tx,
     )
@@ -285,7 +302,12 @@ pub async fn disprove_tests_common_setup(
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(
+            ClementineBitVMPublicKeys::number_of_assert_txs(),
+            0,
+        )
+        .output_index(&KickoffOutput::Challenge)
+        .expect("kickoff challenge output must exist") as u32,
     };
     // wait until challenge tx is in mempool and mine
     mine_once_after_outpoint_spent_in_mempool(e2e.rpc, challenge_outpoint)
@@ -298,7 +320,12 @@ pub async fn disprove_tests_common_setup(
             e2e.rpc,
             OutPoint {
                 txid: kickoff_txid,
-                vout: UtxoVout::Assert(i).get_vout(),
+                vout: crate::protocol::tx::kickoff::spec(
+                    ClementineBitVMPublicKeys::number_of_assert_txs(),
+                    0,
+                )
+                .output_index(&KickoffOutput::Assert(i))
+                .expect("kickoff assert output must exist") as u32,
             },
             &actors,
             Some(e2e),

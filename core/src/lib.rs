@@ -127,11 +127,13 @@ pub mod header_chain_prover;
 pub mod metrics;
 pub mod musig2;
 pub mod operator;
+pub mod protocol;
 pub mod rpc;
 pub mod servers;
 pub mod task;
 pub mod utils;
 pub mod verifier;
+mod wallet_transfer;
 
 #[cfg(feature = "automation")]
 pub mod states;

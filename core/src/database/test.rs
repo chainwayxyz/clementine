@@ -1,7 +1,7 @@
 use crate::database::DatabaseTransaction;
 use crate::utils::TxMetadata;
 use crate::{
-    database::{Database, TxidDB},
+    database::{wrapper::TxidDB, Database},
     execute_query_with_tx,
 };
 use bitcoin::{Amount, Txid};

@@ -7,8 +7,6 @@
 //!
 //! Modules:
 //! - address: Contains helper functions to create taproot addresses and deposit addresses.
-//! - script: Contains all kinds of scripts that are used in the bridge. There is a struct for each kind of script to
-//!   facilitate both easier script creation and easier signing.
 //! - sighash: As its possible more than 100000 tx's can be signed in a single deposit (depends on number of round tx's, number of
 //!   kickoff utxo's, and number of operators), the sighash functions create a stream that verifiers and operators consume to sign the tx's
 //!   during a deposit.
@@ -16,6 +14,6 @@
 //!   about the tx's see the [clementine whitepaper](https://citrea.xyz/clementine_whitepaper.pdf).
 pub mod address;
 pub mod block_cache;
-pub mod script;
 pub mod sighash;
 pub mod transaction;
+pub mod winternitz;

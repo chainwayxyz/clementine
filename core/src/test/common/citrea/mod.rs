@@ -641,8 +641,11 @@ impl CitreaClient {
             },
         };
 
-        let base_deposit_script =
-            dummy_base_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
+        let base_deposit_script = dummy_base_deposit_data
+            .spend_tree(paramset)?
+            .leaf_script(crate::deposit::DepositTreeLeaf::DepositScript)
+            .expect("deposit script")
+            .to_script_buf();
 
         let (deposit_prefix, deposit_suffix) =
             crate::test::common::citrea::extract_suffix_and_prefix_from_witness_script(
@@ -684,8 +687,11 @@ impl CitreaClient {
             },
         };
 
-        let replacement_deposit_script =
-            dummy_replacement_deposit_data.get_deposit_scripts(paramset)?[0].to_script_buf();
+        let replacement_deposit_script = dummy_replacement_deposit_data
+            .spend_tree(paramset)?
+            .leaf_script(crate::deposit::DepositTreeLeaf::DepositScript)
+            .expect("replacement deposit script")
+            .to_script_buf();
 
         let (replacement_prefix, replacement_suffix) =
             crate::test::common::citrea::extract_suffix_and_prefix_from_witness_script(

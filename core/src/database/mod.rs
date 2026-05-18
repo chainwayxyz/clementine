@@ -28,9 +28,6 @@ mod test;
 mod verifier;
 mod wrapper;
 
-#[cfg(test)]
-pub use wrapper::*;
-
 /// Assuming total of 100 max connections as default, the verifier and operator
 /// can share 50 each.
 pub const MAX_CONNECTIONS_FOR_POOL: u32 = 50;

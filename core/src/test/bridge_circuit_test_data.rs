@@ -103,6 +103,10 @@ impl TestCase for BridgeCircuitTestData {
         let mut config = create_test_config_with_thread_name().await;
 
         match self.variant {
+            // No-op placeholders retained so these manual fixture generators still exist, even
+            // though annex-specific behavior is currently disabled.
+            BridgeCircuitTestDataVariant::WithAnnex => {}
+            BridgeCircuitTestDataVariant::LargeInput => {}
             BridgeCircuitTestDataVariant::InsufficientTotalWork => {
                 config
                     .test_params
@@ -110,12 +114,6 @@ impl TestCase for BridgeCircuitTestData {
             }
             BridgeCircuitTestDataVariant::Valid => {
                 config.test_params.generate_varying_total_works = true;
-            }
-            BridgeCircuitTestDataVariant::WithAnnex => {
-                config.test_params.use_small_annex = true;
-            }
-            BridgeCircuitTestDataVariant::LargeInput => {
-                config.test_params.use_large_annex = true;
             }
             BridgeCircuitTestDataVariant::LargeOutput => {
                 config.test_params.use_large_output = true;

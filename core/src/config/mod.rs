@@ -36,9 +36,6 @@ pub mod protocol;
 #[cfg(test)]
 mod test;
 
-#[cfg(test)]
-pub use test::*;
-
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Deserialize)]
 pub struct BridgeConfig {

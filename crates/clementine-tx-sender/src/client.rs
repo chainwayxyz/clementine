@@ -88,6 +88,9 @@ impl TxSenderClient {
             txid
         );
 
+        #[cfg(test)]
+        let tx_metadata_dbg = format!("{tx_metadata:?}");
+
         let try_to_send_id = self
             .db
             .save_tx(
@@ -102,7 +105,11 @@ impl TxSenderClient {
 
         // only log the raw tx in tests so that logs do not contain sensitive information
         #[cfg(test)]
-        tracing::debug!(target: "ci", "Saved tx to database with try_to_send_id: {try_to_send_id}, metadata: {tx_metadata:?}, raw tx: {}", hex::encode(bitcoin::consensus::serialize(signed_tx)));
+        tracing::debug!(
+            target: "ci",
+            "Saved tx to database with try_to_send_id: {try_to_send_id}, metadata: {tx_metadata_dbg}, raw tx: {}",
+            hex::encode(bitcoin::consensus::serialize(signed_tx))
+        );
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
             self.db
@@ -262,7 +269,7 @@ impl TxSenderClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::TxSenderClient;
     use sqlx::Row;
 
     #[cfg(feature = "citrea")]

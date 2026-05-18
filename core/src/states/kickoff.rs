@@ -7,11 +7,15 @@ use statig::prelude::*;
 
 use crate::{
     bitvm_client::ClementineBitVMPublicKeys,
-    builder::transaction::{input::UtxoVout, remove_txhandler_from_map, ContractContext},
+    builder::transaction::{TxCacheExt, TxContextLoader},
     deposit::{DepositData, KickoffData},
+    protocol::create::BatchName,
+    protocol::{
+        ids::{KickoffIdx, TransactionType},
+        tx::{kickoff::KickoffOutput, round::RoundOutput},
+    },
 };
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
 
 use super::{
     block_cache::BlockCache,
@@ -619,35 +623,36 @@ impl<T: Owner> KickoffStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
         // First create all transactions for the current deposit
-        let contract_context = ContractContext::new_context_for_kickoff(
-            self.kickoff_data,
-            self.deposit_data.clone(),
-            context.config.protocol_paramset,
-        );
+        let round = self.kickoff_data.bridge_round.to_round_idx()?;
+        let kickoff = KickoffIdx::new(self.kickoff_data.kickoff_idx as usize);
         let mut txhandlers = {
             let mut guard = context.shared_dbtx.lock().await;
-            context
-                .owner
-                .create_txhandlers(
-                    &mut guard,
-                    TransactionType::AllNeededForDeposit,
-                    contract_context,
+            let mut loader = TxContextLoader::new(context.owner.database(), Some(&mut guard));
+            let mut ctx = loader
+                .load_kickoff(
+                    self.kickoff_data,
+                    self.deposit_data.clone(),
+                    None,
+                    context.config.protocol_paramset,
                 )
-                .await?
+                .await?;
+            crate::builder::transaction::build_batch(
+                &mut ctx,
+                &BatchName::KickoffMonitoring { round, kickoff },
+            )?
         };
         let kickoff_txhandler =
-            remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
+            txhandlers.take_required(TransactionType::Kickoff(round, kickoff))?;
 
         // add operator asserts
-        let kickoff_txid = *kickoff_txhandler.get_txid();
+        let kickoff_txid = kickoff_txhandler.txid();
         let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
-            let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
-            let assert_timeout_txhandler = remove_txhandler_from_map(
-                &mut txhandlers,
-                TransactionType::AssertTimeout(assert_idx),
-            )?;
-            let assert_timeout_txid = assert_timeout_txhandler.get_txid();
+            let mini_assert_vout =
+                kickoff_txhandler.output_index(KickoffOutput::Assert(assert_idx))?;
+            let assert_timeout_txhandler = txhandlers
+                .take_required(TransactionType::AssertTimeout(round, kickoff, assert_idx))?;
+            let assert_timeout_txid = assert_timeout_txhandler.txid_ref();
             // Assert transactions can have any txid (there is no enforcement on how the assert utxo is spent, just that
             // spending assert utxo reveals the BitVM winternitz commit in the utxo's witness)
             // But assert timeouts are nofn signed transactions with a fixed txid, so we can detect assert transactions
@@ -671,11 +676,11 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
         // add latest blockhash tx sent matcher
         let latest_blockhash_timeout_txhandler =
-            remove_txhandler_from_map(&mut txhandlers, TransactionType::LatestBlockhashTimeout)?;
-        let latest_blockhash_timeout_txid = latest_blockhash_timeout_txhandler.get_txid();
+            txhandlers.take_required(TransactionType::LatestBlockhashTimeout(round, kickoff))?;
+        let latest_blockhash_timeout_txid = latest_blockhash_timeout_txhandler.txid_ref();
         let latest_blockhash_outpoint = OutPoint {
             txid: kickoff_txid,
-            vout: UtxoVout::LatestBlockhash.get_vout(),
+            vout: kickoff_txhandler.output_index(KickoffOutput::LatestBlockhash)?,
         };
         // Same logic as before with assert transaction detection, if latest blockhash utxo is not spent by latest blockhash timeout tx,
         // it means the latest blockhash is committed on Bitcoin
@@ -690,13 +695,12 @@ impl<T: Owner> KickoffStateMachine<T> {
         );
         // add watchtower challenges and challenge acks matchers
         for watchtower_idx in 0..self.deposit_data.get_num_watchtowers() {
-            let watchtower_challenge_vout =
-                UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();
-            let watchtower_timeout_txhandler = remove_txhandler_from_map(
-                &mut txhandlers,
-                TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
+            let watchtower_challenge_vout = kickoff_txhandler
+                .output_index(KickoffOutput::WatchtowerChallenge(watchtower_idx))?;
+            let watchtower_timeout_txhandler = txhandlers.take_required(
+                TransactionType::WatchtowerChallengeTimeout(round, kickoff, watchtower_idx),
             )?;
-            let watchtower_timeout_txid = watchtower_timeout_txhandler.get_txid();
+            let watchtower_timeout_txid = watchtower_timeout_txhandler.txid_ref();
             // matcher in case watchtower challenge timeout is sent
             self.matchers.insert(
                 Matcher::SentTx(*watchtower_timeout_txid),
@@ -720,13 +724,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                 },
             );
             // add operator challenge ack matcher
-            let operator_challenge_ack_vout =
-                UtxoVout::WatchtowerChallengeAck(watchtower_idx).get_vout();
-            let operator_challenge_nack_txhandler = remove_txhandler_from_map(
-                &mut txhandlers,
-                TransactionType::OperatorChallengeNack(watchtower_idx),
+            let operator_challenge_ack_vout = kickoff_txhandler
+                .output_index(KickoffOutput::WatchtowerChallengeAck(watchtower_idx))?;
+            let operator_challenge_nack_txhandler = txhandlers.take_required(
+                TransactionType::OperatorChallengeNack(round, kickoff, watchtower_idx),
             )?;
-            let operator_challenge_nack_txid = operator_challenge_nack_txhandler.get_txid();
+            let operator_challenge_nack_txid = operator_challenge_nack_txhandler.txid_ref();
             // operator challenge ack utxo is spent but not by operator challenge nack tx or watchtower challenge timeout tx
             self.matchers.insert(
                 Matcher::SpentUtxoButNotTxid(
@@ -751,12 +754,12 @@ impl<T: Owner> KickoffStateMachine<T> {
         // the kickoff finalizer needs to be spent first, otherwise pre-signed "Kickoff not finalized" tx can be sent by
         // any verifier, slashing the operator.
         // If the kickoff finalizer is spent first, the state will be in "Closed" state and all matchers will be deleted.
-        let round_txhandler = remove_txhandler_from_map(&mut txhandlers, TransactionType::Round)?;
-        let round_txid = *round_txhandler.get_txid();
+        let round_txhandler = txhandlers.take_required(TransactionType::Round(round))?;
+        let round_txid = round_txhandler.txid();
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: round_txid,
-                vout: UtxoVout::CollateralInRound.get_vout(),
+                vout: round_txhandler.output_index(RoundOutput::RemainingCollateral)?,
             }),
             KickoffEvent::BurnConnectorSpent,
         );
@@ -764,19 +767,19 @@ impl<T: Owner> KickoffStateMachine<T> {
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: kickoff_txid,
-                vout: UtxoVout::KickoffFinalizer.get_vout(),
+                vout: kickoff_txhandler.output_index(KickoffOutput::Finalizer)?,
             }),
             KickoffEvent::KickoffFinalizerSpent,
         );
         // add challenge detector matcher, if challenge utxo is not spent by challenge timeout tx, it means the kickoff is challenged
         let challenge_timeout_txhandler =
-            remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
-        let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
+            txhandlers.take_required(TransactionType::ChallengeTimeout(round, kickoff))?;
+        let challenge_timeout_txid = challenge_timeout_txhandler.txid_ref();
         self.matchers.insert(
             Matcher::SpentUtxoButNotTxid(
                 OutPoint {
                     txid: kickoff_txid,
-                    vout: UtxoVout::Challenge.get_vout(),
+                    vout: kickoff_txhandler.output_index(KickoffOutput::Challenge)?,
                 },
                 vec![*challenge_timeout_txid],
             ),

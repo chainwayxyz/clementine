@@ -1,6 +1,5 @@
 use crate::actor::WinternitzDerivationPath;
 use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
@@ -22,8 +21,10 @@ use std::fs;
 use tokio::sync::Mutex;
 
 use once_cell::sync::OnceCell;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use std::time::Instant;
+use tx_builder::script::ScriptLeaf;
+use tx_builder::scripts::WinternitzCommit;
 
 /// Replacing bitvm scripts require cloning the scripts, which can be ~4GB. And this operation is done every deposit.
 /// So we ensure only 1 thread is doing this at a time to avoid OOM.
@@ -409,12 +410,9 @@ impl ClementineBitVMPublicKeys {
         381
     }
 
-    pub fn get_assert_scripts(
-        &self,
-        xonly_public_key: XOnlyPublicKey,
-    ) -> Vec<std::sync::Arc<dyn SpendableScript>> {
+    pub fn get_assert_scripts(&self, xonly_public_key: XOnlyPublicKey) -> Vec<ScriptLeaf> {
         let mut scripts = Vec::new();
-        let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+        let first_script = WinternitzCommit::new(
             vec![
                 (self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
@@ -425,37 +423,37 @@ impl ClementineBitVMPublicKeys {
             ],
             xonly_public_key,
             4,
-        ));
+        );
         scripts.push(first_script);
         // iterate NUM_U256 5 by 5
         let k1 = 5;
         for i in (0..NUM_U256 - 4).step_by(k1) {
             let last_idx = std::cmp::min(i + k1, NUM_U256);
-            let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+            let script = WinternitzCommit::new(
                 self.bitvm_pks.1[i..last_idx]
                     .iter()
                     .map(|x| (x.to_vec(), 64))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
-            ));
+            );
             scripts.push(script);
         }
         let k2 = 11;
         // iterate NUM_HASH 11 by 11
         for i in (0..NUM_HASH).step_by(k2) {
             let last_idx = std::cmp::min(i + k2, NUM_HASH);
-            let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+            let script = WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
                     .map(|x| (x.to_vec(), 32))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
-            ));
+            );
             scripts.push(script);
         }
-        scripts
+        scripts.into_iter().map(Into::into).collect()
     }
 
     pub fn get_assert_commit_data(

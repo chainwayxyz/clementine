@@ -2,9 +2,7 @@ use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::SpendPath;
-use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
-use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::UnspentTxOut;
 use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
@@ -14,11 +12,18 @@ use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions};
 use crate::header_chain_prover::HeaderChainProver;
+use crate::protocol::ids::{RoundIdx, TransactionType};
+use crate::protocol::spec::SpendSpec;
+use crate::protocol::tx::{
+    kickoff::KickoffOutput,
+    move_to_vault::{self, MoveToVaultOutput},
+    ready_to_reimburse::ReadyToReimburseInput,
+};
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, GetEntityStatusesRequest, KickoffId,
-    NormalSignatureKind, OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest,
-    TransactionRequest, WithdrawParams, WithdrawParamsWithSig,
+    OptimisticWithdrawParams, RawSignedTx, SendMoveTxRequest, SendTxRequest, TransactionRequest,
+    WithdrawParams, WithdrawParamsWithSig,
 };
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
@@ -56,8 +61,7 @@ use citrea_e2e::{
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
 };
-use clementine_primitives::TransactionType;
-use clementine_primitives::{EVMAddress, UTXO};
+use clementine_primitives::{EVMAddress, NUMBER_OF_ASSERT_TXS, UTXO};
 use eyre::Context;
 use futures::future::try_join_all;
 use secrecy::SecretString;
@@ -469,30 +473,38 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let collateral_funding_amount = config.protocol_paramset().collateral_funding_amount;
         let (op_address, op_spend) =
             create_taproot_address(&[], Some(op1_xonly_pk), config.protocol_paramset().network);
-        let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+        let mut txhandler = TxHandlerBuilder::new(TransactionType::MoveToVault)
             .add_input(
-                NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new(
+                ReadyToReimburseInput::CollateralInRound,
+                crate::builder::transaction::spendable_txin(
                     op1_collateral,
                     TxOut {
                         value: collateral_funding_amount,
                         script_pubkey: op1_actor.address.script_pubkey(),
                     },
                     vec![],
+                    vec![],
                     Some(op_spend.clone()),
                 ),
-                SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
+                crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
             )
-            .add_output(UnspentTxOut::from_partial(TxOut {
-                value: collateral_funding_amount - Amount::from_sat(1000),
-                script_pubkey: op_address.script_pubkey(),
-            }))
+            .add_output(
+                MoveToVaultOutput::DepositInMove,
+                UnspentTxOut::from_partial(TxOut {
+                    value: collateral_funding_amount - Amount::from_sat(1000),
+                    script_pubkey: op_address.script_pubkey(),
+                }),
+            )
             .finalize();
-        op1_actor
-            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
-            .unwrap();
-        let tx = txhandler.get_cached_tx();
+        crate::builder::transaction::sign::apply_schnorr_signatures(
+            &op1_actor,
+            &mut txhandler,
+            &[],
+            None,
+        )
+        .unwrap();
+        let tx = txhandler.transaction();
         rpc.send_raw_transaction(tx).await.unwrap();
         rpc.mine_blocks_while_synced(1, &actors, Some(&citrea_e2e_data))
             .await
@@ -738,7 +750,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(20 * 60)),
+        Some(Duration::from_secs(10 * 60)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -755,7 +767,9 @@ async fn mock_citrea_run_truthful() {
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Reimburse)
+            .expect("kickoff reimburse output must exist") as u32,
     };
 
     let _kickoff_block_height =
@@ -767,7 +781,9 @@ async fn mock_citrea_run_truthful() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Challenge)
+            .expect("kickoff challenge output must exist") as u32,
     };
 
     tracing::warn!("Waiting for challenge");
@@ -943,7 +959,7 @@ async fn mock_citrea_run_truthful_op_db_reset() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(20 * 60)),
+        Some(Duration::from_secs(10 * 60)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -960,7 +976,9 @@ async fn mock_citrea_run_truthful_op_db_reset() {
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Reimburse)
+            .expect("kickoff reimburse output must exist") as u32,
     };
 
     let _kickoff_block_height =
@@ -1031,7 +1049,9 @@ async fn mock_citrea_run_truthful_op_db_reset() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Challenge)
+            .expect("kickoff challenge output must exist") as u32,
     };
 
     tracing::warn!("Waiting for challenge");
@@ -1262,7 +1282,9 @@ async fn testnet4_mock_citrea_run_truthful() {
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Reimburse)
+            .expect("kickoff reimburse output must exist") as u32,
     };
 
     // ensure kickoff tx is on chain
@@ -1466,7 +1488,9 @@ async fn mock_citrea_run_truthful_opt_payout() {
         &rpc,
         OutPoint {
             txid: move_txid,
-            vout: (UtxoVout::DepositInMove).get_vout(),
+            vout: move_to_vault::spec()
+                .output_index(&MoveToVaultOutput::DepositInMove)
+                .expect("move to vault deposit output must exist") as u32,
         },
     )
     .await
@@ -1600,7 +1624,9 @@ async fn mock_citrea_run_malicious() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Challenge)
+            .expect("kickoff challenge output must exist") as u32,
     };
 
     let challenge_spent_txid =
@@ -1654,7 +1680,9 @@ async fn mock_citrea_run_malicious() {
     // second kickoff tx should not be challenged as a kickoff of the same round was already challenged
     let challenge_outpoint_2 = OutPoint {
         txid: kickoff_txid_2,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Challenge)
+            .expect("kickoff challenge output must exist") as u32,
     };
     let challenge_spent_txid_2 = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint_2)
         .await
@@ -1791,8 +1819,11 @@ async fn mock_citrea_run_malicious_after_exit() {
         .into_inner();
 
     // get first round's tx
-    let round_tx =
-        get_tx_from_signed_txs_with_type(&first_round_txs, TransactionType::Round).unwrap();
+    let round_tx = get_tx_from_signed_txs_with_type(
+        &first_round_txs,
+        TransactionType::Round(RoundIdx::new(0)),
+    )
+    .unwrap();
     // send first round tx
     let mut aggregator = actors.get_aggregator();
     aggregator
@@ -1813,10 +1844,10 @@ async fn mock_citrea_run_malicious_after_exit() {
     let (_op_address, op_spend) =
         create_taproot_address(&[], Some(op_xonly_pk), config.protocol_paramset().network);
 
-    let mut spend_txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+    let mut spend_txhandler = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .add_input(
-            NormalSignatureKind::OperatorSighashDefault,
-            SpendableTxIn::new(
+            ReadyToReimburseInput::CollateralInRound,
+            crate::builder::transaction::spendable_txin(
                 OutPoint {
                     txid: round_txid,
                     vout: 0,
@@ -1826,21 +1857,33 @@ async fn mock_citrea_run_malicious_after_exit() {
                     script_pubkey: round_tx.output[0].script_pubkey.clone(),
                 },
                 vec![],
+                vec![],
                 Some(op_spend),
             ),
-            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
+            crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: round_tx.output[0].value - Amount::from_sat(1000),
-            script_pubkey: round_tx.output[0].script_pubkey.clone(),
-        }))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: round_tx.output[0].value - Amount::from_sat(1000),
+                script_pubkey: round_tx.output[0].script_pubkey.clone(),
+            }),
+        )
         .finalize();
 
-    actor
-        .tx_sign_and_fill_sigs(&mut spend_txhandler, &[], None)
-        .unwrap();
-    let spend_tx = spend_txhandler.promote().unwrap().get_cached_tx().clone();
+    crate::builder::transaction::sign::apply_schnorr_signatures(
+        &actor,
+        &mut spend_txhandler,
+        &[],
+        None,
+    )
+    .unwrap();
+    let spend_tx = spend_txhandler
+        .ensure_fully_signed()
+        .unwrap()
+        .transaction()
+        .clone();
 
     rpc.send_raw_transaction(&spend_tx).await.unwrap();
 
@@ -1869,7 +1912,9 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::Challenge.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 0)
+            .output_index(&KickoffOutput::Challenge)
+            .expect("kickoff challenge output must exist") as u32,
     };
 
     let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
@@ -2299,7 +2344,10 @@ async fn concurrent_deposits_and_optimistic_payouts() {
                     &rpc,
                     OutPoint {
                         txid: move_txid,
-                        vout: (UtxoVout::DepositInMove).get_vout(),
+                        vout: move_to_vault::spec()
+                            .output_index(&MoveToVaultOutput::DepositInMove)
+                            .expect("move to vault deposit output must exist")
+                            as u32,
                     },
                 )
                 .await

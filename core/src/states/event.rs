@@ -357,7 +357,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             round_machine
                 .challenged_rounds
-                .contains(&kickoff_data.round_idx)
+                .contains(&kickoff_data.bridge_round)
         };
 
         let duty = super::Duty::CheckIfKickoffMalicious {
@@ -382,7 +382,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         round_machine
                             .handle_with_context(
                                 &RoundEvent::SetChallenged {
-                                    round_idx: kickoff_data.round_idx,
+                                    round_idx: kickoff_data.bridge_round,
                                 },
                                 context,
                             )

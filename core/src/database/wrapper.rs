@@ -525,18 +525,23 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
-        use crate::rpc::clementine::{
-            DepositSignatures, NormalSignatureKind, NumberedSignatureKind,
-        };
+        use crate::protocol::ids::{Input, KickoffIdx, RoundIdx, TransactionType};
+        use crate::protocol::tx::{payout::PayoutInput, unspent_kickoff::UnspentKickoffInput};
+        use crate::rpc::clementine::{DepositSignatures, GrpcInputId};
         let signatures = DepositSignatures {
             signatures: vec![
                 TaggedSignature {
                     signature: vec![0x1Fu8; 64],
-                    signature_id: Some(NormalSignatureKind::NotStored.into()),
+                    tx_id: Some(TransactionType::Payout.into()),
+                    input_id: Some(GrpcInputId::from(Input::from(PayoutInput::WithdrawalUtxo))),
                 },
                 TaggedSignature {
                     signature: vec![0x45u8; 64],
-                    signature_id: Some((NumberedSignatureKind::NumberedNotStored, 1).into()),
+                    tx_id: Some(
+                        TransactionType::UnspentKickoff(RoundIdx::new(1), KickoffIdx::new(1))
+                            .into(),
+                    ),
+                    input_id: Some(GrpcInputId::from(Input::from(UnspentKickoffInput::Kickoff))),
                 },
             ],
         };

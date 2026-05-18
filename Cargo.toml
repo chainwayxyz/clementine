@@ -10,6 +10,7 @@ members = [
   "crates/clementine-primitives",
   "crates/clementine-config",
   "crates/clementine-utils",
+  "crates/tx-builder",
   "crates/clementine-extended-rpc",
   "crates/tx-sender-types",
   "crates/tx-sender-jsonrpc-client",

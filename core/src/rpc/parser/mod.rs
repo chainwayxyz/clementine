@@ -10,6 +10,7 @@ use crate::deposit::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
     SecurityCouncil,
 };
+use crate::protocol::ids::TransactionType;
 use crate::rpc::clementine::{SignedTxWithType, SignedTxsWithType};
 use crate::utils::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
@@ -17,8 +18,7 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Transaction, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use clementine_errors::BridgeError;
-use clementine_errors::TransactionType;
-use clementine_primitives::RoundIndex;
+use clementine_primitives::BridgeRound;
 use clementine_utils::RbfSigningSpendPath;
 use eyre::Context;
 use std::fmt::{Debug, Display};
@@ -565,7 +565,7 @@ impl TryFrom<clementine::KickoffId> for crate::deposit::KickoffData {
 
         Ok(crate::deposit::KickoffData {
             operator_xonly_pk,
-            round_idx: RoundIndex::from_index(value.round_idx as usize),
+            bridge_round: BridgeRound::from_index(value.round_idx as usize),
             kickoff_idx: value.kickoff_idx,
         })
     }
@@ -575,7 +575,7 @@ impl From<crate::deposit::KickoffData> for clementine::KickoffId {
     fn from(value: crate::deposit::KickoffData) -> Self {
         clementine::KickoffId {
             operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
-            round_idx: value.round_idx.to_index() as u32,
+            round_idx: value.bridge_round.to_index() as u32,
             kickoff_idx: value.kickoff_idx,
         }
     }

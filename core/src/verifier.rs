@@ -1,25 +1,22 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
-use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
+use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::block_cache;
-use crate::builder::script::{
-    extract_winternitz_commits, extract_winternitz_commits_with_sigs, SpendableScript,
-    TimelockScript, WinternitzCommit,
-};
 use crate::builder::sighash::{
-    create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
+    collect_actor_sighashes_for_handler, create_nofn_sighash_stream,
+    create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 #[cfg(feature = "automation")]
-use crate::builder::transaction::ReimburseDbCache;
+use crate::builder::transaction::sign::apply_schnorr_signatures;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::KickoffWinternitzKeys;
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, ContractContext, TxHandler,
+    DepositBuildContext, RoundBuildContext, TxCacheExt, TxContextLoader, WithdrawalBuildContext,
 };
-use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::builder::winternitz::extract_winternitz_commits;
+#[cfg(feature = "automation")]
+use crate::builder::winternitz::extract_winternitz_commits_with_sigs;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
@@ -36,7 +33,13 @@ use crate::metrics::SyncStatusProvider;
 use crate::musig2;
 #[cfg(feature = "automation")]
 use crate::operator::Operator;
-use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::protocol::create::BatchName;
+use crate::protocol::ids::{Actor as ProtocolActor, KickoffIdx, TransactionType};
+use crate::protocol::tx::{
+    emergency_stop::EmergencyStopInput, move_to_vault::MoveToVaultInput,
+    optimistic_payout::OptimisticPayoutInput, yield_kickoff_txid::YieldKickoffTxidInput,
+};
+use crate::rpc::clementine::{EntityStatus, GrpcInputId, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
 };
@@ -50,49 +53,54 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 
 #[cfg(feature = "automation")]
+use crate::builder::transaction::{KickoffBuildContext, TxCache};
+#[cfg(feature = "automation")]
+use crate::protocol::tx::{
+    disprove::DisproveInput,
+    kickoff::{KickoffLeaf, KickoffOutput},
+    round::RoundOutput,
+};
+#[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 #[cfg(feature = "automation")]
 use crate::tx_sender_queue::TxSenderClientQueueExt;
-#[cfg(feature = "automation")]
-use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
-use bitcoin::key::Secp256k1;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::taproot::{self, TaprootBuilder};
+use bitcoin::taproot::{self};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoincore_rpc::RpcApi;
-use bitvm::clementine::additional_disprove::{
-    replace_placeholders_in_script, validate_assertions_for_additional_script,
-};
 use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use circuits_lib::bridge_circuit::{
-    deposit_constant, get_first_op_return_output, parse_op_return_data,
-};
+use circuits_lib::bridge_circuit::{get_first_op_return_output, parse_op_return_data};
 use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use clementine_errors::BridgeError;
-use clementine_errors::{TransactionType, TxError};
-use clementine_primitives::RoundIndex;
+#[cfg(feature = "automation")]
+use clementine_errors::TxError;
+use clementine_primitives::BridgeRound;
 use clementine_primitives::UTXO;
-use eyre::{Context, ContextCompat, OptionExt, Result};
+use eyre::{Context, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
-#[cfg(feature = "automation")]
-use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
+use tx_builder::script::SpendableScript;
+#[cfg(feature = "automation")]
+use tx_builder::scripts::TimelockScript;
+use tx_builder::scripts::WinternitzCommit;
+use tx_builder::witness::WitnessInput;
+use tx_builder::witness_material::WitnessMaterialExt;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -460,7 +468,7 @@ where
 
     /// Verifies all unspent kickoff signatures sent by the operator, converts them to TaggedSignature
     /// as they will be saved as TaggedSignatures to the db.
-    fn verify_unspent_kickoff_sigs(
+    async fn verify_unspent_kickoff_sigs(
         &self,
         collateral_funding_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
@@ -470,32 +478,43 @@ where
     ) -> Result<Vec<TaggedSignature>, BridgeError> {
         let mut tweak_cache = TweakCache::default();
         let mut tagged_sigs = Vec::with_capacity(unspent_kickoff_sigs.len());
-        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
-            let txhandlers = create_round_txhandlers(
+        for round_idx in BridgeRound::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+            let Ok(round) = round_idx.to_round_idx() else {
+                continue;
+            };
+            let mut ctx = RoundBuildContext::new(
                 self.config.protocol_paramset(),
                 round_idx,
-                &operator_data,
-                kickoff_wpks,
-                prev_ready_to_reimburse.as_ref(),
+                operator_data.clone(),
+                kickoff_wpks.clone(),
+            );
+            let txhandlers = crate::builder::transaction::build_batch(
+                &mut ctx,
+                &BatchName::UnspentKickoffs { round },
             )?;
-            for txhandler in txhandlers {
-                if let TransactionType::UnspentKickoff(kickoff_idx) =
-                    txhandler.get_transaction_type()
-                {
+            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                let txhandler = txhandlers.get_required(TransactionType::UnspentKickoff(
+                    round,
+                    KickoffIdx::new(kickoff_idx),
+                ))?;
+                if let TransactionType::UnspentKickoff(_, kickoff_idx) = txhandler.tx_type() {
                     let partial = PartialSignatureInfo {
                         operator_idx: 0, // dummy value
                         round_idx,
-                        kickoff_utxo_idx: kickoff_idx,
+                        kickoff_utxo_idx: kickoff_idx.0,
                     };
-                    let sighashes = txhandler
-                        .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
+                    let sighashes = collect_actor_sighashes_for_handler(
+                        txhandler,
+                        ProtocolActor::Operator,
+                        TransactionType::UnspentKickoff(round, kickoff_idx),
+                        partial,
+                    )?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
                         verify_schnorr(
@@ -515,12 +534,11 @@ where
                         })?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
-                            signature_id: Some(sighash.1.signature_id),
+                            tx_id: Some(sighash.1.tx_type.into()),
+                            input_id: Some(GrpcInputId::from(sighash.1.input_id)),
                         });
                         cur_sig_index += 1;
                     }
-                } else if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
-                    prev_ready_to_reimburse = Some(txhandler);
                 }
             }
         }
@@ -657,19 +675,10 @@ where
             }
         }
         // check if deposit script in deposit_outpoint is valid
-        let deposit_scripts: Vec<ScriptBuf> = deposit_data
-            .get_deposit_scripts(self.config.protocol_paramset())?
-            .into_iter()
-            .map(|s| s.to_script_buf())
-            .collect();
         // what the deposit scriptpubkey is in the deposit_outpoint should be according to the deposit data
-        let expected_scriptpubkey = create_taproot_address(
-            &deposit_scripts,
-            None,
-            self.config.protocol_paramset().network,
-        )
-        .0
-        .script_pubkey();
+        let expected_scriptpubkey = deposit_data
+            .spend_tree(self.config.protocol_paramset())?
+            .script_pubkey(self.config.protocol_paramset().network)?;
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let deposit_txid = deposit_outpoint.txid;
         let deposit_tx = self
@@ -768,13 +777,15 @@ where
             .into());
         }
 
-        let tagged_sigs = self.verify_unspent_kickoff_sigs(
-            collateral_funding_outpoint,
-            operator_xonly_pk,
-            operator_data.reimburse_addr.clone(),
-            unspent_kickoff_sigs,
-            &kickoff_wpks,
-        )?;
+        let tagged_sigs = self
+            .verify_unspent_kickoff_sigs(
+                collateral_funding_outpoint,
+                operator_xonly_pk,
+                operator_data.reimburse_addr.clone(),
+                unspent_kickoff_sigs,
+                &kickoff_wpks,
+            )
+            .await?;
 
         let operator_winternitz_public_keys = kickoff_wpks.get_all_keys();
         let mut dbtx = self.db.begin_transaction().await?;
@@ -808,7 +819,7 @@ where
                 .insert_unspent_kickoff_sigs_if_not_exist(
                     Some(&mut dbtx),
                     operator_xonly_pk,
-                    RoundIndex::Round(round_idx),
+                    BridgeRound::Round(round_idx),
                     sigs,
                 )
                 .await?;
@@ -1051,12 +1062,13 @@ where
                 operator_idx,
                 round_idx,
                 kickoff_utxo_idx,
-                signature_id,
+                input_id,
                 tweak_data,
                 kickoff_txid,
+                ..
             } = &typed_sighash.1;
 
-            if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
+            if input_id == YieldKickoffTxidInput::Marker.into() {
                 kickoff_txids[operator_idx][round_idx.to_index()].push((
                     kickoff_txid
                         .expect("Kickoff txid must be Some with YieldKickoffTxid signature kind"),
@@ -1089,7 +1101,8 @@ where
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
-                signature_id: Some(signature_id),
+                tx_id: Some(typed_sighash.1.tx_type.into()),
+                input_id: Some(GrpcInputId::from(input_id)),
             };
             verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx].push(tagged_sig);
 
@@ -1162,9 +1175,10 @@ where
                     operator_idx,
                     round_idx,
                     kickoff_utxo_idx,
-                    signature_id,
+                    input_id,
                     kickoff_txid: _,
                     tweak_data,
+                    ..
                 } = &typed_sighash.1;
 
                 verify_schnorr(
@@ -1185,7 +1199,8 @@ where
 
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
-                    signature_id: Some(signature_id),
+                    tx_id: Some(typed_sighash.1.tx_type.into()),
+                    input_id: Some(GrpcInputId::from(input_id)),
                 };
                 verified_sigs[operator_idx][round_idx.to_index()][kickoff_utxo_idx]
                     .push(tagged_sig);
@@ -1214,16 +1229,21 @@ where
         // ----- MOVE TX SIGNING
 
         // Generate partial signature for move transaction
-        let move_txhandler =
-            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?;
-
-        let move_txid = move_txhandler.get_cached_tx().compute_txid();
-
-        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
-            0,
-            0,
-            bitcoin::TapSighashType::Default,
+        let mut deposit_ctx =
+            DepositBuildContext::new(self.config.protocol_paramset(), deposit_data.clone());
+        let mut tx_cache = crate::builder::transaction::build_batch(
+            &mut deposit_ctx,
+            &BatchName::Txs(vec![
+                TransactionType::MoveToVault,
+                TransactionType::EmergencyStop,
+            ]),
         )?;
+        let move_txhandler = tx_cache.take_required(TransactionType::MoveToVault)?;
+
+        let move_txid = move_txhandler.transaction().compute_txid();
+
+        let move_tx_sighash =
+            move_txhandler.tap_sighash_for_input(MoveToVaultInput::DepositOutpoint)?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -1264,18 +1284,10 @@ where
             self.signer.xonly_public_key.to_string()
         );
 
-        let emergency_stop_txhandler = create_emergency_stop_txhandler(
-            deposit_data,
-            &move_txhandler,
-            self.config.protocol_paramset(),
-        )?;
+        let emergency_stop_txhandler = tx_cache.take_required(TransactionType::EmergencyStop)?;
 
-        let emergency_stop_sighash = emergency_stop_txhandler
-            .calculate_script_spend_sighash_indexed(
-                0,
-                0,
-                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-            )?;
+        let emergency_stop_sighash =
+            emergency_stop_txhandler.tap_sighash_for_input(EmergencyStopInput::DepositInMove)?;
 
         let emergency_stop_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
@@ -1303,7 +1315,7 @@ where
             for (round_idx, mut op_round_sigs) in operator_sigs
                 .into_iter()
                 .enumerate()
-                .skip(RoundIndex::Round(0).to_index())
+                .skip(BridgeRound::Round(0).to_index())
             {
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
@@ -1327,7 +1339,7 @@ where
                             Some(&mut dbtx),
                             deposit_data.get_deposit_outpoint(),
                             operator_xonly_pk,
-                            RoundIndex::from_index(round_idx),
+                            BridgeRound::from_index(round_idx),
                             *kickoff_idx,
                             *kickoff_txid,
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
@@ -1365,14 +1377,14 @@ where
         // Build a mapping from txid -> (operator_xonly_pk, round_idx, kickoff_idx)
         let mut kickoff_metadata: std::collections::HashMap<
             Txid,
-            (XOnlyPublicKey, RoundIndex, usize),
+            (XOnlyPublicKey, BridgeRound, usize),
         > = std::collections::HashMap::new();
         let mut all_kickoff_txids: Vec<Txid> = Vec::new();
 
         for (operator_idx, operator_xonly_pk) in
             deposit_data.get_operators().into_iter().enumerate()
         {
-            for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
+            for round_idx in BridgeRound::iter_rounds(self.config.protocol_paramset().num_round_txs)
             {
                 for (kickoff_txid, kickoff_idx) in
                     &kickoff_txids[operator_idx][round_idx.to_index()]
@@ -1529,7 +1541,7 @@ where
                         dbtx,
                         KickoffData {
                             operator_xonly_pk: *operator_xonly_pk,
-                            round_idx: *round_idx,
+                            bridge_round: *round_idx,
                             kickoff_idx: *kickoff_idx as u32,
                         },
                         block_height,
@@ -1550,7 +1562,7 @@ where
                             dbtx,
                             KickoffData {
                                 operator_xonly_pk: *operator_xonly_pk,
-                                round_idx: *round_idx,
+                                bridge_round: *round_idx,
                                 kickoff_idx: *kickoff_idx as u32,
                             },
                             block_height,
@@ -1658,7 +1670,7 @@ where
             .into());
         }
 
-        let mut deposit_data = self
+        let deposit_data = self
             .db
             .get_deposit_data_with_move_tx(None, move_txid)
             .await?
@@ -1674,19 +1686,26 @@ where
             script_pubkey: output_script_pubkey,
         };
 
-        let opt_payout_txhandler = create_optimistic_payout_txhandler(
-            &mut deposit_data,
-            withdrawal_utxo,
-            output_txout,
-            input_signature,
+        let mut withdrawal_ctx = WithdrawalBuildContext::new(
             self.config.protocol_paramset(),
+            Some(deposit_data.clone()),
+            crate::builder::transaction::WithdrawalData {
+                input_utxo: withdrawal_utxo,
+                output_txout,
+                operator_xonly_pk: self.signer.xonly_public_key,
+            },
+        );
+        let mut opt_payout_txhandler = crate::builder::transaction::build_tx(
+            &mut withdrawal_ctx,
+            TransactionType::OptimisticPayout,
+        )?;
+        opt_payout_txhandler.fill_witness_entry(
+            OptimisticPayoutInput::WithdrawalUtxo
+                .witness_input(WitnessInput::KeySpend(input_signature)),
         )?;
         // txin at index 1 is deposited utxo in movetx
-        let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
-            1,
-            0,
-            bitcoin::TapSighashType::Default,
-        )?;
+        let sighash =
+            opt_payout_txhandler.tap_sighash_for_input(OptimisticPayoutInput::DepositInMove)?;
 
         let opt_payout_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -1863,9 +1882,11 @@ where
         kickoff_data: KickoffData,
         dbtx: DatabaseTransaction<'_>,
     ) -> Result<bool, BridgeError> {
+        let mut deposit_ctx =
+            DepositBuildContext::new(self.config.protocol_paramset(), deposit_data.clone());
         let move_txid =
-            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
-                .get_cached_tx()
+            crate::builder::transaction::build_tx(&mut deposit_ctx, TransactionType::MoveToVault)?
+                .transaction()
                 .compute_txid();
 
         let payout_info = self
@@ -1890,7 +1911,7 @@ where
         }
 
         let wt_derive_path = WinternitzDerivationPath::Kickoff(
-            kickoff_data.round_idx,
+            kickoff_data.bridge_round,
             kickoff_data.kickoff_idx,
             self.config.protocol_paramset(),
         );
@@ -1928,34 +1949,42 @@ where
         BridgeError,
     > {
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
-        let context = ContractContext::new_context_with_signer(
-            kickoff_data,
-            deposit_data,
-            self.config.protocol_paramset(),
-            self.signer.clone(),
-        );
-
+        let mut loader = TxContextLoader::new(self.db.clone(), Some(dbtx));
+        let mut ctx = loader
+            .load_kickoff(
+                kickoff_data,
+                deposit_data,
+                Some(&self.signer),
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let signed_txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::VerifierPostDepositSignable {
+                round: kickoff_data.bridge_round.to_round_idx()?,
+                kickoff: KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+            },
             self.config.clone(),
-            context,
+            self.db.clone(),
+            &mut ctx,
             None, // No need, verifier will not send kickoff tx
-            Some(dbtx),
         )
         .await?;
 
         let challenge_tx = signed_txs
             .iter()
             .find_map(|(tx_type, signed_tx)| {
-                (*tx_type == TransactionType::Challenge).then(|| signed_tx.clone())
+                matches!(tx_type, TransactionType::Challenge(_, _)).then(|| signed_tx.clone())
             })
             .ok_or_else(|| eyre::eyre!("Could not find challenge tx in signed_txs"))?;
 
         let tx_metadata = TxMetadata {
-            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue / insert_try_to_send
+            tx_type: clementine_primitives::TransactionType::Kickoff(
+                kickoff_data.bridge_round.to_round_idx()?,
+                clementine_primitives::KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+            ),
             operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-            round_idx: Some(kickoff_data.round_idx),
+            round_idx: Some(kickoff_data.bridge_round),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         };
@@ -2006,11 +2035,12 @@ where
                 self.tx_sender
                     .add_tx_to_queue(
                         dbtx,
-                        TransactionType::Challenge,
+                        TransactionType::Challenge(
+                            kickoff_data.bridge_round.to_round_idx()?,
+                            KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+                        ),
                         &challenge_tx,
-                        &[],
                         Some(tx_metadata),
-                        self.config.protocol_paramset(),
                         None,
                     )
                     .await?;
@@ -2034,7 +2064,6 @@ where
         dbtx: DatabaseTransaction<'_>,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        kickoff_txid: Txid,
     ) -> Result<(), BridgeError> {
         let (signed_txs, tx_metadata, _challenge_tx) = self
             .get_signed_txs_for_kickoff(dbtx, kickoff_data, deposit_data)
@@ -2042,45 +2071,23 @@ where
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
-            match *tx_type {
-                TransactionType::AssertTimeout(_)
-                | TransactionType::KickoffNotFinalized
-                | TransactionType::LatestBlockhashTimeout
-                | TransactionType::OperatorChallengeNack(_) => {
-                    self.tx_sender
-                        .add_tx_to_queue(
-                            dbtx,
-                            *tx_type,
-                            signed_tx,
-                            &signed_txs,
-                            Some(tx_metadata),
-                            self.config.protocol_paramset(),
-                            None, // limit
-                        )
-                        .await?;
-                }
+            match tx_type {
+                TransactionType::AssertTimeout(_, _, _)
+                | TransactionType::KickoffNotFinalized(_, _)
+                | TransactionType::LatestBlockhashTimeout(_, _)
+                | TransactionType::OperatorChallengeNack(_, _, _)
                 // Technically verifiers do not need to send watchtower challenge timeout tx,
                 // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
                 // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
                 // to not get disproven
-                TransactionType::WatchtowerChallengeTimeout(idx) => {
+                | TransactionType::WatchtowerChallengeTimeout(_, _, _) => {
                     self.tx_sender
-                        .insert_try_to_send(
+                        .add_tx_to_queue(
                             dbtx,
-                            Some(TxMetadata {
-                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
-                                ..tx_metadata
-                            }),
+                            tx_type.clone(),
                             signed_tx,
-                            FeePayingType::CPFP,
+                            Some(tx_metadata.clone()),
                             None,
-                            &[OutPoint {
-                                txid: kickoff_txid,
-                                vout: UtxoVout::KickoffFinalizer.get_vout(),
-                            }],
-                            &[],
-                            &[],
-                            &[],
                         )
                         .await?;
                 }
@@ -2177,17 +2184,15 @@ where
             self.tx_sender
                 .add_tx_to_queue(
                     dbtx,
-                    tx_type,
+                    tx_type.clone(),
                     &challenge_tx,
-                    &[],
                     Some(TxMetadata {
-                        tx_type,
+                        tx_type: tx_type.clone(),
                         operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                        round_idx: Some(kickoff_data.round_idx),
+                        round_idx: Some(kickoff_data.bridge_round),
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
-                    self.config.protocol_paramset(),
                     None,
                 )
                 .await?;
@@ -2355,7 +2360,7 @@ where
     async fn send_unspent_kickoff_connectors(
         &self,
         dbtx: DatabaseTransaction<'_>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     ) -> Result<(), BridgeError> {
@@ -2368,25 +2373,25 @@ where
             .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk, Some(dbtx))
             .await?;
         for (tx_type, tx) in unspent_kickoff_txs {
-            if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
-                if used_kickoffs.contains(&kickoff_idx) {
+            #[cfg(not(feature = "automation"))]
+            let _ = &tx;
+            if let TransactionType::UnspentKickoff(_, kickoff_idx) = tx_type.clone() {
+                if used_kickoffs.contains(&kickoff_idx.0) {
                     continue;
                 }
                 #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
                         dbtx,
-                        tx_type,
+                        tx_type.clone(),
                         &tx,
-                        &[],
                         Some(TxMetadata {
-                            tx_type,
+                            tx_type: tx_type.clone(),
                             operator_xonly_pk: Some(operator_xonly_pk),
                             round_idx: Some(round_idx),
-                            kickoff_idx: Some(kickoff_idx as u32),
+                            kickoff_idx: Some(kickoff_idx.0 as u32),
                             deposit_outpoint: None,
                         }),
-                        self.config.protocol_paramset(),
                         None,
                     )
                     .await?;
@@ -2425,30 +2430,44 @@ where
         payout_blockhash: &Witness,
         operator_asserts: &HashMap<usize, Witness>,
         operator_acks: &HashMap<usize, Witness>,
-        txhandlers: &BTreeMap<TransactionType, TxHandler>,
-        db_cache: &mut ReimburseDbCache<'_>,
+        txhandlers: &TxCache,
+        kickoff_ctx: &KickoffBuildContext,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
+        use bitcoin::key::Secp256k1;
+        use bitcoin::taproot::TaprootBuilder;
         use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+        use bitvm::clementine::additional_disprove::{
+            replace_placeholders_in_script, validate_assertions_for_additional_script,
+        };
+        use circuits_lib::bridge_circuit::deposit_constant;
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
             tracing::error!("Error getting nofn xonly pk: {:?}", e);
         })?;
 
+        let round = kickoff_data.bridge_round.to_round_idx()?;
+
         let move_txid = txhandlers
-            .get(&TransactionType::MoveToVault)
-            .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
-            .get_txid()
+            .get_required(TransactionType::MoveToVault)?
+            .txid_ref()
             .to_byte_array();
 
         let round_txid = txhandlers
-            .get(&TransactionType::Round)
-            .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
-            .get_txid()
+            .get_required(TransactionType::Round(round))?
+            .txid_ref()
             .to_byte_array();
 
-        let vout = UtxoVout::Kickoff(kickoff_data.kickoff_idx as usize).get_vout();
+        let vout = txhandlers
+            .get_required(TransactionType::Round(round))?
+            .output_index(RoundOutput::Kickoff(kickoff_data.kickoff_idx as usize))?;
 
-        let watchtower_challenge_start_idx = UtxoVout::WatchtowerChallenge(0).get_vout();
+        let watchtower_challenge_start_idx = crate::protocol::tx::kickoff::spec(
+            ClementineBitVMPublicKeys::number_of_assert_txs(),
+            deposit_data.get_num_watchtowers(),
+        )
+        .output_index(&crate::protocol::tx::kickoff::KickoffOutput::WatchtowerChallenge(0))
+        .expect("watchtower challenge output must exist")
+            as u32;
 
         let secp = Secp256k1::verification_only();
 
@@ -2487,17 +2506,15 @@ where
 
         tracing::debug!("Deposit constant: {:?}", deposit_constant);
 
-        let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?.clone();
+        let kickoff_winternitz_keys = kickoff_ctx.kickoff_keys().clone();
 
         let payout_tx_blockhash_pk = kickoff_winternitz_keys
-            .get_keys_for_round(kickoff_data.round_idx)?
+            .get_keys_for_round(kickoff_data.bridge_round)?
             .get(kickoff_data.kickoff_idx as usize)
             .ok_or(TxError::IndexOverflow)?
             .clone();
 
-        let replaceable_additional_disprove_script = db_cache
-            .get_replaceable_additional_disprove_script()
-            .await?;
+        let replaceable_additional_disprove_script = &kickoff_ctx.additional_disprove_script;
 
         let additional_disprove_script = replace_placeholders_in_script(
             replaceable_additional_disprove_script.clone(),
@@ -2507,7 +2524,7 @@ where
 
         let witness = operator_asserts
             .get(&0)
-            .wrap_err("No witness found in operator asserts")?
+            .ok_or_eyre("No witness found in operator asserts")?
             .clone();
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
@@ -2545,7 +2562,7 @@ where
 
             let pre_image: [u8; 20] = witness
                 .nth(1)
-                .wrap_err("No pre-image found in operator ack witness")?
+                .ok_or_eyre("No pre-image found in operator ack witness")?
                 .try_into()
                 .wrap_err("Invalid pre-image length, expected 20 bytes")?;
             if *idx >= operator_acks_vec.len() {
@@ -2673,27 +2690,46 @@ where
     async fn send_disprove_tx_additional(
         &self,
         dbtx: DatabaseTransaction<'_>,
-        txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        txhandlers: &TxCache,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         additional_disprove_witness: Witness,
     ) -> Result<(), BridgeError> {
         let verifier_xonly_pk = self.signer.xonly_public_key;
 
+        let round = kickoff_data.bridge_round.to_round_idx()?;
+        let kickoff = KickoffIdx::new(kickoff_data.kickoff_idx as usize);
+        let disprove_key = TransactionType::Disprove(round, kickoff);
         let mut disprove_txhandler = txhandlers
-            .get(&TransactionType::Disprove)
+            .get_required(disprove_key.clone())
             .wrap_err("Disprove txhandler not found in txhandlers")?
+            .clone();
+        let kickoff_spendable = txhandlers
+            .get_required(TransactionType::Kickoff(round, kickoff))
+            .wrap_err("Kickoff txhandler not found in txhandlers")?
+            .get_spendable_output(KickoffOutput::Disprove)?;
+        let additional_disprove_script = kickoff_spendable
+            .get_named_leaf_script(KickoffLeaf::AdditionalDisprove)
+            .ok_or(TxError::ScriptNotFound(1))?
+            .to_script_buf();
+        let kickoff_spend_info = kickoff_spendable
+            .get_spend_info()
+            .as_ref()
+            .ok_or(TxError::MissingSpendInfo)?
             .clone();
 
         let disprove_input = additional_disprove_witness
             .iter()
             .map(|x| x.to_vec())
             .collect::<Vec<_>>();
-
         disprove_txhandler
-            .set_p2tr_script_spend_witness(&disprove_input, 0, 1)
+            .fill_witness_entry(DisproveInput::Disprove.revealed_script(
+                additional_disprove_script.clone(),
+                WitnessInput::RawWitness(disprove_input),
+                kickoff_spend_info,
+            ))
             .inspect_err(|e| {
-                tracing::error!("Error setting disprove input witness: {:?}", e);
+                tracing::error!("Error setting disprove input witness: {e:?}");
             })?;
 
         let operators_sig = self
@@ -2702,7 +2738,7 @@ where
                 Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
-                kickoff_data.round_idx,
+                kickoff_data.bridge_round,
                 kickoff_data.kickoff_idx as usize,
             )
             .await?
@@ -2710,22 +2746,22 @@ where
 
         let mut tweak_cache = TweakCache::default();
 
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut disprove_txhandler,
-                operators_sig.as_ref(),
-                Some(&mut tweak_cache),
-            )
-            .inspect_err(|e| {
-                tracing::error!(
-                    "Error signing disprove tx for verifier {:?}: {:?}",
-                    verifier_xonly_pk,
-                    e
-                );
-            })
-            .wrap_err("Failed to sign disprove tx")?;
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut disprove_txhandler,
+            operators_sig.as_ref(),
+            Some(&mut tweak_cache),
+        )
+        .inspect_err(|e| {
+            tracing::error!(
+                "Error signing disprove tx for verifier {:?}: {:?}",
+                verifier_xonly_pk,
+                e
+            );
+        })
+        .wrap_err("Failed to sign disprove tx")?;
 
-        let disprove_tx = disprove_txhandler.get_cached_tx().clone();
+        let disprove_tx = disprove_txhandler.transaction().clone();
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
@@ -2736,20 +2772,22 @@ where
             deposit_data
         );
 
+        let tx_type = TransactionType::Disprove(
+            kickoff_data.bridge_round.to_round_idx()?,
+            KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+        );
         self.tx_sender
             .add_tx_to_queue(
                 dbtx,
-                TransactionType::Disprove,
+                tx_type.clone(),
                 &disprove_tx,
-                &[],
                 Some(TxMetadata {
-                    tx_type: TransactionType::Disprove,
+                    tx_type,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                    round_idx: Some(kickoff_data.round_idx),
+                    round_idx: Some(kickoff_data.bridge_round),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -2777,12 +2815,12 @@ where
         &self,
         deposit_data: &mut DepositData,
         operator_asserts: &HashMap<usize, Witness>,
-        db_cache: &mut ReimburseDbCache<'_>,
+        kickoff_ctx: &KickoffBuildContext,
     ) -> Result<Option<(usize, Vec<Vec<u8>>)>, BridgeError> {
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
         use bridge_circuit_host::utils::get_verifying_key;
 
-        let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
+        let bitvm_pks = kickoff_ctx.operator_bitvm_keys.clone();
         let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
@@ -2970,24 +3008,62 @@ where
     async fn send_disprove_tx(
         &self,
         dbtx: DatabaseTransaction<'_>,
-        txhandlers: &BTreeMap<TransactionType, TxHandler>,
+        txhandlers: &TxCache,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         disprove_inputs: (usize, Vec<Vec<u8>>),
     ) -> Result<(), BridgeError> {
         let verifier_xonly_pk = self.signer.xonly_public_key;
 
+        let round = kickoff_data.bridge_round.to_round_idx()?;
+        let kickoff = KickoffIdx::new(kickoff_data.kickoff_idx as usize);
+        let disprove_key = TransactionType::Disprove(round, kickoff);
         let mut disprove_txhandler = txhandlers
-            .get(&TransactionType::Disprove)
+            .get_required(disprove_key.clone())
             .wrap_err("Disprove txhandler not found in txhandlers")?
             .clone();
+        let kickoff_spendable = txhandlers
+            .get_required(TransactionType::Kickoff(round, kickoff))
+            .wrap_err("Kickoff txhandler not found in txhandlers")?
+            .get_spendable_output(KickoffOutput::Disprove)?;
+        let operator_timeout_script = kickoff_spendable
+            .get_named_leaf_script(KickoffLeaf::DisproveTimeout)
+            .ok_or(TxError::ScriptNotFound(0))?
+            .to_script_buf();
+        let additional_disprove_script = kickoff_spendable
+            .get_named_leaf_script(KickoffLeaf::AdditionalDisprove)
+            .ok_or(TxError::ScriptNotFound(1))?
+            .to_script_buf();
+        let disprove_scripts = ClementineBitVMPublicKeys::from_flattened_vec(
+            &self
+                .db
+                .get_operator_bitvm_keys(
+                    Some(dbtx),
+                    kickoff_data.operator_xonly_pk,
+                    deposit_data.get_deposit_outpoint(),
+                )
+                .await?,
+        )
+        .get_g16_verifier_disprove_scripts()?;
+        let revealed_spend_info = crate::builder::transaction::create_disprove_taproot_spend_info(
+            operator_timeout_script,
+            additional_disprove_script,
+            &disprove_scripts,
+        );
+        let disprove_script = disprove_scripts
+            .get(disprove_inputs.0)
+            .ok_or(TxError::ScriptNotFound(disprove_inputs.0))?;
 
         // Use expect so it doesn't try to disprove continuously due to error tolerance in state manager.
 
         disprove_txhandler
-            .set_p2tr_script_spend_witness(&disprove_inputs.1, 0, disprove_inputs.0 + 2)
+            .fill_witness_entry(DisproveInput::Disprove.revealed_script(
+                disprove_script.clone(),
+                WitnessInput::RawWitness(disprove_inputs.1.clone()),
+                Arc::new(revealed_spend_info),
+            ))
             .inspect_err(|e| {
-                tracing::error!("Error setting disprove input witness: {:?}", e);
+                tracing::error!("Error setting disprove input witness: {e:?}");
             })?;
 
         let operators_sig = self
@@ -2996,7 +3072,7 @@ where
                 Some(dbtx),
                 deposit_data.get_deposit_outpoint(),
                 kickoff_data.operator_xonly_pk,
-                kickoff_data.round_idx,
+                kickoff_data.bridge_round,
                 kickoff_data.kickoff_idx as usize,
             )
             .await?
@@ -3004,22 +3080,18 @@ where
 
         let mut tweak_cache = TweakCache::default();
 
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut disprove_txhandler,
-                operators_sig.as_ref(),
-                Some(&mut tweak_cache),
-            )
-            .inspect_err(|e| {
-                tracing::error!(
-                    "Error signing disprove tx for verifier {:?}: {:?}",
-                    verifier_xonly_pk,
-                    e
-                );
-            })
-            .wrap_err("Failed to sign disprove tx")?;
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut disprove_txhandler,
+            operators_sig.as_ref(),
+            Some(&mut tweak_cache),
+        )
+        .inspect_err(|e| {
+            tracing::error!("Error signing disprove tx {e:?}");
+        })
+        .wrap_err("Failed to sign disprove tx")?;
 
-        let disprove_tx = disprove_txhandler.get_cached_tx().clone();
+        let disprove_tx = disprove_txhandler.transaction().clone();
 
         tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
@@ -3030,20 +3102,22 @@ where
             deposit_data
         );
 
+        let tx_type = TransactionType::Disprove(
+            kickoff_data.bridge_round.to_round_idx()?,
+            KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+        );
         self.tx_sender
             .add_tx_to_queue(
                 dbtx,
-                TransactionType::Disprove,
+                tx_type.clone(),
                 &disprove_tx,
-                &[],
                 Some(TxMetadata {
-                    tx_type: TransactionType::Disprove,
+                    tx_type,
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                    round_idx: Some(kickoff_data.round_idx),
+                    round_idx: Some(kickoff_data.bridge_round),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                 }),
-                self.config.protocol_paramset(),
                 None,
             )
             .await?;
@@ -3052,7 +3126,7 @@ where
 
     pub async fn handle_finalized_block(
         &self,
-        mut dbtx: DatabaseTransaction<'_>,
+        dbtx: DatabaseTransaction<'_>,
         block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
@@ -3094,7 +3168,7 @@ where
         {
             // Save unproven block cache to the database
             self.header_chain_prover
-                .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+                .save_unproven_block_cache(Some(&mut *dbtx), &block_cache)
                 .await?;
             while (self.header_chain_prover.prove_if_ready().await?).is_some() {
                 // Continue until prove_if_ready returns None
@@ -3121,12 +3195,9 @@ where
 #[cfg(feature = "automation")]
 mod states {
     use super::*;
-    use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
-    };
+    use crate::builder::transaction::{TxCache, TxCacheExt};
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
-    use std::collections::BTreeMap;
     use tonic::async_trait;
 
     #[async_trait]
@@ -3184,27 +3255,8 @@ mod states {
                     deposit_data,
                 } => {
                     tracing::info!("Verifier {:?} called add relevant txs to tx sender with kickoff_data: {:?}", verifier_xonly_pk, kickoff_data);
-                    let kickoff_txid = self
-                        .db
-                        .get_kickoff_txid_from_deposit_and_kickoff_data(
-                            Some(dbtx),
-                            deposit_data.get_deposit_outpoint(),
-                            &kickoff_data,
-                        )
-                        .await?
-                        .ok_or_else(|| {
-                            eyre::eyre!(
-                                "Kickoff txid not found in deposit_signatures for kickoff_data: {:?}",
-                                kickoff_data
-                            )
-                        })?;
-                    self.queue_txs_for_challenged_kickoff(
-                        dbtx,
-                        kickoff_data,
-                        deposit_data,
-                        kickoff_txid,
-                    )
-                    .await?;
+                    self.queue_txs_for_challenged_kickoff(dbtx, kickoff_data, deposit_data)
+                        .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::VerifierDisprove {
@@ -3225,25 +3277,24 @@ mod states {
                             return Ok(DutyResult::Handled);
                         }
                     }
-                    let context = ContractContext::new_context_with_signer(
-                        kickoff_data,
-                        deposit_data.clone(),
-                        self.config.protocol_paramset(),
-                        self.signer.clone(),
-                    );
+                    let mut tx_cache = TxCache::new();
 
-                    let mut db_cache =
-                        ReimburseDbCache::from_context(self.db.clone(), &context, Some(dbtx));
-
-                    let mut tx_handler_cache = TxHandlerCache::new();
-
-                    let mut txhandlers = create_txhandlers(
-                        TransactionType::AllNeededForDeposit,
-                        context.clone(),
-                        &mut tx_handler_cache,
-                        &mut db_cache,
-                    )
-                    .await?;
+                    let round = kickoff_data.bridge_round.to_round_idx()?;
+                    let kickoff = KickoffIdx::new(kickoff_data.kickoff_idx as usize);
+                    let mut loader = TxContextLoader::new(self.db.clone(), None);
+                    let mut kickoff_ctx = loader
+                        .load_kickoff(
+                            kickoff_data,
+                            deposit_data.clone(),
+                            Some(&self.signer),
+                            self.config.protocol_paramset(),
+                        )
+                        .await?;
+                    crate::builder::transaction::build_batch_cached(
+                        &mut kickoff_ctx,
+                        &BatchName::Tx(TransactionType::Kickoff(round, kickoff)),
+                        &mut tx_cache,
+                    )?;
 
                     // Attempt to find an additional disprove witness first
                     if let Some(additional_disprove_witness) = self
@@ -3254,18 +3305,23 @@ mod states {
                             &payout_blockhash,
                             &operator_asserts,
                             &operator_acks,
-                            &txhandlers,
-                            &mut db_cache,
+                            &tx_cache,
+                            &kickoff_ctx,
                         )
                         .await?
                     {
+                        crate::builder::transaction::build_batch_cached(
+                            &mut kickoff_ctx,
+                            &BatchName::Tx(TransactionType::Disprove(round, kickoff)),
+                            &mut tx_cache,
+                        )?;
                         tracing::info!(
                             "The additional public inputs for the bridge proof provided by operator {:?} for the deposit are incorrect.",
                             kickoff_data.operator_xonly_pk
                         );
                         self.send_disprove_tx_additional(
                             dbtx,
-                            &txhandlers,
+                            &tx_cache,
                             kickoff_data,
                             deposit_data,
                             additional_disprove_witness,
@@ -3282,7 +3338,7 @@ mod states {
                             .verify_disprove_conditions(
                                 &mut deposit_data,
                                 &operator_asserts,
-                                &mut db_cache,
+                                &kickoff_ctx,
                             )
                             .await?
                         {
@@ -3292,20 +3348,17 @@ mod states {
                                     kickoff_data.operator_xonly_pk
                                 );
 
-                                tx_handler_cache.store_for_next_kickoff(&mut txhandlers)?;
+                                tx_cache.prune_for_kickoff_loop();
 
-                                // Only this one creates a tx handler in which scripts exist, other txhandlers only include scripts as hidden nodes.
-                                let txhandlers_with_disprove = create_txhandlers(
-                                    TransactionType::Disprove,
-                                    context,
-                                    &mut tx_handler_cache,
-                                    &mut db_cache,
-                                )
-                                .await?;
+                                crate::builder::transaction::build_batch_cached(
+                                    &mut kickoff_ctx,
+                                    &BatchName::Tx(TransactionType::Disprove(round, kickoff)),
+                                    &mut tx_cache,
+                                )?;
 
                                 self.send_disprove_tx(
                                     dbtx,
-                                    &txhandlers_with_disprove,
+                                    &tx_cache,
                                     kickoff_data,
                                     deposit_data,
                                     (index, disprove_inputs),
@@ -3382,22 +3435,8 @@ mod states {
             }
         }
 
-        async fn create_txhandlers(
-            &self,
-            dbtx: DatabaseTransaction<'_>,
-            tx_type: TransactionType,
-            contract_context: ContractContext,
-        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
-            let txhandlers = create_txhandlers(
-                tx_type,
-                contract_context,
-                &mut TxHandlerCache::new(),
-                &mut db_cache,
-            )
-            .await?;
-            Ok(txhandlers)
+        fn database(&self) -> Database {
+            self.db.clone()
         }
     }
 }
@@ -3407,8 +3446,9 @@ mod tests {
     use super::*;
     use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
-    use crate::test::common::*;
+    use crate::test::common::{create_regtest_rpc, create_test_config_with_thread_name};
     use bitcoin::Block;
+
     use std::str::FromStr;
 
     #[tokio::test]

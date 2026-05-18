@@ -20,8 +20,8 @@ use clementine_core::{
         XOnlyPublicKeys,
     },
 };
-use clementine_errors::TransactionType;
 use clementine_primitives::EVMAddress;
+use clementine_primitives::TransactionType;
 use tonic::Request;
 
 #[derive(Parser)]
@@ -412,6 +412,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             for signed_tx in &response.signed_txs {
                 let tx_type: TransactionType = signed_tx
                     .transaction_type
+                    .clone()
                     .expect("Tx type should not be None")
                     .try_into()
                     .expect("Failed to convert tx type");
@@ -419,26 +420,26 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     bitcoin::consensus::deserialize(&signed_tx.raw_tx)
                         .expect("Failed to decode transaction");
                 match tx_type {
-                    TransactionType::Kickoff => {
+                    TransactionType::Kickoff(_, _) => {
                         println!("Round tx is on chain, time to send the kickoff tx. This tx is non-standard and cannot be sent by using normal Bitcoin RPC");
                     }
-                    TransactionType::BurnUnusedKickoffConnectors => {
+                    TransactionType::BurnUnusedKickoffConnectors(_, _) => {
                         println!("To be able to send ready to reimburse tx, all unused kickoff connectors must be burned, otherwise the operator will get slashed.
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
-                    TransactionType::ReadyToReimburse => {
+                    TransactionType::ReadyToReimburse(_) => {
                         println!("All unused kickoff connectors are burned, and all live kickoffs kickoff finalizer utxo's are
                         spent, meaning it is safe to send ready to reimburse tx. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
-                    TransactionType::Reimburse => {
+                    TransactionType::Reimburse(_, _) => {
                         println!("Reimburse tx is ready to be sent. This tx is standard and requires CPFP to be sent (last output is the anchor output)");
                     }
-                    TransactionType::ChallengeTimeout => {
+                    TransactionType::ChallengeTimeout(_, _) => {
                         println!("After kickoff, challenge timeout tx needs to be sent. Due to the timelock, it can only be sent after 216 blocks pass from the kickoff tx {}.
                         This tx is standard and requires CPFP to be sent (last output is the anchor output)",
                         transaction.input[0].previous_output.txid);
                     }
-                    TransactionType::Round => {
+                    TransactionType::Round(_) => {
                         println!("Time to send the round tx either for sending the kickoff tx, or getting the reimbursement for the past kickoff by advancing the round. Round tx is a non-standard tx and cannot be sent by using normal Bitcoin RPC.
                         If the round is not the first round, 216 number of blocks need to pass from the previous ready to reimburse tx {} (If this is not collateral)",
                         transaction.input[0].previous_output.txid);
@@ -798,13 +799,13 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => 200,
             };
 
-            let deposit_address = clementine_core::builder::address::generate_deposit_address(
+            let deposit_address = clementine_core::deposit::DepositSpendTree::from_base_deposit(
                 xonly_pk,
                 &recovery_taproot_address,
                 evm_address,
-                network,
                 user_takes_after,
             )
+            .and_then(|tree| tree.taproot_address(network))
             .expect("Failed to generate deposit address");
 
             let address = &deposit_address.0;
@@ -873,12 +874,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             };
 
             let (replacement_deposit_address, _) =
-                clementine_core::builder::address::generate_replacement_deposit_address(
-                    move_txid,
+                clementine_core::deposit::DepositSpendTree::from_replacement_deposit(
                     nofn_xonly_pk,
-                    network,
+                    move_txid,
                     security_council.expect("Security council is required"),
                 )
+                .taproot_address(network)
                 .expect("Failed to generate replacement deposit address");
 
             println!("Replacement deposit address: {replacement_deposit_address}");

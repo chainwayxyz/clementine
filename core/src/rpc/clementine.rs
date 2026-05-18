@@ -25,38 +25,6 @@ pub struct NofnResponse {
     #[prost(uint32, tag = "2")]
     pub num_verifiers: u32,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct NormalSignatureId {
-    #[prost(enumeration = "NormalSignatureKind", tag = "1")]
-    pub signature_kind: i32,
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct NumberedSignatureId {
-    #[prost(enumeration = "NumberedSignatureKind", tag = "1")]
-    pub signature_kind: i32,
-    #[prost(int32, tag = "2")]
-    pub idx: i32,
-}
-/// A tagged signature struct that identifies the transaction-input that the
-/// signature is for. The id is left as NotStored for signatures that are created
-/// on the fly by the operator (they're also not stored).
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TaggedSignature {
-    #[prost(bytes = "vec", tag = "3")]
-    pub signature: ::prost::alloc::vec::Vec<u8>,
-    #[prost(oneof = "tagged_signature::SignatureId", tags = "1, 2")]
-    pub signature_id: ::core::option::Option<tagged_signature::SignatureId>,
-}
-/// Nested message and enum types in `TaggedSignature`.
-pub mod tagged_signature {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
-    pub enum SignatureId {
-        #[prost(message, tag = "1")]
-        NormalSignature(super::NormalSignatureId),
-        #[prost(message, tag = "2")]
-        NumberedSignature(super::NumberedSignatureId),
-    }
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignatures {
     #[prost(message, repeated, tag = "1")]
@@ -136,27 +104,33 @@ pub struct BaseDeposit {
     #[prost(string, tag = "2")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct NumberedTransactionId {
-    #[prost(enumeration = "NumberedTransactionType", tag = "1")]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransactionId {
+    #[prost(enumeration = "TransactionType", tag = "1")]
     pub transaction_type: i32,
-    #[prost(int32, tag = "2")]
-    pub index: i32,
+    #[prost(uint32, tag = "2")]
+    pub round_idx: u32,
+    #[prost(uint32, tag = "3")]
+    pub kickoff_idx: u32,
+    #[prost(uint32, repeated, tag = "4")]
+    pub variant_indices: ::prost::alloc::vec::Vec<u32>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct GrpcTransactionId {
-    #[prost(oneof = "grpc_transaction_id::Id", tags = "1, 2")]
-    pub id: ::core::option::Option<grpc_transaction_id::Id>,
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GrpcInputId {
+    #[prost(enumeration = "GrpcInputType", tag = "1")]
+    pub input_type: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub variant_indices: ::prost::alloc::vec::Vec<u32>,
 }
-/// Nested message and enum types in `GrpcTransactionId`.
-pub mod grpc_transaction_id {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
-    pub enum Id {
-        #[prost(enumeration = "super::NormalTransactionId", tag = "1")]
-        NormalTransaction(i32),
-        #[prost(message, tag = "2")]
-        NumberedTransaction(super::NumberedTransactionId),
-    }
+/// A tagged signature identifies the exact transaction input it belongs to.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaggedSignature {
+    #[prost(bytes = "vec", tag = "3")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "4")]
+    pub tx_id: ::core::option::Option<TransactionId>,
+    #[prost(message, optional, tag = "5")]
+    pub input_id: ::core::option::Option<GrpcInputId>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KickoffId {
@@ -542,7 +516,7 @@ pub struct TxMetadata {
     pub kickoff_idx: u32,
     /// Transaction ID
     #[prost(message, optional, tag = "6")]
-    pub tx_type: ::core::option::Option<GrpcTransactionId>,
+    pub tx_type: ::core::option::Option<TransactionId>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TxDebugInfo {
@@ -601,7 +575,7 @@ pub struct RawSignedTxs {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedTxWithType {
     #[prost(message, optional, tag = "1")]
-    pub transaction_type: ::core::option::Option<GrpcTransactionId>,
+    pub transaction_type: ::core::option::Option<TransactionId>,
     #[prost(bytes = "vec", tag = "2")]
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
 }
@@ -700,149 +674,6 @@ pub struct GetEntityStatusesRequest {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum NormalSignatureKind {
-    NormalSignatureUnknown = 0,
-    /// Used for TxHandlers that verifiers don't care. These will have signatures
-    /// created by the operator on the fly.
-    OperatorSighashDefault = 1,
-    Challenge = 2,
-    DisproveTimeout2 = 3,
-    Disprove2 = 4,
-    Reimburse1 = 5,
-    KickoffNotFinalized1 = 6,
-    KickoffNotFinalized2 = 7,
-    Reimburse2 = 8,
-    NoSignature = 9,
-    ChallengeTimeout2 = 10,
-    MiniAssert1 = 11,
-    OperatorChallengeAck1 = 12,
-    NotStored = 13,
-    YieldKickoffTxid = 14,
-    LatestBlockhashTimeout1 = 15,
-    LatestBlockhashTimeout2 = 16,
-    LatestBlockhashTimeout3 = 17,
-    LatestBlockhash = 18,
-}
-impl NormalSignatureKind {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::NormalSignatureUnknown => "NormalSignatureUnknown",
-            Self::OperatorSighashDefault => "OperatorSighashDefault",
-            Self::Challenge => "Challenge",
-            Self::DisproveTimeout2 => "DisproveTimeout2",
-            Self::Disprove2 => "Disprove2",
-            Self::Reimburse1 => "Reimburse1",
-            Self::KickoffNotFinalized1 => "KickoffNotFinalized1",
-            Self::KickoffNotFinalized2 => "KickoffNotFinalized2",
-            Self::Reimburse2 => "Reimburse2",
-            Self::NoSignature => "NoSignature",
-            Self::ChallengeTimeout2 => "ChallengeTimeout2",
-            Self::MiniAssert1 => "MiniAssert1",
-            Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
-            Self::NotStored => "NotStored",
-            Self::YieldKickoffTxid => "YieldKickoffTxid",
-            Self::LatestBlockhashTimeout1 => "LatestBlockhashTimeout1",
-            Self::LatestBlockhashTimeout2 => "LatestBlockhashTimeout2",
-            Self::LatestBlockhashTimeout3 => "LatestBlockhashTimeout3",
-            Self::LatestBlockhash => "LatestBlockhash",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
-            "OperatorSighashDefault" => Some(Self::OperatorSighashDefault),
-            "Challenge" => Some(Self::Challenge),
-            "DisproveTimeout2" => Some(Self::DisproveTimeout2),
-            "Disprove2" => Some(Self::Disprove2),
-            "Reimburse1" => Some(Self::Reimburse1),
-            "KickoffNotFinalized1" => Some(Self::KickoffNotFinalized1),
-            "KickoffNotFinalized2" => Some(Self::KickoffNotFinalized2),
-            "Reimburse2" => Some(Self::Reimburse2),
-            "NoSignature" => Some(Self::NoSignature),
-            "ChallengeTimeout2" => Some(Self::ChallengeTimeout2),
-            "MiniAssert1" => Some(Self::MiniAssert1),
-            "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
-            "NotStored" => Some(Self::NotStored),
-            "YieldKickoffTxid" => Some(Self::YieldKickoffTxid),
-            "LatestBlockhashTimeout1" => Some(Self::LatestBlockhashTimeout1),
-            "LatestBlockhashTimeout2" => Some(Self::LatestBlockhashTimeout2),
-            "LatestBlockhashTimeout3" => Some(Self::LatestBlockhashTimeout3),
-            "LatestBlockhash" => Some(Self::LatestBlockhash),
-            _ => None,
-        }
-    }
-}
-/// Signatures that are needed multiple times per an operators kickoff.
-/// Some watchtower sigs are needed once per watchtower.
-/// Asserts are needed multiple times
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum NumberedSignatureKind {
-    NumberedSignatureUnknown = 0,
-    /// Used for TxHandlers that verifiers don't care. These will have signatures
-    /// created by the operator on the fly.
-    NumberedNotStored = 1,
-    OperatorChallengeNack1 = 2,
-    OperatorChallengeNack2 = 3,
-    OperatorChallengeNack3 = 4,
-    AssertTimeout1 = 5,
-    AssertTimeout2 = 6,
-    AssertTimeout3 = 7,
-    UnspentKickoff1 = 8,
-    UnspentKickoff2 = 9,
-    WatchtowerChallengeTimeout1 = 10,
-    WatchtowerChallengeTimeout2 = 11,
-    WatchtowerChallenge = 12,
-}
-impl NumberedSignatureKind {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::NumberedSignatureUnknown => "NumberedSignatureUnknown",
-            Self::NumberedNotStored => "NumberedNotStored",
-            Self::OperatorChallengeNack1 => "OperatorChallengeNack1",
-            Self::OperatorChallengeNack2 => "OperatorChallengeNack2",
-            Self::OperatorChallengeNack3 => "OperatorChallengeNack3",
-            Self::AssertTimeout1 => "AssertTimeout1",
-            Self::AssertTimeout2 => "AssertTimeout2",
-            Self::AssertTimeout3 => "AssertTimeout3",
-            Self::UnspentKickoff1 => "UnspentKickoff1",
-            Self::UnspentKickoff2 => "UnspentKickoff2",
-            Self::WatchtowerChallengeTimeout1 => "WatchtowerChallengeTimeout1",
-            Self::WatchtowerChallengeTimeout2 => "WatchtowerChallengeTimeout2",
-            Self::WatchtowerChallenge => "WatchtowerChallenge",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "NumberedSignatureUnknown" => Some(Self::NumberedSignatureUnknown),
-            "NumberedNotStored" => Some(Self::NumberedNotStored),
-            "OperatorChallengeNack1" => Some(Self::OperatorChallengeNack1),
-            "OperatorChallengeNack2" => Some(Self::OperatorChallengeNack2),
-            "OperatorChallengeNack3" => Some(Self::OperatorChallengeNack3),
-            "AssertTimeout1" => Some(Self::AssertTimeout1),
-            "AssertTimeout2" => Some(Self::AssertTimeout2),
-            "AssertTimeout3" => Some(Self::AssertTimeout3),
-            "UnspentKickoff1" => Some(Self::UnspentKickoff1),
-            "UnspentKickoff2" => Some(Self::UnspentKickoff2),
-            "WatchtowerChallengeTimeout1" => Some(Self::WatchtowerChallengeTimeout1),
-            "WatchtowerChallengeTimeout2" => Some(Self::WatchtowerChallengeTimeout2),
-            "WatchtowerChallenge" => Some(Self::WatchtowerChallenge),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
 pub enum FeeType {
     Unspecified = 0,
     Cpfp = 1,
@@ -878,29 +709,35 @@ impl FeeType {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum NormalTransactionId {
+pub enum TransactionType {
     UnspecifiedTransactionType = 0,
-    Round = 1,
-    Kickoff = 2,
-    MoveToVault = 3,
-    Payout = 4,
-    Challenge = 5,
-    Disprove = 6,
-    DisproveTimeout = 7,
-    Reimburse = 8,
-    AllNeededForDeposit = 9,
-    Dummy = 10,
-    ReadyToReimburse = 11,
-    KickoffNotFinalized = 12,
-    ChallengeTimeout = 13,
-    BurnUnusedKickoffConnectors = 14,
-    YieldKickoffTxid = 15,
-    ReplacementDeposit = 17,
-    LatestBlockhashTimeout = 18,
-    LatestBlockhash = 19,
-    OptimisticPayout = 20,
+    MoveToVault = 1,
+    EmergencyStop = 2,
+    Round = 3,
+    ReadyToReimburse = 4,
+    Kickoff = 5,
+    Challenge = 6,
+    ChallengeTimeout = 7,
+    KickoffNotFinalized = 8,
+    WatchtowerChallenge = 9,
+    WatchtowerChallengeTimeout = 10,
+    OperatorChallengeNack = 11,
+    OperatorChallengeAck = 12,
+    LatestBlockhash = 13,
+    LatestBlockhashTimeout = 14,
+    MiniAssert = 15,
+    AssertTimeout = 16,
+    Disprove = 17,
+    DisproveTimeout = 18,
+    UnspentKickoff = 19,
+    BurnUnusedKickoffConnectors = 20,
+    Reimburse = 21,
+    Payout = 22,
+    OptimisticPayout = 23,
+    ReplacementDeposit = 24,
+    YieldKickoffTxid = 25,
 }
-impl NormalTransactionId {
+impl TransactionType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
@@ -908,98 +745,274 @@ impl NormalTransactionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::UnspecifiedTransactionType => "UNSPECIFIED_TRANSACTION_TYPE",
-            Self::Round => "ROUND",
-            Self::Kickoff => "KICKOFF",
             Self::MoveToVault => "MOVE_TO_VAULT",
-            Self::Payout => "PAYOUT",
+            Self::EmergencyStop => "EMERGENCY_STOP",
+            Self::Round => "ROUND",
+            Self::ReadyToReimburse => "READY_TO_REIMBURSE",
+            Self::Kickoff => "KICKOFF",
             Self::Challenge => "CHALLENGE",
+            Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
+            Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
+            Self::WatchtowerChallenge => "WATCHTOWER_CHALLENGE",
+            Self::WatchtowerChallengeTimeout => "WATCHTOWER_CHALLENGE_TIMEOUT",
+            Self::OperatorChallengeNack => "OPERATOR_CHALLENGE_NACK",
+            Self::OperatorChallengeAck => "OPERATOR_CHALLENGE_ACK",
+            Self::LatestBlockhash => "LATEST_BLOCKHASH",
+            Self::LatestBlockhashTimeout => "LATEST_BLOCKHASH_TIMEOUT",
+            Self::MiniAssert => "MINI_ASSERT",
+            Self::AssertTimeout => "ASSERT_TIMEOUT",
             Self::Disprove => "DISPROVE",
             Self::DisproveTimeout => "DISPROVE_TIMEOUT",
-            Self::Reimburse => "REIMBURSE",
-            Self::AllNeededForDeposit => "ALL_NEEDED_FOR_DEPOSIT",
-            Self::Dummy => "DUMMY",
-            Self::ReadyToReimburse => "READY_TO_REIMBURSE",
-            Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
-            Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
+            Self::UnspentKickoff => "UNSPENT_KICKOFF",
             Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
-            Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
-            Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
-            Self::LatestBlockhashTimeout => "LATEST_BLOCKHASH_TIMEOUT",
-            Self::LatestBlockhash => "LATEST_BLOCKHASH",
+            Self::Reimburse => "REIMBURSE",
+            Self::Payout => "PAYOUT",
             Self::OptimisticPayout => "OPTIMISTIC_PAYOUT",
+            Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
+            Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED_TRANSACTION_TYPE" => Some(Self::UnspecifiedTransactionType),
-            "ROUND" => Some(Self::Round),
-            "KICKOFF" => Some(Self::Kickoff),
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
-            "PAYOUT" => Some(Self::Payout),
+            "EMERGENCY_STOP" => Some(Self::EmergencyStop),
+            "ROUND" => Some(Self::Round),
+            "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
+            "KICKOFF" => Some(Self::Kickoff),
             "CHALLENGE" => Some(Self::Challenge),
+            "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
+            "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
+            "WATCHTOWER_CHALLENGE" => Some(Self::WatchtowerChallenge),
+            "WATCHTOWER_CHALLENGE_TIMEOUT" => Some(Self::WatchtowerChallengeTimeout),
+            "OPERATOR_CHALLENGE_NACK" => Some(Self::OperatorChallengeNack),
+            "OPERATOR_CHALLENGE_ACK" => Some(Self::OperatorChallengeAck),
+            "LATEST_BLOCKHASH" => Some(Self::LatestBlockhash),
+            "LATEST_BLOCKHASH_TIMEOUT" => Some(Self::LatestBlockhashTimeout),
+            "MINI_ASSERT" => Some(Self::MiniAssert),
+            "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
             "DISPROVE" => Some(Self::Disprove),
             "DISPROVE_TIMEOUT" => Some(Self::DisproveTimeout),
-            "REIMBURSE" => Some(Self::Reimburse),
-            "ALL_NEEDED_FOR_DEPOSIT" => Some(Self::AllNeededForDeposit),
-            "DUMMY" => Some(Self::Dummy),
-            "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
-            "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
-            "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
+            "UNSPENT_KICKOFF" => Some(Self::UnspentKickoff),
             "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
-            "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
-            "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
-            "LATEST_BLOCKHASH_TIMEOUT" => Some(Self::LatestBlockhashTimeout),
-            "LATEST_BLOCKHASH" => Some(Self::LatestBlockhash),
+            "REIMBURSE" => Some(Self::Reimburse),
+            "PAYOUT" => Some(Self::Payout),
             "OPTIMISTIC_PAYOUT" => Some(Self::OptimisticPayout),
+            "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
+            "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
             _ => None,
         }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum NumberedTransactionType {
-    UnspecifiedIndexedTransactionType = 0,
-    WatchtowerChallenge = 1,
-    OperatorChallengeNack = 2,
-    OperatorChallengeAck = 3,
-    AssertTimeout = 4,
-    UnspentKickoff = 5,
-    MiniAssert = 6,
-    WatchtowerChallengeTimeout = 7,
+pub enum GrpcInputType {
+    GrpcInputUnknown = 0,
+    KickoffRound = 1,
+    MoveToVaultDepositOutpoint = 2,
+    EmergencyStopDepositInMove = 3,
+    YieldKickoffTxidMarker = 4,
+    WatchtowerChallengeKickoff = 5,
+    ReadyToReimburseCollateralInRound = 6,
+    UnspentKickoffCollateralInReadyToReimburse = 7,
+    UnspentKickoffKickoff = 8,
+    OperatorChallengeAckWatchtowerChallengeAck = 9,
+    WatchtowerChallengeTimeoutWatchtowerChallenge = 10,
+    WatchtowerChallengeTimeoutWatchtowerChallengeAck = 11,
+    OperatorChallengeNackWatchtowerChallengeAck = 12,
+    OperatorChallengeNackKickoffFinalizer = 13,
+    OperatorChallengeNackCollateralInRound = 14,
+    ChallengeTimeoutChallenge = 15,
+    ChallengeTimeoutKickoffFinalizer = 16,
+    KickoffNotFinalizedKickoffFinalizer = 17,
+    KickoffNotFinalizedCollateralInReadyToReimburse = 18,
+    DisproveTimeoutDisprove = 19,
+    DisproveTimeoutKickoffFinalizer = 20,
+    LatestBlockhashTimeoutLatestBlockhash = 21,
+    LatestBlockhashTimeoutKickoffFinalizer = 22,
+    LatestBlockhashTimeoutCollateralInRound = 23,
+    LatestBlockhashLatestBlockhash = 24,
+    MiniAssertAssert = 25,
+    AssertTimeoutAssert = 26,
+    AssertTimeoutKickoffFinalizer = 27,
+    AssertTimeoutCollateralInRound = 28,
+    DisproveDisprove = 29,
+    DisproveCollateralInRound = 30,
+    ChallengeChallenge = 31,
+    ReimburseDepositInMove = 32,
+    ReimburseReimburseInKickoff = 33,
+    ReimburseReimburseInRound = 34,
+    PayoutWithdrawalUtxo = 35,
+    OptimisticPayoutWithdrawalUtxo = 36,
+    OptimisticPayoutDepositInMove = 37,
+    ReplacementDepositOutpoint = 38,
+    BurnUnusedKickoffConnectorsUnusedKickoff = 39,
 }
-impl NumberedTransactionType {
+impl GrpcInputType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::UnspecifiedIndexedTransactionType => {
-                "UNSPECIFIED_INDEXED_TRANSACTION_TYPE"
+            Self::GrpcInputUnknown => "GRPC_INPUT_UNKNOWN",
+            Self::KickoffRound => "KICKOFF_ROUND",
+            Self::MoveToVaultDepositOutpoint => "MOVE_TO_VAULT_DEPOSIT_OUTPOINT",
+            Self::EmergencyStopDepositInMove => "EMERGENCY_STOP_DEPOSIT_IN_MOVE",
+            Self::YieldKickoffTxidMarker => "YIELD_KICKOFF_TXID_MARKER",
+            Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
+            Self::ReadyToReimburseCollateralInRound => {
+                "READY_TO_REIMBURSE_COLLATERAL_IN_ROUND"
             }
-            Self::WatchtowerChallenge => "WATCHTOWER_CHALLENGE",
-            Self::OperatorChallengeNack => "OPERATOR_CHALLENGE_NACK",
-            Self::OperatorChallengeAck => "OPERATOR_CHALLENGE_ACK",
-            Self::AssertTimeout => "ASSERT_TIMEOUT",
-            Self::UnspentKickoff => "UNSPENT_KICKOFF",
-            Self::MiniAssert => "MINI_ASSERT",
-            Self::WatchtowerChallengeTimeout => "WATCHTOWER_CHALLENGE_TIMEOUT",
+            Self::UnspentKickoffCollateralInReadyToReimburse => {
+                "UNSPENT_KICKOFF_COLLATERAL_IN_READY_TO_REIMBURSE"
+            }
+            Self::UnspentKickoffKickoff => "UNSPENT_KICKOFF_KICKOFF",
+            Self::OperatorChallengeAckWatchtowerChallengeAck => {
+                "OPERATOR_CHALLENGE_ACK_WATCHTOWER_CHALLENGE_ACK"
+            }
+            Self::WatchtowerChallengeTimeoutWatchtowerChallenge => {
+                "WATCHTOWER_CHALLENGE_TIMEOUT_WATCHTOWER_CHALLENGE"
+            }
+            Self::WatchtowerChallengeTimeoutWatchtowerChallengeAck => {
+                "WATCHTOWER_CHALLENGE_TIMEOUT_WATCHTOWER_CHALLENGE_ACK"
+            }
+            Self::OperatorChallengeNackWatchtowerChallengeAck => {
+                "OPERATOR_CHALLENGE_NACK_WATCHTOWER_CHALLENGE_ACK"
+            }
+            Self::OperatorChallengeNackKickoffFinalizer => {
+                "OPERATOR_CHALLENGE_NACK_KICKOFF_FINALIZER"
+            }
+            Self::OperatorChallengeNackCollateralInRound => {
+                "OPERATOR_CHALLENGE_NACK_COLLATERAL_IN_ROUND"
+            }
+            Self::ChallengeTimeoutChallenge => "CHALLENGE_TIMEOUT_CHALLENGE",
+            Self::ChallengeTimeoutKickoffFinalizer => {
+                "CHALLENGE_TIMEOUT_KICKOFF_FINALIZER"
+            }
+            Self::KickoffNotFinalizedKickoffFinalizer => {
+                "KICKOFF_NOT_FINALIZED_KICKOFF_FINALIZER"
+            }
+            Self::KickoffNotFinalizedCollateralInReadyToReimburse => {
+                "KICKOFF_NOT_FINALIZED_COLLATERAL_IN_READY_TO_REIMBURSE"
+            }
+            Self::DisproveTimeoutDisprove => "DISPROVE_TIMEOUT_DISPROVE",
+            Self::DisproveTimeoutKickoffFinalizer => "DISPROVE_TIMEOUT_KICKOFF_FINALIZER",
+            Self::LatestBlockhashTimeoutLatestBlockhash => {
+                "LATEST_BLOCKHASH_TIMEOUT_LATEST_BLOCKHASH"
+            }
+            Self::LatestBlockhashTimeoutKickoffFinalizer => {
+                "LATEST_BLOCKHASH_TIMEOUT_KICKOFF_FINALIZER"
+            }
+            Self::LatestBlockhashTimeoutCollateralInRound => {
+                "LATEST_BLOCKHASH_TIMEOUT_COLLATERAL_IN_ROUND"
+            }
+            Self::LatestBlockhashLatestBlockhash => "LATEST_BLOCKHASH_LATEST_BLOCKHASH",
+            Self::MiniAssertAssert => "MINI_ASSERT_ASSERT",
+            Self::AssertTimeoutAssert => "ASSERT_TIMEOUT_ASSERT",
+            Self::AssertTimeoutKickoffFinalizer => "ASSERT_TIMEOUT_KICKOFF_FINALIZER",
+            Self::AssertTimeoutCollateralInRound => "ASSERT_TIMEOUT_COLLATERAL_IN_ROUND",
+            Self::DisproveDisprove => "DISPROVE_DISPROVE",
+            Self::DisproveCollateralInRound => "DISPROVE_COLLATERAL_IN_ROUND",
+            Self::ChallengeChallenge => "CHALLENGE_CHALLENGE",
+            Self::ReimburseDepositInMove => "REIMBURSE_DEPOSIT_IN_MOVE",
+            Self::ReimburseReimburseInKickoff => "REIMBURSE_REIMBURSE_IN_KICKOFF",
+            Self::ReimburseReimburseInRound => "REIMBURSE_REIMBURSE_IN_ROUND",
+            Self::PayoutWithdrawalUtxo => "PAYOUT_WITHDRAWAL_UTXO",
+            Self::OptimisticPayoutWithdrawalUtxo => "OPTIMISTIC_PAYOUT_WITHDRAWAL_UTXO",
+            Self::OptimisticPayoutDepositInMove => "OPTIMISTIC_PAYOUT_DEPOSIT_IN_MOVE",
+            Self::ReplacementDepositOutpoint => "REPLACEMENT_DEPOSIT_OUTPOINT",
+            Self::BurnUnusedKickoffConnectorsUnusedKickoff => {
+                "BURN_UNUSED_KICKOFF_CONNECTORS_UNUSED_KICKOFF"
+            }
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "UNSPECIFIED_INDEXED_TRANSACTION_TYPE" => {
-                Some(Self::UnspecifiedIndexedTransactionType)
+            "GRPC_INPUT_UNKNOWN" => Some(Self::GrpcInputUnknown),
+            "KICKOFF_ROUND" => Some(Self::KickoffRound),
+            "MOVE_TO_VAULT_DEPOSIT_OUTPOINT" => Some(Self::MoveToVaultDepositOutpoint),
+            "EMERGENCY_STOP_DEPOSIT_IN_MOVE" => Some(Self::EmergencyStopDepositInMove),
+            "YIELD_KICKOFF_TXID_MARKER" => Some(Self::YieldKickoffTxidMarker),
+            "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
+            "READY_TO_REIMBURSE_COLLATERAL_IN_ROUND" => {
+                Some(Self::ReadyToReimburseCollateralInRound)
             }
-            "WATCHTOWER_CHALLENGE" => Some(Self::WatchtowerChallenge),
-            "OPERATOR_CHALLENGE_NACK" => Some(Self::OperatorChallengeNack),
-            "OPERATOR_CHALLENGE_ACK" => Some(Self::OperatorChallengeAck),
-            "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
-            "UNSPENT_KICKOFF" => Some(Self::UnspentKickoff),
-            "MINI_ASSERT" => Some(Self::MiniAssert),
-            "WATCHTOWER_CHALLENGE_TIMEOUT" => Some(Self::WatchtowerChallengeTimeout),
+            "UNSPENT_KICKOFF_COLLATERAL_IN_READY_TO_REIMBURSE" => {
+                Some(Self::UnspentKickoffCollateralInReadyToReimburse)
+            }
+            "UNSPENT_KICKOFF_KICKOFF" => Some(Self::UnspentKickoffKickoff),
+            "OPERATOR_CHALLENGE_ACK_WATCHTOWER_CHALLENGE_ACK" => {
+                Some(Self::OperatorChallengeAckWatchtowerChallengeAck)
+            }
+            "WATCHTOWER_CHALLENGE_TIMEOUT_WATCHTOWER_CHALLENGE" => {
+                Some(Self::WatchtowerChallengeTimeoutWatchtowerChallenge)
+            }
+            "WATCHTOWER_CHALLENGE_TIMEOUT_WATCHTOWER_CHALLENGE_ACK" => {
+                Some(Self::WatchtowerChallengeTimeoutWatchtowerChallengeAck)
+            }
+            "OPERATOR_CHALLENGE_NACK_WATCHTOWER_CHALLENGE_ACK" => {
+                Some(Self::OperatorChallengeNackWatchtowerChallengeAck)
+            }
+            "OPERATOR_CHALLENGE_NACK_KICKOFF_FINALIZER" => {
+                Some(Self::OperatorChallengeNackKickoffFinalizer)
+            }
+            "OPERATOR_CHALLENGE_NACK_COLLATERAL_IN_ROUND" => {
+                Some(Self::OperatorChallengeNackCollateralInRound)
+            }
+            "CHALLENGE_TIMEOUT_CHALLENGE" => Some(Self::ChallengeTimeoutChallenge),
+            "CHALLENGE_TIMEOUT_KICKOFF_FINALIZER" => {
+                Some(Self::ChallengeTimeoutKickoffFinalizer)
+            }
+            "KICKOFF_NOT_FINALIZED_KICKOFF_FINALIZER" => {
+                Some(Self::KickoffNotFinalizedKickoffFinalizer)
+            }
+            "KICKOFF_NOT_FINALIZED_COLLATERAL_IN_READY_TO_REIMBURSE" => {
+                Some(Self::KickoffNotFinalizedCollateralInReadyToReimburse)
+            }
+            "DISPROVE_TIMEOUT_DISPROVE" => Some(Self::DisproveTimeoutDisprove),
+            "DISPROVE_TIMEOUT_KICKOFF_FINALIZER" => {
+                Some(Self::DisproveTimeoutKickoffFinalizer)
+            }
+            "LATEST_BLOCKHASH_TIMEOUT_LATEST_BLOCKHASH" => {
+                Some(Self::LatestBlockhashTimeoutLatestBlockhash)
+            }
+            "LATEST_BLOCKHASH_TIMEOUT_KICKOFF_FINALIZER" => {
+                Some(Self::LatestBlockhashTimeoutKickoffFinalizer)
+            }
+            "LATEST_BLOCKHASH_TIMEOUT_COLLATERAL_IN_ROUND" => {
+                Some(Self::LatestBlockhashTimeoutCollateralInRound)
+            }
+            "LATEST_BLOCKHASH_LATEST_BLOCKHASH" => {
+                Some(Self::LatestBlockhashLatestBlockhash)
+            }
+            "MINI_ASSERT_ASSERT" => Some(Self::MiniAssertAssert),
+            "ASSERT_TIMEOUT_ASSERT" => Some(Self::AssertTimeoutAssert),
+            "ASSERT_TIMEOUT_KICKOFF_FINALIZER" => {
+                Some(Self::AssertTimeoutKickoffFinalizer)
+            }
+            "ASSERT_TIMEOUT_COLLATERAL_IN_ROUND" => {
+                Some(Self::AssertTimeoutCollateralInRound)
+            }
+            "DISPROVE_DISPROVE" => Some(Self::DisproveDisprove),
+            "DISPROVE_COLLATERAL_IN_ROUND" => Some(Self::DisproveCollateralInRound),
+            "CHALLENGE_CHALLENGE" => Some(Self::ChallengeChallenge),
+            "REIMBURSE_DEPOSIT_IN_MOVE" => Some(Self::ReimburseDepositInMove),
+            "REIMBURSE_REIMBURSE_IN_KICKOFF" => Some(Self::ReimburseReimburseInKickoff),
+            "REIMBURSE_REIMBURSE_IN_ROUND" => Some(Self::ReimburseReimburseInRound),
+            "PAYOUT_WITHDRAWAL_UTXO" => Some(Self::PayoutWithdrawalUtxo),
+            "OPTIMISTIC_PAYOUT_WITHDRAWAL_UTXO" => {
+                Some(Self::OptimisticPayoutWithdrawalUtxo)
+            }
+            "OPTIMISTIC_PAYOUT_DEPOSIT_IN_MOVE" => {
+                Some(Self::OptimisticPayoutDepositInMove)
+            }
+            "REPLACEMENT_DEPOSIT_OUTPOINT" => Some(Self::ReplacementDepositOutpoint),
+            "BURN_UNUSED_KICKOFF_CONNECTORS_UNUSED_KICKOFF" => {
+                Some(Self::BurnUnusedKickoffConnectorsUnusedKickoff)
+            }
             _ => None,
         }
     }
