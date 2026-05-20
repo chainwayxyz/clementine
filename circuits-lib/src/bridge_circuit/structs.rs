@@ -220,33 +220,32 @@ impl WatchtowerInput {
     ///
     pub fn from_txs(
         kickoff_tx_id: Txid,
+        watchtower_idx: u32,
         watchtower_tx: Transaction,
         prevout_txs: &[Transaction],
         watchtower_challenge_connector_start_idx: u32,
     ) -> Result<Self, &'static str> {
-        let watchtower_challenge_input_idx = watchtower_tx
-            .input
-            .iter()
-            .position(|input| input.previous_output.txid == kickoff_tx_id)
-            .map(|ind| ind as u32)
-            .ok_or("Kickoff txid not found in watchtower inputs")?;
-
-        let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
-            .previous_output
-            .vout as usize;
-
-        let watchtower_index = output_index
-            .checked_sub(watchtower_challenge_connector_start_idx as usize)
-            .ok_or("Output index underflow")?
-            / 2;
-
-        if watchtower_index >= MAX_NUMBER_OF_WATCHTOWERS {
+        if watchtower_idx as usize >= MAX_NUMBER_OF_WATCHTOWERS {
             return Err("Watchtower index out of bounds");
         }
 
-        let watchtower_idx =
-            u32::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
+        let expected_vout = watchtower_challenge_connector_start_idx
+            .checked_add(
+                watchtower_idx
+                    .checked_mul(2)
+                    .ok_or("Watchtower challenge connector index overflow")?,
+            )
+            .ok_or("Watchtower challenge connector index overflow")?;
 
+        let watchtower_challenge_input_idx = watchtower_tx
+            .input
+            .iter()
+            .position(|input| {
+                input.previous_output.txid == kickoff_tx_id
+                    && input.previous_output.vout == expected_vout
+            })
+            .map(|ind| ind as u32)
+            .ok_or("Watchtower challenge connector not found in watchtower inputs")?;
         let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
             .input
             .iter()

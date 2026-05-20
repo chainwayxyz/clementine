@@ -1472,8 +1472,13 @@ where
         tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();
-        for (_, tx) in watchtower_challenges.iter() {
+        let mut watchtower_challenges = watchtower_challenges.iter().collect::<Vec<_>>();
+        watchtower_challenges.sort_by_key(|(watchtower_idx, _)| **watchtower_idx);
+        for (watchtower_idx, tx) in watchtower_challenges {
+            let watchtower_idx = u32::try_from(*watchtower_idx)
+                .wrap_err("Watchtower index does not fit into u32")?;
             wt_contexts.push(WatchtowerContext {
+                watchtower_idx,
                 watchtower_tx: tx.clone(),
                 prevout_txs: self.rpc.get_prevout_txs(tx).await?,
             });

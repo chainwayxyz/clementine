@@ -326,6 +326,7 @@ fn get_wt_inputs(
         .map(|context| {
             WatchtowerInput::from_txs(
                 kickoff_tx_id,
+                context.watchtower_idx,
                 context.watchtower_tx.clone(),
                 &context.prevout_txs,
                 watchtower_challenge_connector_start_idx,
@@ -384,6 +385,7 @@ pub fn get_all_pubkeys(
 
 /// Context containing watchtower transaction and transactions that include prevouts.
 pub struct WatchtowerContext {
+    pub watchtower_idx: u32,
     pub watchtower_tx: Transaction,
     pub prevout_txs: Vec<Transaction>,
 }
