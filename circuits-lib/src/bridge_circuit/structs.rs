@@ -187,11 +187,12 @@ impl WatchtowerInput {
         })
     }
 
-    /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
-    /// an optional slice of previous transactions.
+    /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the known watchtower
+    /// index, the watchtower transaction, and an optional slice of previous transactions.
     ///
     /// # Parameters
     /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction
+    /// - `watchtower_idx`: The known watchtower index for this challenge
     /// - `watchtower_tx`: The watchtower challenge transaction that includes an input referencing the `kickoff_tx`
     /// - `prevout_txs`: A slice of transactions, each including at least one output spent as input in `watchtower_tx`
     /// - `watchtower_challenge_connector_start_idx`: Starting index for watchtower challenge connectors
@@ -207,16 +208,10 @@ impl WatchtowerInput {
     /// # Errors
     ///
     /// This function will return errors if:
-    /// - The kickoff transaction is not referenced by any input in the watchtower transaction.
-    /// - The output index underflows when computing the watchtower index.
     /// - The watchtower index exceeds `MAX_NUMBER_OF_WATCHTOWERS`.
+    /// - The expected watchtower challenge connector is not referenced by any input in the watchtower transaction.
     /// - A previous transaction required to resolve an input is not provided.
     /// - An output referenced by an input is missing or out of bounds.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    /// - The watchtower index cannot be converted to `u8` (should be unreachable due to earlier bounds check).
     ///
     pub fn from_txs(
         kickoff_tx_id: Txid,

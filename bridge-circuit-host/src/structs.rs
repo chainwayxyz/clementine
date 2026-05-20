@@ -303,6 +303,9 @@ fn get_payout_input_index(
 
 /// Generates watchtower inputs from watchtower contexts.
 ///
+/// Each context carries the watchtower index matched by the state machine, so reconstruction
+/// uses the exact kickoff connector for that watchtower.
+///
 /// # Arguments
 ///
 /// * `kickoff_tx_id` - The transaction ID of the kickoff transaction
@@ -383,7 +386,8 @@ pub fn get_all_pubkeys(
     Ok(all_tweaked_watchtower_pubkeys)
 }
 
-/// Context containing watchtower transaction and transactions that include prevouts.
+/// Context containing the matched watchtower index, watchtower transaction, and transactions that
+/// include prevouts.
 pub struct WatchtowerContext {
     pub watchtower_idx: u32,
     pub watchtower_tx: Transaction,
