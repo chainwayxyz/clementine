@@ -31,15 +31,15 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
+      - uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-prerequisites
 
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           add-job-id-key: "false"
           key: "release-all-features"
@@ -73,16 +73,16 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
+      - uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
       
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           add-job-id-key: "false"
           key: "release-no-automation"
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-no-automation-test-logs
           path: test-logs/release/
@@ -133,11 +133,11 @@ jobs:
 
     steps:
       - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+        uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
@@ -145,7 +145,7 @@ jobs:
         run: mkdir -p test-logs/debug
 
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           add-job-id-key: "false"
           key: "debug-all-features"
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: deposit-state-debug
           path: core/src/test/data/deposit_state_debug.bincode
@@ -179,7 +179,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: debug-test-logs
           path: test-logs/debug/
@@ -211,11 +211,11 @@ jobs:
 
     steps:
       - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+        uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
@@ -223,7 +223,7 @@ jobs:
         run: mkdir -p test-logs/release
 
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           add-job-id-key: "false"
           key: "release-all-features"
@@ -245,7 +245,7 @@ jobs:
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: deposit-state-release
           path: core/src/test/data/deposit_state_release.bincode
@@ -257,7 +257,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-test-logs
           path: test-logs/release/
@@ -319,11 +319,11 @@ jobs:
 
     steps:
       - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
+        uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
         with:
           comment_on_pr: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
@@ -331,7 +331,7 @@ jobs:
         run: mkdir -p test-logs/standalone
 
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           add-job-id-key: "false"
           key: "release-all-features"
@@ -343,7 +343,7 @@ jobs:
 
       - name: Upload test logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: standalone-test-logs-${{ matrix.test_name }}
           path: test-logs/standalone/

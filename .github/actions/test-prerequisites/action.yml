@@ -8,7 +8,7 @@ runs:
 
   steps:
     - name: Cache bitvm cache files
-      uses: actions/cache@v4
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       id: cache-bitvm
       with:
         path: |
@@ -28,7 +28,7 @@ runs:
       run: wget https://static.citrea.xyz/dev-net/clementine/conf/bitvm_cache_dev.bin -O core/bitvm_cache_dev.bin
 
     - name: Cache Bitcoin binaries
-      uses: actions/cache@v4
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       id: cache-bitcoin
       with:
         path: |
