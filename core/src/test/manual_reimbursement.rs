@@ -1,9 +1,10 @@
 use crate::bitvm_client::SECP;
-use crate::builder::transaction::input::UtxoVout;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::protocol::ids::TransactionType;
+use crate::protocol::tx::kickoff::KickoffOutput;
 use crate::rpc::clementine::{WithdrawParams, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
 use crate::test::common::citrea::MockCitreaClient;
@@ -18,7 +19,6 @@ use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use clementine_primitives::TransactionType;
 use eyre::Context;
 use std::time::Duration;
 use tonic::Request;
@@ -206,7 +206,12 @@ async fn deposit_and_get_reimbursement(
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: UtxoVout::ReimburseInKickoff.get_vout(),
+        vout: crate::protocol::tx::kickoff::spec(
+            crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs(),
+            0,
+        )
+        .output_index(&KickoffOutput::Reimburse)
+        .expect("kickoff reimburse output must exist") as u32,
     };
 
     let mut cur_iteration = 0;
@@ -228,7 +233,7 @@ async fn deposit_and_get_reimbursement(
                     rpc.send_raw_transaction(&tx).await.unwrap();
                     // mine the tx
                     rpc.mine_blocks(1).await.unwrap();
-                    if tx_type == TransactionType::Kickoff {
+                    if matches!(tx_type, TransactionType::Kickoff(_, _)) {
                         rpc.mine_blocks(
                             config
                                 .protocol_paramset()
@@ -239,7 +244,7 @@ async fn deposit_and_get_reimbursement(
                         )
                         .await
                         .unwrap();
-                    } else if tx_type == TransactionType::ReadyToReimburse {
+                    } else if matches!(tx_type, TransactionType::ReadyToReimburse(_)) {
                         rpc.mine_blocks(
                             config.protocol_paramset().operator_reimburse_timelock as u64
                                 + config.protocol_paramset().finality_depth as u64
@@ -247,7 +252,8 @@ async fn deposit_and_get_reimbursement(
                         )
                         .await
                         .unwrap();
-                    } else if tx_type == TransactionType::BurnUnusedKickoffConnectors {
+                    } else if matches!(tx_type, TransactionType::BurnUnusedKickoffConnectors(_, _))
+                    {
                         // the rpc endpoint should give an error because the BurnUnusedKickoffConnectors is not finalized yet
                         assert!(operator0
                             .get_reimbursement_txs(Request::new(
@@ -261,7 +267,7 @@ async fn deposit_and_get_reimbursement(
                             .unwrap();
                         // wait a bit for btc syncer to sync
                         tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-                    } else if tx_type == TransactionType::ChallengeTimeout {
+                    } else if matches!(tx_type, TransactionType::ChallengeTimeout(_, _)) {
                         // mine blocks so that challenge timeout is considered finalized
                         rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
                             .await

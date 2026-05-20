@@ -1,19 +1,14 @@
-use ark_ff::PrimeField;
-use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
-
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::SpendPath;
-use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
-use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::bitvm_client::SECP;
+use crate::builder::sighash::{
+    collect_actor_sighashes_for_handler, create_operator_sighash_stream, PartialSignatureInfo,
+};
+#[cfg(feature = "automation")]
+use crate::builder::transaction::sign::TransactionRequestData;
+use crate::builder::transaction::sign::{apply_schnorr_signatures, create_and_sign_txs};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, ContractContext, KickoffWinternitzKeys, TxHandler, TxHandlerBuilder,
-    DEFAULT_SEQUENCE,
+    BatchName, DepositBuildContext, KickoffWinternitzKeys, RoundBuildContext, TxCache, TxCacheExt,
+    TxContextLoader, WithdrawalBuildContext,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -21,11 +16,16 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::protocol::ids::{Actor as ProtocolActor, KickoffIdx, RoundIdx, TransactionType};
+use crate::protocol::tx::{
+    payout::PayoutInput, ready_to_reimburse::ReadyToReimburseOutput, round::RoundOutput,
+};
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
+#[cfg(feature = "automation")]
+use clementine_errors::TxError;
 
 use crate::metrics::SyncStatusProvider;
-use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, StoppedTasks};
+use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
@@ -43,7 +43,9 @@ use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use clementine_primitives::UTXO;
-use clementine_primitives::{PublicHash, RoundIndex};
+use clementine_primitives::{BridgeRound, PublicHash};
+use tx_builder::witness::WitnessInput;
+use tx_builder::witness_material::WitnessMaterialExt;
 
 use eyre::{eyre, Context, OptionExt};
 use std::collections::HashMap;
@@ -53,7 +55,7 @@ use tokio_stream::StreamExt;
 #[cfg(feature = "automation")]
 use {
     crate::{
-        builder::script::extract_winternitz_commits,
+        builder::winternitz::extract_winternitz_commits,
         header_chain_prover::HeaderChainProver,
         states::StateManager,
         task::IntoTask,
@@ -404,7 +406,7 @@ where
             self.config.protocol_paramset().num_round_txs,
         )?;
         tracing::info!("Starting to generate unspent kickoff signatures");
-        let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
+        let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks).await?;
         tracing::info!("Unspent kickoff signatures generated");
         let wpks = kickoff_wpks.get_all_keys();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
@@ -617,17 +619,33 @@ where
             .try_get_taproot_pk()
             .wrap_err("Input utxo script pubkey is not a valid taproot script")?;
 
-        let payout_txhandler = builder::transaction::create_payout_txhandler(
-            input_utxo,
-            output_txout,
-            self.signer.xonly_public_key,
-            in_signature,
-            self.config.protocol_paramset().network,
+        let mut withdrawal_ctx = WithdrawalBuildContext::new(
+            self.config.protocol_paramset(),
+            None,
+            builder::transaction::WithdrawalData {
+                input_utxo: input_utxo.clone(),
+                output_txout: output_txout.clone(),
+                operator_xonly_pk: self.signer.xonly_public_key,
+            },
+        );
+        let mut payout_txhandler =
+            crate::builder::transaction::build_tx(&mut withdrawal_ctx, TransactionType::Payout)?;
+        payout_txhandler.fill_witness_entry(
+            PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::KeySpend(in_signature)),
         )?;
 
-        // tracing::info!("Payout txhandler: {:?}", hex::encode(bitcoin::consensus::serialize(&payout_txhandler.get_cached_tx())));
+        // tracing::info!("Payout txhandler: {:?}", hex::encode(bitcoin::consensus::serialize(&payout_txhandler.transaction())));
 
-        let sighash = payout_txhandler.calculate_sighash_txin(0, in_signature.sighash_type)?;
+        let expected_sighash_type =
+            payout_txhandler.sighash_type_for_input(PayoutInput::WithdrawalUtxo)?;
+        if in_signature.sighash_type != expected_sighash_type {
+            return Err(eyre!(
+                "Invalid payout sighash type: expected {expected_sighash_type:?}, got {:?}",
+                in_signature.sighash_type
+            )
+            .into());
+        }
+        let sighash = payout_txhandler.tap_sighash_for_input(PayoutInput::WithdrawalUtxo)?;
 
         SECP.verify_schnorr(
             &in_signature.signature,
@@ -652,7 +670,7 @@ where
         let funded_tx = self
             .rpc
             .fund_raw_transaction(
-                payout_txhandler.get_cached_tx(),
+                payout_txhandler.transaction(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
                     include_unsafe: Some(false),
@@ -724,7 +742,7 @@ where
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
+        for round_idx in BridgeRound::iter_rounds(self.config.protocol_paramset().num_round_txs + 1)
         {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
@@ -748,38 +766,49 @@ where
         Ok(winternitz_pubkeys)
     }
 
-    pub fn generate_unspent_kickoff_sigs(
+    pub async fn generate_unspent_kickoff_sigs(
         &self,
         kickoff_wpks: &KickoffWinternitzKeys,
     ) -> Result<Vec<Signature>, BridgeError> {
         let mut tweak_cache = TweakCache::default();
         let mut sigs: Vec<Signature> =
             Vec::with_capacity(self.config.get_num_unspent_kickoff_sigs());
-        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         let operator_data = OperatorData {
             xonly_pk: self.signer.xonly_public_key,
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
-            let txhandlers = create_round_txhandlers(
+        for round_idx in BridgeRound::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+            let Ok(round) = round_idx.to_round_idx() else {
+                continue;
+            };
+            let mut ctx = RoundBuildContext::new(
                 self.config.protocol_paramset(),
                 round_idx,
-                &operator_data,
-                kickoff_wpks,
-                prev_ready_to_reimburse.as_ref(),
+                operator_data.clone(),
+                kickoff_wpks.clone(),
+            );
+            let txhandlers = crate::builder::transaction::build_batch(
+                &mut ctx,
+                &BatchName::UnspentKickoffs { round },
             )?;
-            for txhandler in txhandlers {
-                if let TransactionType::UnspentKickoff(kickoff_idx) =
-                    txhandler.get_transaction_type()
-                {
+            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                let txhandler = txhandlers.get_required(TransactionType::UnspentKickoff(
+                    round,
+                    KickoffIdx::new(kickoff_idx),
+                ))?;
+                if let TransactionType::UnspentKickoff(_, kickoff_idx) = txhandler.tx_type() {
                     let partial = PartialSignatureInfo {
                         operator_idx: 0, // dummy value
                         round_idx,
-                        kickoff_utxo_idx: kickoff_idx,
+                        kickoff_utxo_idx: kickoff_idx.0,
                     };
-                    let sighashes = txhandler
-                        .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
+                    let sighashes = collect_actor_sighashes_for_handler(
+                        txhandler,
+                        ProtocolActor::Operator,
+                        TransactionType::UnspentKickoff(round, kickoff_idx),
+                        partial,
+                    )?;
                     let signed_sigs: Result<Vec<_>, _> = sighashes
                         .into_iter()
                         .map(|(sighash, sig_info)| {
@@ -791,9 +820,6 @@ where
                         })
                         .collect();
                     sigs.extend(signed_sigs?);
-                }
-                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
-                    prev_ready_to_reimburse = Some(txhandler);
                 }
             }
         }
@@ -886,7 +912,7 @@ where
         // get signed txs,
         let kickoff_data = KickoffData {
             operator_xonly_pk: self.signer.xonly_public_key,
-            round_idx,
+            bridge_round: round_idx,
             kickoff_idx,
         };
 
@@ -898,24 +924,33 @@ where
             .test_params
             .maybe_disrupt_payout_tx_block_hash_commit(payout_tx_blockhash);
 
-        let context = ContractContext::new_context_for_kickoff(
-            kickoff_data,
-            deposit_data,
-            self.config.protocol_paramset(),
-        );
-
+        let mut loader = TxContextLoader::new(self.db.clone(), Some(dbtx));
+        let mut ctx = loader
+            .load_kickoff(
+                kickoff_data,
+                deposit_data,
+                Some(&self.signer),
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let signed_txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::OperatorPostDepositSignable {
+                round: round_idx.to_round_idx()?,
+                kickoff: KickoffIdx::new(kickoff_idx as usize),
+            },
             self.config.clone(),
-            context,
+            self.db.clone(),
+            &mut ctx,
             Some(payout_tx_blockhash),
-            Some(dbtx),
         )
         .await?;
 
         let tx_metadata = Some(TxMetadata {
-            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            tx_type: TransactionType::Kickoff(
+                round_idx.to_round_idx()?,
+                KickoffIdx::new(kickoff_idx as usize),
+            ),
             operator_xonly_pk: Some(self.signer.xonly_public_key),
             round_idx: Some(round_idx),
             kickoff_idx: Some(kickoff_idx),
@@ -924,14 +959,22 @@ where
 
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
-            match *tx_type {
-                TransactionType::Kickoff
-                | TransactionType::ChallengeTimeout
-                | TransactionType::DisproveTimeout
-                | TransactionType::Reimburse => {
+            #[cfg(not(feature = "automation"))]
+            let _ = (&tx_metadata, signed_tx);
+            match tx_type {
+                TransactionType::Kickoff(_, _)
+                | TransactionType::ChallengeTimeout(_, _)
+                | TransactionType::DisproveTimeout(_, _)
+                | TransactionType::Reimburse(_, _) => {
                     #[cfg(feature = "automation")]
                     self.tx_sender
-                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                        .add_tx_to_queue(
+                            dbtx,
+                            tx_type.clone(),
+                            signed_tx,
+                            tx_metadata.clone(),
+                            None,
+                        )
                         .await?;
                 }
                 _ => {}
@@ -941,7 +984,7 @@ where
         let kickoff_txid = signed_txs
             .iter()
             .find_map(|(tx_type, tx)| {
-                if let TransactionType::Kickoff = tx_type {
+                if matches!(tx_type, TransactionType::Kickoff(_, _)) {
                     Some(tx.compute_txid())
                 } else {
                     None
@@ -965,31 +1008,39 @@ where
         dbtx: DatabaseTransaction<'_>,
         kickoff_wpks: KickoffWinternitzKeys,
     ) -> Result<(), BridgeError> {
-        // try to send the first round tx
-        let (mut first_round_tx, _) = create_round_nth_txhandler(
-            self.signer.xonly_public_key,
-            self.collateral_funding_outpoint,
-            self.config.protocol_paramset().collateral_funding_amount,
-            RoundIndex::Round(0),
-            &kickoff_wpks,
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
+        let mut round_ctx = RoundBuildContext::new(
             self.config.protocol_paramset(),
+            BridgeRound::Round(0),
+            operator_data,
+            kickoff_wpks,
+        );
+        let mut first_round_tx = crate::builder::transaction::build_tx(
+            &mut round_ctx,
+            TransactionType::Round(RoundIdx::new(0)),
         )?;
 
-        self.signer
-            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)
+        apply_schnorr_signatures(&self.signer, &mut first_round_tx, &[], None)
+            .wrap_err("Failed to collect first round tx witness materials")?;
+        let first_round_tx = first_round_tx
+            .ensure_fully_signed()
             .wrap_err("Failed to sign first round tx")?;
 
         self.tx_sender
             .insert_try_to_send(
                 dbtx,
                 Some(TxMetadata {
-                    tx_type: TransactionType::Round,
+                    tx_type: TransactionType::Round(RoundIdx::new(0)),
                     operator_xonly_pk: None,
-                    round_idx: Some(RoundIndex::Round(0)),
+                    round_idx: Some(BridgeRound::Round(0)),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
-                first_round_tx.get_cached_tx(),
+                first_round_tx.transaction(),
                 FeePayingType::CPFP,
                 None,
                 &[],
@@ -998,7 +1049,7 @@ where
 
         // update current round index to 1
         self.db
-            .update_current_round_index(Some(dbtx), RoundIndex::Round(0))
+            .update_current_round_index(Some(dbtx), BridgeRound::Round(0))
             .await?;
 
         Ok(())
@@ -1023,47 +1074,69 @@ where
         )?;
 
         // if we are at round 0, which is just the collateral, we need to start the first round
-        if current_round_index == RoundIndex::Collateral {
+        if current_round_index == BridgeRound::Collateral {
             return self.start_first_round(dbtx, kickoff_wpks).await;
         }
 
-        let (current_round_txhandler, mut ready_to_reimburse_txhandler) =
-            create_round_nth_txhandler(
-                self.signer.xonly_public_key,
-                self.collateral_funding_outpoint,
-                self.config.protocol_paramset().collateral_funding_amount,
-                current_round_index,
-                &kickoff_wpks,
-                self.config.protocol_paramset(),
-            )?;
-
-        let (mut next_round_txhandler, _) = create_round_nth_txhandler(
-            self.signer.xonly_public_key,
-            self.collateral_funding_outpoint,
-            self.config.protocol_paramset().collateral_funding_amount,
-            current_round_index.next_round(),
-            &kickoff_wpks,
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
+        let current_round = current_round_index.to_round_idx()?;
+        let next_round_index = current_round_index.next_round();
+        let next_round = next_round_index.to_round_idx()?;
+        let mut current_ctx = RoundBuildContext::new(
             self.config.protocol_paramset(),
-        )?;
+            current_round_index,
+            operator_data.clone(),
+            kickoff_wpks.clone(),
+        );
+        let mut ready_to_reimburse_txhandler = crate::builder::transaction::build_tx(
+            &mut current_ctx,
+            TransactionType::ReadyToReimburse(current_round),
+        )
+        .wrap_err("Failed to create ready-to-reimburse tx in end_round")?;
+        let mut next_ctx = RoundBuildContext::new(
+            self.config.protocol_paramset(),
+            next_round_index,
+            operator_data,
+            kickoff_wpks.clone(),
+        );
+        let mut next_round_txhandler = crate::builder::transaction::build_tx(
+            &mut next_ctx,
+            TransactionType::Round(next_round),
+        )
+        .wrap_err("Failed to create next-round tx in end_round")?;
 
         let mut tweak_cache = TweakCache::default();
 
         // sign ready to reimburse tx
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut ready_to_reimburse_txhandler,
-                &[],
-                Some(&mut tweak_cache),
-            )
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut ready_to_reimburse_txhandler,
+            &[],
+            Some(&mut tweak_cache),
+        )
+        .wrap_err("Failed to collect ready to reimburse tx witness materials")?;
+        let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler
+            .ensure_fully_signed()
             .wrap_err("Failed to sign ready to reimburse tx")?;
 
         // sign next round tx
-        self.signer
-            .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[], Some(&mut tweak_cache))
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut next_round_txhandler,
+            &[],
+            Some(&mut tweak_cache),
+        )
+        .wrap_err("Failed to collect next round tx witness materials")?;
+        let next_round_txhandler = next_round_txhandler
+            .ensure_fully_signed()
             .wrap_err("Failed to sign next round tx")?;
 
-        let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
-        let next_round_tx = next_round_txhandler.get_cached_tx();
+        let ready_to_reimburse_tx = ready_to_reimburse_txhandler.transaction();
+        let next_round_tx = next_round_txhandler.transaction();
 
         let ready_to_reimburse_txid = ready_to_reimburse_tx.compute_txid();
 
@@ -1098,34 +1171,54 @@ where
         }
 
         // Burn unused kickoff connectors
+        let burn_request = TransactionType::BurnUnusedKickoffConnectors(
+            current_round,
+            unspent_kickoff_connector_indices.clone(),
+        );
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
+        let mut burn_ctx = RoundBuildContext::new(
+            self.config.protocol_paramset(),
+            current_round_index,
+            operator_data,
+            kickoff_wpks.clone(),
+        );
         let mut burn_unspent_kickoff_connectors_tx =
-            create_burn_unused_kickoff_connectors_txhandler(
-                &current_round_txhandler,
-                &unspent_kickoff_connector_indices,
-                &self.signer.address,
-                self.config.protocol_paramset(),
+            crate::builder::transaction::build_burn_unused_kickoff_connectors(
+                &mut burn_ctx,
+                burn_request.clone(),
+                self.signer.address.clone(),
             )?;
 
         // sign burn unused kickoff connectors tx
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut burn_unspent_kickoff_connectors_tx,
-                &[],
-                Some(&mut tweak_cache),
-            )
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut burn_unspent_kickoff_connectors_tx,
+            &[],
+            Some(&mut tweak_cache),
+        )
+        .wrap_err("Failed to collect burn unused kickoff connectors tx witness materials")?;
+        let burn_unspent_kickoff_connectors_tx = burn_unspent_kickoff_connectors_tx
+            .ensure_fully_signed()
             .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
 
         self.tx_sender
             .insert_try_to_send(
                 dbtx,
                 Some(TxMetadata {
-                    tx_type: TransactionType::BurnUnusedKickoffConnectors,
+                    tx_type: TransactionType::BurnUnusedKickoffConnectors(
+                        current_round_index.to_round_idx()?,
+                        unspent_kickoff_connector_indices.clone(),
+                    ),
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
                     round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
                 }),
-                burn_unspent_kickoff_connectors_tx.get_cached_tx(),
+                burn_unspent_kickoff_connectors_tx.transaction(),
                 FeePayingType::CPFP,
                 None,
                 &[],
@@ -1139,7 +1232,14 @@ where
             .insert_try_to_send(
                 dbtx,
                 Some(TxMetadata {
-                    tx_type: TransactionType::Round,
+                    tx_type: TransactionType::Round(
+                        current_round_index
+                            .next_round()
+                            .to_round_idx()
+                            .map_err(|_| {
+                                TxError::InvalidRoundIndex(current_round_index.next_round())
+                            })?,
+                    ),
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
                     round_idx: Some(current_round_index.next_round()),
                     kickoff_idx: None,
@@ -1177,37 +1277,39 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        use ark_ff::PrimeField;
         use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+        use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
         use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
-        let context = ContractContext::new_context_for_kickoff(
-            kickoff_data,
-            deposit_data.clone(),
-            self.config.protocol_paramset(),
-        );
-        let mut db_cache = crate::builder::transaction::ReimburseDbCache::from_context(
-            self.db.clone(),
-            &context,
-            Some(&mut dbtx),
-        );
-        let txhandlers = builder::transaction::create_txhandlers(
-            TransactionType::Kickoff,
-            context,
-            &mut crate::builder::transaction::TxHandlerCache::new(),
-            &mut db_cache,
-        )
-        .await?;
-        let move_txid = txhandlers
-            .get(&TransactionType::MoveToVault)
-            .ok_or(eyre::eyre!(
-                "Move to vault txhandler not found in send_asserts"
-            ))?
-            .get_cached_tx()
+        use crate::bitvm_client::ClementineBitVMPublicKeys;
+
+        let round = kickoff_data.bridge_round.to_round_idx()?;
+        let kickoff = KickoffIdx::new(kickoff_data.kickoff_idx as usize);
+        let mut loader = TxContextLoader::new(self.db.clone(), Some(&mut dbtx));
+        let mut ctx = loader
+            .load_kickoff(
+                kickoff_data,
+                deposit_data.clone(),
+                None,
+                self.config.protocol_paramset(),
+            )
+            .await?;
+        let tx_cache = crate::builder::transaction::build_batch(
+            &mut ctx,
+            &BatchName::Tx(TransactionType::Kickoff(round, kickoff)),
+        )?;
+        let move_to_vault_key = TransactionType::MoveToVault;
+        let kickoff_key = TransactionType::Kickoff(round, kickoff);
+        let move_txid = tx_cache
+            .get_required(move_to_vault_key)
+            .wrap_err("Move to vault txhandler not found in send_asserts")?
+            .transaction()
             .compute_txid();
-        let kickoff_tx = txhandlers
-            .get(&TransactionType::Kickoff)
-            .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
-            .get_cached_tx();
+        let kickoff_tx = tx_cache
+            .get_required(kickoff_key)
+            .wrap_err("Kickoff txhandler not found in send_asserts")?
+            .transaction();
 
         #[cfg(test)]
         self.config
@@ -1557,12 +1659,12 @@ where
             self.tx_sender
                 .add_tx_to_queue(
                     dbtx,
-                    tx_type,
+                    tx_type.clone(),
                     &tx,
                     Some(TxMetadata {
-                        tx_type,
+                        tx_type: tx_type.clone(),
                         operator_xonly_pk: Some(self.signer.xonly_public_key),
-                        round_idx: Some(kickoff_data.round_idx),
+                        round_idx: Some(kickoff_data.bridge_round),
                         kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
@@ -1601,18 +1703,18 @@ where
                 Some(&mut dbtx),
             )
             .await?;
-        if tx_type != TransactionType::LatestBlockhash {
+        if !matches!(tx_type, TransactionType::LatestBlockhash(_, _)) {
             return Err(eyre::eyre!("Latest blockhash tx type is not LatestBlockhash").into());
         }
         self.tx_sender
             .add_tx_to_queue(
                 dbtx,
-                tx_type,
+                tx_type.clone(),
                 &tx,
                 Some(TxMetadata {
-                    tx_type,
+                    tx_type: tx_type.clone(),
                     operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(kickoff_data.round_idx),
+                    round_idx: Some(kickoff_data.bridge_round),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
@@ -1684,7 +1786,7 @@ where
         deposit_data: &mut DepositData,
         payout_blockhash: BlockHash,
         kickoff_txid: Txid,
-        current_round_idx: RoundIndex,
+        current_round_idx: BridgeRound,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut txs_to_send = Vec::new();
 
@@ -1694,24 +1796,30 @@ where
             .get_kickoff_connector_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
             .await?;
 
-        let context = ContractContext::new_context_for_kickoff(
-            KickoffData {
-                operator_xonly_pk: self.signer.xonly_public_key,
-                round_idx: kickoff_round_idx,
-                kickoff_idx: kickoff_connector_idx,
-            },
-            deposit_data.clone(),
-            self.config.protocol_paramset(),
-        );
-
         // get txs for the kickoff
+        let mut loader = TxContextLoader::new(self.db.clone(), dbtx.as_deref_mut());
+        let mut ctx = loader
+            .load_kickoff(
+                KickoffData {
+                    operator_xonly_pk: self.signer.xonly_public_key,
+                    bridge_round: kickoff_round_idx,
+                    kickoff_idx: kickoff_connector_idx,
+                },
+                deposit_data.clone(),
+                Some(&self.signer),
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let kickoff_txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::OperatorPostDepositSignable {
+                round: kickoff_round_idx.to_round_idx()?,
+                kickoff: KickoffIdx::new(kickoff_connector_idx as usize),
+            },
             self.config.clone(),
-            context,
+            self.db.clone(),
+            &mut ctx,
             Some(payout_blockhash.to_byte_array().last_20_bytes()),
-            dbtx.as_deref_mut(),
         )
         .await?;
 
@@ -1731,7 +1839,7 @@ where
                 // we are at least on the next round, meaning we can get the reimbursement as reimbursement utxos are in the next round
                 let reimbursement_tx = kickoff_txs
                     .iter()
-                    .find(|(tx_type, _)| tx_type == &TransactionType::Reimburse)
+                    .find(|(tx_type, _)| matches!(tx_type, TransactionType::Reimburse(_, _)))
                     .ok_or(eyre::eyre!("Reimburse tx not found in kickoff txs"))?;
                 txs_to_send.push(reimbursement_tx.clone());
             }
@@ -1744,7 +1852,7 @@ where
                     );
                     let kickoff_tx = kickoff_txs
                         .iter()
-                        .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
+                        .find(|(tx_type, _)| matches!(tx_type, TransactionType::Kickoff(_, _)))
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
 
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
@@ -1754,7 +1862,15 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout blockhash in bitcoin sync")?;
 
-                    let move_txid = deposit_data.get_move_txid(self.config.protocol_paramset())?;
+                    let mut deposit_ctx = DepositBuildContext::new(
+                        self.config.protocol_paramset(),
+                        deposit_data.clone(),
+                    );
+                    let move_txid = crate::builder::transaction::build_tx(
+                        &mut deposit_ctx,
+                        TransactionType::MoveToVault,
+                    )?
+                    .txid();
 
                     let (_, _, _, citrea_idx) = self
                         .db
@@ -1785,7 +1901,13 @@ where
                     .rpc
                     .is_utxo_spent(&OutPoint {
                         txid: kickoff_txid,
-                        vout: UtxoVout::KickoffFinalizer.get_vout(),
+                        vout: crate::protocol::tx::kickoff::spec(
+                            crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs(),
+                            deposit_data.get_num_watchtowers(),
+                        )
+                        .output_index(&crate::protocol::tx::kickoff::KickoffOutput::Finalizer)
+                        .expect("kickoff finalizer output must exist")
+                            as u32,
                     })
                     .await?
                 {
@@ -1799,7 +1921,13 @@ where
                         .rpc
                         .is_utxo_spent(&OutPoint {
                             txid: kickoff_txid,
-                            vout: UtxoVout::Challenge.get_vout(),
+                            vout: crate::protocol::tx::kickoff::spec(
+                                crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs(),
+                                deposit_data.get_num_watchtowers(),
+                            )
+                            .output_index(&crate::protocol::tx::kickoff::KickoffOutput::Challenge)
+                            .expect("kickoff challenge output must exist")
+                                as u32,
                         })
                         .await?
                     {
@@ -1812,7 +1940,9 @@ where
                     }
                     let challenge_timeout_tx = kickoff_txs
                         .iter()
-                        .find(|(tx_type, _)| tx_type == &TransactionType::ChallengeTimeout)
+                        .find(|(tx_type, _)| {
+                            matches!(tx_type, TransactionType::ChallengeTimeout(_, _))
+                        })
                         .ok_or(eyre::eyre!("Challenge timeout tx not found in kickoff txs"))?;
                     txs_to_send.push(challenge_timeout_tx.clone());
                 } else {
@@ -1870,12 +2000,6 @@ where
             .wrap_err("Failed to get new address, bitcoin rpc might not match the network")?
             .script_pubkey();
 
-        let (_, spendinfo) = create_taproot_address(
-            &[],
-            Some(self.signer.xonly_public_key),
-            self.config.protocol_paramset().network,
-        );
-
         let total_input_value = inputs.iter().try_fold(Amount::ZERO, |acc, (_, txout)| {
             acc.checked_add(txout.value)
                 .ok_or_else(|| eyre!("Input values overflowed while summing"))
@@ -1885,22 +2009,12 @@ where
             value: total_input_value,
             script_pubkey: destination_script,
         };
-
-        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(bitcoin::transaction::Version::TWO);
-
-        for (outpoint, txout) in inputs.iter() {
-            builder = builder.add_input(
-                NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
-                SpendPath::KeySpend,
-                DEFAULT_SEQUENCE,
-            );
-        }
-
-        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
-
-        let mut txhandler = builder.finalize();
+        let (_, tx_weight) = crate::wallet_transfer::build_signed_wallet_transfer_tx(
+            &self.signer,
+            &inputs,
+            output_txout.clone(),
+            self.config.protocol_paramset().network,
+        )?;
 
         let fee_rate = self
             .rpc
@@ -1915,11 +2029,6 @@ where
             .await
             .wrap_err("Failed to get fee rate for transfer to wallet tx")?;
 
-        // Sign to account for witness weight when calculating fees.
-        self.signer
-            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
-
-        let tx_weight = txhandler.get_cached_tx().weight();
         let fee = fee_rate.fee_wu(tx_weight).ok_or_eyre(format!(
             "Fee calculation overflow in transfer to wallet, current feerate: {fee_rate}"
         ))?;
@@ -1928,27 +2037,12 @@ where
             .value
             .checked_sub(fee)
             .ok_or_else(|| eyre!("Calculated fee exceeds total input value"))?;
-
-        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(bitcoin::transaction::Version::TWO);
-
-        for (outpoint, txout) in inputs.iter() {
-            builder = builder.add_input(
-                NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new(*outpoint, txout.clone(), vec![], Some(spendinfo.clone())),
-                SpendPath::KeySpend,
-                DEFAULT_SEQUENCE,
-            );
-        }
-
-        builder = builder.add_output(UnspentTxOut::from_partial(output_txout.clone()));
-
-        let mut txhandler = builder.finalize();
-
-        self.signer
-            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)?;
-
-        let signed_tx = txhandler.get_cached_tx().clone();
+        let (signed_tx, _) = crate::wallet_transfer::build_signed_wallet_transfer_tx(
+            &self.signer,
+            &inputs,
+            output_txout,
+            self.config.protocol_paramset().network,
+        )?;
 
         self.rpc
             .send_raw_transaction(&signed_tx)
@@ -1962,62 +2056,57 @@ where
     /// Returns a map of outpoint to the round index it belongs to.
     async fn get_all_collateral_outpoints(
         &self,
-    ) -> Result<HashMap<OutPoint, (RoundIndex, TransactionType)>, BridgeError> {
+    ) -> Result<HashMap<OutPoint, (BridgeRound, TransactionType)>, BridgeError> {
         let mut outpoints = HashMap::new();
         outpoints.insert(
             self.collateral_funding_outpoint,
-            (RoundIndex::Collateral, TransactionType::Round),
+            (
+                BridgeRound::Collateral,
+                TransactionType::Round(RoundIdx::new(0)),
+            ),
         );
 
-        // Fetch operator kickoff winternitz public keys to build round txs
-        let operator_winternitz_public_keys = self
-            .db
-            .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
-            .await?;
-        let kickoff_wpks = KickoffWinternitzKeys::new(
-            operator_winternitz_public_keys,
-            self.config.protocol_paramset().num_kickoffs_per_round,
-            self.config.protocol_paramset().num_round_txs,
-        )?;
-        let operator_data = self.data();
-
-        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let mut tx_cache = TxCache::new();
 
         // Collect collateral outpoints for each round
-        for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs) {
-            let txhandlers = create_round_txhandlers(
-                self.config.protocol_paramset(),
-                round_idx,
-                &operator_data,
-                &kickoff_wpks,
-                prev_ready_to_reimburse.as_ref(),
+        for round_idx in BridgeRound::iter_rounds(self.config.protocol_paramset().num_round_txs) {
+            let Ok(round) = round_idx.to_round_idx() else {
+                continue;
+            };
+            let mut loader = TxContextLoader::new(self.db.clone(), None);
+            let mut ctx = loader
+                .load_round(
+                    self.signer.xonly_public_key,
+                    round_idx,
+                    self.config.protocol_paramset(),
+                )
+                .await?;
+            let created = crate::builder::transaction::build_batch_cached(
+                &mut ctx,
+                &BatchName::RoundChain { round },
+                &mut tx_cache,
             )?;
 
-            let round_tx = txhandlers
-                .iter()
-                .find(|txhandler| txhandler.get_transaction_type() == TransactionType::Round)
-                .ok_or(eyre::eyre!("Round tx not found in txhandlers"))?;
+            let round_tx = created.get_required(TransactionType::Round(round))?;
             let collateral_outpoint = OutPoint {
-                txid: *round_tx.get_txid(),
-                vout: UtxoVout::CollateralInRound.get_vout(),
+                txid: round_tx.txid(),
+                vout: round_tx.output_index(RoundOutput::RemainingCollateral)?,
             };
-            outpoints.insert(collateral_outpoint, (round_idx, TransactionType::Round));
+            outpoints.insert(
+                collateral_outpoint,
+                (round_idx, TransactionType::Round(round)),
+            );
 
-            let ready_to_reimburse_tx = txhandlers
-                .iter()
-                .find(|txhandler| {
-                    txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
-                })
-                .ok_or(eyre::eyre!("Ready to reimburse tx not found in txhandlers"))?;
+            let ready_to_reimburse_tx =
+                created.get_required(TransactionType::ReadyToReimburse(round))?;
             let ready_to_reimburse_collateral_outpoint = OutPoint {
-                txid: *ready_to_reimburse_tx.get_txid(),
-                vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
+                txid: ready_to_reimburse_tx.txid(),
+                vout: ready_to_reimburse_tx.output_index(ReadyToReimburseOutput::Collateral)?,
             };
             outpoints.insert(
                 ready_to_reimburse_collateral_outpoint,
-                (round_idx, TransactionType::ReadyToReimburse),
+                (round_idx, TransactionType::ReadyToReimburse(round)),
             );
-            prev_ready_to_reimburse = Some(ready_to_reimburse_tx.clone());
         }
 
         Ok(outpoints)
@@ -2093,33 +2182,37 @@ where
     async fn advance_round_manually(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-        if round_idx == RoundIndex::Collateral {
+        if round_idx == BridgeRound::Collateral {
             // if current round is collateral, nothing to do except send the first round tx
             return self.send_next_round_tx(dbtx, round_idx).await;
         }
 
         // get round txhandlers
-        let context = ContractContext::new_context_for_round(
-            self.signer.xonly_public_key,
-            round_idx,
-            self.config.protocol_paramset(),
-        );
-
+        let mut loader = TxContextLoader::new(self.db.clone(), dbtx.as_deref_mut());
+        let mut ctx = loader
+            .load_round(
+                self.signer.xonly_public_key,
+                round_idx,
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::RoundChain {
+                round: round_idx.to_round_idx()?,
+            },
             self.config.clone(),
-            context,
+            self.db.clone(),
+            &mut ctx,
             None,
-            dbtx.as_deref_mut(),
         )
         .await?;
 
         let round_tx = txs
             .iter()
-            .find(|(tx_type, _)| tx_type == &TransactionType::Round)
+            .find(|(tx_type, _)| matches!(tx_type, TransactionType::Round(_)))
             .ok_or(eyre::eyre!("Round tx not found in txs"))?;
 
         if !self.rpc.is_tx_on_chain(&round_tx.1.compute_txid()).await? {
@@ -2129,7 +2222,7 @@ where
         // check if ready to reimburse tx was sent
         let ready_to_reimburse_tx = txs
             .iter()
-            .find(|(tx_type, _)| tx_type == &TransactionType::ReadyToReimburse)
+            .find(|(tx_type, _)| matches!(tx_type, TransactionType::ReadyToReimburse(_)))
             .ok_or(eyre::eyre!("Ready to reimburse tx not found in txs"))?;
 
         let mut txs_to_send = Vec::new();
@@ -2202,7 +2295,7 @@ where
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         round_txid: Txid,
         current_chain_height: u32,
     ) -> Result<(Vec<usize>, bool), BridgeError> {
@@ -2213,7 +2306,13 @@ where
         for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
             let kickoff_utxo = OutPoint {
                 txid: round_txid,
-                vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
+                vout: crate::protocol::tx::round::spec(
+                    self.config.protocol_paramset().num_kickoffs_per_round,
+                )
+                .output_index(&crate::protocol::tx::round::RoundOutput::Kickoff(
+                    kickoff_idx,
+                ))
+                .expect("round kickoff output must exist") as u32,
             };
             if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
                 unspent_kickoff_utxos.push(kickoff_idx);
@@ -2247,47 +2346,56 @@ where
     /// Creates a transaction that burns unused kickoff connectors.
     async fn create_burn_unused_kickoff_connectors_tx(
         &self,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         unspent_kickoff_utxos: &[usize],
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         tracing::info!(
             "There are unspent kickoff utxos {:?}, creating a tx that spends them",
             unspent_kickoff_utxos
         );
-        let operator_winternitz_public_keys = self.generate_kickoff_winternitz_pubkeys()?;
+        let round = round_idx.to_round_idx()?;
+        let requested =
+            TransactionType::BurnUnusedKickoffConnectors(round, unspent_kickoff_utxos.to_vec());
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
         let kickoff_wpks = KickoffWinternitzKeys::new(
-            operator_winternitz_public_keys,
+            self.db
+                .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
+                .await?,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
         )?;
-        // if there are unspent kickoff utxos, create a tx that spends them
-        let (round_txhandler, _ready_to_reimburse_txhandler) = create_round_nth_txhandler(
-            self.signer.xonly_public_key,
-            self.collateral_funding_outpoint,
-            self.config.protocol_paramset().collateral_funding_amount,
-            round_idx,
-            &kickoff_wpks,
+        let mut round_ctx = RoundBuildContext::new(
             self.config.protocol_paramset(),
-        )?;
+            round_idx,
+            operator_data,
+            kickoff_wpks,
+        );
         let mut burn_unused_kickoff_connectors_txhandler =
-            create_burn_unused_kickoff_connectors_txhandler(
-                &round_txhandler,
-                unspent_kickoff_utxos,
-                &self.reimburse_addr,
-                self.config.protocol_paramset(),
+            crate::builder::transaction::build_burn_unused_kickoff_connectors(
+                &mut round_ctx,
+                requested.clone(),
+                self.reimburse_addr.clone(),
             )?;
 
         // sign burn unused kickoff connectors tx
-        self.signer
-            .tx_sign_and_fill_sigs(&mut burn_unused_kickoff_connectors_txhandler, &[], None)
-            .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
+        apply_schnorr_signatures(
+            &self.signer,
+            &mut burn_unused_kickoff_connectors_txhandler,
+            &[],
+            None,
+        )
+        .wrap_err("Failed to collect burn unused kickoff connectors tx witness materials")?;
 
         let burn_unused_kickoff_connectors_txhandler =
-            burn_unused_kickoff_connectors_txhandler.promote()?;
+            burn_unused_kickoff_connectors_txhandler.ensure_fully_signed()?;
         Ok(vec![(
-            TransactionType::BurnUnusedKickoffConnectors,
+            requested,
             burn_unused_kickoff_connectors_txhandler
-                .get_cached_tx()
+                .transaction()
                 .clone(),
         )])
     }
@@ -2296,7 +2404,7 @@ where
     async fn validate_all_kickoff_finalizers_spent(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         current_chain_height: u32,
     ) -> Result<(), BridgeError> {
         // we need to check if all finalizers are spent
@@ -2314,9 +2422,21 @@ where
                     .db
                     .get_deposit_outpoint_for_kickoff_txid(dbtx.as_deref_mut(), kickoff_txid)
                     .await?;
+                let (_, deposit_data) = self
+                    .db
+                    .get_deposit_data(dbtx.as_deref_mut(), deposit_outpoint)
+                    .await?
+                    .ok_or_else(|| {
+                        eyre!("Deposit data not found for deposit {:?}", deposit_outpoint)
+                    })?;
                 let kickoff_finalizer_utxo = OutPoint {
                     txid: kickoff_txid,
-                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                    vout: crate::protocol::tx::kickoff::spec(
+                        crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs(),
+                        deposit_data.get_num_watchtowers(),
+                    )
+                    .output_index(&crate::protocol::tx::kickoff::KickoffOutput::Finalizer)
+                    .expect("kickoff finalizer output must exist") as u32,
                 };
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
                     return Err(eyre::eyre!(
@@ -2353,25 +2473,30 @@ where
     async fn send_next_round_tx(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-        let next_round_context = ContractContext::new_context_for_round(
-            self.signer.xonly_public_key,
-            round_idx.next_round(),
-            self.config.protocol_paramset(),
-        );
+        let mut loader = TxContextLoader::new(self.db.clone(), dbtx.as_deref_mut());
+        let mut ctx = loader
+            .load_round(
+                self.signer.xonly_public_key,
+                round_idx.next_round(),
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let next_round_txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::RoundChain {
+                round: round_idx.next_round().to_round_idx()?,
+            },
             self.config.clone(),
-            next_round_context,
+            self.db.clone(),
+            &mut ctx,
             None,
-            dbtx.as_deref_mut(),
         )
         .await?;
         let next_round_tx = next_round_txs
             .iter()
-            .find(|(tx_type, _)| tx_type == &TransactionType::Round)
+            .find(|(tx_type, _)| matches!(tx_type, TransactionType::Round(_)))
             .ok_or(eyre::eyre!("Next round tx not found in txs"))?;
         let next_round_txid = next_round_tx.1.compute_txid();
 
@@ -2398,25 +2523,35 @@ where
         block_hash: Option<[u8; 20]>,
     ) -> Result<(Vec<(TransactionType, Transaction)>, TxMetadata), BridgeError> {
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
-        let context = ContractContext::new_context_for_kickoff(
-            kickoff_data,
-            deposit_data,
-            self.config.protocol_paramset(),
-        );
+        let mut loader = TxContextLoader::new(self.db.clone(), Some(dbtx));
+        let mut ctx = loader
+            .load_kickoff(
+                kickoff_data,
+                deposit_data,
+                Some(&self.signer),
+                self.config.protocol_paramset(),
+            )
+            .await?;
         let signed_txs = create_and_sign_txs(
-            self.db.clone(),
             &self.signer,
+            BatchName::OperatorPostDepositSignable {
+                round: kickoff_data.bridge_round.to_round_idx()?,
+                kickoff: KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+            },
             self.config.clone(),
-            context,
+            self.db.clone(),
+            &mut ctx,
             block_hash,
-            Some(dbtx),
         )
         .await?;
 
         let tx_metadata = TxMetadata {
-            tx_type: TransactionType::Dummy,
+            tx_type: TransactionType::Kickoff(
+                kickoff_data.bridge_round.to_round_idx()?,
+                KickoffIdx::new(kickoff_data.kickoff_idx as usize),
+            ),
             operator_xonly_pk: Some(self.signer.xonly_public_key),
-            round_idx: Some(kickoff_data.round_idx),
+            round_idx: Some(kickoff_data.bridge_round),
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
         };
@@ -2440,12 +2575,18 @@ where
         let tx_metadata = Some(tx_metadata);
 
         for (tx_type, signed_tx) in &signed_txs {
-            match *tx_type {
-                TransactionType::ChallengeTimeout
-                | TransactionType::DisproveTimeout
-                | TransactionType::Reimburse => {
+            match tx_type {
+                TransactionType::ChallengeTimeout(_, _)
+                | TransactionType::DisproveTimeout(_, _)
+                | TransactionType::Reimburse(_, _) => {
                     self.tx_sender
-                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                        .add_tx_to_queue(
+                            dbtx,
+                            tx_type.clone(),
+                            signed_tx,
+                            tx_metadata.clone(),
+                            None,
+                        )
                         .await?;
                 }
                 _ => {}
@@ -2468,9 +2609,12 @@ where
         let tx_metadata = Some(tx_metadata);
 
         for (tx_type, signed_tx) in &signed_txs {
-            if let TransactionType::WatchtowerChallengeTimeout(_) = *tx_type {
+            if matches!(
+                tx_type,
+                TransactionType::WatchtowerChallengeTimeout(_, _, _)
+            ) {
                 self.tx_sender
-                    .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                    .add_tx_to_queue(dbtx, tx_type.clone(), signed_tx, tx_metadata.clone(), None)
                     .await?;
             }
         }
@@ -2493,10 +2637,16 @@ where
         let tx_metadata = Some(tx_metadata);
 
         for (tx_type, signed_tx) in &signed_txs {
-            if let TransactionType::OperatorChallengeAck(idx) = *tx_type {
-                if idx == watchtower_idx {
+            if let TransactionType::OperatorChallengeAck(_, _, idx) = tx_type {
+                if *idx == watchtower_idx {
                     self.tx_sender
-                        .add_tx_to_queue(dbtx, *tx_type, signed_tx, tx_metadata, None)
+                        .add_tx_to_queue(
+                            dbtx,
+                            tx_type.clone(),
+                            signed_tx,
+                            tx_metadata.clone(),
+                            None,
+                        )
                         .await?;
                 }
             }
@@ -2521,13 +2671,9 @@ where
 mod states {
 
     use super::*;
-    use crate::builder::transaction::{
-        create_txhandlers, ContractContext, ReimburseDbCache, TxHandler, TxHandlerCache,
-    };
+    use crate::protocol::ids::TransactionType;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner, StateManager};
-    use clementine_primitives::TransactionType;
-    use std::collections::BTreeMap;
 
     #[tonic::async_trait]
     impl<C> Owner for Operator<C>
@@ -2681,33 +2827,48 @@ mod states {
                         return Ok(DutyResult::Handled);
                     }
 
-                    let kickoff_wpks = KickoffWinternitzKeys::new(
-                        self.generate_kickoff_winternitz_pubkeys()?,
-                        self.config.protocol_paramset().num_kickoffs_per_round,
-                        self.config.protocol_paramset().num_round_txs,
-                    )?;
+                    let round = round_idx.to_round_idx().map_err(|_| {
+                        eyre::eyre!("QueueReadyToReimburse duty cannot target collateral round")
+                    })?;
 
-                    let (_, mut ready_to_reimburse_txhandler) = create_round_nth_txhandler(
-                        self.signer.xonly_public_key,
-                        self.collateral_funding_outpoint,
-                        self.config.protocol_paramset().collateral_funding_amount,
-                        round_idx,
-                        &kickoff_wpks,
-                        self.config.protocol_paramset(),
+                    let mut loader = TxContextLoader::new(self.db.clone(), Some(dbtx));
+                    let mut ctx = loader
+                        .load_round(
+                            self.signer.xonly_public_key,
+                            round_idx,
+                            self.config.protocol_paramset(),
+                        )
+                        .await?;
+                    let mut txhandlers = crate::builder::transaction::build_batch(
+                        &mut ctx,
+                        &crate::builder::transaction::BatchName::Tx(
+                            TransactionType::ReadyToReimburse(round),
+                        ),
                     )?;
+                    let mut ready_to_reimburse_txhandler =
+                        txhandlers.take_required(TransactionType::ReadyToReimburse(round))?;
 
-                    self.signer
-                        .tx_sign_and_fill_sigs(&mut ready_to_reimburse_txhandler, &[], None)
+                    apply_schnorr_signatures(
+                        &self.signer,
+                        &mut ready_to_reimburse_txhandler,
+                        &[],
+                        None,
+                    )
+                    .wrap_err("Failed to collect ready to reimburse tx witness materials")?;
+                    let ready_to_reimburse_txhandler = ready_to_reimburse_txhandler
+                        .ensure_fully_signed()
                         .wrap_err("Failed to sign ready to reimburse tx")?;
 
-                    let tx = ready_to_reimburse_txhandler.get_cached_tx();
+                    let tx = ready_to_reimburse_txhandler.transaction();
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
-                            TransactionType::ReadyToReimburse,
+                            TransactionType::ReadyToReimburse(round),
                             tx,
                             Some(TxMetadata {
-                                tx_type: TransactionType::ReadyToReimburse,
+                                tx_type: TransactionType::ReadyToReimburse(
+                                    round_idx.to_round_idx()?,
+                                ),
                                 operator_xonly_pk: Some(self.signer.xonly_public_key),
                                 round_idx: Some(round_idx),
                                 kickoff_idx: None,
@@ -2729,22 +2890,8 @@ mod states {
             }
         }
 
-        async fn create_txhandlers(
-            &self,
-            dbtx: DatabaseTransaction<'_>,
-            tx_type: TransactionType,
-            contract_context: ContractContext,
-        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            let mut db_cache =
-                ReimburseDbCache::from_context(self.db.clone(), &contract_context, Some(dbtx));
-            let txhandlers = create_txhandlers(
-                tx_type,
-                contract_context,
-                &mut TxHandlerCache::new(),
-                &mut db_cache,
-            )
-            .await?;
-            Ok(txhandlers)
+        fn database(&self) -> Database {
+            self.db.clone()
         }
 
         fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {

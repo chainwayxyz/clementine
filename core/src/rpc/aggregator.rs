@@ -13,8 +13,7 @@ use crate::aggregator::{
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, Signed, TxHandler,
+    DepositBuildContext, TxCacheExt, TxHandler, WithdrawalBuildContext,
 };
 use crate::compatibility::ActorWithConfig;
 use crate::config::BridgeConfig;
@@ -27,6 +26,7 @@ use crate::constants::{
 };
 use crate::deposit::{Actors, DepositData, DepositInfo};
 use crate::musig2::AggregateFromPublicKeys;
+use crate::protocol::ids::TransactionType;
 use crate::rpc::clementine::{
     operator_withrawal_response, AggregatorWithdrawalInput, CompatibilityParamsRpc,
     EntitiesCompatibilityData, OperatorWithrawalResponse, VerifierDepositSignParams,
@@ -34,15 +34,20 @@ use crate::rpc::clementine::{
 use crate::rpc::parser;
 #[cfg(feature = "automation")]
 use crate::tx_sender_queue::TxSenderClientQueueExt;
+#[cfg(feature = "automation")]
+use crate::utils::FeePayingType;
 use crate::utils::{
     flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
     try_join_all_combine_errors, ScriptBufExt,
 };
-use crate::utils::{FeePayingType, TxMetadata};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
     musig2::aggregate_nonces,
+    protocol::tx::{
+        emergency_stop::EmergencyStopInput, move_to_vault::MoveToVaultInput,
+        optimistic_payout::OptimisticPayoutInput,
+    },
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
@@ -50,9 +55,10 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use clementine_errors::BridgeError;
-use clementine_errors::TransactionType;
 use clementine_errors::{ErrorExt, ResultExt};
 use clementine_primitives::UTXO;
+#[cfg(feature = "automation")]
+use clementine_utils::TxMetadata;
 use eyre::{Context, OptionExt};
 use futures::future::join_all;
 use futures::{
@@ -63,6 +69,8 @@ use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce};
 use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
+use tx_builder::witness::WitnessInput;
+use tx_builder::witness_material::WitnessMaterialExt;
 struct AggNonceQueueItem {
     agg_nonce: AggregatedNonce,
     sighash: TapSighash,
@@ -130,7 +138,13 @@ async fn nonce_aggregator(
     }
 
     while let Some(msg) = sighash_stream.next().await {
-        let (sighash, siginfo) = msg.wrap_err("Sighash stream failed")?;
+        let (sighash, siginfo) = msg
+            .inspect_err(|e| {
+                tracing::error!("Failed to read from sighash stream: {e:#?}");
+            })
+            .wrap_err("Sighash stream failed")?;
+
+        tracing::trace!("Received sighash #{total_sigs} with siginfo: {siginfo:?}");
 
         total_sigs += 1;
 
@@ -142,7 +156,7 @@ async fn nonce_aggregator(
 
         tracing::trace!(
             "Received nonces for signature id {:?} in nonce_aggregator",
-            siginfo.signature_id
+            siginfo.input_id
         );
 
         let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice())?;
@@ -156,7 +170,7 @@ async fn nonce_aggregator(
 
         tracing::trace!(
             "Sent nonces for signature id {:?} in nonce_aggregator",
-            siginfo.signature_id
+            siginfo.input_id
         );
     }
     tracing::trace!(tmp_debug = 1, "Sent {total_sigs} to agg_nonce stream");
@@ -812,19 +826,17 @@ impl Aggregator {
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_and_pub_nonces: (AggregatedNonce, Vec<PublicNonce>),
         deposit_params: DepositParams,
-    ) -> Result<TxHandler<Signed>, Status> {
-        let mut deposit_data: DepositData = deposit_params.try_into()?;
+    ) -> Result<TxHandler, Status> {
+        let deposit_data: DepositData = deposit_params.try_into()?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
+        let mut move_ctx =
+            DepositBuildContext::new(self.config.protocol_paramset(), deposit_data.clone());
         let mut move_txhandler =
-            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?;
+            crate::builder::transaction::build_tx(&mut move_ctx, TransactionType::MoveToVault)?;
 
-        let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
-            0,
-            0,
-            bitcoin::TapSighashType::Default,
-        )?;
+        let sighash = move_txhandler.tap_sighash_for_input(MoveToVaultInput::DepositOutpoint)?;
 
         let musig_sigs_and_nonces = musig_partial_sigs
             .into_iter()
@@ -842,9 +854,10 @@ impl Aggregator {
         )?;
 
         // Put the signature in the tx
-        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
+        move_txhandler
+            .fill_witness_entry(MoveToVaultInput::DepositOutpoint.signature(final_sig))?;
 
-        Ok(move_txhandler.promote()?)
+        Ok(move_txhandler.ensure_fully_signed()?)
     }
 
     async fn verify_and_save_emergency_stop_sigs(
@@ -853,27 +866,30 @@ impl Aggregator {
         emergency_stop_agg_and_pub_nonces: (AggregatedNonce, Vec<PublicNonce>),
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
-        let mut deposit_data: DepositData = deposit_params
+        let deposit_data: DepositData = deposit_params
             .try_into()
             .wrap_err("Failed to convert deposit params to deposit data")?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)
             .wrap_err("Failed to parse emergency stop signatures")?;
 
         // create move tx and calculate sighash
-        let move_txhandler =
-            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?;
-
-        let mut emergency_stop_txhandler = create_emergency_stop_txhandler(
-            &mut deposit_data,
-            &move_txhandler,
-            self.config.protocol_paramset(),
+        let mut deposit_ctx =
+            DepositBuildContext::new(self.config.protocol_paramset(), deposit_data.clone());
+        let mut txhandlers = crate::builder::transaction::build_batch(
+            &mut deposit_ctx,
+            &crate::builder::transaction::BatchName::Txs(vec![
+                TransactionType::MoveToVault,
+                TransactionType::EmergencyStop,
+            ]),
         )?;
+        let move_to_vault_txid = *txhandlers
+            .get_required(TransactionType::MoveToVault)?
+            .txid_ref();
+        let mut emergency_stop_txhandler =
+            txhandlers.take_required(TransactionType::EmergencyStop)?;
 
-        let sighash = emergency_stop_txhandler.calculate_script_spend_sighash_indexed(
-            0,
-            0,
-            bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
-        )?;
+        let sighash =
+            emergency_stop_txhandler.tap_sighash_for_input(EmergencyStopInput::DepositInMove)?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -897,10 +913,11 @@ impl Aggregator {
         };
 
         // insert the signature into the tx
-        emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
+        emergency_stop_txhandler.fill_witness_entry(
+            EmergencyStopInput::DepositInMove.witness_input(WitnessInput::CheckSig(final_sig)),
+        )?;
 
-        let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
-        let move_to_vault_txid = move_txhandler.get_txid();
+        let emergency_stop_tx = emergency_stop_txhandler.transaction();
 
         tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
@@ -916,7 +933,7 @@ impl Aggregator {
         self.db
             .insert_signed_emergency_stop_tx_if_not_exists(
                 None,
-                move_to_vault_txid,
+                &move_to_vault_txid,
                 &encrypted_emergency_stop_tx,
             )
             .await?;
@@ -939,7 +956,7 @@ impl Aggregator {
                     operator_xonly_pk: None,
                     round_idx: None,
                     kickoff_idx: None,
-                    tx_type: TransactionType::EmergencyStop,
+                    tx_type: clementine_primitives::TransactionType::EmergencyStop,
                 }),
                 &tx,
                 FeePayingType::RBF,
@@ -1099,23 +1116,45 @@ impl ClementineAggregator for AggregatorServer {
                 .get_deposit_data_with_move_tx(None, move_txid)
                 .await?;
 
-            let mut deposit_data = deposit_data
+            let deposit_data = deposit_data
                 .ok_or(eyre::eyre!(
                     "Deposit data not found for move txid {}",
                     move_txid
                 ))
                 .map_err(BridgeError::from)?;
 
-            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
-                &mut deposit_data,
-                withdrawal_utxo,
-                output_txout,
-                input_signature,
+            let mut withdrawal_ctx = WithdrawalBuildContext::new(
                 self.config.protocol_paramset(),
-            )?;
+                Some(deposit_data.clone()),
+                crate::builder::transaction::WithdrawalData {
+                    input_utxo: withdrawal_utxo,
+                    output_txout,
+                    operator_xonly_pk: user_xonly_pk,
+                },
+            );
+            let mut opt_payout_txhandler = crate::builder::transaction::build_tx(
+                &mut withdrawal_ctx,
+                TransactionType::OptimisticPayout,
+            )
+            .map_to_status()?;
+            opt_payout_txhandler
+                .fill_witness_entry(
+                    OptimisticPayoutInput::WithdrawalUtxo
+                        .witness_input(WitnessInput::KeySpend(input_signature)),
+                )
+                .map_to_status()?;
 
+            let expected_sighash_type = opt_payout_txhandler
+                .sighash_type_for_input(OptimisticPayoutInput::WithdrawalUtxo)?;
+            if input_signature.sighash_type != expected_sighash_type {
+                return Err(eyre::eyre!(
+                    "Invalid optimistic payout sighash type: expected {expected_sighash_type:?}, got {:?}",
+                    input_signature.sighash_type
+                )
+                .into_status());
+            }
             let sighash = opt_payout_txhandler
-                .calculate_pubkey_spend_sighash(0, input_signature.sighash_type)?;
+                .tap_sighash_for_input(OptimisticPayoutInput::WithdrawalUtxo)?;
 
             let message = Message::from_digest(sighash.to_byte_array());
 
@@ -1188,11 +1227,8 @@ impl ClementineAggregator for AggregatorServer {
 
             // calculate final sig
             // txin at index 1 is deposited utxo in movetx
-            let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
-                1,
-                0,
-                bitcoin::TapSighashType::Default,
-            )?;
+            let sighash =
+                opt_payout_txhandler.tap_sighash_for_input(OptimisticPayoutInput::DepositInMove)?;
 
             let musig_partial_sigs = payout_sigs
                 .into_iter()
@@ -1211,6 +1247,9 @@ impl ClementineAggregator for AggregatorServer {
                 .zip(pub_nonces)
                 .collect::<Vec<_>>();
 
+            let vault_input_sighash_type = opt_payout_txhandler
+                .sighash_type_for_input(OptimisticPayoutInput::DepositInMove)?;
+
             let final_sig = bitcoin::taproot::Signature {
                 signature: crate::musig2::aggregate_partial_signatures(
                     deposit_data.get_verifiers(),
@@ -1219,13 +1258,16 @@ impl ClementineAggregator for AggregatorServer {
                     &musig_sigs_and_nonces,
                     Message::from_digest(sighash.to_byte_array()),
                 )?,
-                sighash_type: bitcoin::TapSighashType::Default,
+                sighash_type: vault_input_sighash_type,
             };
 
             // set witness and send tx
-            opt_payout_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 1, 0)?;
-            let opt_payout_txhandler = opt_payout_txhandler.promote()?;
-            let opt_payout_tx = opt_payout_txhandler.get_cached_tx();
+            opt_payout_txhandler.fill_witness_entry(
+                OptimisticPayoutInput::DepositInMove
+                    .witness_input(WitnessInput::CheckSig(final_sig)),
+            )?;
+            let opt_payout_txhandler = opt_payout_txhandler.ensure_fully_signed()?;
+            let opt_payout_tx = opt_payout_txhandler.transaction();
             tracing::info!(
                 "Optimistic payout transaction created successfully for deposit id: {:?}",
                 deposit_id
@@ -1783,7 +1825,7 @@ impl ClementineAggregator for AggregatorServer {
                 .await?;
 
             let raw_signed_tx = RawSignedTx {
-                raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
+                raw_tx: bitcoin::consensus::serialize(signed_movetx_handler.transaction()),
             };
 
             tracing::info!("Created final move transaction for deposit {:?}", deposit_info);
@@ -1972,13 +2014,10 @@ impl ClementineAggregator for AggregatorServer {
         #[cfg(feature = "automation")]
         {
             use bitcoin::Amount;
-            use std::sync::Arc;
 
-            use crate::builder::{
-                address::create_taproot_address,
-                script::{CheckSig, Multisig, SpendableScript},
-                transaction::anchor_output,
-            };
+            use crate::builder::{address::create_taproot_address, transaction::anchor_output};
+            use tx_builder::script::SpendableScript;
+            use tx_builder::scripts::{CheckSig, Multisig};
 
             let request = request.into_inner();
             let movetx: bitcoin::Transaction = bitcoin::consensus::deserialize(
@@ -2029,10 +2068,11 @@ impl ClementineAggregator for AggregatorServer {
                         ))
                     },
                 )?;
-            let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
-            let security_council_script = Arc::new(Multisig::from_security_council(
-                self.config.security_council.clone(),
-            ));
+            let nofn_script = CheckSig::new(nofn_xonly_pk);
+            let security_council_script = Multisig::new(
+                self.config.security_council.pks.clone(),
+                self.config.security_council.threshold,
+            );
 
             let (addr, _) = create_taproot_address(
                 &[
@@ -2066,7 +2106,7 @@ impl ClementineAggregator for AggregatorServer {
                         operator_xonly_pk: None,
                         round_idx: None,
                         kickoff_idx: None,
-                        tx_type: TransactionType::MoveToVault,
+                        tx_type: clementine_primitives::TransactionType::MoveToVault,
                     }),
                     &movetx,
                     FeePayingType::CPFP,
@@ -2087,7 +2127,7 @@ impl ClementineAggregator for AggregatorServer {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
-    use crate::builder;
+
     use crate::config::BridgeConfig;
     use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
     use crate::musig2::AggregateFromPublicKeys;
@@ -2120,6 +2160,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "automation")]
     async fn aggregator_double_deposit() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -2142,13 +2183,13 @@ mod tests {
         let nofn_xonly_pk =
             bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
-        let deposit_address = builder::address::generate_deposit_address(
+        let deposit_address = crate::deposit::DepositSpendTree::from_base_deposit(
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
+        .and_then(|tree| tree.taproot_address(config.protocol_paramset().network))
         .unwrap()
         .0;
 
@@ -2218,6 +2259,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "automation")]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -2240,13 +2282,13 @@ mod tests {
         let nofn_xonly_pk =
             bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
-        let deposit_address = builder::address::generate_deposit_address(
+        let deposit_address = crate::deposit::DepositSpendTree::from_base_deposit(
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
+        .and_then(|tree| tree.taproot_address(config.protocol_paramset().network))
         .unwrap()
         .0;
 
@@ -2301,7 +2343,8 @@ mod tests {
         .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "automation")]
     async fn aggregator_two_deposit_movetx_and_emergency_stop() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -2324,23 +2367,23 @@ mod tests {
         let nofn_xonly_pk =
             bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
-        let deposit_address_0 = builder::address::generate_deposit_address(
+        let deposit_address_0 = crate::deposit::DepositSpendTree::from_base_deposit(
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
+        .and_then(|tree| tree.taproot_address(config.protocol_paramset().network))
         .unwrap()
         .0;
 
-        let deposit_address_1 = builder::address::generate_deposit_address(
+        let deposit_address_1 = crate::deposit::DepositSpendTree::from_base_deposit(
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
+        .and_then(|tree| tree.taproot_address(config.protocol_paramset().network))
         .unwrap()
         .0;
 

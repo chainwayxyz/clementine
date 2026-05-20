@@ -1,13 +1,13 @@
 //! Core-specific txsender queue helpers.
 //!
 //! `clementine-tx-sender` intentionally exposes only a low-level, transactional
-//! `insert_try_to_send` API. The mapping from [`TransactionType`]
+//! `insert_try_to_send` API. The mapping from transaction ids
 //! to tx-sender fee strategies ([`FeePayingType`]) is Clementine-core specific
 //! and lives here.
 
+use crate::protocol::ids::TransactionType;
 use bitcoin::Transaction;
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 
 use crate::tx_sender::{TxSenderClient, TxSenderTransaction};
@@ -18,7 +18,7 @@ pub trait TxSenderClientQueueExt {
     ///
     /// This function is a core-level wrapper around [`TxSenderClient::insert_try_to_send`].
     /// It determines the appropriate [`FeePayingType`] for the given
-    /// [`TransactionType`].
+    /// transaction id.
     ///
     /// IMPORTANT: `insert_try_to_send` is transactional. This helper requires an active
     /// DB transaction and will not partially insert state.
@@ -43,45 +43,12 @@ impl TxSenderClientQueueExt for TxSenderClient {
         rbf_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let tx_metadata = tx_metadata.map(|mut data| {
-            data.tx_type = tx_type;
+            data.tx_type = tx_type.clone();
             data
         });
 
         match tx_type {
-            TransactionType::Kickoff
-            | TransactionType::Dummy
-            | TransactionType::ChallengeTimeout
-            | TransactionType::DisproveTimeout
-            | TransactionType::Reimburse
-            | TransactionType::Round
-            | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::UnspentKickoff(_)
-            | TransactionType::MoveToVault
-            | TransactionType::BurnUnusedKickoffConnectors
-            | TransactionType::KickoffNotFinalized
-            | TransactionType::MiniAssert(_)
-            | TransactionType::LatestBlockhashTimeout
-            | TransactionType::LatestBlockhash
-            | TransactionType::EmergencyStop
-            | TransactionType::OptimisticPayout
-            | TransactionType::ReadyToReimburse
-            | TransactionType::ReplacementDeposit
-            | TransactionType::AssertTimeout(_)
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::WatchtowerChallengeTimeout(_)
-            | TransactionType::OperatorChallengeAck(_) => {
-                // no_dependency and cpfp
-                self.insert_try_to_send(
-                    dbtx,
-                    tx_metadata,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    rbf_info,
-                    &[],
-                )
-                .await
-            }
-            TransactionType::Challenge | TransactionType::Payout => {
+            TransactionType::Challenge(_, _) | TransactionType::Payout => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -92,7 +59,7 @@ impl TxSenderClientQueueExt for TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Disprove => {
+            TransactionType::Disprove(_, _) => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
@@ -103,10 +70,16 @@ impl TxSenderClientQueueExt for TxSenderClient {
                 )
                 .await
             }
-            TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
-                unreachable!(
-                    "Higher level transaction types should not be added to the txsender queue"
-                );
+            _ => {
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_metadata,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    rbf_info,
+                    &[],
+                )
+                .await
             }
         }
     }

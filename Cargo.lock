@@ -2272,6 +2272,7 @@ dependencies = [
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber 0.3.20",
+ "tx-builder",
  "url",
  "vergen-git2",
  "wiremock",
@@ -8793,6 +8794,18 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "static_assertions",
+]
+
+[[package]]
+name = "tx-builder"
+version = "0.6.4"
+dependencies = [
+ "bitcoin",
+ "bitvm",
+ "clementine-errors",
+ "clementine-primitives",
+ "eyre",
+ "serde",
 ]
 
 [[package]]

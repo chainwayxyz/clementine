@@ -2,10 +2,6 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 use crate::aggregator::VerifierId;
-#[cfg(test)]
-use crate::bitvm_client::SECP;
-#[cfg(test)]
-use bitcoin::secp256k1::SecretKey;
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
@@ -42,7 +38,7 @@ pub fn from_secp_pk(pk: secp256k1::PublicKey) -> PublicKey {
 }
 
 #[cfg(test)]
-pub fn to_secp_sk(sk: SecretKey) -> secp256k1::SecretKey {
+pub fn to_secp_sk(sk: bitcoin::secp256k1::SecretKey) -> secp256k1::SecretKey {
     secp256k1::SecretKey::from_slice(&sk.secret_bytes()).expect("serialized secret key is valid")
 }
 
@@ -53,7 +49,8 @@ pub fn to_secp_kp(kp: &Keypair) -> secp256k1::Keypair {
 
 #[cfg(test)]
 pub fn from_secp_kp(kp: &secp256k1::Keypair) -> Keypair {
-    Keypair::from_seckey_slice(&SECP, &kp.secret_bytes()).expect("serialized secret key is valid")
+    Keypair::from_seckey_slice(&crate::bitvm_client::SECP, &kp.secret_bytes())
+        .expect("serialized secret key is valid")
 }
 
 pub fn from_secp_sig(sig: secp256k1::schnorr::Signature) -> schnorr::Signature {
@@ -292,14 +289,15 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
-    use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
     use crate::builder::transaction::DEFAULT_SEQUENCE;
-    use crate::rpc::clementine::NormalSignatureKind;
+    use crate::protocol::ids::TransactionType;
+    use crate::protocol::spec::SpendSpec;
+    use crate::protocol::tx::{move_to_vault::MoveToVaultOutput, payout::PayoutInput};
     use crate::{
         bitvm_client::{self, SECP},
         builder::{
             self,
-            transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
+            transaction::{output::UnspentTxOut, TxHandlerBuilder},
         },
         musig2::{
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
@@ -311,13 +309,13 @@ mod tests {
         key::Keypair,
         script,
         secp256k1::{schnorr, Message, PublicKey},
-        Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
+        Amount, OutPoint, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
     };
     use clementine_errors::BridgeError;
-    use clementine_primitives::TransactionType;
     use secp256k1::rand::Rng;
-    use std::sync::Arc;
     use std::vec;
+    use tx_builder::script::{ScriptLeaf, ScriptNode};
+    use tx_builder::scripts::{CheckSig, OtherSpendable};
 
     /// Generates random key and nonce pairs for a given number of signers.
     fn create_key_and_nonce_pairs(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
@@ -588,8 +586,7 @@ mod tests {
         .unwrap();
 
         let dummy_script = script::Builder::new().push_int(1).into_script();
-        let scripts: Vec<Arc<dyn SpendableScript>> =
-            vec![Arc::new(OtherSpendable::new(dummy_script))];
+        let scripts = [ScriptLeaf::Other(OtherSpendable::new(dummy_script))];
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
             *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
@@ -614,29 +611,33 @@ mod tests {
             txid: Txid::from_byte_array([0u8; 32]),
             vout: 0,
         };
-        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
+        let mut builder = TxHandlerBuilder::new(TransactionType::MoveToVault);
         builder = builder
             .add_input(
-                NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new(
+                PayoutInput::WithdrawalUtxo,
+                crate::builder::transaction::spendable_txin(
                     utxo,
                     prevout.clone(),
-                    scripts.clone(),
+                    scripts.iter().cloned().map(ScriptNode::from).collect(),
+                    vec![],
                     Some(sending_address_spend_info.clone()),
                 ),
-                builder::script::SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
+                crate::builder::transaction::input_descriptor(SpendSpec::key_spend()),
             )
-            .add_output(UnspentTxOut::from_partial(TxOut {
-                value: Amount::from_sat(99_000_000),
-                script_pubkey: receiving_address.script_pubkey(),
-            }));
+            .add_output(
+                MoveToVaultOutput::DepositInMove,
+                UnspentTxOut::from_partial(TxOut {
+                    value: Amount::from_sat(99_000_000),
+                    script_pubkey: receiving_address.script_pubkey(),
+                }),
+            );
 
         let tx_details = builder.finalize();
 
         let message = Message::from_digest(
             tx_details
-                .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+                .tap_sighash_for_input(PayoutInput::WithdrawalUtxo)
                 .unwrap()
                 .to_byte_array(),
         );
@@ -699,8 +700,9 @@ mod tests {
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
 
-        let scripts: Vec<Arc<dyn SpendableScript>> =
-            vec![Arc::new(CheckSig::new(musig_agg_xonly_pubkey_wrapped))];
+        let scripts = [ScriptLeaf::CheckSig(CheckSig::new(
+            musig_agg_xonly_pubkey_wrapped,
+        ))];
 
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
@@ -727,27 +729,35 @@ mod tests {
             vout: 0,
         };
 
-        let tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
+        let tx_details = TxHandlerBuilder::new(TransactionType::MoveToVault)
             .add_input(
-                NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new(
+                PayoutInput::WithdrawalUtxo,
+                crate::builder::transaction::spendable_txin(
                     utxo,
                     prevout,
-                    scripts,
+                    scripts.iter().cloned().map(ScriptNode::from).collect(),
+                    vec![],
                     Some(sending_address_spend_info.clone()),
                 ),
-                builder::script::SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
+                crate::builder::transaction::input_descriptor(SpendSpec::reveal_required()),
             )
-            .add_output(UnspentTxOut::from_partial(TxOut {
-                value: Amount::from_sat(99_000_000),
-                script_pubkey: receiving_address.script_pubkey(),
-            }))
+            .add_output(
+                MoveToVaultOutput::DepositInMove,
+                UnspentTxOut::from_partial(TxOut {
+                    value: Amount::from_sat(99_000_000),
+                    script_pubkey: receiving_address.script_pubkey(),
+                }),
+            )
             .finalize();
 
         let message = Message::from_digest(
             tx_details
-                .calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)
+                .tap_script_sighash_for_input_script(
+                    PayoutInput::WithdrawalUtxo,
+                    scripts[0].to_script_buf().as_script(),
+                    bitcoin::TapSighashType::Default,
+                )
                 .unwrap()
                 .to_byte_array(),
         );

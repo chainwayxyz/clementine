@@ -1,15 +1,19 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-use crate::builder::transaction::{input::UtxoVout, ContractContext, TxHandler};
+use crate::builder::transaction::{BatchName, TxCacheExt, TxContextLoader, TxHandler};
 use crate::deposit::OperatorData;
+use crate::protocol::ids::{RoundIdx, TransactionType};
+use crate::protocol::tx::{
+    kickoff::KickoffOutput,
+    ready_to_reimburse::{self, ReadyToReimburseOutput},
+    round::RoundOutput,
+};
 use crate::states::context::DutyResult;
 use bitcoin::{OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
-use clementine_errors::TxError;
-use clementine_primitives::RoundIndex;
-use clementine_primitives::TransactionType;
+use clementine_primitives::BridgeRound;
 use clementine_primitives::NUMBER_OF_ASSERT_TXS;
 
 use super::{
@@ -30,16 +34,16 @@ pub enum RoundEvent {
         kickoff_outpoint: OutPoint,
     },
     /// Event that is dispatched when the next ready to reimburse tx is mined.
-    ReadyToReimburseSent { round_idx: RoundIndex },
+    ReadyToReimburseSent { round_idx: BridgeRound },
     /// Event that is dispatched when the next round tx is mined.
-    RoundSent { round_idx: RoundIndex },
+    RoundSent { round_idx: BridgeRound },
     /// This event is sent if operators collateral was spent in any way other than default behaviour (default is round -> ready to reimburse -> round -> ready to reimburse -> ...)
     /// It means operator stopped participating in the protocol and can no longer participate in clementine bridge protocol.
     OperatorExit,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
     /// Event to flag that the current round is challenged, it should only be sent and handled if current state is round_tx
-    SetChallenged { round_idx: RoundIndex },
+    SetChallenged { round_idx: BridgeRound },
     /// Event dispatched when a kickoff finalizer outpoint is spent for a possible kickoff.
     /// This is tracked for kickoffs that returned yes from CheckIfKickoff or looked like
     /// a kickoff based on tx structure (1 input, >= expected number of outputs).
@@ -77,7 +81,7 @@ pub struct RoundStateMachine<T: Owner> {
     /// serde default is used to ensure backwards compatibility with old state machines.
     /// Why store like this instead of local storage of round_tx state? Because an operator might start a kickoff and instantly move to the next round (which should get it slashed).
     #[serde(default)]
-    pub(crate) challenged_rounds: HashSet<RoundIndex>,
+    pub(crate) challenged_rounds: HashSet<BridgeRound>,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -155,10 +159,9 @@ impl<T: Owner> RoundStateMachine<T> {
                 // Be conservative if the kickoff signature data is unavailable. A
                 // real kickoff and burn-unused-kickoff-connectors have different
                 // shapes unless the operator intentionally griefs themselves.
-                let min_outputs = UtxoVout::Assert(0).get_vout() as usize
-                    + NUMBER_OF_ASSERT_TXS
-                    + 1 // anchor
-                    + 2; // at least one watchtower (challenge + ack)
+                let min_outputs = crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 1)
+                    .outputs
+                    .len();
                 tx.input.len() == 1 && tx.output.len() >= min_outputs
             }
             _ => false,
@@ -178,7 +181,9 @@ impl<T: Owner> RoundStateMachine<T> {
 
         let finalizer_outpoint = OutPoint {
             txid: kickoff_txid,
-            vout: UtxoVout::KickoffFinalizer.get_vout(),
+            vout: crate::protocol::tx::kickoff::spec(NUMBER_OF_ASSERT_TXS, 1)
+                .output_index(&KickoffOutput::Finalizer)
+                .expect("kickoff finalizer output must exist") as u32,
         };
 
         let spending_height = {
@@ -213,7 +218,7 @@ impl<T: Owner> RoundStateMachine<T> {
     /// finalizer tracking before queue readiness is checked.
     async fn reconcile_used_kickoffs_from_syncer(
         &mut self,
-        round_idx: &RoundIndex,
+        round_idx: &BridgeRound,
         used_kickoffs: &HashSet<usize>,
         possible_kickoffs: &mut HashMap<usize, Txid>,
         kickoff_finalizers_spent: &mut HashSet<usize>,
@@ -232,7 +237,7 @@ impl<T: Owner> RoundStateMachine<T> {
 
         for kickoff_idx in missing_kickoffs {
             let kickoff_outpoint = *round_txhandler
-                .get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?
+                .get_spendable_output(RoundOutput::Kickoff(kickoff_idx))?
                 .get_prev_outpoint();
 
             let spending_tx_info = {
@@ -352,28 +357,30 @@ impl<T: Owner> RoundStateMachine<T> {
                 {
                     self.matchers.clear();
 
-                    // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
-                    let contract_context = ContractContext::new_context_for_round(
-                        self.operator_data.xonly_pk,
-                        RoundIndex::Round(0),
-                        context.config.protocol_paramset,
-                    );
-
                     let mut guard = context.shared_dbtx.lock().await;
-                    let round_txhandlers = context
-                        .owner
-                        .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
+                    let round_idx0 = RoundIdx::new(0);
+                    let mut loader =
+                        TxContextLoader::new(context.owner.database(), Some(&mut guard));
+                    let mut ctx = loader
+                        .load_round(
+                            self.operator_data.xonly_pk,
+                            BridgeRound::Round(0),
+                            context.config.protocol_paramset,
+                        )
                         .await?;
+                    let round_txhandlers = crate::builder::transaction::build_batch(
+                        &mut ctx,
+                        &BatchName::Tx(TransactionType::Round(round_idx0)),
+                    )?;
                     drop(guard);
                     let round_txid = round_txhandlers
-                        .get(&TransactionType::Round)
-                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
-                        .get_txid();
+                        .get_required(TransactionType::Round(round_idx0))?
+                        .txid_ref();
                     // if round tx is sent, we can send the round sent event
                     self.matchers.insert(
                         matcher::Matcher::SentTx(*round_txid),
                         RoundEvent::RoundSent {
-                            round_idx: RoundIndex::Round(0),
+                            round_idx: BridgeRound::Round(0),
                         },
                     );
                     // If the tx the collateral is spent on is not the round tx, we dispatch the operator exit event.
@@ -399,7 +406,7 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn round_tx(
         &mut self,
         event: &RoundEvent,
-        round_idx: &mut RoundIndex,
+        round_idx: &mut BridgeRound,
         used_kickoffs: &mut HashSet<usize>,
         possible_kickoffs: &mut HashMap<usize, Txid>,
         kickoff_finalizers_spent: &mut HashSet<usize>,
@@ -565,7 +572,7 @@ impl<T: Owner> RoundStateMachine<T> {
     #[allow(unused_variables)]
     pub(crate) async fn on_round_tx_exit(
         &mut self,
-        round_idx: &mut RoundIndex,
+        round_idx: &mut BridgeRound,
         used_kickoffs: &mut HashSet<usize>,
         possible_kickoffs: &mut HashMap<usize, Txid>,
         kickoff_finalizers_spent: &mut HashSet<usize>,
@@ -596,7 +603,7 @@ impl<T: Owner> RoundStateMachine<T> {
     #[allow(unused_variables)]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
-        round_idx: &mut RoundIndex,
+        round_idx: &mut BridgeRound,
         used_kickoffs: &mut HashSet<usize>,
         possible_kickoffs: &mut HashMap<usize, Txid>,
         kickoff_finalizers_spent: &mut HashSet<usize>,
@@ -610,34 +617,36 @@ impl<T: Owner> RoundStateMachine<T> {
                     // last round has index num_round_txs and is there only for reimbursement generators of previous round
                     // nothing is signed with them
                     if *round_idx
-                        == RoundIndex::Round(context.config.protocol_paramset.num_round_txs)
+                        == BridgeRound::Round(context.config.protocol_paramset.num_round_txs)
                     {
                         Ok::<(), BridgeError>(())
                     } else {
-                        let contract_context = ContractContext::new_context_for_round(
-                            self.operator_data.xonly_pk,
-                            *round_idx,
-                            context.config.protocol_paramset,
-                        );
-
                         let mut guard = context.shared_dbtx.lock().await;
-                        let mut txhandlers = context
-                            .owner
-                            .create_txhandlers(&mut guard, TransactionType::Round, contract_context)
+                        let round_idx_typed = (*round_idx).to_round_idx()?;
+                        let mut loader =
+                            TxContextLoader::new(context.owner.database(), Some(&mut guard));
+                        let mut ctx = loader
+                            .load_round(
+                                self.operator_data.xonly_pk,
+                                *round_idx,
+                                context.config.protocol_paramset,
+                            )
                             .await?;
+                        let mut txhandlers = crate::builder::transaction::build_batch(
+                            &mut ctx,
+                            &BatchName::RoundChain {
+                                round: round_idx_typed,
+                            },
+                        )?;
                         drop(guard);
 
-                        let round_txhandler = txhandlers
-                            .remove(&TransactionType::Round)
-                            .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
+                        let round_txhandler =
+                            txhandlers.take_required(TransactionType::Round(round_idx_typed))?;
                         let ready_to_reimburse_txhandler = txhandlers
-                            .remove(&TransactionType::ReadyToReimburse)
-                            .ok_or(TxError::TxHandlerNotFound(
-                                TransactionType::ReadyToReimburse,
-                            ))?;
+                            .take_required(TransactionType::ReadyToReimburse(round_idx_typed))?;
                         // Add a matcher for the ready to reimburse tx.
                         self.matchers.insert(
-                            matcher::Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
+                            matcher::Matcher::SentTx(ready_to_reimburse_txhandler.txid()),
                             RoundEvent::ReadyToReimburseSent {
                                 round_idx: *round_idx,
                             },
@@ -646,10 +655,11 @@ impl<T: Owner> RoundStateMachine<T> {
                         self.matchers.insert(
                             matcher::Matcher::SpentUtxoButNotTxid(
                                 OutPoint::new(
-                                    *round_txhandler.get_txid(),
-                                    UtxoVout::CollateralInRound.get_vout(),
+                                    round_txhandler.txid(),
+                                    round_txhandler
+                                        .output_index(RoundOutput::RemainingCollateral)?,
                                 ),
-                                vec![*ready_to_reimburse_txhandler.get_txid()],
+                                vec![ready_to_reimburse_txhandler.txid()],
                             ),
                             RoundEvent::OperatorExit,
                         );
@@ -676,7 +686,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         // Add a matcher for each kickoff utxo in the round tx.
                         for idx in 0..context.config.protocol_paramset.num_kickoffs_per_round {
                             let outpoint = *round_txhandler
-                                .get_spendable_output(UtxoVout::Kickoff(idx))?
+                                .get_spendable_output(RoundOutput::Kickoff(idx))?
                                 .get_prev_outpoint();
                             self.matchers.insert(
                                 matcher::Matcher::SpentUtxo(outpoint),
@@ -707,7 +717,7 @@ impl<T: Owner> RoundStateMachine<T> {
     /// 2. All kickoff finalizers for possible kickoffs (yes or structure-matched) are spent
     async fn check_and_dispatch_queue_ready_to_reimburse(
         &self,
-        round_idx: &RoundIndex,
+        round_idx: &BridgeRound,
         used_kickoffs: &HashSet<usize>,
         possible_kickoffs: &HashMap<usize, Txid>,
         kickoff_finalizers_spent: &HashSet<usize>,
@@ -741,7 +751,7 @@ impl<T: Owner> RoundStateMachine<T> {
         &mut self,
         event: &RoundEvent,
         context: &mut StateContext<T>,
-        round_idx: &mut RoundIndex,
+        round_idx: &mut BridgeRound,
     ) -> Response<State> {
         match event {
             // If the next round tx is mined, we transition to the round tx state.
@@ -772,30 +782,32 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_ready_to_reimburse_entry(
         &mut self,
         context: &mut StateContext<T>,
-        round_idx: &mut RoundIndex,
+        round_idx: &mut BridgeRound,
     ) {
         context
             .capture_error(async |context| {
                 {
                     self.matchers.clear();
-                    // get next rounds Round tx
-                    let next_round_context = ContractContext::new_context_for_round(
-                        self.operator_data.xonly_pk,
-                        round_idx.next_round(),
-                        context.config.protocol_paramset,
-                    );
-
                     let mut guard = context.shared_dbtx.lock().await;
-                    let next_round_txhandlers = context
-                        .owner
-                        .create_txhandlers(&mut guard, TransactionType::Round, next_round_context)
+                    let next_round_idx_typed = round_idx.next_round().to_round_idx()?;
+                    let mut loader =
+                        TxContextLoader::new(context.owner.database(), Some(&mut guard));
+                    let mut ctx = loader
+                        .load_round(
+                            self.operator_data.xonly_pk,
+                            round_idx.next_round(),
+                            context.config.protocol_paramset,
+                        )
                         .await?;
+                    let next_round_txhandlers = crate::builder::transaction::build_batch(
+                        &mut ctx,
+                        &BatchName::Tx(TransactionType::Round(next_round_idx_typed)),
+                    )?;
                     drop(guard);
 
                     let next_round_txid = next_round_txhandlers
-                        .get(&TransactionType::Round)
-                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
-                        .get_txid();
+                        .get_required(TransactionType::Round(next_round_idx_typed))?
+                        .txid_ref();
                     // Add a matcher for the next round tx.
                     self.matchers.insert(
                         matcher::Matcher::SentTx(*next_round_txid),
@@ -805,36 +817,38 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
                     // calculate the current ready to reimburse txid
                     // to generate the SpentUtxoButNotTxid matcher for the operator exit
-                    let current_round_context = ContractContext::new_context_for_round(
-                        self.operator_data.xonly_pk,
-                        *round_idx,
-                        context.config.protocol_paramset,
-                    );
-
                     let mut guard = context.shared_dbtx.lock().await;
-                    let current_round_txhandlers = context
-                        .owner
-                        .create_txhandlers(
-                            &mut guard,
-                            TransactionType::Round,
-                            current_round_context,
+                    let current_round_idx_typed = (*round_idx).to_round_idx()?;
+                    let mut loader =
+                        TxContextLoader::new(context.owner.database(), Some(&mut guard));
+                    let mut ctx = loader
+                        .load_round(
+                            self.operator_data.xonly_pk,
+                            *round_idx,
+                            context.config.protocol_paramset,
                         )
                         .await?;
+                    let current_round_txhandlers = crate::builder::transaction::build_batch(
+                        &mut ctx,
+                        &BatchName::RoundChain {
+                            round: current_round_idx_typed,
+                        },
+                    )?;
                     drop(guard);
 
                     let current_ready_to_reimburse_txid = current_round_txhandlers
-                        .get(&TransactionType::ReadyToReimburse)
-                        .ok_or(TxError::TxHandlerNotFound(
-                            TransactionType::ReadyToReimburse,
-                        ))?
-                        .get_txid();
+                        .get_required(TransactionType::ReadyToReimburse(current_round_idx_typed))?
+                        .txid_ref();
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the next round tx.
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(
                             OutPoint::new(
                                 *current_ready_to_reimburse_txid,
-                                UtxoVout::CollateralInReadyToReimburse.get_vout(),
+                                ready_to_reimburse::spec()
+                                    .output_index(&ReadyToReimburseOutput::Collateral)
+                                    .expect("ready to reimburse collateral output must exist")
+                                    as u32,
                             ),
                             vec![*next_round_txid],
                         ),

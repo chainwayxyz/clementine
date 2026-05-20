@@ -1,9 +1,9 @@
 //! # Testing Utilities
 
-use crate::builder::script::SpendPath;
 use crate::citrea::CitreaClientT;
 use crate::constants::NON_STANDARD_V3;
-use crate::rpc::clementine::NormalSignatureKind;
+use crate::protocol::ids::TransactionType;
+use crate::protocol::tx::payout::{PayoutInput, PayoutOutput};
 use crate::utils::initialize_logger;
 use crate::utils::NamedEntity;
 use crate::{
@@ -13,7 +13,6 @@ use crate::{
 use bitcoin::{sighash, taproot};
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
 use clementine_primitives::{EVMAddress, UTXO};
 use secrecy::ExposeSecret;
 use std::net::TcpListener;
@@ -183,12 +182,6 @@ async fn try_create_regtest_rpc(
         args.push("-minrelaytxfee=0".to_string());
         args.push("-acceptnonstdtxn=1".to_string());
         args.push("-blockmintxfee=0".to_string());
-    } else if config.test_params.use_small_annex
-        || config.test_params.use_large_annex
-        || config.test_params.use_large_annex_and_output
-    {
-        // annex is nonstandard
-        args.push("-acceptnonstdtxn=1".to_string());
     }
 
     // Create log file in temp directory
@@ -418,13 +411,13 @@ pub fn get_deposit_address(
     let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys, None)
         .expect("Failed to create xonly pk");
 
-    builder::address::generate_deposit_address(
+    crate::deposit::DepositSpendTree::from_base_deposit(
         nofn_xonly_pk,
         signer.address.as_unchecked(),
         evm_address,
-        config.protocol_paramset().network,
         config.protocol_paramset().user_takes_after,
     )
+    .and_then(|tree| tree.taproot_address(config.protocol_paramset().network))
 }
 
 /// Generates withdrawal transaction and signs it with `SinglePlusAnyoneCanPay`.
@@ -503,9 +496,10 @@ fn sign_withdrawal_output(
     withdrawal_amount: bitcoin::Amount,
 ) -> (bitcoin::TxOut, taproot::Signature) {
     let signer = Actor::new(config.secret_key, config.protocol_paramset().network);
-    let txin = builder::transaction::input::SpendableTxIn::new(
+    let txin = builder::transaction::SpendableTxIn::new(
         dust_utxo.outpoint,
         dust_utxo.txout.clone(),
+        vec![],
         vec![],
         None,
     );
@@ -513,21 +507,24 @@ fn sign_withdrawal_output(
         value: withdrawal_amount,
         script_pubkey: withdrawal_address.script_pubkey(),
     };
-    let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
+    let unspent_txout = builder::transaction::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .with_version(NON_STANDARD_V3)
         .add_input(
-            NormalSignatureKind::NotStored,
+            PayoutInput::WithdrawalUtxo,
             txin,
-            SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
+            builder::transaction::input_descriptor(
+                crate::protocol::spec::SpendSpec::key_spend()
+                    .with_metadata(None, Some(sighash::TapSighashType::SinglePlusAnyoneCanPay)),
+            ),
         )
-        .add_output(unspent_txout.clone())
+        .add_output(PayoutOutput::User, unspent_txout.clone())
         .finalize();
 
     let sighash = tx
-        .calculate_sighash_txin(0, sighash::TapSighashType::SinglePlusAnyoneCanPay)
+        .tap_sighash_for_input(PayoutInput::WithdrawalUtxo)
         .expect("Failed to calculate sighash");
 
     let sig = signer
@@ -574,13 +571,12 @@ impl NamedEntity for MockOwner {
 
 #[cfg(feature = "automation")]
 mod states {
-    use super::*;
-    use crate::builder::transaction::{ContractContext, TxHandler};
+    use super::MockOwner;
+    use crate::database::Database;
     use crate::database::DatabaseTransaction;
     use crate::states::context::DutyResult;
     use crate::states::{Duty, Owner};
-    use clementine_primitives::TransactionType;
-    use std::collections::BTreeMap;
+    use clementine_errors::BridgeError;
     use tonic::async_trait;
 
     // Implement the Owner trait for MockOwner
@@ -595,13 +591,8 @@ mod states {
             Ok(DutyResult::Handled)
         }
 
-        async fn create_txhandlers(
-            &self,
-            _dbtx: DatabaseTransaction<'_>,
-            _tx_type: TransactionType,
-            _contract_context: ContractContext,
-        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-            Ok(BTreeMap::new())
+        fn database(&self) -> Database {
+            unreachable!("mock owner should not request a database in setup_utils tests")
         }
     }
 }

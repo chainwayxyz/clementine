@@ -15,21 +15,30 @@ use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use crate::actor::{Actor, TweakCache};
+use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder;
-use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::address::create_taproot_address;
+use crate::builder::transaction::custom::{
+    builder as custom_builder, current_tx as custom_current_tx, input as custom_input,
+    named_leaf_descriptor, output as custom_output, output_from_script_leaves,
+    sign_with_actor as sign_custom_with_actor, spendable_from_script_leaves,
+};
 use crate::builder::transaction::op_return_txout;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::{TxHandlerBuilder, UnspentTxOut, DEFAULT_SEQUENCE};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::database::Database;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
+use crate::protocol::ids::Input;
+use crate::protocol::ids::{KickoffIdx, RoundIdx, TransactionType};
+use crate::protocol::spec::SpendSpec;
+use crate::protocol::tx::{
+    challenge::{ChallengeInput, ChallengeOutput},
+    move_to_vault::MoveToVaultOutput,
+    watchtower_challenge::WatchtowerChallengeInput,
+};
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::tx_utils::{create_bg_tx_sender, create_bumpable_tx};
 use crate::test::common::{
@@ -41,8 +50,9 @@ use crate::utils::{RbfSigningInfo, RbfSigningSpendPath};
 use bitcoin::TapSighashType;
 use clementine_errors::BridgeError;
 use clementine_primitives::FeeRateKvb;
-use clementine_primitives::TransactionType;
 use clementine_utils::FeePayingType;
+use tx_builder::script::ScriptLeaf;
+use tx_builder::scripts::CheckSig;
 
 type TxSenderWithCore = TxSender;
 
@@ -126,55 +136,47 @@ async fn get_fee_rate() {
         .await
         .unwrap();
 
-    let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
-    let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
-        &scripts
-            .iter()
-            .map(|s| s.to_script_buf())
-            .collect::<Vec<_>>(),
-        None,
+    let script = ScriptLeaf::CheckSig(CheckSig::new(xonly_pk));
+    let (taproot_address, _) = create_taproot_address(
+        &[script.to_script_buf()],
+        Some(xonly_pk),
         config.protocol_paramset().network,
     );
 
     let input_utxo = rpc.send_to_address(&taproot_address, amount).await.unwrap();
 
-    let input_builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-        NormalSignatureKind::NotStored,
-        SpendableTxIn::new(
-            input_utxo,
-            TxOut {
-                value: amount,
-                script_pubkey: taproot_address.script_pubkey(),
-            },
-            scripts.clone(),
-            Some(taproot_spend_info.clone()),
-        ),
-        SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
+    let (_, output) = output_from_script_leaves(
+        0,
+        amount,
+        vec![script.clone()],
+        Some(xonly_pk),
+        config.protocol_paramset().network,
     );
 
-    let mut will_fail_handler = input_builder
-        .clone()
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: amount,
-                script_pubkey: taproot_address.script_pubkey(),
-            },
-            scripts.clone(),
-            Some(taproot_spend_info.clone()),
-        ))
+    let mut will_fail_handler = custom_builder(0)
+        .add_input(
+            custom_input(0),
+            spendable_from_script_leaves(
+                0,
+                input_utxo,
+                amount,
+                vec![script.clone()],
+                Some(xonly_pk),
+                config.protocol_paramset().network,
+            ),
+            bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            named_leaf_descriptor(0, 0, bitcoin::TapSighashType::Default),
+        )
+        .add_output(custom_output(0), output)
         .finalize();
 
-    let mut tweak_cache = TweakCache::default();
-    signer
-        .tx_sign_and_fill_sigs(&mut will_fail_handler, &[], Some(&mut tweak_cache))
-        .unwrap();
+    sign_custom_with_actor(&signer, &mut will_fail_handler).unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
     let mempool_info = rpc.get_mempool_info().await.unwrap();
     tracing::info!("Mempool info: {:?}", mempool_info);
 
-    let will_fail_tx = will_fail_handler.get_cached_tx();
+    let will_fail_tx = custom_current_tx(&will_fail_handler);
 
     if mempool_info.mempool_min_fee.to_sat() > 0 {
         assert!(rpc.send_raw_transaction(will_fail_tx).await.is_err());
@@ -801,42 +803,54 @@ pub async fn create_rbf_tx(
     rpc.mine_blocks(1).await?;
 
     let version = Version::TWO;
+    let sighash_type = if requires_initial_funding {
+        TapSighashType::Default
+    } else {
+        TapSighashType::SinglePlusAnyoneCanPay
+    };
 
-    let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+    let input: Input = if !requires_initial_funding {
+        ChallengeInput::Challenge.into()
+    } else {
+        WatchtowerChallengeInput::Kickoff.into()
+    };
+
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .with_version(version)
         .add_input(
-            if !requires_initial_funding {
-                SignatureId::from(NormalSignatureKind::Challenge)
-            } else {
-                SignatureId::from((NumberedSignatureKind::WatchtowerChallenge, 0i32))
-            },
-            SpendableTxIn::new(
+            input,
+            crate::builder::transaction::spendable_txin(
                 outpoint,
                 TxOut {
                     value: amount,
                     script_pubkey: address.script_pubkey(),
                 },
                 vec![],
+                vec![],
                 Some(spend_info),
             ),
-            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
+            builder::transaction::input_descriptor(
+                SpendSpec::key_spend().with_metadata(None, Some(sighash_type)),
+            ),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: if requires_initial_funding {
-                amount // do not add any fee if we want to test initial funding
-            } else {
-                amount - MIN_TAPROOT_AMOUNT * 3
-            },
-            script_pubkey: address.script_pubkey(),
-        }))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: if requires_initial_funding {
+                    amount // do not add any fee if we want to test initial funding
+                } else {
+                    amount - MIN_TAPROOT_AMOUNT * 3
+                },
+                script_pubkey: address.script_pubkey(),
+            }),
+        )
         .finalize();
 
-    signer
-        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+    crate::builder::transaction::sign::apply_schnorr_signatures(signer, &mut txhandler, &[], None)
         .unwrap();
 
-    let tx = txhandler.get_cached_tx().clone();
+    let tx = txhandler.transaction().clone();
     Ok(tx)
 }
 
@@ -856,35 +870,47 @@ async fn create_challenge_tx(
     rpc.mine_blocks(1).await?;
 
     let version = NON_STANDARD_V3;
+    let sighash_type = TapSighashType::SinglePlusAnyoneCanPay;
 
-    let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge)
-        .with_version(version)
-        .add_input(
-            SignatureId::from(NormalSignatureKind::Challenge),
-            SpendableTxIn::new(
-                outpoint,
-                TxOut {
-                    value: amount,
-                    script_pubkey: address.script_pubkey(),
-                },
-                vec![],
-                Some(spend_info),
-            ),
-            SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
-        )
-        .add_output(UnspentTxOut::from_partial(TxOut {
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Challenge(
+        RoundIdx::new(0),
+        KickoffIdx::new(0),
+    ))
+    .with_version(version)
+    .add_input(
+        ChallengeInput::Challenge,
+        crate::builder::transaction::spendable_txin(
+            outpoint,
+            TxOut {
+                value: amount,
+                script_pubkey: address.script_pubkey(),
+            },
+            vec![],
+            vec![],
+            Some(spend_info),
+        ),
+        DEFAULT_SEQUENCE,
+        builder::transaction::input_descriptor(
+            SpendSpec::key_spend().with_metadata(None, Some(sighash_type)),
+        ),
+    )
+    .add_output(
+        ChallengeOutput::OperatorReimbursement,
+        UnspentTxOut::from_partial(TxOut {
             value: Amount::from_btc(1.0).unwrap(),
             script_pubkey: address.script_pubkey(),
-        }))
-        .add_output(UnspentTxOut::from_partial(op_return_txout(b"TEST")))
-        .finalize();
+        }),
+    )
+    .add_output(
+        ChallengeOutput::ChallengerMarker,
+        UnspentTxOut::from_partial(op_return_txout(b"TEST")),
+    )
+    .finalize();
 
-    signer
-        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+    crate::builder::transaction::sign::apply_schnorr_signatures(signer, &mut txhandler, &[], None)
         .unwrap();
 
-    let tx = txhandler.get_cached_tx().clone();
+    let tx = txhandler.transaction().clone();
     Ok(tx)
 }
 

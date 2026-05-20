@@ -11,8 +11,6 @@ use secrecy::{ExposeSecret, SecretString};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(any(test, feature = "test-utils"))]
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tokio_retry::RetryIf;
 
@@ -32,7 +30,7 @@ pub struct ExtendedBitcoinRpc {
     retry_config: RetryConfig,
 
     #[cfg(any(test, feature = "test-utils"))]
-    cached_mining_address: Arc<RwLock<Option<String>>>,
+    cached_mining_address: Arc<tokio::sync::RwLock<Option<String>>>,
 }
 
 impl std::fmt::Debug for ExtendedBitcoinRpc {
@@ -111,7 +109,7 @@ impl ExtendedBitcoinRpc {
                     client: Arc::new(rpc),
                     retry_config,
                     #[cfg(any(test, feature = "test-utils"))]
-                    cached_mining_address: Arc::new(RwLock::new(None)),
+                    cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
                 });
 
                 match &result {

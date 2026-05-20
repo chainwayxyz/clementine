@@ -7,7 +7,7 @@ use super::clementine::{
 use super::error::*;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::ContractContext;
+use crate::builder::transaction::{BatchName, TxContextLoader};
 use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::{DEFAULT_CHANNEL_SIZE, RESTART_BACKGROUND_TASKS_TIMEOUT};
@@ -344,18 +344,31 @@ where
             .get_deposit_data(None, transaction_data.deposit_outpoint)
             .await?
             .ok_or(Status::invalid_argument("Deposit not found in database"))?;
-        let context = ContractContext::new_context_for_kickoff(
-            transaction_data.kickoff_data,
-            deposit_data,
-            self.operator.config.protocol_paramset(),
-        );
+        let mut loader = TxContextLoader::new(self.operator.db.clone(), None);
+        let mut ctx = loader
+            .load_kickoff(
+                transaction_data.kickoff_data,
+                deposit_data,
+                Some(&self.operator.signer),
+                self.operator.config.protocol_paramset(),
+            )
+            .await?;
         let raw_txs = create_and_sign_txs(
-            self.operator.db.clone(),
             &self.operator.signer,
+            BatchName::OperatorPostDepositSignable {
+                round: transaction_data
+                    .kickoff_data
+                    .bridge_round
+                    .to_round_idx()
+                    .map_err(BridgeError::from)?,
+                kickoff: crate::protocol::ids::KickoffIdx::new(
+                    transaction_data.kickoff_data.kickoff_idx as usize,
+                ),
+            },
             self.operator.config.clone(),
-            context,
+            self.operator.db.clone(),
+            &mut ctx,
             Some([0u8; 20]), // dummy blockhash
-            None,
         )
         .await?;
 

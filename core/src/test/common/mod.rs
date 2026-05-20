@@ -11,28 +11,39 @@
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, Multisig, SpendableScript};
 use crate::builder::sighash::TapTweakData;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::{create_replacement_deposit_txhandler, TxHandler};
+use crate::builder::transaction::TxHandler;
+#[cfg(feature = "automation")]
+use crate::builder::transaction::{build_tx, ReplacementDepositBuildContext};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepositData};
+#[cfg(feature = "automation")]
+use crate::deposit::{Actors, DepositData, ReplacementDepositData};
+use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, RetryConfig, TestRpcExtensions as _};
+#[cfg(feature = "automation")]
+use crate::protocol::ids::TransactionType;
+#[cfg(feature = "automation")]
+use crate::protocol::tx::move_to_vault::{self, MoveToVaultOutput};
+#[cfg(feature = "automation")]
+use crate::protocol::tx::replacement_deposit::ReplacementDepositInput;
 use crate::rpc::clementine::{
     entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
 };
+#[cfg(feature = "automation")]
 use crate::utils::FeePayingType;
 use bitcoin::secp256k1::rand;
 use bitcoin::secp256k1::PublicKey;
+#[cfg(feature = "automation")]
+use bitcoin::taproot::LeafVersion;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use clementine_errors::BridgeError;
 use clementine_primitives::EVMAddress;
-use eyre::Context;
+use eyre::{eyre, Context};
 pub use setup_utils::*;
 use std::future::Future;
 use std::path::Path;
@@ -42,6 +53,11 @@ use std::time::Duration;
 use test_actors::TestActors;
 use tokio_retry::Retry;
 use tonic::Request;
+use tx_builder::script::SpendableScript;
+#[cfg(feature = "automation")]
+use tx_builder::scripts::{CheckSig, Multisig};
+#[cfg(feature = "automation")]
+use tx_builder::witness::WitnessCodec;
 
 pub mod citrea;
 #[cfg(feature = "automation")]
@@ -758,15 +774,17 @@ pub async fn run_single_replacement_deposit<C: CitreaClientT>(
 }
 
 /// Signs a replacement deposit transaction using the security council
+#[cfg(feature = "automation")]
 fn sign_replacement_deposit_tx_with_sec_council(
     replacement_deposit: &TxHandler,
     config: &BridgeConfig,
     old_nofn_xonly_pk: XOnlyPublicKey,
 ) -> Result<Transaction, BridgeError> {
     let security_council = config.security_council.clone();
-    let multisig_script = Multisig::from_security_council(security_council.clone()).to_script_buf();
-    let sighash = replacement_deposit.calculate_script_spend_sighash(
-        0,
+    let multisig = Multisig::new(security_council.pks.clone(), security_council.threshold);
+    let multisig_script = multisig.to_script_buf();
+    let sighash = replacement_deposit.tap_script_sighash_for_input_script(
+        ReplacementDepositInput::ReplacementOutpoint,
         &multisig_script,
         bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
     )?;
@@ -793,8 +811,7 @@ fn sign_replacement_deposit_tx_with_sec_council(
         })
         .collect::<Vec<_>>();
 
-    let mut witness =
-        Multisig::from_security_council(security_council).generate_script_inputs(&signatures)?;
+    let mut witness = multisig.encode_witness(&signatures)?;
 
     // calculate address in movetx vault
     let script_buf = CheckSig::new(old_nofn_xonly_pk).to_script_buf();
@@ -804,8 +821,12 @@ fn sign_replacement_deposit_tx_with_sec_council(
         config.protocol_paramset().network,
     );
     // add script path to witness
-    Actor::add_script_path_to_witness(&mut witness, &multisig_script, &spend_info)?;
-    let mut tx = replacement_deposit.get_cached_tx().clone();
+    let spend_control_block = spend_info
+        .control_block(&(multisig_script.clone(), LeafVersion::TapScript))
+        .ok_or_else(|| eyre!("Failed to find control block for script"))?;
+    witness.push(multisig_script.clone());
+    witness.push(spend_control_block.serialize());
+    let mut tx = replacement_deposit.transaction().clone();
     // add witness to tx
     tx.input[0].witness = witness;
     Ok(tx)
@@ -820,17 +841,46 @@ async fn send_replacement_deposit_tx<C: CitreaClientT>(
     old_nofn_xonly_pk: XOnlyPublicKey,
 ) -> Result<Txid, BridgeError> {
     // create a replacement deposit tx, we will sign it using nofn
-    let replacement_txhandler = create_replacement_deposit_txhandler(
+    let replacement_data = crate::builder::transaction::ReplacementDepositBuildData {
         old_move_txid,
-        OutPoint {
-            txid: old_move_txid,
-            vout: UtxoVout::DepositInMove.get_vout(),
-        },
         old_nofn_xonly_pk,
-        actors.get_nofn_aggregated_xonly_pk()?,
+        input_outpoint: OutPoint {
+            txid: old_move_txid,
+            vout: move_to_vault::spec()
+                .output_index(&MoveToVaultOutput::DepositInMove)
+                .expect("move to vault deposit output must exist") as u32,
+        },
+        security_council: config.security_council.clone(),
+    };
+    let deposit_data = DepositData {
+        nofn_xonly_pk: Some(actors.get_nofn_aggregated_xonly_pk()?),
+        deposit: DepositInfo {
+            deposit_outpoint: OutPoint {
+                txid: old_move_txid,
+                vout: move_to_vault::spec()
+                    .output_index(&MoveToVaultOutput::DepositInMove)
+                    .expect("move to vault deposit output must exist") as u32,
+            },
+            deposit_type: DepositType::ReplacementDeposit(ReplacementDepositData { old_move_txid }),
+        },
+        actors: Actors {
+            verifiers: actors
+                .get_verifiers_secret_keys()
+                .into_iter()
+                .map(|sk| sk.public_key(&SECP))
+                .collect(),
+            watchtowers: vec![],
+            operators: actors.get_operators_xonly_pks(),
+        },
+        security_council: config.security_council.clone(),
+    };
+    let mut replacement_ctx = ReplacementDepositBuildContext::new(
         config.protocol_paramset(),
-        config.security_council.clone(),
-    )?;
+        deposit_data,
+        replacement_data,
+    );
+    let replacement_txhandler = build_tx(&mut replacement_ctx, TransactionType::ReplacementDeposit)
+        .wrap_err("Replacement deposit txhandler not created")?;
 
     let signed_replacement_deposit_tx = sign_replacement_deposit_tx_with_sec_council(
         &replacement_txhandler,

@@ -1,12 +1,12 @@
 //! # Parameter Builder For Citrea Requests
 
 use crate::builder;
-use crate::builder::script::SpendPath;
 use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::constants::NON_STANDARD_V3;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::rpc::clementine::NormalSignatureKind;
+use crate::protocol::ids::TransactionType;
+use crate::protocol::tx::payout::{PayoutInput, PayoutOutput};
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
@@ -16,9 +16,10 @@ use bitcoin::taproot;
 use bitcoin::{Block, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
 use clementine_primitives::UTXO;
 use eyre::Context;
+use tx_builder::witness::WitnessInput;
+use tx_builder::witness_material::WitnessMaterialExt;
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
 fn get_block_merkle_proof(
@@ -224,30 +225,33 @@ pub async fn get_citrea_safe_withdraw_params(
         false,
     )?;
 
-    let txin = builder::transaction::input::SpendableTxIn::new(
+    let txin = builder::transaction::SpendableTxIn::new(
         withdrawal_dust_utxo.outpoint,
         withdrawal_dust_utxo.txout.clone(),
+        vec![],
         vec![],
         None,
     );
 
-    let unspent_txout =
-        builder::transaction::output::UnspentTxOut::from_partial(payout_output.clone());
+    let unspent_txout = builder::transaction::UnspentTxOut::from_partial(payout_output.clone());
 
     let mut tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .with_version(NON_STANDARD_V3)
         .add_input(
-            NormalSignatureKind::NotStored,
+            PayoutInput::WithdrawalUtxo,
             txin,
-            SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
+            builder::transaction::input_descriptor(
+                crate::protocol::spec::SpendSpec::key_spend()
+                    .with_metadata(None, Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay)),
+            ),
         )
-        .add_output(unspent_txout.clone())
+        .add_output(PayoutOutput::User, unspent_txout.clone())
         .finalize();
 
-    tx.set_p2tr_key_spend_witness(&sig, 0)?;
+    tx.fill_witness_entry(PayoutInput::WithdrawalUtxo.witness_input(WitnessInput::KeySpend(sig)))?;
 
-    let payout_transaction = tx.get_cached_tx();
+    let payout_transaction = tx.transaction();
 
     let payout_tx_params = get_transaction_details_for_citrea(payout_transaction)?;
 

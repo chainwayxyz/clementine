@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(txids.len(), 1);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
 
-        // Idx 1 is not available till height 2 (0 indexed).
+        // Idx 1 is not available till height 2 (zero-based).
         assert!(client
             .collect_deposit_move_txids(Some(0), 0)
             .await

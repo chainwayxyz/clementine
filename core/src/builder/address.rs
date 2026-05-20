@@ -1,106 +1,10 @@
 //! # Bitcoin Address Construction
 //!
 //! Contains helper functions to create taproot addresses with given scripts and internal key.
-//! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
-//! valid deposit addresses.
-
-use super::script::{
-    BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
-};
-use crate::deposit::SecurityCouncil;
-use crate::utils::ScriptBufExt;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::{secp256k1::XOnlyPublicKey, taproot::TaprootSpendInfo, Address};
-use clementine_errors::BridgeError;
-use clementine_primitives::EVMAddress;
-
-use eyre::Context;
 
 pub use clementine_utils::address::{
     calculate_taproot_leaf_depths, create_taproot_address, taproot_builder_with_scripts,
 };
-
-/// Generates a deposit address for the user. Funds can be spent by N-of-N or
-/// user can take after specified time should the deposit fail.
-///
-/// # Parameters
-///
-/// - `nofn_xonly_pk`: N-of-N x-only public key of the depositor
-/// - `recovery_taproot_address`: User's x-only public key that can be used to
-///   take funds after some time
-/// - `user_evm_address`: User's EVM address.
-/// - `amount`: Amount to deposit
-/// - `network`: Bitcoin network to work on
-/// - `user_takes_after`: User can take the funds back, after this amounts of
-///   blocks have passed
-///
-/// # Returns
-///
-/// - [`Address`]: Deposit taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: Deposit address's taproot spending information
-///
-/// # Panics
-///
-/// Panics if given parameters are malformed.
-pub fn generate_deposit_address(
-    nofn_xonly_pk: XOnlyPublicKey,
-    recovery_taproot_address: &Address<NetworkUnchecked>,
-    user_evm_address: EVMAddress,
-    network: bitcoin::Network,
-    user_takes_after: u16,
-) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    let deposit_script = BaseDepositScript::new(nofn_xonly_pk, user_evm_address).to_script_buf();
-
-    let recovery_script_pubkey = recovery_taproot_address
-        .clone()
-        .assume_checked()
-        .script_pubkey();
-
-    let recovery_extracted_xonly_pk = recovery_script_pubkey
-        .try_get_taproot_pk()
-        .wrap_err("Recovery taproot address is not a valid taproot address")?;
-
-    let script_timelock =
-        TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();
-
-    let (addr, spend) = create_taproot_address(&[deposit_script, script_timelock], None, network);
-    Ok((addr, spend))
-}
-
-/// Builds a Taproot address specifically for replacement deposits.
-/// Replacement deposits are to replace old move_to_vault transactions in case any issue is found on the bridge.
-/// This address incorporates a script committing to an old move transaction ID
-/// and a multisig script for the security council.
-/// This replacement deposit address will be used to create a new deposit transaction, which will then be used to
-/// sign the new related bridge deposit tx's.
-///
-/// # Parameters
-///
-/// - `old_move_txid`: The `Txid` of the old move_to_vault transaction that is being replaced.
-/// - `nofn_xonly_pk`: The N-of-N XOnlyPublicKey for the deposit.
-/// - `network`: The Bitcoin network on which the address will be used.
-/// - `security_council`: The `SecurityCouncil` configuration for the multisig script.
-///
-/// # Returns
-///
-/// - `Ok((Address, TaprootSpendInfo))` containing the new replacement deposit address
-///   and its associated `TaprootSpendInfo` if successful.
-/// - `Err(BridgeError)` if any error occurs during address generation.
-pub fn generate_replacement_deposit_address(
-    old_move_txid: bitcoin::Txid,
-    nofn_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    security_council: SecurityCouncil,
-) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    let deposit_script =
-        ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid).to_script_buf();
-
-    let security_council_script = Multisig::from_security_council(security_council).to_script_buf();
-
-    let (addr, spend) =
-        create_taproot_address(&[deposit_script, security_council_script], None, network);
-    Ok((addr, spend))
-}
 
 #[cfg(test)]
 mod tests {

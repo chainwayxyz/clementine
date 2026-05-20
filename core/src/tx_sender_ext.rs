@@ -1,7 +1,7 @@
 use crate::rpc;
 use crate::rpc::clementine::TxDebugInfo;
 use bitcoin::hashes::Hash;
-use clementine_errors::{BridgeError, ResultExt as _, RoundIndex};
+use clementine_errors::{BridgeError, BridgeRound, ResultExt as _};
 use clementine_tx_sender::client::TxSenderClient;
 use clementine_tx_sender::TxSender;
 use clementine_utils::FeePayingType;
@@ -92,7 +92,7 @@ impl TxSenderClientExt for TxSenderClient {
 
                 round_idx: metadata
                     .round_idx
-                    .unwrap_or(RoundIndex::Round(0))
+                    .unwrap_or(BridgeRound::Round(0))
                     .to_index() as u32,
                 kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
                 tx_type: Some(metadata.tx_type.into()),

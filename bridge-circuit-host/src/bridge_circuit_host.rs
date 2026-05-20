@@ -726,6 +726,14 @@ mod tests {
     #[test]
     #[allow(clippy::print_literal)]
     fn test_varying_total_works_first_two_valid() {
+        use circuits_lib::bridge_circuit::{
+            constants::REGTEST_WORK_ONLY_METHOD_ID,
+            structs::{ChallengeSendingWatchtowers, TotalWork},
+            total_work_and_watchtower_flags,
+        };
+
+        use crate::utils::total_work_from_wt_tx_test_util;
+
         eprintln!("{}Please update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.{}", "\x1b[31m", "\x1b[0m");
         let bridge_circuit_host_params_serialized =
             include_bytes!("../bin-files/bch_params_varying_total_works_first_two_valid.bin");

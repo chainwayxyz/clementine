@@ -23,9 +23,6 @@ use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 use tower::buffer::BufferLayer;
 use tower::limit::RateLimitLayer;
 
-#[cfg(test)]
-use crate::test::common::ensure_test_certificates;
-
 /// Represents a network address that can be either TCP or Unix socket
 #[derive(Debug, Clone)]
 pub enum ServerAddr {
@@ -72,7 +69,8 @@ where
     // Ensure certificates exist in test mode
     #[cfg(test)]
     {
-        ensure_test_certificates().wrap_err("Failed to ensure test certificates")?;
+        crate::test::common::ensure_test_certificates()
+            .wrap_err("Failed to ensure test certificates")?;
     }
 
     match addr {

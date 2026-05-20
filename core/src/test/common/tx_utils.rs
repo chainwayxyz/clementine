@@ -1,32 +1,34 @@
 use super::test_actors::TestActors;
 use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::actor::Actor;
-use crate::builder;
-use crate::builder::script::SpendPath;
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::{
+    self,
+    transaction::{output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE},
+};
 use crate::citrea::CitreaClientT;
-
 #[cfg(feature = "automation")]
 use crate::config::BridgeConfig;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NON_STANDARD_V3};
 use crate::database::Database;
 use crate::extended_bitcoin_rpc::{ExtendedBitcoinRpc, TestRpcExtensions as _, MINE_BLOCK_COUNT};
-use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind, SignedTxsWithType};
+use crate::protocol::ids::{Input, TransactionType};
+use crate::protocol::spec::SpendSpec;
+use crate::protocol::tx::{
+    challenge::ChallengeInput, move_to_vault::MoveToVaultOutput,
+    ready_to_reimburse::ReadyToReimburseInput, watchtower_challenge::WatchtowerChallengeInput,
+};
+use crate::rpc::clementine::SignedTxsWithType;
+#[cfg(feature = "automation")]
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
-use crate::utils::{FeePayingType, RbfSigningInfo, TxMetadata};
-use bitcoin::consensus::{self};
-use bitcoin::transaction::Version;
-use bitcoin::{block, Amount, OutPoint, Transaction, TxOut, Txid};
+use crate::utils::{RbfSigningInfo, TxMetadata};
+use bitcoin::secp256k1::rand;
+use bitcoin::{block, consensus, transaction::Version, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
-use clementine_primitives::TransactionType;
-use clementine_primitives::TransactionType as TxType;
+use clementine_utils::FeePayingType;
 use eyre::{bail, Context, Result};
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -34,12 +36,12 @@ use tokio::time::sleep;
 
 pub fn get_tx_from_signed_txs_with_type(
     txs: &SignedTxsWithType,
-    tx_type: TxType,
+    tx_type: TransactionType,
 ) -> Result<bitcoin::Transaction> {
     let tx = txs
         .signed_txs
         .iter()
-        .find(|tx| tx.transaction_type == Some(tx_type.into()))
+        .find(|tx| tx.transaction_type == Some(tx_type.clone().into()))
         .to_owned()
         .expect("expected tx of type not found")
         .to_owned()
@@ -193,7 +195,7 @@ pub async fn mine_once_after_outpoint_spent_in_mempool(
 /// Transaction data for batch sending
 pub struct TxToSend {
     pub raw_tx: Vec<u8>,
-    pub tx_type: TxType,
+    pub tx_type: TransactionType,
     pub rbf_info: Option<RbfSigningInfo>,
 }
 
@@ -203,7 +205,7 @@ pub async fn send_tx(
     tx_sender: &TxSenderClient,
     rpc: &ExtendedBitcoinRpc,
     raw_tx: &[u8],
-    tx_type: TxType,
+    tx_type: TransactionType,
     rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     send_txs(
@@ -238,7 +240,7 @@ pub async fn send_txs(
         let tx: Transaction =
             consensus::deserialize(&tx_data.raw_tx).context("expected valid tx")?;
 
-        let fee_paying_type = if tx_data.tx_type == TxType::Challenge {
+        let fee_paying_type = if matches!(tx_data.tx_type, TransactionType::Challenge(..)) {
             FeePayingType::RBF
         } else {
             FeePayingType::CPFP
@@ -248,7 +250,7 @@ pub async fn send_txs(
             .insert_try_to_send(
                 &mut dbtx,
                 Some(TxMetadata {
-                    tx_type: tx_data.tx_type,
+                    tx_type: tx_data.tx_type.clone(),
                     deposit_outpoint: None,
                     kickoff_idx: None,
                     operator_xonly_pk: None,
@@ -265,7 +267,7 @@ pub async fn send_txs(
         // Collect what needs to be ensured
         if matches!(
             tx_data.tx_type,
-            TxType::Challenge | TxType::WatchtowerChallenge(_)
+            TransactionType::Challenge(..) | TransactionType::WatchtowerChallenge(..)
         ) {
             outpoints_to_ensure.push(tx.input[0].previous_output);
         } else {
@@ -370,16 +372,22 @@ pub async fn send_tx_with_type(
     rpc: &ExtendedBitcoinRpc,
     tx_sender: &TxSenderClient,
     all_txs: &SignedTxsWithType,
-    tx_type: TxType,
+    tx_type: TransactionType,
 ) -> Result<(), eyre::Error> {
     let round_tx = all_txs
         .signed_txs
         .iter()
-        .find(|tx| tx.transaction_type == Some(tx_type.into()))
+        .find(|tx| tx.transaction_type == Some(tx_type.clone().into()))
         .unwrap();
-    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
-        .await
-        .context(format!("failed to send {tx_type:?} transaction"))?;
+    send_tx(
+        tx_sender,
+        rpc,
+        round_tx.raw_tx.as_slice(),
+        tx_type.clone(),
+        None,
+    )
+    .await
+    .context(format!("failed to send {tx_type:?} transaction"))?;
     Ok(())
 }
 
@@ -476,60 +484,73 @@ pub async fn create_bumpable_tx(
             Version::TWO
         }
     };
+    let sighash_type = match fee_paying_type {
+        FeePayingType::CPFP | FeePayingType::NoFunding => bitcoin::TapSighashType::Default,
+        FeePayingType::RBF | FeePayingType::RbfWtxidGrind if requires_rbf_signing_info => {
+            bitcoin::TapSighashType::Default
+        }
+        FeePayingType::RBF | FeePayingType::RbfWtxidGrind => {
+            bitcoin::TapSighashType::SinglePlusAnyoneCanPay
+        }
+    };
 
-    let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+    let input: Input = match fee_paying_type {
+        FeePayingType::CPFP => ReadyToReimburseInput::CollateralInRound.into(),
+        FeePayingType::RBF if !requires_rbf_signing_info => ChallengeInput::Challenge.into(),
+        FeePayingType::RBF => WatchtowerChallengeInput::Kickoff.into(),
+        FeePayingType::RbfWtxidGrind if requires_rbf_signing_info => {
+            WatchtowerChallengeInput::Kickoff.into()
+        }
+        FeePayingType::NoFunding => {
+            unreachable!("AlreadyFunded should not be used for bumpable txs")
+        }
+        FeePayingType::RbfWtxidGrind => {
+            unreachable!("RbfWtxidGrind should not be used without signing info")
+        }
+    };
+
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::MoveToVault)
         .with_version(version)
         .add_input(
-            match fee_paying_type {
-                FeePayingType::CPFP => {
-                    SignatureId::from(NormalSignatureKind::OperatorSighashDefault)
-                }
-                FeePayingType::RBF if !requires_rbf_signing_info => {
-                    NormalSignatureKind::Challenge.into()
-                }
-                FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
-                FeePayingType::RbfWtxidGrind if requires_rbf_signing_info => {
-                    (NumberedSignatureKind::WatchtowerChallenge, 0i32).into()
-                }
-                FeePayingType::NoFunding => {
-                    unreachable!("AlreadyFunded should not be used for bumpable txs")
-                }
-                FeePayingType::RbfWtxidGrind => {
-                    unreachable!("RbfWtxidGrind should not be used without signing info")
-                }
-            },
-            SpendableTxIn::new(
+            input,
+            crate::builder::transaction::spendable_txin(
                 outpoint,
                 TxOut {
                     value: amount,
                     script_pubkey: address.script_pubkey(),
                 },
                 vec![],
+                vec![],
                 Some(spend_info),
             ),
-            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
+            builder::transaction::input_descriptor(
+                SpendSpec::key_spend().with_metadata(None, Some(sighash_type)),
+            ),
         )
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: amount
-                - match fee_paying_type {
-                    FeePayingType::CPFP => Amount::from_sat(0), // for cpfp create a 0 fee tx
-                    FeePayingType::RBF
-                    | FeePayingType::RbfWtxidGrind
-                    | FeePayingType::NoFunding => MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
-                },
-            script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
-        }))
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(Amount::from_sat(0)),
-        ))
+        .add_output(
+            MoveToVaultOutput::DepositInMove,
+            UnspentTxOut::from_partial(TxOut {
+                value: amount
+                    - match fee_paying_type {
+                        FeePayingType::CPFP => Amount::from_sat(0), // for cpfp create a 0 fee tx
+                        FeePayingType::RBF
+                        | FeePayingType::RbfWtxidGrind
+                        | FeePayingType::NoFunding => MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                    },
+                script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
+            }),
+        )
+        .add_output(
+            MoveToVaultOutput::Anchor,
+            UnspentTxOut::from_partial(builder::transaction::anchor_output(Amount::from_sat(0))),
+        )
         .finalize();
 
-    signer
-        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+    crate::builder::transaction::sign::apply_schnorr_signatures(signer, &mut txhandler, &[], None)
         .unwrap();
 
-    let tx = txhandler.get_cached_tx().clone();
+    let tx = txhandler.transaction().clone();
     Ok(tx)
 }
 

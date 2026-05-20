@@ -8,7 +8,7 @@ use super::clementine::{
 use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::ContractContext;
+use crate::builder::transaction::{BatchName, TxContextLoader};
 use crate::citrea::CitreaClientT;
 use crate::compatibility::ActorWithConfig;
 use crate::constants::RESTART_BACKGROUND_TASKS_TIMEOUT;
@@ -25,6 +25,7 @@ use crate::{
 use alloy::primitives::PrimitiveSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
+use clementine_errors::BridgeError;
 use clementine_errors::ResultExt as _;
 use eyre::Context as _;
 use secp256k1::musig::AggregatedNonce;
@@ -630,18 +631,31 @@ where
             .get_deposit_data(None, transaction_data.deposit_outpoint)
             .await?
             .ok_or(Status::invalid_argument("Deposit not found in database"))?;
-        let context = ContractContext::new_context_for_kickoff(
-            transaction_data.kickoff_data,
-            deposit_data,
-            self.verifier.config.protocol_paramset(),
-        );
+        let mut loader = TxContextLoader::new(self.verifier.db.clone(), None);
+        let mut ctx = loader
+            .load_kickoff(
+                transaction_data.kickoff_data,
+                deposit_data,
+                Some(&self.verifier.signer),
+                self.verifier.config.protocol_paramset(),
+            )
+            .await?;
         let raw_txs = create_and_sign_txs(
-            self.verifier.db.clone(),
             &self.verifier.signer,
+            BatchName::VerifierPostDepositSignable {
+                round: transaction_data
+                    .kickoff_data
+                    .bridge_round
+                    .to_round_idx()
+                    .map_err(BridgeError::from)?,
+                kickoff: crate::protocol::ids::KickoffIdx::new(
+                    transaction_data.kickoff_data.kickoff_idx as usize,
+                ),
+            },
             self.verifier.config.clone(),
-            context,
+            self.verifier.db.clone(),
+            &mut ctx,
             None, // empty blockhash, will not sign this
-            None,
         )
         .await?;
 

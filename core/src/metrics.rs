@@ -199,6 +199,7 @@ pub async fn get_state_manager_next_height(
     }
     #[cfg(not(feature = "automation"))]
     {
+        let _ = (db, owner_type);
         Ok(None)
     }
 }
@@ -522,22 +523,12 @@ mod tests {
                     }
                     #[cfg(not(feature = "automation"))]
                     {
-                        let entity_type: EntityType =
+                        let _entity_type: EntityType =
                             entity.entity_id.unwrap().kind.try_into().unwrap();
                         // tx sender and hcp are not running in non-automation mode
                         assert!(!status.automation);
                         assert!(status.tx_sender_synced_height.is_none());
-                        if entity_type == EntityType::Verifier {
-                            assert!(
-                                status
-                                    .finalized_synced_height
-                                    .expect("finalized_synced_height is None")
-                                    > 0
-                            );
-                        } else {
-                            // operator doesn't run finalized block fetcher in non-automation mode
-                            assert!(status.finalized_synced_height.is_none());
-                        }
+                        assert!(status.finalized_synced_height.is_none());
                         assert!(status.hcp_last_proven_height.is_none());
                         assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
                         assert!(

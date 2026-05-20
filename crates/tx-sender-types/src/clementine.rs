@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Txid, XOnlyPublicKey};
-use clementine_primitives::{RoundIndex, TransactionType};
+use clementine_primitives::{BridgeRound, TransactionType};
 
 /// Activation condition based on a transaction ID.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -111,14 +111,14 @@ impl RbfSigningInfo {
 }
 
 /// Metadata about a transaction.
-#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TxMetadata {
     /// The deposit outpoint associated with this transaction.
     pub deposit_outpoint: Option<OutPoint>,
     /// The operator's X-only public key.
     pub operator_xonly_pk: Option<XOnlyPublicKey>,
     /// The round index for this transaction.
-    pub round_idx: Option<RoundIndex>,
+    pub round_idx: Option<BridgeRound>,
     /// The kickoff index for this transaction.
     pub kickoff_idx: Option<u32>,
     /// The type of transaction.

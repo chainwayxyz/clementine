@@ -55,10 +55,12 @@ pub struct TestParams {
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
 
-    /// A flag to indicate whether to use small annexes in the watchtower challenge transactions.
+    /// No-op placeholder kept so older annex-oriented test knobs still deserialize and remain
+    /// discoverable while annex behavior is disabled everywhere.
     pub use_small_annex: bool,
 
-    /// A flag to indicate whether to use large annexes in the watchtower challenge transactions.
+    /// No-op placeholder kept so older large-annex test knobs still deserialize and remain
+    /// discoverable while annex behavior is disabled everywhere.
     pub use_large_annex: bool,
 
     /// A flag to indicate whether to use large outputs in the watchtower challenge transactions.
@@ -284,9 +286,10 @@ impl TestParams {
     pub fn maybe_add_large_test_outputs(
         &self,
         mut builder: TxHandlerBuilder,
+        mut output_for_index: impl FnMut(usize) -> crate::protocol::ids::Output,
     ) -> eyre::Result<TxHandlerBuilder> {
         if self.use_large_annex_and_output || self.use_large_output {
-            for i in 0..2300 {
+            for i in 0..2300u32 {
                 let mut test_taproot_address: [u8; 32] = [0; 32];
                 let num_to_use: u32 = 30000 + i;
                 let num_to_use_bytes = num_to_use.to_le_bytes();
@@ -301,7 +304,10 @@ impl TestParams {
                     script_pubkey: additional_taproot_script,
                 };
                 // Reassign the result of add_output back to builder
-                builder = builder.add_output(UnspentTxOut::from_partial(additional_taproot_txout));
+                builder = builder.add_output(
+                    output_for_index(i as usize),
+                    UnspentTxOut::from_partial(additional_taproot_txout),
+                );
             }
 
             if self.use_large_annex_and_output {
@@ -320,6 +326,8 @@ impl TestParams {
         use std::path::PathBuf;
 
         let cases = [
+            // No-op placeholders retained so the old annex fixture names stay visible, even though
+            // annex-specific generation is disabled right now.
             (
                 self.use_small_annex,
                 "../bridge-circuit-host/bin-files/bch_params_challenge_tx_with_annex_large_op_return.bin",

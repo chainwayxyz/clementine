@@ -3,7 +3,7 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::utils::NamedEntity;
-use clementine_primitives::RoundIndex;
+use clementine_primitives::BridgeRound;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
@@ -16,14 +16,6 @@ use tonic::async_trait;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::builder::transaction::TxHandler;
-
-use std::collections::BTreeMap;
-
-use crate::builder::transaction::ContractContext;
-
-use clementine_primitives::TransactionType;
 
 use clementine_errors::BridgeError;
 
@@ -44,7 +36,7 @@ pub enum Duty {
     /// used_kickoffs is a set of kickoff indexes that have been used in the previous round.
     /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     },
@@ -136,7 +128,7 @@ pub enum Duty {
     /// Tells the operator to queue the ReadyToReimburse tx.
     /// Verifiers do nothing with this duty.
     QueueReadyToReimburse {
-        round_idx: RoundIndex,
+        round_idx: BridgeRound,
         operator_xonly_pk: XOnlyPublicKey,
     },
 }
@@ -162,13 +154,7 @@ pub trait Owner: Clone + NamedEntity {
         duty: Duty,
     ) -> Result<DutyResult, BridgeError>;
 
-    /// Create the transactions for an instance of the L1 contract
-    async fn create_txhandlers(
-        &self,
-        dbtx: DatabaseTransaction<'_>,
-        tx_type: TransactionType,
-        contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
+    fn database(&self) -> Database;
 
     /// Check if a kickoff is relevant for the owner
     /// For verifiers, all kickoffs are relevant

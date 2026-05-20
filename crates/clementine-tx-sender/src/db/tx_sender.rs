@@ -751,7 +751,9 @@ impl TxSenderDb {
                 "TXSENDER_DBG_INACTIVE_TXS: TX {} (txid: {}, type: {:?}) is inactive, reasons:",
                 id,
                 txid.0,
-                tx_metadata.as_ref().map(|metadata| metadata.tx_type)
+                tx_metadata
+                    .as_ref()
+                    .map(|metadata| metadata.tx_type.clone())
             );
 
             if input_unspent_timed_out {

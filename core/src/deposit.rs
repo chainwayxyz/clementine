@@ -5,22 +5,24 @@
 //! of deposits (base and replacement) and deriving the necessary scripts these deposits must have.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use crate::builder::script::{
-    BaseDepositScript, Multisig, ReplacementDepositScript, SpendableScript, TimelockScript,
-};
-use crate::builder::transaction::create_move_to_vault_txhandler;
+use crate::builder::address::create_taproot_address;
 use crate::config::protocol::ProtocolParamset;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::utils::ScriptBufExt;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use clementine_errors::BridgeError;
+use clementine_primitives::BridgeRound;
 use clementine_primitives::EVMAddress;
-use clementine_primitives::RoundIndex;
 use eyre::Context;
+use tx_builder::input::SpendableTxIn;
+use tx_builder::output::UnspentTxOut;
+use tx_builder::script::{ScriptLeaf, ScriptNode};
+use tx_builder::scripts::{
+    BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, TimelockScript,
+};
 
 /// Data structure to represent a single kickoff utxo in an operators round tx.
 #[derive(
@@ -28,7 +30,7 @@ use eyre::Context;
 )]
 pub struct KickoffData {
     pub operator_xonly_pk: XOnlyPublicKey,
-    pub round_idx: RoundIndex,
+    pub bridge_round: BridgeRound,
     pub kickoff_idx: u32,
 }
 
@@ -36,8 +38,8 @@ impl std::fmt::Display for KickoffData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Kickoff(operator_xonly_pk: {}, round_idx: {}, kickoff_idx: {})",
-            self.operator_xonly_pk, self.round_idx, self.kickoff_idx
+            "Kickoff(operator_xonly_pk: {}, bridge_round: {}, kickoff_idx: {})",
+            self.operator_xonly_pk, self.bridge_round, self.kickoff_idx
         )
     }
 }
@@ -72,16 +74,6 @@ impl PartialEq for DepositData {
     }
 }
 
-impl DepositData {
-    /// Returns the move to vault txid of the deposit.
-    pub fn get_move_txid(
-        &mut self,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<Txid, BridgeError> {
-        Ok(*create_move_to_vault_txhandler(self, paramset)?.get_txid())
-    }
-}
-
 /// Data structure to represent the deposit outpoint and type.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct DepositInfo {
@@ -94,6 +86,136 @@ pub struct DepositInfo {
 pub enum DepositType {
     BaseDeposit(BaseDepositData),
     ReplacementDeposit(ReplacementDepositData),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DepositTreeLeaf {
+    DepositScript,
+    UserTakeBack,
+    SecurityCouncilMultisig,
+}
+
+#[derive(Debug, Clone)]
+pub struct DepositSpendTree {
+    named_leaves: Vec<(DepositTreeLeaf, ScriptLeaf)>,
+}
+
+impl DepositSpendTree {
+    pub fn from_move_to_vault_output(
+        nofn_xonly_pk: XOnlyPublicKey,
+        security_council: SecurityCouncil,
+    ) -> Self {
+        let deposit_script: ScriptLeaf = CheckSig::new(nofn_xonly_pk).into();
+        let security_council_script: ScriptLeaf =
+            Multisig::new(security_council.pks, security_council.threshold).into();
+        Self {
+            named_leaves: vec![
+                (DepositTreeLeaf::DepositScript, deposit_script),
+                (
+                    DepositTreeLeaf::SecurityCouncilMultisig,
+                    security_council_script,
+                ),
+            ],
+        }
+    }
+
+    pub fn from_base_deposit(
+        nofn_xonly_pk: XOnlyPublicKey,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
+        user_evm_address: EVMAddress,
+        user_takes_after: u16,
+    ) -> Result<Self, BridgeError> {
+        let deposit_script: ScriptLeaf =
+            BaseDepositScript::new(nofn_xonly_pk, user_evm_address.0).into();
+        let recovery_script_pubkey = recovery_taproot_address
+            .clone()
+            .assume_checked()
+            .script_pubkey();
+        let recovery_extracted_xonly_pk = recovery_script_pubkey
+            .try_get_taproot_pk()
+            .wrap_err("Recovery taproot address is not a valid taproot address")?;
+        let user_take_back: ScriptLeaf =
+            TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).into();
+
+        Ok(Self {
+            named_leaves: vec![
+                (DepositTreeLeaf::DepositScript, deposit_script),
+                (DepositTreeLeaf::UserTakeBack, user_take_back),
+            ],
+        })
+    }
+
+    pub fn from_replacement_deposit(
+        nofn_xonly_pk: XOnlyPublicKey,
+        old_move_txid: Txid,
+        security_council: SecurityCouncil,
+    ) -> Self {
+        let deposit_script: ScriptLeaf =
+            ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid).into();
+        let security_council_script: ScriptLeaf =
+            Multisig::new(security_council.pks, security_council.threshold).into();
+        Self {
+            named_leaves: vec![
+                (DepositTreeLeaf::DepositScript, deposit_script),
+                (
+                    DepositTreeLeaf::SecurityCouncilMultisig,
+                    security_council_script,
+                ),
+            ],
+        }
+    }
+
+    fn script_nodes(&self) -> Vec<ScriptNode> {
+        self.named_leaves
+            .iter()
+            .map(|(_, script)| script.clone().into())
+            .collect()
+    }
+
+    fn script_bufs(&self) -> Vec<ScriptBuf> {
+        self.named_leaves
+            .iter()
+            .map(|(_, script)| script.to_script_buf())
+            .collect()
+    }
+
+    pub fn taproot_address(
+        &self,
+        network: bitcoin::Network,
+    ) -> Result<(Address, bitcoin::taproot::TaprootSpendInfo), BridgeError> {
+        Ok(create_taproot_address(&self.script_bufs(), None, network))
+    }
+
+    pub fn script_pubkey(&self, network: bitcoin::Network) -> Result<ScriptBuf, BridgeError> {
+        Ok(self.taproot_address(network)?.0.script_pubkey())
+    }
+
+    pub fn unspent_txout(
+        &self,
+        amount: Amount,
+        network: bitcoin::Network,
+    ) -> Result<UnspentTxOut<DepositTreeLeaf>, BridgeError> {
+        Ok(
+            UnspentTxOut::from_scripts(amount, self.script_nodes(), None, network)
+                .with_named_leaves(self.named_leaves.clone()),
+        )
+    }
+
+    pub fn spendable_input(
+        &self,
+        outpoint: OutPoint,
+        amount: Amount,
+        network: bitcoin::Network,
+    ) -> Result<SpendableTxIn<DepositTreeLeaf>, BridgeError> {
+        let output = self.unspent_txout(amount, network)?;
+        Ok(SpendableTxIn::from_output(outpoint, &output))
+    }
+
+    pub fn leaf_script(&self, leaf: DepositTreeLeaf) -> Option<&ScriptLeaf> {
+        self.named_leaves
+            .iter()
+            .find_map(|(candidate, script)| (*candidate == leaf).then_some(script))
+    }
 }
 
 impl DepositData {
@@ -171,49 +293,26 @@ impl DepositData {
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()
     }
-    /// Returns the scripts a taproot address of a deposit_outpoint must have to spend the deposit.
-    /// Deposits not having these scripts and corresponding taproot address should be rejected.
-    pub fn get_deposit_scripts(
+
+    pub fn spend_tree(
         &mut self,
         paramset: &'static ProtocolParamset,
-    ) -> Result<Vec<Arc<dyn SpendableScript>>, BridgeError> {
+    ) -> Result<DepositSpendTree, BridgeError> {
         let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
 
         match &mut self.deposit.deposit_type {
-            DepositType::BaseDeposit(original_deposit_data) => {
-                let deposit_script = Arc::new(BaseDepositScript::new(
-                    nofn_xonly_pk,
-                    original_deposit_data.evm_address,
-                ));
-
-                let recovery_script_pubkey = original_deposit_data
-                    .recovery_taproot_address
-                    .clone()
-                    .assume_checked()
-                    .script_pubkey();
-
-                let recovery_extracted_xonly_pk = recovery_script_pubkey
-                    .try_get_taproot_pk()
-                    .wrap_err("Recovery taproot address is not a valid taproot address")?;
-
-                let script_timelock = Arc::new(TimelockScript::new(
-                    Some(recovery_extracted_xonly_pk),
-                    paramset.user_takes_after,
-                ));
-
-                Ok(vec![deposit_script, script_timelock])
-            }
+            DepositType::BaseDeposit(original_deposit_data) => DepositSpendTree::from_base_deposit(
+                nofn_xonly_pk,
+                &original_deposit_data.recovery_taproot_address,
+                original_deposit_data.evm_address,
+                paramset.user_takes_after,
+            ),
             DepositType::ReplacementDeposit(replacement_deposit_data) => {
-                let deposit_script: Arc<dyn SpendableScript> =
-                    Arc::new(ReplacementDepositScript::new(
-                        nofn_xonly_pk,
-                        replacement_deposit_data.old_move_txid,
-                    ));
-                let security_council_script: Arc<dyn SpendableScript> = Arc::new(
-                    Multisig::from_security_council(self.security_council.clone()),
-                );
-
-                Ok(vec![deposit_script, security_council_script])
+                Ok(DepositSpendTree::from_replacement_deposit(
+                    nofn_xonly_pk,
+                    replacement_deposit_data.old_move_txid,
+                    self.security_council.clone(),
+                ))
             }
         }
     }
@@ -379,5 +478,99 @@ impl<'de> serde::Deserialize<'de> for OperatorData {
             reimburse_addr: helper.reimburse_addr.assume_checked(),
             collateral_funding_outpoint: helper.collateral_funding_outpoint,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DepositSpendTree, DepositTreeLeaf, SecurityCouncil};
+    use crate::config::protocol::REGTEST_PARAMSET;
+    use bitcoin::address::NetworkUnchecked;
+    use bitcoin::hashes::Hash as _;
+    use bitcoin::key::rand;
+    use bitcoin::secp256k1::{Keypair, SecretKey, XOnlyPublicKey};
+    use bitcoin::{Address, Amount, Network, OutPoint, Txid};
+    use clementine_primitives::EVMAddress;
+
+    fn random_xonly() -> XOnlyPublicKey {
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(
+            &crate::bitvm_client::SECP,
+            &secret_key,
+        ))
+        .0
+    }
+
+    fn dummy_recovery_address() -> Address<NetworkUnchecked> {
+        Address::p2tr(
+            &crate::bitvm_client::SECP,
+            random_xonly(),
+            None,
+            Network::Regtest,
+        )
+        .as_unchecked()
+        .clone()
+    }
+
+    #[test]
+    fn spend_tree_exposes_expected_leaves() {
+        for (tree, expected) in [
+            (
+                DepositSpendTree::from_base_deposit(
+                    random_xonly(),
+                    &dummy_recovery_address(),
+                    EVMAddress([7; 20]),
+                    REGTEST_PARAMSET.user_takes_after,
+                )
+                .expect("base tree"),
+                vec![
+                    DepositTreeLeaf::DepositScript,
+                    DepositTreeLeaf::UserTakeBack,
+                ],
+            ),
+            (
+                DepositSpendTree::from_replacement_deposit(
+                    random_xonly(),
+                    Txid::from_byte_array([3; 32]),
+                    SecurityCouncil {
+                        pks: vec![random_xonly()],
+                        threshold: 1,
+                    },
+                ),
+                vec![
+                    DepositTreeLeaf::DepositScript,
+                    DepositTreeLeaf::SecurityCouncilMultisig,
+                ],
+            ),
+        ] {
+            let (_, spend_info) = tree.taproot_address(Network::Regtest).expect("address");
+            let output = tree
+                .unspent_txout(Amount::from_sat(1000), Network::Regtest)
+                .expect("unspent");
+            let spendable = tree
+                .spendable_input(
+                    OutPoint::default(),
+                    Amount::from_sat(1000),
+                    Network::Regtest,
+                )
+                .expect("spendable");
+            assert!(spend_info.merkle_root().is_some());
+            assert_eq!(
+                tree.script_pubkey(Network::Regtest).expect("script"),
+                output.txout().script_pubkey
+            );
+            assert_eq!(
+                output
+                    .named_leaves()
+                    .iter()
+                    .map(|(leaf, _)| *leaf)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for leaf in expected {
+                assert!(tree.leaf_script(leaf).is_some());
+                assert!(spendable.get_named_leaf_script(leaf).is_some());
+            }
+        }
     }
 }

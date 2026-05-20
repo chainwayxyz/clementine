@@ -249,7 +249,7 @@ impl BridgeConfig {
             )?,
 
             #[cfg(test)]
-            test_params: super::TestParams::default(),
+            test_params: super::test::TestParams::default(),
         };
 
         tracing::debug!("BridgeConfig from env: {:?}", config);

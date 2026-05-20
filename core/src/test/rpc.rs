@@ -1,10 +1,16 @@
-use bitcoin::{secp256k1::SecretKey, Amount};
+use bitcoin::secp256k1::{rand, SecretKey};
+use bitcoin::Amount;
 use bitcoin::{Address, OutPoint, Transaction};
 use bitcoincore_rpc::json::ScanTxOutRequest;
 use bitcoincore_rpc::RpcApi;
 
 use crate::actor::Actor;
-use crate::builder::transaction::input::UtxoVout;
+use crate::config::protocol::REGTEST_PARAMSET;
+use crate::protocol::ids::{RoundIdx, TransactionType};
+use crate::protocol::tx::{
+    ready_to_reimburse::{self, ReadyToReimburseOutput},
+    round::{self, RoundOutput},
+};
 use crate::rpc::clementine::{KickoffId, Outpoints, TransactionRequest};
 use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::tx_utils::get_tx_from_signed_txs_with_type;
@@ -12,7 +18,7 @@ use crate::test::common::{
     create_regtest_rpc, create_test_config_with_thread_name, run_single_deposit,
     test_actors::TestActors,
 };
-use clementine_primitives::{RoundIndex, TransactionType};
+use clementine_primitives::BridgeRound;
 
 #[tokio::test]
 #[cfg(feature = "automation")]
@@ -166,7 +172,11 @@ async fn operator_transfer_to_btc_wallet() {
 
     let mut first_round_sent = false;
     let num_rounds = config.protocol_paramset().num_round_txs;
-    for round in RoundIndex::iter_rounds(num_rounds) {
+    for round in BridgeRound::iter_rounds(num_rounds) {
+        let Ok(round_idx_typed) = round.to_round_idx() else {
+            continue;
+        };
+        let round_idx = round_idx_typed.0;
         use tonic::Request;
 
         use crate::test::common::{
@@ -190,8 +200,11 @@ async fn operator_transfer_to_btc_wallet() {
             .unwrap()
             .into_inner();
 
-        let round_tx =
-            get_tx_from_signed_txs_with_type(&round_txs, TransactionType::Round).unwrap();
+        let round_tx = get_tx_from_signed_txs_with_type(
+            &round_txs,
+            TransactionType::Round(RoundIdx::new(round_idx)),
+        )
+        .unwrap();
         let round_txid = round_tx.compute_txid();
 
         // we need to send the first round from collateral first
@@ -213,8 +226,12 @@ async fn operator_transfer_to_btc_wallet() {
         .unwrap();
 
         // check that collateral in round tx cannot be sent
-        let round_collateral_outpoint =
-            OutPoint::new(round_txid, UtxoVout::CollateralInRound.get_vout());
+        let round_collateral_outpoint = OutPoint::new(
+            round_txid,
+            round::spec(REGTEST_PARAMSET.num_kickoffs_per_round)
+                .output_index(&RoundOutput::RemainingCollateral)
+                .expect("round remaining collateral output must exist") as u32,
+        );
         let round_collateral_error = operator_client
             .transfer_to_btc_wallet(Outpoints {
                 outpoints: vec![round_collateral_outpoint.into()],
@@ -232,9 +249,11 @@ async fn operator_transfer_to_btc_wallet() {
             .unwrap();
 
         // Get ready to reimburse tx from round_txs
-        let ready_to_reimburse_tx =
-            get_tx_from_signed_txs_with_type(&round_txs, TransactionType::ReadyToReimburse)
-                .unwrap();
+        let ready_to_reimburse_tx = get_tx_from_signed_txs_with_type(
+            &round_txs,
+            TransactionType::ReadyToReimburse(RoundIdx::new(round_idx)),
+        )
+        .unwrap();
 
         // check that collateral in ready to reimburse tx cannot be sent
         let ready_to_reimburse_txid = ready_to_reimburse_tx.compute_txid();
@@ -247,7 +266,9 @@ async fn operator_transfer_to_btc_wallet() {
             .expect("Ready to reimburse tx failed to be onchain");
         let ready_to_reimburse_collateral_outpoint = OutPoint::new(
             ready_to_reimburse_txid,
-            UtxoVout::CollateralInReadyToReimburse.get_vout(),
+            ready_to_reimburse::spec()
+                .output_index(&ReadyToReimburseOutput::Collateral)
+                .expect("ready to reimburse collateral output must exist") as u32,
         );
         let ready_to_reimburse_collateral_error = operator_client
             .transfer_to_btc_wallet(Outpoints {

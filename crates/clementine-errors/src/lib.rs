@@ -50,7 +50,7 @@
 //! ```
 
 use bitcoin::{secp256k1::PublicKey, BlockHash, OutPoint, Txid, XOnlyPublicKey};
-use clementine_primitives::FeeRateKvb;
+use clementine_primitives::{FeeRateKvb, RoundIdxConversionError, TransactionType};
 use core::fmt::Debug;
 use hex::FromHexError;
 use http::StatusCode;
@@ -58,7 +58,7 @@ use thiserror::Error;
 use tonic::Status;
 
 // Re-export primitives for downstream crates
-pub use clementine_primitives::{RoundIndex, TransactionType};
+pub use clementine_primitives::BridgeRound;
 
 // ============================================================================
 // Module-level errors
@@ -243,15 +243,53 @@ pub enum TxError {
     IncorrectWatchtowerChallengeDataLength,
     #[error("Latest blockhash script must be a single script")]
     LatestBlockhashScriptNumber,
-    #[error("Round index cannot be used to create a Round transaction: {0:?}")]
-    InvalidRoundIndex(RoundIndex),
+    #[error(
+        "Invalid round index `{0}`: collateral cannot be used where a protocol round is required"
+    )]
+    InvalidRoundIndex(BridgeRound),
     #[error("Index overflow")]
     IndexOverflow,
     #[error("Kickoff winternitz keys in DB has wrong size compared to paramset")]
     KickoffWinternitzKeysDBInconsistency,
+    #[error(transparent)]
+    KickoffOperatorMismatch(#[from] Box<KickoffOperatorMismatch>),
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
+}
+
+#[derive(Debug, Error)]
+#[error(
+    "Kickoff operator mismatch: shared context operator {expected}, kickoff data operator {actual}"
+)]
+pub struct KickoffOperatorMismatch {
+    pub expected: XOnlyPublicKey,
+    pub actual: XOnlyPublicKey,
+}
+
+impl From<RoundIdxConversionError> for TxError {
+    fn from(value: RoundIdxConversionError) -> Self {
+        match value {
+            RoundIdxConversionError::InvalidRoundIndex(round) => TxError::InvalidRoundIndex(round),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum WitnessError {
+    #[error("wrong witness item count: expected {expected}, got {actual}")]
+    WrongItemCount {
+        expected: &'static str,
+        actual: usize,
+    },
+    #[error("invalid taproot signature at witness item {index}: {message}")]
+    InvalidTaprootSignature { index: usize, message: String },
+    #[error("invalid preimage length: expected {expected} bytes, got {actual}")]
+    InvalidPreimageLength { expected: usize, actual: usize },
+    #[error("preimage hash does not match script hash160")]
+    InvalidPreimageHash,
+    #[error("message: {0}")]
+    Message(String),
 }
 
 // ============================================================================
@@ -265,6 +303,8 @@ pub enum TxError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
+    #[error("Witness error: {0}")]
+    Witness(#[from] WitnessError),
     #[error("Header chain prover returned an error: {0}")]
     Prover(#[from] HeaderChainProverError),
     #[error("Failed to build transactions: {0}")]
@@ -359,6 +399,12 @@ pub enum BridgeError {
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
+}
+
+impl From<RoundIdxConversionError> for BridgeError {
+    fn from(value: RoundIdxConversionError) -> Self {
+        BridgeError::Transaction(value.into())
+    }
 }
 
 // ============================================================================

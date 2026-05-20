@@ -101,13 +101,16 @@ pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type InscriptionTxs = (OutPoint, Txid);
 
 use bitcoin::transaction::Version;
-use bitcoin::{Amount, Weight};
+use bitcoin::{Amount, Sequence, Weight};
 
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
 pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
 
 /// Non-standard V3 transaction version.
 pub const NON_STANDARD_V3: Version = Version(3);
+
+/// Default sequence for RBF-enabled transactions without locktime semantics.
+pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 /// Number of assert transactions in the protocol.
 pub const NUMBER_OF_ASSERT_TXS: usize = 36;
@@ -183,61 +186,6 @@ impl std::fmt::Display for FeeRateKvb {
 //     }
 // }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-/// Enumerates protocol-specific UTXO output indices for transaction construction.
-/// Used to identify the vout of specific UTXOs in protocol transactions.
-pub enum UtxoVout {
-    /// The vout of the assert utxo in KickoffTx
-    Assert(usize),
-    /// The vout of the watchtower challenge utxo in KickoffTx
-    WatchtowerChallenge(usize),
-    /// The vout of the watchtower challenge ack utxo in KickoffTx
-    WatchtowerChallengeAck(usize),
-    /// The vout of the challenge utxo in KickoffTx
-    Challenge,
-    /// The vout of the kickoff finalizer utxo in KickoffTx
-    KickoffFinalizer,
-    /// The vout of the reimburse utxo in KickoffTx
-    ReimburseInKickoff,
-    /// The vout of the disprove utxo in KickoffTx
-    Disprove,
-    /// The vout of the latest blockhash utxo in KickoffTx
-    LatestBlockhash,
-    /// The vout of the deposited btc utxo in MoveTx
-    DepositInMove,
-    /// The vout of the reimburse connector utxo in RoundTx
-    ReimburseInRound(usize, usize),
-    /// The vout of the kickoff utxo in RoundTx
-    Kickoff(usize),
-    /// The vout of the collateral utxo in RoundTx
-    CollateralInRound,
-    /// The vout of the collateral utxo in ReadyToReimburseTx
-    CollateralInReadyToReimburse,
-}
-
-impl UtxoVout {
-    /// Returns the vout index for this UTXO in the corresponding transaction.
-    pub fn get_vout(self) -> u32 {
-        match self {
-            UtxoVout::Assert(idx) => idx as u32 + 5,
-            UtxoVout::WatchtowerChallenge(idx) => (2 * idx + 5 + NUMBER_OF_ASSERT_TXS) as u32,
-            UtxoVout::WatchtowerChallengeAck(idx) => (2 * idx + 6 + NUMBER_OF_ASSERT_TXS) as u32,
-            UtxoVout::Challenge => 0,
-            UtxoVout::KickoffFinalizer => 1,
-            UtxoVout::ReimburseInKickoff => 2,
-            UtxoVout::Disprove => 3,
-            UtxoVout::LatestBlockhash => 4,
-            UtxoVout::ReimburseInRound(idx, num_kickoffs_per_round) => {
-                (num_kickoffs_per_round + idx + 1) as u32
-            }
-            UtxoVout::Kickoff(idx) => idx as u32 + 1,
-            UtxoVout::DepositInMove => 0,
-            UtxoVout::CollateralInRound => 0,
-            UtxoVout::CollateralInReadyToReimburse => 0,
-        }
-    }
-}
-
 // ============================================================================
 // Round Types
 // ============================================================================
@@ -251,62 +199,93 @@ pub type SecretPreimage = [u8; 20];
 /// Round index for bridge operators.
 ///
 /// `Collateral` represents the collateral UTXO.
-/// `Round(index)` represents the rounds of the bridge operators (0-indexed).
+/// `Round(index)` represents the rounds of the bridge operators (zero-based).
 /// As a single u32, collateral is represented as 0 and rounds are represented starting from 1.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
 )]
-pub enum RoundIndex {
+pub enum BridgeRound {
     Collateral,
-    Round(usize), // 0-indexed
+    Round(usize), // zero-based
 }
 
-impl std::fmt::Display for RoundIndex {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoundIdxConversionError {
+    InvalidRoundIndex(BridgeRound),
+}
+
+impl std::fmt::Display for RoundIdxConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RoundIndex::Collateral => write!(f, "Collateral"),
-            RoundIndex::Round(index) => write!(f, "Round({index})"),
+            RoundIdxConversionError::InvalidRoundIndex(round) => write!(
+                f,
+                "Invalid round index `{round}`: collateral cannot be used where a protocol round is required"
+            ),
         }
     }
 }
 
-impl RoundIndex {
-    /// Converts the round to a 0-indexed index.
+impl std::error::Error for RoundIdxConversionError {}
+
+impl std::fmt::Display for BridgeRound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BridgeRound::Collateral => write!(f, "Collateral"),
+            BridgeRound::Round(index) => write!(f, "Round({index})"),
+        }
+    }
+}
+
+impl BridgeRound {
+    /// Converts the round to a zero-based index.
     pub fn to_index(&self) -> usize {
         match self {
-            RoundIndex::Collateral => 0,
-            RoundIndex::Round(index) => *index + 1,
+            BridgeRound::Collateral => 0,
+            BridgeRound::Round(index) => *index + 1,
         }
     }
 
-    /// Converts a 0-indexed index to a RoundIndex.
-    /// Use this only when dealing with 0-indexed data. Currently these are data coming from the database and rpc.
+    /// Converts a zero-based index to a BridgeRound.
+    /// Use this only when dealing with zero-based data. Currently these are data coming from the database and rpc.
     pub fn from_index(index: usize) -> Self {
         if index == 0 {
-            RoundIndex::Collateral
+            BridgeRound::Collateral
         } else {
-            RoundIndex::Round(index - 1)
+            BridgeRound::Round(index - 1)
         }
     }
 
-    /// Returns the next RoundIndex.
+    /// Returns the next BridgeRound.
     pub fn next_round(&self) -> Self {
         match self {
-            RoundIndex::Collateral => RoundIndex::Round(0),
-            RoundIndex::Round(index) => RoundIndex::Round(*index + 1),
+            BridgeRound::Collateral => BridgeRound::Round(0),
+            BridgeRound::Round(index) => BridgeRound::Round(*index + 1),
         }
     }
 
     /// Creates an iterator over rounds from 0 to num_rounds (exclusive).
     /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = RoundIndex> {
+    pub fn iter_rounds(num_rounds: usize) -> impl Iterator<Item = BridgeRound> {
         Self::iter_rounds_range(0, num_rounds)
     }
 
     /// Creates an iterator over rounds from start to end (exclusive).
     /// Only iterates actual rounds, collateral is not included.
-    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = RoundIndex> {
-        (start..end).map(RoundIndex::Round)
+    pub fn iter_rounds_range(start: usize, end: usize) -> impl Iterator<Item = BridgeRound> {
+        (start..end).map(BridgeRound::Round)
+    }
+
+    /// Converts a [`BridgeRound`] to typed [`RoundIdx`].
+    ///
+    /// Returns an error for [`BridgeRound::Collateral`] because collateral is not a valid
+    /// protocol round.
+    pub fn to_round_idx(self) -> Result<RoundIdx, RoundIdxConversionError> {
+        match self {
+            BridgeRound::Round(idx) => Ok(RoundIdx::new(idx)),
+            BridgeRound::Collateral => Err(RoundIdxConversionError::InvalidRoundIndex(
+                BridgeRound::Collateral,
+            )),
+        }
     }
 }
 
@@ -314,46 +293,54 @@ impl RoundIndex {
 // Transaction Types
 // ============================================================================
 
-/// Types of all transactions that can be created.
-///
-/// Some transactions have a `(usize)` index as there are multiple instances
-/// of the same transaction type per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+/// Typed round index used by transaction IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct RoundIdx(pub usize);
+
+impl RoundIdx {
+    pub fn new(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+/// Typed kickoff index used by transaction IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct KickoffIdx(pub usize);
+
+impl KickoffIdx {
+    pub fn new(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+/// Canonical transaction ID for the static protocol runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
-    // --- Transaction Types ---
-    AssertTimeout(usize),
-    BurnUnusedKickoffConnectors,
-    Challenge,
-    ChallengeTimeout,
-    Disprove,
-    DisproveTimeout,
-    EmergencyStop,
-    Kickoff,
-    KickoffNotFinalized,
-    LatestBlockhash,
-    LatestBlockhashTimeout,
-    MiniAssert(usize),
     MoveToVault,
-    OperatorChallengeAck(usize),
-    OperatorChallengeNack(usize),
-    OptimisticPayout,
+    EmergencyStop,
+    Round(RoundIdx),
+    ReadyToReimburse(RoundIdx),
+    Kickoff(RoundIdx, KickoffIdx),
+    Challenge(RoundIdx, KickoffIdx),
+    ChallengeTimeout(RoundIdx, KickoffIdx),
+    KickoffNotFinalized(RoundIdx, KickoffIdx),
+    WatchtowerChallenge(RoundIdx, KickoffIdx, usize),
+    WatchtowerChallengeTimeout(RoundIdx, KickoffIdx, usize),
+    OperatorChallengeNack(RoundIdx, KickoffIdx, usize),
+    OperatorChallengeAck(RoundIdx, KickoffIdx, usize),
+    LatestBlockhash(RoundIdx, KickoffIdx),
+    LatestBlockhashTimeout(RoundIdx, KickoffIdx),
+    MiniAssert(RoundIdx, KickoffIdx, usize),
+    AssertTimeout(RoundIdx, KickoffIdx, usize),
+    Disprove(RoundIdx, KickoffIdx),
+    DisproveTimeout(RoundIdx, KickoffIdx),
+    UnspentKickoff(RoundIdx, KickoffIdx),
+    BurnUnusedKickoffConnectors(RoundIdx, Vec<usize>),
+    Reimburse(RoundIdx, KickoffIdx),
     Payout,
-    ReadyToReimburse,
-    Reimburse,
+    OptimisticPayout,
     ReplacementDeposit,
-    Round,
-    UnspentKickoff(usize),
-    WatchtowerChallenge(usize),
-    WatchtowerChallengeTimeout(usize),
-
-    // --- Transaction Subsets ---
-    /// Includes all tx's that need to be signed for a deposit for verifiers.
-    AllNeededForDeposit,
-    /// Yields kickoff txid from the sighash stream.
     YieldKickoffTxid,
-
-    /// For testing and for values to be replaced later.
-    Dummy,
 }
 
 /// Events emitted by the Bitcoin syncer.
@@ -387,32 +374,41 @@ mod tests {
 
     #[test]
     fn test_round_index_to_from_index() {
-        assert_eq!(RoundIndex::Collateral.to_index(), 0);
-        assert_eq!(RoundIndex::Round(0).to_index(), 1);
-        assert_eq!(RoundIndex::Round(5).to_index(), 6);
+        assert_eq!(BridgeRound::Collateral.to_index(), 0);
+        assert_eq!(BridgeRound::Round(0).to_index(), 1);
+        assert_eq!(BridgeRound::Round(5).to_index(), 6);
 
-        assert_eq!(RoundIndex::from_index(0), RoundIndex::Collateral);
-        assert_eq!(RoundIndex::from_index(1), RoundIndex::Round(0));
-        assert_eq!(RoundIndex::from_index(6), RoundIndex::Round(5));
+        assert_eq!(BridgeRound::from_index(0), BridgeRound::Collateral);
+        assert_eq!(BridgeRound::from_index(1), BridgeRound::Round(0));
+        assert_eq!(BridgeRound::from_index(6), BridgeRound::Round(5));
     }
 
     #[test]
     fn test_round_index_next_round() {
-        assert_eq!(RoundIndex::Collateral.next_round(), RoundIndex::Round(0));
-        assert_eq!(RoundIndex::Round(0).next_round(), RoundIndex::Round(1));
+        assert_eq!(BridgeRound::Collateral.next_round(), BridgeRound::Round(0));
+        assert_eq!(BridgeRound::Round(0).next_round(), BridgeRound::Round(1));
     }
 
     #[test]
     fn test_round_index_iter() {
-        let rounds: Vec<_> = RoundIndex::iter_rounds(3).collect();
+        let rounds: Vec<_> = BridgeRound::iter_rounds(3).collect();
         assert_eq!(
             rounds,
             vec![
-                RoundIndex::Round(0),
-                RoundIndex::Round(1),
-                RoundIndex::Round(2)
+                BridgeRound::Round(0),
+                BridgeRound::Round(1),
+                BridgeRound::Round(2)
             ]
         );
+    }
+
+    #[test]
+    fn test_round_index_to_round_idx() {
+        assert_eq!(
+            BridgeRound::Round(3).to_round_idx().unwrap(),
+            RoundIdx::new(3)
+        );
+        assert!(BridgeRound::Collateral.to_round_idx().is_err());
     }
 
     #[test]

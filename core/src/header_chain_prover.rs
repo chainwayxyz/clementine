@@ -682,9 +682,11 @@ fn get_hcp_method_id(network: Network) -> Result<[u32; 8], HeaderChainProverErro
 mod tests {
     use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
     use crate::header_chain_prover::HeaderChainProver;
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
-    use crate::{database::Database, test::common::citrea::MockCitreaClient};
+
+    use crate::database::Database;
     use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
     use circuits_lib::header_chain::{
