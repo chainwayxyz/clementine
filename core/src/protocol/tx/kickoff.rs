@@ -22,6 +22,7 @@ use bitvm::clementine::additional_disprove::replace_placeholders_in_script;
 use circuits_lib::bridge_circuit::deposit_constant;
 use clementine_errors::{BridgeError, TxError};
 use clementine_primitives::BridgeRound;
+use eyre::eyre;
 use tx_builder::output::TapNodeSpec;
 use tx_builder::script::SpendableScript;
 use tx_builder::scripts::{
@@ -195,28 +196,33 @@ impl KickoffOutput {
                     watchtowers.len(),
                 )
                 .output_index(&Self::WatchtowerChallenge(0))
-                .expect("watchtower challenge output must exist")
+                .ok_or(TxError::TxOutputNotFound)?
                     as u32;
 
                 let secp = Secp256k1::verification_only();
                 let watchtower_pubkeys = watchtowers
                     .iter()
-                    .map(|xonly_pk| {
+                    .map(|xonly_pk| -> Result<_, BridgeError> {
                         let nofn_2week = TimelockScript::new(
                             Some(nofn_xonly_pk),
                             paramset.watchtower_challenge_timeout_timelock,
                         );
 
-                        let builder = TaprootBuilder::new();
-                        let tweaked = builder
+                        let tweaked = TaprootBuilder::new()
                             .add_leaf(0, nofn_2week.to_script_buf())
-                            .expect("Valid script leaf")
+                            .map_err(|e| {
+                                TxError::Other(eyre!("failed to add watchtower leaf: {e}"))
+                            })?
                             .finalize(&secp, *xonly_pk)
-                            .expect("taproot finalize must succeed");
+                            .map_err(|e| {
+                                TxError::Other(eyre!(
+                                    "failed to finalize watchtower taproot: {e:?}"
+                                ))
+                            })?;
 
-                        tweaked.output_key().serialize()
+                        Ok(tweaked.output_key().serialize())
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 let deposit_constant = deposit_constant(
                     operator_xonly_pk.serialize(),
@@ -291,14 +297,16 @@ impl KickoffOutput {
                     TimelockScript::new(Some(nofn_xonly_pk), paramset.assert_timeout_timelock);
 
                 let kickoff_data = datasources.kickoff()?;
+                let assert_script_hash = kickoff_data
+                    .assert_script_hashes
+                    .get(idx)
+                    .ok_or(TxError::IndexOverflow)?;
                 Ok(Some(UnspentTxOut::from_taptree(
                     paramset.default_utxo_amount(),
                     None,
                     vec![
                         TapNodeSpec::leaf(KickoffLeaf::AssertTimeout.into(), nofn_4week),
-                        TapNodeSpec::hidden(TapNodeHash::from_byte_array(
-                            kickoff_data.assert_script_hashes[idx],
-                        )),
+                        TapNodeSpec::hidden(TapNodeHash::from_byte_array(*assert_script_hash)),
                     ],
                 )))
             }
@@ -307,10 +315,12 @@ impl KickoffOutput {
                     Some(nofn_xonly_pk),
                     paramset.watchtower_challenge_timeout_timelock,
                 );
-                let watchtower_xonly_pk = watchtowers[watchtower_idx];
+                let watchtower_xonly_pk = watchtowers
+                    .get(watchtower_idx)
+                    .ok_or(TxError::IndexOverflow)?;
                 Ok(Some(UnspentTxOut::from_taptree(
                     paramset.default_utxo_amount() * 2 + paramset.anchor_amount(),
-                    Some(watchtower_xonly_pk),
+                    Some(*watchtower_xonly_pk),
                     vec![TapNodeSpec::leaf(
                         KickoffLeaf::WatchtowerChallenge.into(),
                         nofn_2week,
@@ -328,7 +338,10 @@ impl KickoffOutput {
                 );
 
                 let kickoff_build_data = datasources.kickoff()?;
-                let operator_unlock_hash = kickoff_build_data.challenge_ack_hashes[watchtower_idx];
+                let operator_unlock_hash = *kickoff_build_data
+                    .challenge_ack_hashes
+                    .get(watchtower_idx)
+                    .ok_or(TxError::IndexOverflow)?;
                 let operator_with_preimage =
                     PreimageRevealScript::new(operator_xonly_pk, operator_unlock_hash);
 
@@ -350,8 +363,9 @@ impl KickoffOutput {
 
                 let mut op_return_script = move_txid.to_vec();
                 op_return_script.extend(operator_xonly_pk.serialize());
-                let push_bytes =
-                    PushBytesBuf::try_from(op_return_script).expect("Must fit pushbytesbuf");
+                let push_bytes = PushBytesBuf::try_from(op_return_script).map_err(|e| {
+                    TxError::Other(eyre!("kickoff OP_RETURN payload too large: {e}"))
+                })?;
                 Ok(Some(UnspentTxOut::from_partial(op_return_txout(
                     push_bytes,
                 ))))

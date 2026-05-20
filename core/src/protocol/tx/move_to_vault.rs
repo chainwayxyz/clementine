@@ -11,7 +11,8 @@ use crate::deposit::{DepositSpendTree, DepositTreeLeaf};
 use crate::protocol::ids::{Actor, Input, Leaf, Output, TransactionType};
 use crate::protocol::spec::{ExternalInput, InputSpec, TxSpec};
 use bitcoin::{Amount, TapSighashType};
-use clementine_errors::BridgeError;
+use clementine_errors::{BridgeError, TxError};
+use eyre::eyre;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MoveToVaultInput {
@@ -87,13 +88,19 @@ impl MoveToVaultOutput {
                             MoveToVaultLeaf::NofnSpend.into(),
                             tree.leaf_script(DepositTreeLeaf::DepositScript)
                                 .cloned()
-                                .expect("move-to-vault tree must have deposit leaf"),
+                                .ok_or_else(|| {
+                                    TxError::Other(eyre!("move-to-vault tree missing deposit leaf"))
+                                })?,
                         ),
                         (
                             MoveToVaultLeaf::SecurityCouncilMultisig.into(),
                             tree.leaf_script(DepositTreeLeaf::SecurityCouncilMultisig)
                                 .cloned()
-                                .expect("move-to-vault tree must have security council leaf"),
+                                .ok_or_else(|| {
+                                    TxError::Other(eyre!(
+                                        "move-to-vault tree missing security council leaf"
+                                    ))
+                                })?,
                         ),
                     ],
                     output.spendinfo().clone(),
