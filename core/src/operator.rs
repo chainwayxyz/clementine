@@ -1471,10 +1471,11 @@ where
         )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
-        let mut wt_contexts = Vec::new();
-        let mut watchtower_challenges = watchtower_challenges.iter().collect::<Vec<_>>();
-        watchtower_challenges.sort_by_key(|(watchtower_idx, _)| **watchtower_idx);
-        for (watchtower_idx, tx) in watchtower_challenges {
+        let mut wt_contexts = Vec::with_capacity(watchtower_challenges.len());
+        let mut watchtower_challenges_sorted = watchtower_challenges.iter().collect::<Vec<_>>();
+        // Deterministic host input order; correctness comes from the watchtower_idx key.
+        watchtower_challenges_sorted.sort_by_key(|(watchtower_idx, _)| **watchtower_idx);
+        for (watchtower_idx, tx) in watchtower_challenges_sorted {
             let watchtower_idx = u32::try_from(*watchtower_idx)
                 .wrap_err("Watchtower index does not fit into u32")?;
             wt_contexts.push(WatchtowerContext {
