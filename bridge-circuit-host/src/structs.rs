@@ -1,7 +1,13 @@
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{
+    consensus::Encodable,
+    hashes::{sha256, Hash},
+    sighash::Annex,
+    taproot::TAPROOT_ANNEX_PREFIX,
+    Network, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use circuits_lib::{
     bridge_circuit::{
@@ -327,16 +333,91 @@ fn get_wt_inputs(
     watchtower_contexts
         .iter()
         .map(|context| {
-            WatchtowerInput::from_txs(
+            get_wt_input(
                 kickoff_tx_id,
-                context.watchtower_idx,
-                context.watchtower_tx.clone(),
-                &context.prevout_txs,
+                context,
                 watchtower_challenge_connector_start_idx,
             )
-            .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
         })
         .collect()
+}
+
+fn get_wt_input(
+    kickoff_tx_id: Txid,
+    context: &WatchtowerContext,
+    watchtower_challenge_connector_start_idx: u32,
+) -> Result<WatchtowerInput, BridgeCircuitHostParamsError> {
+    let expected_vout = watchtower_challenge_connector_start_idx
+        .checked_add(
+            context
+                .watchtower_idx
+                .checked_mul(2)
+                .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?,
+        )
+        .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?;
+
+    let input_idx = context
+        .watchtower_tx
+        .input
+        .iter()
+        .position(|input| {
+            input.previous_output.txid == kickoff_tx_id
+                && input.previous_output.vout == expected_vout
+        })
+        .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?;
+
+    let prevouts = context
+        .watchtower_tx
+        .input
+        .iter()
+        .map(|input| {
+            let tx = context
+                .prevout_txs
+                .iter()
+                .find(|tx| tx.compute_txid() == input.previous_output.txid)
+                .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?;
+            tx.output
+                .get(input.previous_output.vout as usize)
+                .cloned()
+                .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
+        })
+        .collect::<Result<Vec<TxOut>, _>>()?;
+
+    let input = &context.watchtower_tx.input[input_idx];
+    let signature = input
+        .witness
+        .nth(0)
+        .ok_or(BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?;
+
+    let mut witness = Witness::new();
+    witness.push(signature);
+
+    let annex_digest = input.witness.last().and_then(|last_witness_element| {
+        if last_witness_element.first() != Some(&TAPROOT_ANNEX_PREFIX) {
+            return None;
+        }
+
+        let annex = Annex::new(last_witness_element).ok()?;
+        let mut enc = sha256::Hash::engine();
+        annex.consensus_encode(&mut enc).ok()?;
+        Some(sha256::Hash::from_engine(enc).to_byte_array())
+    });
+
+    let mut watchtower_tx = context.watchtower_tx.clone();
+    for input in &mut watchtower_tx.input {
+        input.witness.clear();
+    }
+
+    WatchtowerInput::new(
+        context.watchtower_idx,
+        u32::try_from(input_idx)
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)?,
+        prevouts,
+        watchtower_tx,
+        witness,
+        annex_digest,
+    )
+    .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
 }
 
 /// Extracts all tweaked watchtower public keys from a kickoff transaction.
