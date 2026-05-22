@@ -392,16 +392,20 @@ fn get_wt_input(
     let mut witness = Witness::new();
     witness.push(signature);
 
-    let annex_digest = input.witness.last().and_then(|last_witness_element| {
-        if last_witness_element.first() != Some(&TAPROOT_ANNEX_PREFIX) {
-            return None;
-        }
+    let annex_digest = if input.witness.len() <= 1 {
+        None
+    } else {
+        input.witness.last().and_then(|last_witness_element| {
+            if last_witness_element.first() != Some(&TAPROOT_ANNEX_PREFIX) {
+                return None;
+            }
 
-        let annex = Annex::new(last_witness_element).ok()?;
-        let mut enc = sha256::Hash::engine();
-        annex.consensus_encode(&mut enc).ok()?;
-        Some(sha256::Hash::from_engine(enc).to_byte_array())
-    });
+            let annex = Annex::new(last_witness_element).ok()?;
+            let mut enc = sha256::Hash::engine();
+            annex.consensus_encode(&mut enc).ok()?;
+            Some(sha256::Hash::from_engine(enc).to_byte_array())
+        })
+    };
 
     let mut watchtower_tx = context.watchtower_tx.clone();
     for input in &mut watchtower_tx.input {
