@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LightClientCircuitInputRpcResponse {
+pub struct LightClientCircuitInputRpcResponse {
     #[serde(with = "u64_hex")]
     pub(crate) l1_height: u64,
     #[serde(with = "hex_array_32")]

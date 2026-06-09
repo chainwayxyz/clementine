@@ -37,7 +37,7 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
 use lcp::{create_light_client_circuit_input, prove_light_client_proof_from_input};
 use risc0_zkvm::{InnerReceipt, Receipt};
-pub(crate) use rpc_types::LightClientCircuitInputRpcResponse;
+pub use rpc_types::LightClientCircuitInputRpcResponse;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 

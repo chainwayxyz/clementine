@@ -1823,8 +1823,7 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout info from move txid")?;
 
-                    let _ = self
-                        .citrea_client
+                    self.citrea_client
                         .fetch_validate_and_store_lcp(
                             payout_block_height as u64,
                             citrea_idx as u32,
