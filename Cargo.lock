@@ -2130,6 +2130,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "citrea-risc0-batch-proof"
+version = "2.5.0"
+source = "git+https://github.com/chainwayxyz/citrea?tag=v2.5.0#4726fac963a33ce7ba1adf38d9e85a709928cc98"
+dependencies = [
+ "risc0-build",
+]
+
+[[package]]
+name = "citrea-risc0-light-client"
+version = "2.5.0"
+source = "git+https://github.com/chainwayxyz/citrea?tag=v2.5.0#4726fac963a33ce7ba1adf38d9e85a709928cc98"
+dependencies = [
+ "citrea-risc0-batch-proof",
+ "risc0-build",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2214,6 +2231,7 @@ dependencies = [
  "chacha20poly1305",
  "circuits-lib",
  "citrea-e2e",
+ "citrea-risc0-light-client",
  "clap",
  "clementine-config",
  "clementine-errors",

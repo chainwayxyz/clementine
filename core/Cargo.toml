@@ -67,6 +67,7 @@ statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
 citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
+citrea-risc0-light-client = { workspace = true }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }

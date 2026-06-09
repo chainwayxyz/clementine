@@ -1,5 +1,8 @@
 //! # Citrea Related Utilities
 
+mod lcp;
+mod rpc_types;
+
 use crate::config::protocol::ProtocolParamset;
 use crate::config::protocol::ProtocolParamsetExt;
 use crate::database::DatabaseTransaction;
@@ -32,7 +35,9 @@ use clementine_errors::BridgeError;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use lcp::prove_light_client_proof_locally;
 use risc0_zkvm::{InnerReceipt, Receipt};
+use rpc_types::LightClientCircuitInputRpcResponse;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -339,19 +344,8 @@ impl CitreaClientT for CitreaClient {
             return Ok(lcp);
         };
 
-        let lcp_result = self
-            .get_light_client_proof(payout_block_height, paramset)
-            .await?;
-        let (_lcp, lcp_receipt, _l2_height) = match lcp_result {
-            Some(lcp) => lcp,
-            None => {
-                return Err(eyre::eyre!(
-                    "Light client proof could not be fetched found for block height {}",
-                    payout_block_height
-                )
-                .into())
-            }
-        };
+        let lcp_receipt =
+            prove_light_client_proof_locally(self, payout_block_height, paramset).await?;
 
         // save the LCP for assert
         db.insert_lcp_for_assert(dbtx, deposit_index, lcp_receipt.clone())
@@ -671,6 +665,13 @@ trait LightClientProverRpc {
         &self,
         l1_height: u64,
     ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
+
+    /// Create read-only light client circuit input for the given L1 block height.
+    #[method(name = "createCircuitInput")]
+    async fn create_light_client_circuit_input(
+        &self,
+        l1_height: u64,
+    ) -> RpcResult<LightClientCircuitInputRpcResponse>;
 }
 
 #[rpc(client, namespace = "eth")]
