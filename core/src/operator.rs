@@ -1314,7 +1314,7 @@ where
 
         let lcp_receipt = self
             .citrea_client
-            .fetch_validate_and_store_lcp(
+            .prove_lcp_for_assert(
                 payout_block_height as u64,
                 deposit_idx as u32,
                 &self.db,

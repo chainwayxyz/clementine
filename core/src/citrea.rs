@@ -35,9 +35,9 @@ use clementine_errors::BridgeError;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use lcp::prove_light_client_proof_locally;
+use lcp::{create_light_client_circuit_input, prove_light_client_proof_from_input};
 use risc0_zkvm::{InnerReceipt, Receipt};
-use rpc_types::LightClientCircuitInputRpcResponse;
+pub(crate) use rpc_types::LightClientCircuitInputRpcResponse;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -172,6 +172,15 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ) -> Result<StorageProof, BridgeError>;
 
     async fn fetch_validate_and_store_lcp(
+        &self,
+        payout_block_height: u64,
+        deposit_index: u32,
+        db: &Database,
+        dbtx: Option<DatabaseTransaction<'_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError>;
+
+    async fn prove_lcp_for_assert(
         &self,
         payout_block_height: u64,
         deposit_index: u32,
@@ -334,24 +343,59 @@ impl CitreaClientT for CitreaClient {
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<Receipt, BridgeError> {
+        _paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError> {
         let saved_data = db
-            .get_lcp_for_assert(dbtx.as_deref_mut(), deposit_index)
+            .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
             .await?;
-        if let Some(lcp) = saved_data {
+        if let Some(lcp_input) = saved_data {
+            if lcp_input.l1_height != payout_block_height {
+                return Err(eyre::eyre!(
+                    "Stored light client circuit input height mismatch: expected {}, got {}",
+                    payout_block_height,
+                    lcp_input.l1_height
+                )
+                .into());
+            }
+            if lcp_input.input.is_empty() {
+                return Err(eyre::eyre!("Stored light client circuit input is empty").into());
+            }
             // if already saved, do nothing
-            return Ok(lcp);
+            return Ok(());
         };
 
-        let lcp_receipt =
-            prove_light_client_proof_locally(self, payout_block_height, paramset).await?;
+        let lcp_input = create_light_client_circuit_input(self, payout_block_height).await?;
 
-        // save the LCP for assert
-        db.insert_lcp_for_assert(dbtx, deposit_index, lcp_receipt.clone())
+        // save the LCP circuit input for assert
+        db.insert_lcp_input_for_assert(dbtx, deposit_index, lcp_input)
             .await?;
 
-        Ok(lcp_receipt)
+        Ok(())
+    }
+
+    async fn prove_lcp_for_assert(
+        &self,
+        payout_block_height: u64,
+        deposit_index: u32,
+        db: &Database,
+        mut dbtx: Option<DatabaseTransaction<'_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Receipt, BridgeError> {
+        self.fetch_validate_and_store_lcp(
+            payout_block_height,
+            deposit_index,
+            db,
+            dbtx.as_deref_mut(),
+            paramset,
+        )
+        .await?;
+
+        let lcp_input = db
+            .get_lcp_input_for_assert(dbtx, deposit_index)
+            .await?
+            .ok_or_else(|| eyre::eyre!("Light client circuit input not found for assert"))?;
+
+        prove_light_client_proof_from_input(lcp_input, paramset).await
     }
 
     async fn new(

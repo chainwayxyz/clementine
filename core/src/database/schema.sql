@@ -70,7 +70,8 @@ create table if not exists unspent_kickoff_signatures (
 -- LCP and storage proofs saved for sending assert
 create table if not exists lcp_for_asserts (
     deposit_id int not null primary key,
-    lcp_receipt bytea not null
+    lcp_receipt bytea,
+    lcp_input bytea
 );
 -- Verifier table for BitVM setup data
 /* This table holds the BitVM setup data for each operator and deposit_id pair. */

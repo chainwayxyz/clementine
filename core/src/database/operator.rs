@@ -4,12 +4,14 @@
 
 use super::{
     wrapper::{
-        AddressDB, DepositParamsDB, OutPointDB, ReceiptDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB,
+        AddressDB, DepositParamsDB, LightClientCircuitInputDB, OutPointDB, ReceiptDB, SignaturesDB,
+        TxidDB, XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
 };
 use crate::{
     builder::transaction::create_move_to_vault_txhandler,
+    citrea::LightClientCircuitInputRpcResponse,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
 };
@@ -658,7 +660,7 @@ impl Database {
         deposit_id: u32,
     ) -> Result<Option<Receipt>, BridgeError> {
         let query = sqlx::query_as::<_, (ReceiptDB,)>(
-            "SELECT lcp_receipt FROM lcp_for_asserts WHERE deposit_id = $1;",
+            "SELECT lcp_receipt FROM lcp_for_asserts WHERE deposit_id = $1 AND lcp_receipt IS NOT NULL;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
@@ -682,6 +684,44 @@ impl Database {
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(ReceiptDB(lcp));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    /// Retrieves the light client circuit input for a deposit to be proved while sending an assert.
+    pub(crate) async fn get_lcp_input_for_assert(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        deposit_id: u32,
+    ) -> Result<Option<LightClientCircuitInputRpcResponse>, BridgeError> {
+        let query = sqlx::query_as::<_, (LightClientCircuitInputDB,)>(
+            "SELECT lcp_input FROM lcp_for_asserts WHERE deposit_id = $1 AND lcp_input IS NOT NULL;",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.map(|(lcp_input,)| lcp_input.0))
+    }
+
+    /// Saves the light client circuit input for a deposit.
+    /// It is proved later when the assert proof is actually created.
+    pub(crate) async fn insert_lcp_input_for_assert(
+        &self,
+        tx: Option<DatabaseTransaction<'_>>,
+        deposit_id: u32,
+        lcp_input: LightClientCircuitInputRpcResponse,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO lcp_for_asserts (deposit_id, lcp_input)
+             VALUES ($1, $2)
+             ON CONFLICT (deposit_id) DO UPDATE SET lcp_input = EXCLUDED.lcp_input
+             WHERE lcp_for_asserts.lcp_input IS NULL;",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(LightClientCircuitInputDB(lcp_input));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 

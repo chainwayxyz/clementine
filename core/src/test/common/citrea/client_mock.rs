@@ -94,6 +94,17 @@ impl CitreaClientT for MockCitreaClient {
         _db: &Database,
         _dbtx: Option<DatabaseTransaction<'_>>,
         _paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
+
+    async fn prove_lcp_for_assert(
+        &self,
+        _payout_block_height: u64,
+        _deposit_index: u32,
+        _db: &Database,
+        _dbtx: Option<DatabaseTransaction<'_>>,
+        _paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError> {
         Ok(borsh::from_slice(include_bytes!(
             "../../../../../circuits-lib/test_data/lcp_receipt.bin"

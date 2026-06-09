@@ -1,13 +1,14 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct LightClientCircuitInputRpcResponse {
-    pub(super) l1_height: u64,
+pub(crate) struct LightClientCircuitInputRpcResponse {
+    pub(crate) l1_height: u64,
     #[serde(with = "hex_array_32")]
-    pub(super) l1_hash: [u8; 32],
+    pub(crate) l1_hash: [u8; 32],
     #[serde(with = "hex_vec")]
-    pub(super) input: Vec<u8>,
+    pub(crate) input: Vec<u8>,
 }
 
 mod hex_vec {

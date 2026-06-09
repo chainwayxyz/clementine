@@ -2,6 +2,7 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
+use crate::citrea::LightClientCircuitInputRpcResponse;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -249,6 +250,17 @@ impl_bytea_wrapper_custom_with_error!(
     Receipt,
     |lcp: &Receipt| -> Result<Vec<u8>, BoxDynError> { borsh::to_vec(lcp).map_err(Into::into) },
     |x: &[u8]| -> Result<Receipt, BoxDynError> { borsh::from_slice(x).map_err(Into::into) }
+);
+
+impl_bytea_wrapper_custom_with_error!(
+    LightClientCircuitInputDB,
+    LightClientCircuitInputRpcResponse,
+    |input: &LightClientCircuitInputRpcResponse| -> Result<Vec<u8>, BoxDynError> {
+        borsh::to_vec(input).map_err(Into::into)
+    },
+    |x: &[u8]| -> Result<LightClientCircuitInputRpcResponse, BoxDynError> {
+        borsh::from_slice(x).map_err(Into::into)
+    }
 );
 
 impl_text_wrapper_custom!(
