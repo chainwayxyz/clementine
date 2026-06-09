@@ -1,5 +1,5 @@
 use super::{CitreaClient, LightClientProverRpcClient};
-use crate::citrea::rpc_types::LightClientCircuitInputRpcResponse;
+use crate::citrea::LightClientCircuitInputRpcResponse;
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetExt};
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use clementine_errors::BridgeError;
@@ -21,8 +21,6 @@ fn resolve_citrea_lcp_elf(paramset: &ProtocolParamset) -> Result<Vec<u8>, Bridge
         bitcoin::Network::Bitcoin => CITREA_MAINNET_LCP_ELF,
         bitcoin::Network::Testnet4 => CITREA_TESTNET_LCP_ELF,
         bitcoin::Network::Signet => CITREA_DEVNET_LCP_ELF,
-        // Citrea's TestNetworkWithForks path uses LIGHT_CLIENT_LATEST_BITCOIN_GUESTS.
-        bitcoin::Network::Regtest => citrea_risc0_light_client::LIGHT_CLIENT_PROOF_BITCOIN_ELF,
         _ => return Err(BridgeError::UnsupportedNetwork),
     };
 
@@ -70,7 +68,7 @@ pub(super) async fn prove_light_client_proof_from_input(
         .as_bytes()
         .try_into()
         .map_err(|_| eyre::eyre!("Citrea LCP ELF image ID is not 32 bytes"))?;
-    if lcp_image_id != expected_lc_image_id {
+    if !paramset.is_regtest() && lcp_image_id != expected_lc_image_id {
         return Err(eyre::eyre!(
             "Citrea LCP ELF image ID mismatch: expected {}, got {}",
             hex::encode(expected_lc_image_id),

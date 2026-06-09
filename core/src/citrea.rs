@@ -343,8 +343,33 @@ impl CitreaClientT for CitreaClient {
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        _paramset: &'static ProtocolParamset,
+        paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError> {
+        if paramset.is_regtest() {
+            if db
+                .get_lcp_for_assert(dbtx.as_deref_mut(), deposit_index)
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
+
+            let (_, receipt, _) = self
+                .get_light_client_proof(payout_block_height, paramset)
+                .await?
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Light client proof not found for regtest block height {}",
+                        payout_block_height
+                    )
+                })?;
+
+            db.insert_lcp_for_assert(dbtx, deposit_index, receipt)
+                .await?;
+
+            return Ok(());
+        }
+
         let saved_data = db
             .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
             .await?;
@@ -389,6 +414,15 @@ impl CitreaClientT for CitreaClient {
             paramset,
         )
         .await?;
+
+        if paramset.is_regtest() {
+            return db
+                .get_lcp_for_assert(dbtx, deposit_index)
+                .await?
+                .ok_or_else(|| {
+                    eyre::eyre!("Regtest light client proof not found for assert").into()
+                });
+        }
 
         let lcp_input = db
             .get_lcp_input_for_assert(dbtx, deposit_index)
