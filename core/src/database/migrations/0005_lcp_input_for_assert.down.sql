@@ -1,8 +1,7 @@
-DELETE FROM lcp_for_asserts
-WHERE lcp_receipt IS NULL;
-
-ALTER TABLE lcp_for_asserts
-    ALTER COLUMN lcp_receipt SET NOT NULL;
+TRUNCATE TABLE lcp_for_asserts;
 
 ALTER TABLE lcp_for_asserts
     DROP COLUMN IF EXISTS lcp_input;
+
+ALTER TABLE lcp_for_asserts
+    ADD COLUMN lcp_receipt bytea NOT NULL;

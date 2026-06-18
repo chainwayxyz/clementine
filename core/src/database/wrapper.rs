@@ -15,7 +15,6 @@ use bitcoin::{
 use clementine_primitives::EVMAddress;
 use eyre::eyre;
 use prost::Message as _;
-use risc0_zkvm::Receipt;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -243,13 +242,6 @@ impl_bytea_wrapper_custom!(
             .map_err(|_| eyre!("Expected 66 bytes for AggregatedNonce"))?;
         Ok(musig::AggregatedNonce::from_byte_array(arr)?)
     }
-);
-
-impl_bytea_wrapper_custom_with_error!(
-    ReceiptDB,
-    Receipt,
-    |lcp: &Receipt| -> Result<Vec<u8>, BoxDynError> { borsh::to_vec(lcp).map_err(Into::into) },
-    |x: &[u8]| -> Result<Receipt, BoxDynError> { borsh::from_slice(x).map_err(Into::into) }
 );
 
 impl_bytea_wrapper_custom_with_error!(

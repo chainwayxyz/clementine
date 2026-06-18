@@ -1,5 +1,7 @@
-ALTER TABLE lcp_for_asserts
-    ADD COLUMN IF NOT EXISTS lcp_input bytea;
+TRUNCATE TABLE lcp_for_asserts;
 
 ALTER TABLE lcp_for_asserts
-    ALTER COLUMN lcp_receipt DROP NOT NULL;
+    DROP COLUMN IF EXISTS lcp_receipt;
+
+ALTER TABLE lcp_for_asserts
+    ADD COLUMN lcp_input bytea NOT NULL;
