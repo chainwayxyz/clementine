@@ -126,3 +126,114 @@ fn validate_light_client_receipt(
 
     Ok(proof_output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::protocol::{ProtocolParamsetExt, TESTNET4_TEST_PARAMSET};
+    use bridge_circuit_host::receipt_from_inner;
+    use circuits_lib::bridge_circuit::lc_proof::check_method_id;
+    use jsonrpsee::core::client::ClientT as _;
+    use jsonrpsee::http_client::HttpClientBuilder;
+    use jsonrpsee::rpc_params;
+    use risc0_zkvm::InnerReceipt;
+    use std::time::Duration;
+
+    const DEFAULT_TESTNET_LCP_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
+    const DEFAULT_TESTNET_CITREA_RPC_URL: &str = "https://rpc.testnet.citrea.xyz/";
+
+    #[tokio::test]
+    #[ignore = "hits public Citrea testnet RPCs and proves the next LCP in RISC0 dev mode"]
+    async fn public_testnet_lcp_input_can_prove_next_block() -> Result<(), BridgeError> {
+        // Public testnet LCP proofs may be RISC0 dev-mode receipts. Run this
+        // ignored test with RISC0_DEV_MODE=1.
+
+        let lcp_url = DEFAULT_TESTNET_LCP_URL;
+        let proof_height = latest_testnet_l1_height().await?;
+        println!("Latest testnet L1 height is {proof_height}");
+        let input_height = proof_height + 1;
+
+        let lcp_client = HttpClientBuilder::default()
+            .request_timeout(Duration::from_secs(120))
+            .build(&lcp_url)
+            .wrap_err("Failed to create public testnet LCP RPC client")?;
+
+        let previous_proof = lcp_client
+            .get_light_client_proof_by_l1_height(proof_height)
+            .await
+            .wrap_err("Failed to fetch public testnet LCP proof")?
+            .ok_or_else(|| {
+                eyre::eyre!("Public testnet LCP proof not found at L1 height {proof_height}")
+            })?;
+
+        let previous_receipt = receipt_from_inner(
+            bincode::deserialize::<InnerReceipt>(&previous_proof.proof)
+                .wrap_err("Failed to deserialize public testnet LCP proof")?,
+        )
+        .wrap_err("Failed to create receipt from public testnet LCP proof")?;
+        let expected_lcp_image_id = TESTNET4_TEST_PARAMSET.get_lcp_image_id()?;
+        previous_receipt
+            .verify(expected_lcp_image_id)
+            .wrap_err("Public testnet LCP proof verification failed")?;
+        let previous_output: LightClientCircuitOutput =
+            borsh::from_slice(&previous_receipt.journal.bytes)
+                .wrap_err("Failed to deserialize public testnet LCP output")?;
+        if !check_method_id(&previous_output, expected_lcp_image_id) {
+            return Err(eyre::eyre!(
+                "Public testnet LCP proof method ID mismatch at L1 height {proof_height}"
+            )
+            .into());
+        }
+
+        let next_input = LightClientProverRpcClient::create_light_client_circuit_input(
+            &lcp_client,
+            input_height,
+        )
+        .await
+        .wrap_err("Failed to fetch public testnet next LCP input")?;
+        if next_input.l1_height != input_height {
+            return Err(eyre::eyre!(
+                "Public testnet LCP input height mismatch: expected {}, got {}",
+                input_height,
+                next_input.l1_height
+            )
+            .into());
+        }
+
+        let next_receipt =
+            prove_light_client_proof_from_input(next_input, &TESTNET4_TEST_PARAMSET).await?;
+        let next_output: LightClientCircuitOutput = borsh::from_slice(&next_receipt.journal.bytes)
+            .wrap_err("Failed to deserialize locally proved public testnet LCP output")?;
+        if !check_method_id(&next_output, expected_lcp_image_id) {
+            return Err(eyre::eyre!(
+                "Locally proved public testnet LCP method ID mismatch at L1 height {input_height}"
+            )
+            .into());
+        }
+
+        Ok(())
+    }
+
+    async fn latest_testnet_l1_height() -> Result<u64, BridgeError> {
+        let citrea_client = HttpClientBuilder::default()
+            .request_timeout(Duration::from_secs(30))
+            .build(DEFAULT_TESTNET_CITREA_RPC_URL)
+            .wrap_err("Failed to create public testnet Citrea RPC client")?;
+        let height: String = citrea_client
+            .request("ledger_getLastScannedL1Height", rpc_params![])
+            .await
+            .wrap_err("Failed to fetch public testnet latest scanned L1 height")?;
+
+        parse_u64(&height)
+    }
+
+    fn parse_u64(value: &str) -> Result<u64, BridgeError> {
+        if let Some(hex) = value.strip_prefix("0x") {
+            u64::from_str_radix(hex, 16)
+        } else {
+            value.parse()
+        }
+        .wrap_err_with(|| format!("Failed to parse u64 value {value}"))
+        .map_err(Into::into)
+    }
+}
