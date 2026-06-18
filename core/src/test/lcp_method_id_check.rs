@@ -124,6 +124,11 @@ impl TestCase for CitreaLcpProverE2E {
             hex::encode(actual_method_id)
         );
 
+        if let Ok(path) = std::env::var("CLEMENTINE_REGTEST_LCP_RECEIPT_OUT") {
+            std::fs::write(&path, borsh::to_vec(&receipt)?)?;
+            println!("Wrote regtest LCP receipt fixture to {path}");
+        }
+
         Ok(())
     }
 }
