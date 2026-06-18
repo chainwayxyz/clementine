@@ -35,7 +35,10 @@ use clementine_errors::BridgeError;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use lcp::{create_light_client_circuit_input, prove_light_client_proof_from_input};
+use lcp::{
+    create_light_client_circuit_input, prove_light_client_proof_from_input,
+    validate_light_client_circuit_input,
+};
 use risc0_zkvm::{InnerReceipt, Receipt};
 pub use rpc_types::LightClientCircuitInputRpcResponse;
 use std::{fmt::Debug, time::Duration};
@@ -177,6 +180,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         deposit_index: u32,
         db: &Database,
         dbtx: Option<DatabaseTransaction<'_>>,
+        paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError>;
 
     async fn prove_lcp_for_assert(
@@ -342,6 +346,7 @@ impl CitreaClientT for CitreaClient {
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_>>,
+        paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError> {
         let saved_data = db
             .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
@@ -363,6 +368,7 @@ impl CitreaClientT for CitreaClient {
         };
 
         let lcp_input = create_light_client_circuit_input(self, payout_block_height).await?;
+        validate_light_client_circuit_input(&lcp_input, paramset).await?;
 
         // save the LCP circuit input for assert
         db.insert_lcp_input_for_assert(dbtx, deposit_index, lcp_input)
@@ -384,6 +390,7 @@ impl CitreaClientT for CitreaClient {
             deposit_index,
             db,
             dbtx.as_deref_mut(),
+            paramset,
         )
         .await?;
 

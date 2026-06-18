@@ -93,6 +93,7 @@ impl CitreaClientT for MockCitreaClient {
         _deposit_index: u32,
         _db: &Database,
         _dbtx: Option<DatabaseTransaction<'_>>,
+        _paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError> {
         Ok(())
     }

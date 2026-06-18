@@ -1829,6 +1829,7 @@ where
                             citrea_idx as u32,
                             &self.db,
                             dbtx.as_deref_mut(),
+                            self.config.protocol_paramset(),
                         )
                         .await?;
 
