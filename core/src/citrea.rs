@@ -177,7 +177,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         deposit_index: u32,
         db: &Database,
         dbtx: Option<DatabaseTransaction<'_>>,
-        paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError>;
 
     async fn prove_lcp_for_assert(
@@ -343,33 +342,7 @@ impl CitreaClientT for CitreaClient {
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_>>,
-        paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError> {
-        if paramset.is_regtest() {
-            if db
-                .get_lcp_for_assert(dbtx.as_deref_mut(), deposit_index)
-                .await?
-                .is_some()
-            {
-                return Ok(());
-            }
-
-            let (_, receipt, _) = self
-                .get_light_client_proof(payout_block_height, paramset)
-                .await?
-                .ok_or_else(|| {
-                    eyre::eyre!(
-                        "Light client proof not found for regtest block height {}",
-                        payout_block_height
-                    )
-                })?;
-
-            db.insert_lcp_for_assert(dbtx, deposit_index, receipt)
-                .await?;
-
-            return Ok(());
-        }
-
         let saved_data = db
             .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
             .await?;
@@ -411,18 +384,8 @@ impl CitreaClientT for CitreaClient {
             deposit_index,
             db,
             dbtx.as_deref_mut(),
-            paramset,
         )
         .await?;
-
-        if paramset.is_regtest() {
-            return db
-                .get_lcp_for_assert(dbtx, deposit_index)
-                .await?
-                .ok_or_else(|| {
-                    eyre::eyre!("Regtest light client proof not found for assert").into()
-                });
-        }
 
         let lcp_input = db
             .get_lcp_input_for_assert(dbtx, deposit_index)
@@ -597,17 +560,15 @@ impl CitreaClientT for CitreaClient {
             let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
                 .wrap_err("Failed to deserialize light client circuit output")?;
 
-            if !paramset.is_regtest() {
-                receipt
-                    .verify(lc_image_id)
-                    .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
+            receipt
+                .verify(lc_image_id)
+                .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
 
-                if !check_method_id(&proof_output, lc_image_id) {
-                    return Err(eyre::eyre!(
+            if !check_method_id(&proof_output, lc_image_id) {
+                return Err(eyre::eyre!(
                     "Current light client proof method ID does not match the expected LC image ID"
                 )
-                    .into());
-                }
+                .into());
             }
 
             Some((

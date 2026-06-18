@@ -15,12 +15,16 @@ const CITREA_TESTNET_LCP_ELF: &[u8] = include_bytes!(concat!(
 const CITREA_DEVNET_LCP_ELF: &[u8] = include_bytes!(concat!(
     "../../../resources/guests/risc0/devnet/light-client-proof-1.bin"
 ));
+const CITREA_REGTEST_LCP_ELF: &[u8] = include_bytes!(concat!(
+    "../../../resources/guests/risc0/regtest/light-client-proof-0.bin"
+));
 
 fn resolve_citrea_lcp_elf(paramset: &ProtocolParamset) -> Result<Vec<u8>, BridgeError> {
     let elf = match paramset.network {
         bitcoin::Network::Bitcoin => CITREA_MAINNET_LCP_ELF,
         bitcoin::Network::Testnet4 => CITREA_TESTNET_LCP_ELF,
         bitcoin::Network::Signet => CITREA_DEVNET_LCP_ELF,
+        bitcoin::Network::Regtest => CITREA_REGTEST_LCP_ELF,
         _ => return Err(BridgeError::UnsupportedNetwork),
     };
 
@@ -68,7 +72,7 @@ pub(super) async fn prove_light_client_proof_from_input(
         .as_bytes()
         .try_into()
         .map_err(|_| eyre::eyre!("Citrea LCP ELF image ID is not 32 bytes"))?;
-    if !paramset.is_regtest() && lcp_image_id != expected_lc_image_id {
+    if lcp_image_id != expected_lc_image_id {
         return Err(eyre::eyre!(
             "Citrea LCP ELF image ID mismatch: expected {}, got {}",
             hex::encode(expected_lc_image_id),
@@ -94,25 +98,22 @@ pub(super) async fn prove_light_client_proof_from_input(
     .await
     .map_err(|e| eyre::eyre!("Failed to join local LCP proving task: {}", e))??;
 
-    validate_light_client_receipt(&receipt, paramset, lcp_image_id, expected_l1_hash)?;
+    validate_light_client_receipt(&receipt, lcp_image_id, expected_l1_hash)?;
 
     Ok(receipt)
 }
 
 fn validate_light_client_receipt(
     receipt: &Receipt,
-    paramset: &ProtocolParamset,
     lcp_image_id: [u8; 32],
     expected_l1_hash: [u8; 32],
 ) -> Result<LightClientCircuitOutput, BridgeError> {
     let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
         .wrap_err("Failed to deserialize light client circuit output")?;
 
-    if !paramset.is_regtest() {
-        receipt
-            .verify(lcp_image_id)
-            .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
-    }
+    receipt
+        .verify(lcp_image_id)
+        .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
 
     if proof_output.latest_da_state.block_hash != expected_l1_hash {
         return Err(eyre::eyre!(

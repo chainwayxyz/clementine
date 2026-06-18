@@ -94,7 +94,6 @@ where
                 citrea_idx,
                 &self.operator.db,
                 Some(&mut dbtx),
-                self.operator.config.protocol_paramset(),
             )
             .await?;
 
