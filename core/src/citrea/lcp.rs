@@ -9,6 +9,9 @@ use risc0_zkvm::{
     compute_image_id, ExecutorEnv, LocalProver, Prover, ProverOpts, Receipt, VerifierContext,
 };
 
+const DEFAULT_LCP_SEGMENT_LIMIT_PO2: u32 = 20;
+const LCP_SEGMENT_LIMIT_PO2_ENV: &str = "LCP_SEGMENT_LIMIT_PO2";
+
 const CITREA_MAINNET_LCP_ELF: &[u8] = include_bytes!(concat!(
     "../../../resources/guests/risc0/mainnet/light-client-proof-0.bin"
 ));
@@ -62,6 +65,18 @@ pub(super) async fn create_light_client_circuit_input(
     }
 
     Ok(circuit_input)
+}
+
+fn apply_lcp_segment_limit(builder: &mut risc0_zkvm::ExecutorEnvBuilder<'_>) {
+    let limit = std::env::var(LCP_SEGMENT_LIMIT_PO2_ENV)
+        .map(|limit| {
+            limit
+                .parse()
+                .expect("LCP_SEGMENT_LIMIT_PO2 should be a u32")
+        })
+        .unwrap_or(DEFAULT_LCP_SEGMENT_LIMIT_PO2);
+
+    builder.segment_limit_po2(limit);
 }
 
 pub(super) async fn prove_light_client_proof_from_input(
@@ -119,7 +134,9 @@ async fn prove_light_client_proof_from_input_with_opts(
     let expected_l1_hash = circuit_input.l1_hash;
     let input_bytes = circuit_input.input.clone();
     let receipt = tokio::task::spawn_blocking(move || -> Result<Receipt, eyre::Report> {
-        let env = ExecutorEnv::builder()
+        let mut env = ExecutorEnv::builder();
+        apply_lcp_segment_limit(&mut env);
+        let env = env
             .write_slice(&input_bytes)
             .build()
             .map_err(|e| eyre::eyre!("Failed to build LCP proving environment: {}", e))?;
