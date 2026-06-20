@@ -1,13 +1,12 @@
 # Usage
 
-Clementine provides a single binary, that can act as 3 different actors
-services:
+Clementine provides a single binary that can act as 3 different actor services:
 
-- Verifier (We sometimes call this as signer)
+- Verifier (sometimes called a signer)
 - Operator
 - Aggregator
 
-These services communicate via gRPC and use a Postgresql database. They can be
+These services communicate via gRPC and use a PostgreSQL database. They can be
 configured to share the same database.
 
 An entity can choose to run these services on a single host to be a part of the
@@ -15,7 +14,7 @@ peg-in and peg-out process. All the services that are run by a single entity
 should ideally share the same database. Typical entities are:
 
 - Operator entity
-- Runs both an operator and a verifier service
+  - Runs both an operator and a verifier service
 - Verifier entity
   - Runs a verifier service
 - Aggregator entity
@@ -78,8 +77,8 @@ Before running Clementine:
    ./scripts/generate_certs.sh
    ```
 
-5. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
-   deployment that requires it:
+5. Set the `RISC0_DEV_MODE` environment variable if tests are going to be run
+   or if the deployment requires it:
 
    ```sh
    export RISC0_DEV_MODE=1
@@ -164,7 +163,7 @@ configuration file. An example configuration file is located at
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
-Additionally, Clementine requires protocol parameters, that are either specified
+Additionally, Clementine requires protocol parameters that are specified either
 by a file or from the environment. You can specify a separate protocol
 parameters file using the `--protocol-params` option. This file contains
 protocol-specific settings that affect transactions in the contract.
@@ -299,10 +298,10 @@ docker build -f scripts/docker/Dockerfile.automation -t clementine:latest .
 ```
 
 Also, there are multiple Docker compose files located at [scripts/docker/](../scripts/docker/)
-which can be used to start Bitcoin, PostgreSQL, Citrea and Clementine. Config
+which can be used to start Bitcoin, PostgreSQL, Citrea, and Clementine. Config
 files for these compose files can be found at [scripts/docker/configs/](../scripts/docker/configs/).
-They are configured for a typical deployment and needs modification before deployment.
-**Please note that**, apart from regtest, new wallet that is created won't have
+They are configured for a typical deployment and need modification before deployment.
+**Please note that**, apart from regtest, a newly created wallet won't have
 any funds and users are responsible for configuring their own address.
 
 ```sh
@@ -328,7 +327,7 @@ cargo test_integration
 
 ## Helper Scripts
 
-There are handful amount of scripts in [scripts/](../scripts/) directory. Most of
+There are a handful of scripts in the [scripts/](../scripts/) directory. Most of
 them are for testing but still can be used for setting up the environment. They
 can change quite frequently. So, please check for useful ones.
 

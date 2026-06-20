@@ -5,15 +5,15 @@ check Clementine whitepaper at [citrea.xyz/clementine_whitepaper.pdf](https://ci
 
 The repository includes:
 
-- A library for bridge operator, verifiers, aggregator and watchtower
+- A library for bridge operators, verifiers, aggregators, and watchtowers
 - Circuits that will be optimistically verified with BitVM
 
 ## Documentation
 
-High level documentations are in [docs/](docs). These documentations explains
+High-level documentation is in [docs/](docs). This documentation explains
 the design, architecture and usage of Clementine.
 
-To start using Clementine, jump [docs/usage.md](docs/usage.md) documentation.
+To start using Clementine, see the [docs/usage.md](docs/usage.md) documentation.
 
 Code documentation is also present and can be viewed at
 [chainwayxyz.github.io/clementine/clementine_core](https://chainwayxyz.github.io/clementine/clementine_core/).

@@ -1,16 +1,16 @@
 # The Design Of Clementine
 
 Our bridge leverages BitVM for a trust minimized BTC <> Citrea bridge. The
-[whitepaper](https://citrea.xyz/clementine_whitepaper.pdf) explains technicals.
-Also, [https://bitvm.org/bitvm_bridge.pdf](https://bitvm.org/bitvm_bridge.pdf)
-and [http://bitvm.org/bitvm2](http://bitvm.org/bitvm2) can be checked to learn
-more about BitVM.
+[whitepaper](https://citrea.xyz/clementine_whitepaper.pdf) explains the technical details.
+See [https://bitvm.org/bitvm_bridge.pdf](https://bitvm.org/bitvm_bridge.pdf)
+and [http://bitvm.org/bitvm2](http://bitvm.org/bitvm2) to learn more about
+BitVM.
 
 ![Clementine Tx Graph](images/clementine_diagram.png)
 
 ## Depositing
 
-Aggregator is responsible for helping verifiers to finalize deposits, using
+The aggregator is responsible for helping verifiers finalize deposits by using
 [musig2](https://github.com/bitcoin-core/secp256k1/blob/master/doc/musig.md#signing).
 It has 3 steps:
 
@@ -20,15 +20,15 @@ It has 3 steps:
 
 ![Move TX creation](images/move_tx_creation.png)
 
-1. In the first step, aggregator will collect nonces from all the verifiers,
-   soon to be aggregated and send back to the verifiers. Aggregation is done by
-   musig2.
-2. At the second step, partial signatures will be requested from verifiers for
-   the provided aggregated nonce. They will be aggregated using musig2, just
-   like nonces. Final Schnorr signature will be sent to verifiers.
-3. Aggregated signatures are used by verifiers to finalize deposit. Then,
-   verifiers will return move tx partial signatures, which will later be
-   aggregated. Finally, aggregator will create a move tx.
+1. In the first step, the aggregator collects nonces from all verifiers,
+   aggregates them, and sends them back to the verifiers. Aggregation is done
+   by musig2.
+2. In the second step, partial signatures are requested from verifiers for the
+   provided aggregated nonce. They are aggregated using musig2, just like
+   nonces. The final Schnorr signature is sent to verifiers.
+3. Aggregated signatures are used by verifiers to finalize the deposit. Then,
+   verifiers return move tx partial signatures, which are later aggregated.
+   Finally, the aggregator creates a move tx.
 
 ## FAQ
 
