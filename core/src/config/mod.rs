@@ -407,7 +407,7 @@ impl Default for BridgeConfig {
             )
             .expect("known valid input"),
 
-            operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
+            operator_withdrawal_fee_sats: Some(Amount::from_sat(240)),
 
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string().into(),
