@@ -24,7 +24,7 @@ use alloy::{
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
-use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, BlockHash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
 use circuits_lib::bridge_circuit::{
     lc_proof::check_method_id,
@@ -172,6 +172,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -181,6 +182,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn prove_lcp_for_assert(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -330,6 +332,7 @@ impl CitreaClientT for CitreaClient {
     async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -339,23 +342,25 @@ impl CitreaClientT for CitreaClient {
             .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
             .await?;
         if let Some(lcp_input) = saved_data {
-            if lcp_input.l1_height != payout_block_height {
-                return Err(eyre::eyre!(
-                    "Stored light client circuit input height mismatch: expected {}, got {}",
-                    payout_block_height,
-                    lcp_input.l1_height
-                )
-                .into());
-            }
-            if lcp_input.input.is_empty() {
-                return Err(eyre::eyre!("Stored light client circuit input is empty").into());
-            }
+            validate_light_client_circuit_input(
+                &lcp_input,
+                payout_block_height,
+                payout_block_hash,
+                paramset,
+            )
+            .await?;
             // if already saved, do nothing
             return Ok(());
         };
 
         let lcp_input = create_light_client_circuit_input(self, payout_block_height).await?;
-        validate_light_client_circuit_input(&lcp_input, paramset).await?;
+        validate_light_client_circuit_input(
+            &lcp_input,
+            payout_block_height,
+            payout_block_hash,
+            paramset,
+        )
+        .await?;
 
         // save the LCP circuit input for assert
         db.insert_lcp_input_for_assert(dbtx, deposit_index, lcp_input)
@@ -367,6 +372,7 @@ impl CitreaClientT for CitreaClient {
     async fn prove_lcp_for_assert(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -374,6 +380,7 @@ impl CitreaClientT for CitreaClient {
     ) -> Result<Receipt, BridgeError> {
         self.fetch_validate_and_store_lcp(
             payout_block_height,
+            payout_block_hash,
             deposit_index,
             db,
             dbtx.as_deref_mut(),
@@ -386,7 +393,13 @@ impl CitreaClientT for CitreaClient {
             .await?
             .ok_or_else(|| eyre::eyre!("Light client circuit input not found for assert"))?;
 
-        prove_light_client_proof_from_input(lcp_input, paramset).await
+        prove_light_client_proof_from_input(
+            lcp_input,
+            payout_block_height,
+            payout_block_hash,
+            paramset,
+        )
+        .await
     }
 
     async fn new(
