@@ -97,7 +97,7 @@ jobs:
 
       - name: Check for TODOs
         run: |
-          if git grep -i "TODO" -- ':!docs' ':!*.md' ':!*.txt' ':!*.rst' ':!*.lock' ':!target' ':!scripts' ':!tests' ':!examples' ':!**/code_checks.yml'; then
+          if git grep -I -i "TODO" -- ':!docs' ':!*.md' ':!*.txt' ':!*.rst' ':!*.lock' ':!target' ':!scripts' ':!tests' ':!examples' ':!**/code_checks.yml'; then
             echo "Found TODOs in code directories. Please address them before merging.";
             exit 1;
           else

@@ -91,6 +91,7 @@ where
             .citrea_client
             .fetch_validate_and_store_lcp(
                 payout_block_height as u64,
+                payout_tx_blockhash,
                 citrea_idx,
                 &self.operator.db,
                 Some(&mut dbtx),

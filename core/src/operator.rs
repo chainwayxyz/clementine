@@ -1314,8 +1314,9 @@ where
 
         let lcp_receipt = self
             .citrea_client
-            .fetch_validate_and_store_lcp(
+            .prove_lcp_for_assert(
                 payout_block_height as u64,
+                payout_block_hash,
                 deposit_idx as u32,
                 &self.db,
                 Some(&mut dbtx),
@@ -1829,10 +1830,10 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout info from move txid")?;
 
-                    let _ = self
-                        .citrea_client
+                    self.citrea_client
                         .fetch_validate_and_store_lcp(
                             payout_block_height as u64,
+                            payout_blockhash,
                             citrea_idx as u32,
                             &self.db,
                             dbtx.as_deref_mut(),

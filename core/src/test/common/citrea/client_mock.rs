@@ -4,7 +4,7 @@ use crate::{
     database::{Database, DatabaseTransaction},
 };
 use alloy::signers::local::PrivateKeySigner;
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{BlockHash, OutPoint, Txid};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use clementine_errors::BridgeError;
 use eyre::Context;
@@ -90,6 +90,19 @@ impl CitreaClientT for MockCitreaClient {
     async fn fetch_validate_and_store_lcp(
         &self,
         _payout_block_height: u64,
+        _payout_block_hash: BlockHash,
+        _deposit_index: u32,
+        _db: &Database,
+        _dbtx: Option<DatabaseTransaction<'_>>,
+        _paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
+
+    async fn prove_lcp_for_assert(
+        &self,
+        _payout_block_height: u64,
+        _payout_block_hash: BlockHash,
         _deposit_index: u32,
         _db: &Database,
         _dbtx: Option<DatabaseTransaction<'_>>,

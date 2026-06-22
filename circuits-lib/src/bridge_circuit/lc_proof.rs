@@ -108,9 +108,9 @@ mod tests {
         );
 
         let expected_state_root =
-            "8b1e363db80a6c20eb1a31db96d185eb7d5bb4f1e0ef458eb6ae288d58139ca5";
+            "87f4f2b4660485ea3ca667033a7fbd077a627946f0b444da101c6cc23a438382";
         let expected_last_block_hash =
-            "6d378db6ada554cb29e67826a320be79bdd3f2138447c24302d6b31dd8951552";
+            "363fd37d55e728d7292f495768540fb7454770a142fe8b44033d836cb0e15d37";
 
         assert_eq!(
             hex::encode(light_client_circuit_output.l2_state_root),
