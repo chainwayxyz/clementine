@@ -466,6 +466,7 @@ mod tests {
         env::remove_var("DB_NAME");
         env::remove_var("CITREA_RPC_URL");
         env::remove_var("CITREA_LIGHT_CLIENT_PROVER_URL");
+        env::remove_var("CITREA_CHAIN_ID");
         env::remove_var("BRIDGE_CONTRACT_ADDRESS");
         env::remove_var("SERVER_CERT_PATH");
         env::remove_var("SERVER_KEY_PATH");
@@ -477,6 +478,10 @@ mod tests {
         env::remove_var("SECURITY_COUNCIL");
         env::remove_var("TELEMETRY_HOST");
         env::remove_var("TELEMETRY_PORT");
+        env::remove_var("TX_SENDER_FEE_RATE_HARD_CAP");
+        env::remove_var("TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER");
+        env::remove_var("TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB");
+        env::remove_var("TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS");
         env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
     }
 
@@ -500,13 +505,41 @@ mod tests {
         env::remove_var("ASSERT_TIMEOUT_TIMELOCK");
         env::remove_var("OPERATOR_REIMBURSE_TIMELOCK");
         env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
+        env::remove_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
+        env::remove_var("GENESIS_HEIGHT");
+        env::remove_var("GENESIS_CHAIN_STATE_HASH");
         env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");
+        env::remove_var("BRIDGE_NONSTANDARD");
     }
 
     // Basic minimum toml config content
     const MINIMAL_CONFIG_CONTENT: &str = include_str!("test/data/bridge_config.toml");
+
+    #[test]
+    #[serial_test::serial]
+    fn test_env_cleanup_removes_all_helper_vars() {
+        setup_config_env_vars();
+        setup_protocol_paramset_env_vars();
+
+        cleanup_config_env_vars();
+        cleanup_protocol_paramset_env_vars();
+
+        for var in [
+            "CITREA_CHAIN_ID",
+            "TX_SENDER_FEE_RATE_HARD_CAP",
+            "TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER",
+            "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
+            "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
+            "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
+            "GENESIS_HEIGHT",
+            "GENESIS_CHAIN_STATE_HASH",
+            "BRIDGE_NONSTANDARD",
+        ] {
+            assert!(env::var(var).is_err(), "{var} should be removed");
+        }
+    }
 
     #[test]
     #[serial_test::serial]
