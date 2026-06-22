@@ -1,0 +1,2 @@
+ALTER TABLE tx_sender_try_to_send_txs
+ADD COLUMN IF NOT EXISTS is_nonstandard BOOLEAN NOT NULL DEFAULT FALSE;

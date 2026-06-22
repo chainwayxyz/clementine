@@ -3,7 +3,7 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
+use crate::{nonstandard, ActivatedWithOutpoint, ActivatedWithTxid};
 use bitcoin::{OutPoint, Transaction, Txid};
 use clementine_errors::BridgeError;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
@@ -96,6 +96,7 @@ impl TxSenderClient {
                 signed_tx,
                 fee_paying_type,
                 txid,
+                nonstandard::is_bridge_tx_nonstandard(signed_tx),
                 rbf_signing_info,
             )
             .await?;

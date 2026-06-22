@@ -239,6 +239,7 @@ impl TxSenderDb {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_tx(
         &self,
         tx: TxSenderDbTx<'_>,
@@ -246,15 +247,16 @@ impl TxSenderDb {
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
         txid: Txid,
+        is_nonstandard: bool,
         rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             r#"
             INSERT INTO tx_sender_try_to_send_txs
-            (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info)
-            VALUES ($1, $2::fee_paying_type, $3, $4, $5)
+            (raw_tx, fee_paying_type, tx_metadata, txid, is_nonstandard, rbf_signing_info)
+            VALUES ($1, $2::fee_paying_type, $3, $4, $5, $6)
             ON CONFLICT (txid)
-            DO UPDATE SET txid = EXCLUDED.txid
+            DO UPDATE SET is_nonstandard = EXCLUDED.is_nonstandard
             RETURNING id
             "#,
         )
@@ -262,6 +264,7 @@ impl TxSenderDb {
         .bind(fee_paying_type)
         .bind(serde_json::to_string(&tx_metadata).wrap_err("Failed to encode tx_metadata to JSON")?)
         .bind(TxidDB(txid))
+        .bind(is_nonstandard)
         .bind(
             serde_json::to_string(&rbf_signing_info)
                 .wrap_err("Failed to encode rbf_signing_info to JSON")?,
@@ -404,6 +407,7 @@ impl TxSenderDb {
         &self,
         tx: Option<TxSenderDbTx<'_>>,
         fee_rate: FeeRateKvb,
+        nonstandard_fee_rate: FeeRateKvb,
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
@@ -464,12 +468,20 @@ impl TxSenderDb {
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
                     AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
                     AND txs.seen_at_height IS NULL
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
+                    AND (
+                        txs.effective_fee_rate IS NULL
+                        OR txs.effective_fee_rate < $1
+                        OR (txs.is_nonstandard AND txs.effective_fee_rate < $3)
+                    );",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_kvb()).wrap_err("Failed to convert fee rate to i64")?,
         )
-        .bind(i32::try_from(current_tip_height).wrap_err("Failed to convert current tip height to i32")?);
+        .bind(i32::try_from(current_tip_height).wrap_err("Failed to convert current tip height to i32")?)
+        .bind(
+            i64::try_from(nonstandard_fee_rate.to_sat_per_kvb())
+                .wrap_err("Failed to convert nonstandard fee rate to i64")?,
+        );
 
         let results = txsender_execute_query_with_tx!(&self.pool, tx, select_query, fetch_all)?;
 
@@ -721,7 +733,12 @@ impl TxSenderDb {
     }
 
     /// Debug-only helper: log why some txs are inactive (not sendable).
-    pub async fn debug_inactive_txs(&self, fee_rate: FeeRateKvb, current_tip_height: u32) {
+    pub async fn debug_inactive_txs(
+        &self,
+        fee_rate: FeeRateKvb,
+        nonstandard_fee_rate: FeeRateKvb,
+        current_tip_height: u32,
+    ) {
         tracing::info!("TXSENDER_DBG_INACTIVE_TXS: Checking inactive transactions");
 
         let unconfirmed_txs = match sqlx::query_as::<_, (i32, TxidDB, Option<String>)>(
@@ -741,7 +758,7 @@ impl TxSenderDb {
         };
 
         let sendable_txs = match self
-            .get_sendable_txs(None, fee_rate, current_tip_height)
+            .get_sendable_txs(None, fee_rate, nonstandard_fee_rate, current_tip_height)
             .await
         {
             Ok(txs) => txs,
@@ -1597,6 +1614,7 @@ mod tests {
                 &empty_tx(),
                 FeePayingType::CPFP,
                 txid(txid_prefix),
+                false,
                 None,
             )
             .await

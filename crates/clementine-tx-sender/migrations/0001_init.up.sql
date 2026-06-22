@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS tx_sender_try_to_send_txs (
     raw_tx BYTEA NOT NULL,
     tx_metadata TEXT,
     fee_paying_type fee_paying_type NOT NULL,
+    is_nonstandard BOOLEAN NOT NULL DEFAULT FALSE,
     effective_fee_rate BIGINT,
     txid BYTEA,
     -- first observed chain height when tx was seen confirmed (used for finality tracking)

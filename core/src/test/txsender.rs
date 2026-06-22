@@ -947,6 +947,7 @@ async fn test_send_challenge_tx() -> Result<(), BridgeError> {
             None,
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");
@@ -1017,6 +1018,7 @@ async fn test_send_rbf() -> Result<(), BridgeError> {
             )),
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");
@@ -1205,6 +1207,7 @@ async fn test_send_with_initial_funding_rbf() -> Result<(), BridgeError> {
             )),
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");
@@ -1274,6 +1277,7 @@ async fn test_send_without_info_rbf() -> Result<(), BridgeError> {
             None,
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");
@@ -1343,6 +1347,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             )),
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");
@@ -1383,6 +1388,7 @@ async fn test_bump_rbf_after_sent() -> Result<(), BridgeError> {
             )),
             current_tip_height,
             false,
+            None,
         )
         .await
         .expect("RBF should succeed");

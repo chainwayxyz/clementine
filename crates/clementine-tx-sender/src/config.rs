@@ -1,6 +1,6 @@
 //! TxSender standalone configuration.
 
-use crate::MempoolConfig;
+use crate::{maraslipstream, MaraSlipstreamConfig, MempoolConfig};
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::Network;
 use clementine_config::tx_sender::TxSenderLimits;
@@ -64,6 +64,9 @@ pub struct TxSenderConfig {
     /// Whether to use unsafe utxos for funding new txs. An utxo is unsafe it belongs to a tx with at least one non wallet input, if it belongs to a tx that was rbf replaced.
     pub include_unsafe: bool,
 
+    /// Optional Mara Slipstream configuration for nonstandard transaction submission.
+    pub maraslipstream_config: Option<MaraSlipstreamConfig>,
+
     /// Optional JSON-RPC configuration, will not be used if json-rpc feature is not .
     pub jsonrpc: Option<TxSenderJsonRpcConfig>,
 }
@@ -74,6 +77,38 @@ fn env_required(name: &'static str) -> Result<String, BridgeError> {
 
 fn env_optional(name: &'static str) -> Option<String> {
     std::env::var(name).ok()
+}
+
+fn env_optional_trimmed(name: &'static str) -> Option<String> {
+    let value = env_optional(name)?;
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn maraslipstream_config_from_env() -> Option<MaraSlipstreamConfig> {
+    let host = env_optional_trimmed("MARASLIPSTREAM_HOST")?;
+    let fee_rate_endpoint = env_optional_trimmed("MARASLIPSTREAM_FEE_RATE_ENDPOINT")
+        .unwrap_or_else(|| maraslipstream::DEFAULT_FEE_RATE_ENDPOINT.to_string());
+    let submit_package_endpoint = env_optional_trimmed("MARASLIPSTREAM_SUBMIT_PACKAGE_ENDPOINT")
+        .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_PACKAGE_ENDPOINT.to_string());
+    let tx_status_endpoint = env_optional_trimmed("MARASLIPSTREAM_TX_STATUS_ENDPOINT")
+        .unwrap_or_else(|| maraslipstream::DEFAULT_TX_STATUS_ENDPOINT.to_string());
+    let submit_tx_endpoint = env_optional_trimmed("MARASLIPSTREAM_SUBMIT_TX_ENDPOINT")
+        .unwrap_or_else(|| maraslipstream::DEFAULT_SUBMIT_TX_ENDPOINT.to_string());
+    let client_code = env_optional_trimmed("MARASLIPSTREAM_CLIENT_CODE").map(Into::into);
+
+    Some(MaraSlipstreamConfig {
+        host,
+        fee_rate_endpoint,
+        submit_package_endpoint,
+        tx_status_endpoint,
+        submit_tx_endpoint,
+        client_code,
+    })
 }
 
 fn env_parse_required<T: std::str::FromStr>(name: &'static str) -> Result<T, BridgeError>
@@ -186,6 +221,7 @@ impl TxSenderConfig {
         }
 
         let include_unsafe = env_parse_required::<bool>("TX_SENDER_INCLUDE_UNSAFE")?;
+        let maraslipstream_config = maraslipstream_config_from_env();
 
         if finality_depth < 1 {
             return Err(BridgeError::EnvVarMalformed(
@@ -225,6 +261,7 @@ impl TxSenderConfig {
             finality_depth,
             poll_delay_ms,
             include_unsafe,
+            maraslipstream_config,
             jsonrpc,
         })
     }
