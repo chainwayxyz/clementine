@@ -1,6 +1,7 @@
 use super::{CitreaClient, LightClientProverRpcClient};
 use crate::citrea::LightClientCircuitInputRpcResponse;
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetExt};
+use bitcoin::{hashes::Hash, BlockHash};
 use circuits_lib::bridge_circuit::lc_proof::check_method_id;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 use clementine_errors::BridgeError;
@@ -45,26 +46,11 @@ pub(super) async fn create_light_client_circuit_input(
     citrea_client: &CitreaClient,
     l1_height: u64,
 ) -> Result<LightClientCircuitInputRpcResponse, BridgeError> {
-    let circuit_input = citrea_client
+    Ok(citrea_client
         .light_client_prover_client
         .create_light_client_circuit_input(l1_height)
         .await
-        .wrap_err("Failed to create light client circuit input")?;
-
-    if circuit_input.l1_height != l1_height {
-        return Err(eyre::eyre!(
-            "Light client circuit input height mismatch: expected {}, got {}",
-            l1_height,
-            circuit_input.l1_height
-        )
-        .into());
-    }
-
-    if circuit_input.input.is_empty() {
-        return Err(eyre::eyre!("Light client circuit input is empty").into());
-    }
-
-    Ok(circuit_input)
+        .wrap_err("Failed to create light client circuit input")?)
 }
 
 fn apply_lcp_segment_limit(builder: &mut risc0_zkvm::ExecutorEnvBuilder<'_>) {
@@ -81,10 +67,14 @@ fn apply_lcp_segment_limit(builder: &mut risc0_zkvm::ExecutorEnvBuilder<'_>) {
 
 pub(super) async fn prove_light_client_proof_from_input(
     circuit_input: LightClientCircuitInputRpcResponse,
+    payout_block_height: u64,
+    payout_block_hash: BlockHash,
     paramset: &'static ProtocolParamset,
 ) -> Result<Receipt, BridgeError> {
     prove_light_client_proof_from_input_with_opts(
         &circuit_input,
+        payout_block_height,
+        payout_block_hash,
         paramset,
         ProverOpts::succinct(),
         false,
@@ -96,10 +86,37 @@ pub(super) async fn prove_light_client_proof_from_input(
 // do not create a real proof, we will only create real proof if challenged
 pub(super) async fn validate_light_client_circuit_input(
     circuit_input: &LightClientCircuitInputRpcResponse,
+    payout_block_height: u64,
+    payout_block_hash: BlockHash,
     paramset: &'static ProtocolParamset,
 ) -> Result<(), BridgeError> {
+    if circuit_input.l1_height != payout_block_height {
+        return Err(eyre::eyre!(
+            "Light client circuit input height mismatch: expected {}, got {}",
+            payout_block_height,
+            circuit_input.l1_height
+        )
+        .into());
+    }
+
+    let expected_l1_hash = payout_block_hash.to_byte_array();
+    if circuit_input.l1_hash != expected_l1_hash {
+        return Err(eyre::eyre!(
+            "Light client circuit input L1 hash mismatch: expected {}, got {}",
+            payout_block_hash,
+            hex::encode(circuit_input.l1_hash),
+        )
+        .into());
+    }
+
+    if circuit_input.input.is_empty() {
+        return Err(eyre::eyre!("Light client circuit input is empty").into());
+    }
+
     prove_light_client_proof_from_input_with_opts(
         circuit_input,
+        payout_block_height,
+        payout_block_hash,
         paramset,
         ProverOpts::succinct().with_dev_mode(true),
         true,
@@ -111,10 +128,13 @@ pub(super) async fn validate_light_client_circuit_input(
 
 async fn prove_light_client_proof_from_input_with_opts(
     circuit_input: &LightClientCircuitInputRpcResponse,
+    payout_block_height: u64,
+    payout_block_hash: BlockHash,
     paramset: &'static ProtocolParamset,
     prover_opts: ProverOpts,
     dev_mode: bool,
 ) -> Result<Receipt, BridgeError> {
+    let expected_l1_hash = payout_block_hash.to_byte_array();
     let lcp_elf = resolve_citrea_lcp_elf(paramset)?;
     let expected_lc_image_id = paramset.get_lcp_image_id()?;
     let lcp_image_id = compute_image_id(&lcp_elf)
@@ -131,7 +151,6 @@ async fn prove_light_client_proof_from_input_with_opts(
         .into());
     }
 
-    let expected_l1_hash = circuit_input.l1_hash;
     let input_bytes = circuit_input.input.clone();
     let receipt = tokio::task::spawn_blocking(move || -> Result<Receipt, eyre::Report> {
         let mut env = ExecutorEnv::builder();
@@ -156,7 +175,13 @@ async fn prove_light_client_proof_from_input_with_opts(
     .await
     .map_err(|e| eyre::eyre!("Failed to join local LCP proving task: {}", e))??;
 
-    validate_light_client_receipt(&receipt, lcp_image_id, expected_l1_hash, dev_mode)?;
+    validate_light_client_receipt(
+        &receipt,
+        lcp_image_id,
+        payout_block_height,
+        expected_l1_hash,
+        dev_mode,
+    )?;
 
     Ok(receipt)
 }
@@ -164,6 +189,7 @@ async fn prove_light_client_proof_from_input_with_opts(
 fn validate_light_client_receipt(
     receipt: &Receipt,
     lcp_image_id: [u8; 32],
+    expected_l1_height: u64,
     expected_l1_hash: [u8; 32],
     dev_mode: bool,
 ) -> Result<LightClientCircuitOutput, BridgeError> {
@@ -181,6 +207,15 @@ fn validate_light_client_receipt(
         receipt
             .verify(lcp_image_id)
             .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
+    }
+
+    if proof_output.latest_da_state.block_height != expected_l1_height {
+        return Err(eyre::eyre!(
+            "Light client proof L1 height mismatch: expected {}, got {}",
+            expected_l1_height,
+            proof_output.latest_da_state.block_height
+        )
+        .into());
     }
 
     if proof_output.latest_da_state.block_hash != expected_l1_hash {
@@ -329,7 +364,14 @@ mod tests {
             .into());
         }
 
-        let next_receipt = prove_light_client_proof_from_input(next_input, paramset).await?;
+        let next_input_hash = BlockHash::from_byte_array(next_input.l1_hash);
+        let next_receipt = prove_light_client_proof_from_input(
+            next_input,
+            input_height,
+            next_input_hash,
+            paramset,
+        )
+        .await?;
         let next_output: LightClientCircuitOutput = borsh::from_slice(&next_receipt.journal.bytes)
             .wrap_err_with(|| {
                 format!("Failed to deserialize locally proved public {network_name} LCP output")

@@ -1316,6 +1316,7 @@ where
             .citrea_client
             .prove_lcp_for_assert(
                 payout_block_height as u64,
+                payout_block_hash,
                 deposit_idx as u32,
                 &self.db,
                 Some(&mut dbtx),
@@ -1826,6 +1827,7 @@ where
                     self.citrea_client
                         .fetch_validate_and_store_lcp(
                             payout_block_height as u64,
+                            payout_blockhash,
                             citrea_idx as u32,
                             &self.db,
                             dbtx.as_deref_mut(),
