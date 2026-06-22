@@ -192,6 +192,12 @@ pub fn parse_withdrawal_sig_params(
         .try_into()?;
 
     let users_intent_script_pubkey = ScriptBuf::from_bytes(params.output_script_pubkey);
+    // Reject OP_RETURN withdrawal outputs as OP_RETURN outputs are used to identify which operator paid the withdrawal
+    if users_intent_script_pubkey.is_op_return() {
+        return Err(Status::invalid_argument(
+            "Withdrawal output script pubkey must not be OP_RETURN",
+        ));
+    }
 
     Ok((
         params.withdrawal_id,
