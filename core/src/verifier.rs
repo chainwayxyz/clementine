@@ -1,6 +1,6 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
 use crate::builder::script::{
@@ -1797,22 +1797,12 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // wrap around a mutex lock to avoid OOM
-        let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
-        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts()?;
-
-        let taproot_builder = taproot_builder_with_scripts(scripts);
-
-        let root_hash = taproot_builder
-            .try_into_taptree()
-            .expect("taproot builder always builds a full taptree")
-            .root_hash()
-            .to_byte_array();
-
-        // bitvm scripts are dropped, release the lock
-        drop(guard);
-        tracing::debug!("Built taproot tree in {:?}", start.elapsed());
+        let root_hash = bitvm_pks.get_g16_verifier_disprove_root_hash()?;
+        tracing::debug!(
+            "Built G16 disprove taproot root hash in {:?}",
+            start.elapsed()
+        );
 
         let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
 
@@ -2783,7 +2773,6 @@ where
         use bridge_circuit_host::utils::get_verifying_key;
 
         let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
@@ -2918,6 +2907,7 @@ where
         tracing::debug!("BitVM public keys: {:?}", bitvm_pks.bitvm_pks);
 
         let res = tokio::task::spawn_blocking(move || {
+            let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
             use bitvm::chunk::api::validate_assertions_return_vector;
 
             validate_assertions_return_vector(

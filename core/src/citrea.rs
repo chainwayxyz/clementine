@@ -573,7 +573,10 @@ impl CitreaClientT for CitreaClient {
                 .into());
             }
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            #[cfg(test)]
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            #[cfg(not(test))]
+            tokio::time::sleep(Duration::from_secs(10)).await;
         };
 
         let proof_previous = self
