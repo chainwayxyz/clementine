@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS tx_sender_try_to_send_txs (
     -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
     is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     last_bump_block_height INT DEFAULT NULL,
+    -- consecutive checks where tx inputs were unavailable for spending
+    input_unspent_failures INT NOT NULL DEFAULT 0,
+    -- marked true once input_unspent_failures reaches configured retry limit
+    input_unspent_timed_out BOOLEAN NOT NULL DEFAULT FALSE,
     latest_active_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     rbf_signing_info TEXT,
@@ -51,27 +55,6 @@ CREATE TABLE IF NOT EXISTS tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted BOOLEAN NOT NULL DEFAULT FALSE
 );
-CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_outpoints (
-    cancelled_id INT NOT NULL REFERENCES tx_sender_try_to_send_txs(id),
-    txid BYTEA NOT NULL,
-    vout INT NOT NULL,
-    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
-    seen_at_height INT,
-    -- explicit finality flag: TRUE only when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
-    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (cancelled_id, txid, vout)
-);
-CREATE TABLE IF NOT EXISTS tx_sender_cancel_try_to_send_txids (
-    cancelled_id INT NOT NULL REFERENCES tx_sender_try_to_send_txs(id),
-    txid BYTEA NOT NULL,
-    -- first observed chain height when this txid was seen confirmed (used for finality tracking)
-    seen_at_height INT,
-    -- explicit finality flag: TRUE only when confirmations >= finality_depth from RPC
-    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (cancelled_id, txid)
-);
 CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_txids (
     activated_id INT NOT NULL REFERENCES tx_sender_try_to_send_txs(id),
     txid BYTEA NOT NULL,
@@ -84,18 +67,6 @@ CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_txids (
     in_mempool BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     PRIMARY KEY (activated_id, txid)
-);
-CREATE TABLE IF NOT EXISTS tx_sender_activate_try_to_send_outpoints (
-    activated_id INT NOT NULL REFERENCES tx_sender_try_to_send_txs(id),
-    txid BYTEA NOT NULL,
-    vout INT NOT NULL,
-    timelock BIGINT NOT NULL,
-    -- first observed chain height when this outpoint was seen spent (used for finality tracking)
-    seen_at_height INT,
-    -- explicit finality flag: TRUE only when seen_at_height is set and tip_height - seen_at_height + 1 >= finality_depth
-    is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (activated_id, txid, vout)
 );
 -- Debug-only tables (used by txsender for diagnostics)
 CREATE TABLE IF NOT EXISTS tx_sender_debug_submission_errors (

@@ -80,9 +80,10 @@ where
         + Send
         + BlockMatcher
         + Clone,
-    M::State: awaitable::State<M> + 'static + Send,
+    M::State: awaitable::State<M> + 'static + Send + std::fmt::Debug,
     for<'sub> M::Superstate<'sub>: awaitable::Superstate<M> + Send,
     for<'evt> M::Event<'evt>: Send + Sync,
+    M::StateEvent: std::fmt::Debug,
 {
     fn process_with_ctx(
         mut self,
@@ -93,11 +94,36 @@ where
         if events.is_empty() {
             ContextProcessResult::Unchanged(self)
         } else {
+            let block_height = block.cache.block_height;
+            let event_count = events.len();
             let mut ctx = block.clone();
             ContextProcessResult::Processing(async move {
-                for event in events {
-                    self.handle_with_context(&event, &mut ctx).await;
+                tracing::trace!(
+                    block_height,
+                    initial_state = ?self.state(),
+                    event_count,
+                    "State machine starting event processing"
+                );
+                for (i, event) in events.iter().enumerate() {
+                    tracing::trace!(
+                        block_height,
+                        event_idx = i,
+                        ?event,
+                        "State machine processing event"
+                    );
+                    let start = std::time::Instant::now();
+                    self.handle_with_context(event, &mut ctx).await;
+                    let elapsed = start.elapsed();
+                    tracing::trace!(
+                        block_height,
+                        event_idx = i,
+                        ?event,
+                        final_state = ?self.state(),
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "State machine finished processing event"
+                    );
                 }
+                tracing::trace!(block_height, "State machine completed all events");
                 (self, ctx)
             })
         }
@@ -159,6 +185,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             Arc::new(BlockCache::from_block(block.clone(), block_height)),
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
@@ -172,6 +200,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             Arc::new(self.owner.clone()),
             block_cache,
             self.config.clone(),
+            self.db.clone(),
+            self.rpc.clone(),
         ))
     }
 
@@ -575,12 +605,28 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let block_height = context.cache.block_height;
 
+        tracing::trace!(
+            block_height,
+            num_kickoff_machines = self.kickoff_machines.len(),
+            num_round_machines = self.round_machines.len(),
+            "process_block_parallel: starting"
+        );
+
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
             Self::update_machines(&mut self.kickoff_machines, context);
         let (mut final_round_machines, mut round_futures) =
             Self::update_machines(&mut self.round_machines, context);
+
+        tracing::trace!(
+            block_height,
+            kickoff_futures = kickoff_futures.len(),
+            round_futures = round_futures.len(),
+            unchanged_kickoff = final_kickoff_machines.len(),
+            unchanged_round = final_round_machines.len(),
+            "process_block_parallel: initial update_machines complete"
+        );
 
         // Here we store number of iterations to detect if the machines do not stabilize after a while
         // to prevent infinite loops. If a matcher is used, it is deleted, but a bug in implementation
@@ -590,9 +636,28 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // On each iteration, we'll update the changed machines until all machines
         // stabilize in their state.
         while !kickoff_futures.is_empty() || !round_futures.is_empty() {
+            tracing::trace!(
+                block_height,
+                iteration = iterations,
+                kickoff_futures = kickoff_futures.len(),
+                round_futures = round_futures.len(),
+                "process_block_parallel: starting join_all"
+            );
+            let join_start = std::time::Instant::now();
+
             // Execute all futures in parallel
             let (kickoff_results, round_results) =
                 join(join_all(kickoff_futures), join_all(round_futures)).await;
+
+            let join_elapsed = join_start.elapsed();
+            tracing::trace!(
+                block_height,
+                iteration = iterations,
+                join_elapsed_ms = join_elapsed.as_millis() as u64,
+                kickoff_results = kickoff_results.len(),
+                round_results = round_results.len(),
+                "process_block_parallel: join_all completed"
+            );
 
             // Unzip the results into updated machines and state contexts
             let (mut changed_kickoff_machines, mut kickoff_contexts): (Vec<_>, Vec<_>) =
@@ -677,6 +742,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_futures = new_kickoff_futures;
             round_futures = new_round_futures;
             iterations += 1;
+
+            tracing::trace!(
+                block_height,
+                iteration = iterations,
+                new_kickoff_futures = kickoff_futures.len(),
+                new_round_futures = round_futures.len(),
+                "process_block_parallel: re-update complete"
+            );
         }
 
         drop(kickoff_futures);
@@ -687,6 +760,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.kickoff_machines = final_kickoff_machines;
 
         self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
+
+        tracing::trace!(
+            block_height,
+            total_iterations = iterations,
+            final_kickoff_machines = self.kickoff_machines.len(),
+            final_round_machines = self.round_machines.len(),
+            "process_block_parallel: completed"
+        );
 
         Ok(())
     }

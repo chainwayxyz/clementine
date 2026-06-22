@@ -1,16 +1,16 @@
 use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
-use tokio::sync::RwLock;
 
-use crate::builder::transaction::{input::UtxoVout, ContractContext};
+use crate::builder::transaction::{input::UtxoVout, ContractContext, TxHandler};
 use crate::deposit::OperatorData;
-use bitcoin::OutPoint;
+use crate::states::context::DutyResult;
+use bitcoin::{OutPoint, Transaction, Txid, Witness};
+use bitcoincore_rpc::RpcApi;
 use clementine_errors::BridgeError;
 use clementine_errors::TxError;
 use clementine_primitives::RoundIndex;
 use clementine_primitives::TransactionType;
-use serde_with::serde_as;
+use clementine_primitives::NUMBER_OF_ASSERT_TXS;
 
 use super::{
     block_cache::BlockCache,
@@ -18,10 +18,6 @@ use super::{
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
-
-/// Lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize,
-/// where new deposit signatures are being inserted (because checking a kickoff is done by using deposit_signatures table)
-pub static CHECK_KICKOFF_LOCK: LazyLock<RwLock<()>> = LazyLock::new(|| RwLock::new(()));
 
 /// Events that change the state of the round state machine.
 #[derive(
@@ -44,6 +40,10 @@ pub enum RoundEvent {
     SavedToDb,
     /// Event to flag that the current round is challenged, it should only be sent and handled if current state is round_tx
     SetChallenged { round_idx: RoundIndex },
+    /// Event dispatched when a kickoff finalizer outpoint is spent for a possible kickoff.
+    /// This is tracked for kickoffs that returned yes from CheckIfKickoff or looked like
+    /// a kickoff based on tx structure (1 input, >= expected number of outputs).
+    KickoffFinalizerSpent { kickoff_idx: usize },
 }
 
 /// State machine for the round state.
@@ -60,12 +60,10 @@ pub enum RoundEvent {
 /// - `OperatorExit`: The operator exited the protocol. The state machine transitions to the operator exit state. In this state, all tracking of the operator is stopped as operator is no longer participating in the protocol.
 /// - `SavedToDb`: The state machine has been saved to the database and the dirty flag should be reset to false.
 ///
-#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
     /// Maps matchers to the resulting round events.
-    #[serde_as(as = "Vec<(_, _)>")]
-    pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
+    pub(crate) matchers: matcher::MatcherMap<RoundEvent>,
     /// Data of the operator that is being tracked.
     pub(crate) operator_data: OperatorData,
     /// Indicates if the state machine has unsaved changes that need to be persisted on db.
@@ -87,23 +85,14 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
     type StateEvent = RoundEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
-        self.matchers
-            .iter()
-            .filter_map(|(matcher, round_event)| {
-                matcher.matches(block).map(|ord| (ord, round_event))
-            })
-            .min()
-            .map(|(_, round_event)| round_event)
-            .into_iter()
-            .cloned()
-            .collect()
+        self.matchers.match_block(block)
     }
 }
 
 impl<T: Owner> RoundStateMachine<T> {
     pub fn new(operator_data: OperatorData) -> Self {
         Self {
-            matchers: HashMap::new(),
+            matchers: matcher::MatcherMap::new(),
             operator_data,
             dirty: true,
             challenged_rounds: HashSet::new(),
@@ -138,11 +127,168 @@ impl<T: Owner> RoundStateMachine<T> {
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &RoundEvent) {
         context
             .capture_error(async |_context| {
-                let event_str = format!("{event:?}");
-                Err(StateMachineError::UnhandledEvent(event_str))
+                Err(StateMachineError::UnhandledEvent(format!("{event:?}")))
                     .wrap_err(self.round_meta("round unhandled event"))
             })
             .await;
+    }
+
+    async fn is_possible_kickoff(
+        &self,
+        txid: Txid,
+        block_height: u32,
+        witness: Witness,
+        tx: &Transaction,
+        context: &StateContext<T>,
+    ) -> Result<bool, BridgeError> {
+        let duty_result = context
+            .dispatch_duty(Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            })
+            .await?;
+
+        Ok(match duty_result {
+            DutyResult::CheckIfKickoff { is_kickoff: true } => true,
+            DutyResult::CheckIfKickoff { is_kickoff: false } => {
+                // Be conservative if the kickoff signature data is unavailable. A
+                // real kickoff and burn-unused-kickoff-connectors have different
+                // shapes unless the operator intentionally griefs themselves.
+                let min_outputs = UtxoVout::Assert(0).get_vout() as usize
+                    + NUMBER_OF_ASSERT_TXS
+                    + 1 // anchor
+                    + 2; // at least one watchtower (challenge + ack)
+                tx.input.len() == 1 && tx.output.len() >= min_outputs
+            }
+            _ => false,
+        })
+    }
+
+    async fn ensure_kickoff_finalizer_tracking(
+        &mut self,
+        kickoff_idx: usize,
+        kickoff_txid: Txid,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
+        context: &StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        if kickoff_finalizers_spent.contains(&kickoff_idx) {
+            return Ok(());
+        }
+
+        let finalizer_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::KickoffFinalizer.get_vout(),
+        };
+
+        let spending_height = {
+            let mut guard = context.shared_dbtx.lock().await;
+            context
+                .db
+                .get_block_height_of_spending_txid(Some(&mut *guard), finalizer_outpoint)
+                .await?
+        };
+
+        if matches!(spending_height, Some(height) if height <= context.cache.block_height) {
+            kickoff_finalizers_spent.insert(kickoff_idx);
+            self.dirty = true;
+        } else {
+            self.matchers.insert(
+                matcher::Matcher::SpentUtxo(finalizer_outpoint),
+                RoundEvent::KickoffFinalizerSpent { kickoff_idx },
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Reconstructs `possible_kickoffs` for round states persisted before that
+    /// field existed.
+    ///
+    /// Older serialized `RoundTx` states only contain `used_kickoffs`. After the
+    /// migration those machines reload with empty `possible_kickoffs`, which would
+    /// make the round look ready to reimburse as soon as all kickoff UTXOs are
+    /// spent. We use the bitcoin syncer history to find the actual spending tx for
+    /// each missing used kickoff, classify possible kickoff txs, and restore
+    /// finalizer tracking before queue readiness is checked.
+    async fn reconcile_used_kickoffs_from_syncer(
+        &mut self,
+        round_idx: &RoundIndex,
+        used_kickoffs: &HashSet<usize>,
+        possible_kickoffs: &mut HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
+        round_txhandler: &TxHandler,
+        context: &StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        let missing_kickoffs = used_kickoffs
+            .iter()
+            .copied()
+            .filter(|idx| !possible_kickoffs.contains_key(idx))
+            .collect::<Vec<_>>();
+
+        if missing_kickoffs.is_empty() {
+            return Ok(());
+        }
+
+        for kickoff_idx in missing_kickoffs {
+            let kickoff_outpoint = *round_txhandler
+                .get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?
+                .get_prev_outpoint();
+
+            let spending_tx_info = {
+                let mut guard = context.shared_dbtx.lock().await;
+                context
+                    .db
+                    .get_spending_txid_of_outpoint(
+                        Some(&mut *guard),
+                        kickoff_outpoint,
+                        context.cache.block_height,
+                    )
+                    .await?
+            }
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Used kickoff {kickoff_idx} for round {round_idx} has no spending tx in bitcoin syncer up to height {}",
+                        context.cache.block_height
+                    )
+                })?;
+            let (block_height, block_hash, spending_txid) = spending_tx_info;
+            let spending_tx = context
+                .rpc
+                .get_raw_transaction(&spending_txid, Some(&block_hash))
+                .await
+                .wrap_err_with(|| {
+                    format!("Failed to fetch spending tx {spending_txid} from block {block_hash}")
+                })?;
+            let witness = spending_tx
+                .input
+                .iter()
+                .find(|input| input.previous_output == kickoff_outpoint)
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Spending tx {spending_txid} from syncer does not spend {kickoff_outpoint}"
+                    )
+                })?
+                .witness
+                .clone();
+
+            if self
+                .is_possible_kickoff(spending_txid, block_height, witness, &spending_tx, context)
+                .await?
+            {
+                possible_kickoffs.insert(kickoff_idx, spending_txid);
+                self.dirty = true;
+                self.ensure_kickoff_finalizer_tracking(
+                    kickoff_idx,
+                    spending_txid,
+                    kickoff_finalizers_spent,
+                    context,
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
     }
 
     #[action]
@@ -157,11 +303,8 @@ impl<T: Owner> RoundStateMachine<T> {
             tracing::trace!(?self.operator_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
-            // Remove the matcher corresponding to the event.
-            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-                let matcher = matcher.clone();
-                self.matchers.remove(&matcher);
-            }
+            // Consume the matched event so it is not emitted again.
+            self.matchers.remove_event(evt);
         }
     }
 
@@ -178,7 +321,12 @@ impl<T: Owner> RoundStateMachine<T> {
                     "First round tx detected for {}",
                     self.operator_data.xonly_pk
                 );
-                Transition(State::round_tx(*round_idx, HashSet::new()))
+                Transition(State::round_tx(
+                    *round_idx,
+                    HashSet::new(),
+                    HashMap::new(),
+                    HashSet::new(),
+                ))
             }
             RoundEvent::SavedToDb => Handled,
             RoundEvent::SetChallenged { round_idx } => {
@@ -202,7 +350,7 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
                     let contract_context = ContractContext::new_context_for_round(
@@ -253,6 +401,8 @@ impl<T: Owner> RoundStateMachine<T> {
         event: &RoundEvent,
         round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
+        possible_kickoffs: &mut HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
@@ -280,18 +430,45 @@ impl<T: Owner> RoundStateMachine<T> {
                 context
                     .capture_error(async |context| {
                         {
-                            // acquire lock to ensure that CheckIfKickoff duties are not dispatched during resync checks on deposit_finalize
-                            let _guard = CHECK_KICKOFF_LOCK.write().await;
-                            context
-                                .dispatch_duty(Duty::CheckIfKickoff {
+                            let witness = context
+                                .cache
+                                .get_witness_of_utxo(kickoff_outpoint)
+                                .expect("UTXO should be in block");
+                            let tx = context
+                                .cache
+                                .get_tx_of_utxo(kickoff_outpoint)
+                                .expect("UTXO should be in block");
+                            let is_possible_kickoff = self
+                                .is_possible_kickoff(
                                     txid,
-                                    block_height: context.cache.block_height,
-                                    witness: context
-                                        .cache
-                                        .get_witness_of_utxo(kickoff_outpoint)
-                                        .expect("UTXO should be in block"),
-                                })
+                                    context.cache.block_height,
+                                    witness,
+                                    tx,
+                                    context,
+                                )
                                 .await?;
+
+                            if is_possible_kickoff {
+                                possible_kickoffs.insert(*kickoff_idx, txid);
+                                self.ensure_kickoff_finalizer_tracking(
+                                    *kickoff_idx,
+                                    txid,
+                                    kickoff_finalizers_spent,
+                                    context,
+                                )
+                                .await?;
+                            }
+
+                            // Check if conditions are met to queue ready to reimburse
+                            self.check_and_dispatch_queue_ready_to_reimburse(
+                                round_idx,
+                                used_kickoffs,
+                                possible_kickoffs,
+                                kickoff_finalizers_spent,
+                                context,
+                            )
+                            .await?;
+
                             Ok::<(), BridgeError>(())
                         }
                         .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))
@@ -307,6 +484,34 @@ impl<T: Owner> RoundStateMachine<T> {
                     round_idx
                 );
                 Transition(State::ready_to_reimburse(*round_idx))
+            }
+            RoundEvent::KickoffFinalizerSpent { kickoff_idx } => {
+                tracing::info!(
+                    "Kickoff finalizer spent for kickoff {}, operator: {}, round: {}",
+                    kickoff_idx,
+                    self.operator_data.xonly_pk,
+                    round_idx
+                );
+                kickoff_finalizers_spent.insert(*kickoff_idx);
+
+                // Check if conditions are met to queue ready to reimburse
+                context
+                    .capture_error(async |context| {
+                        {
+                            self.check_and_dispatch_queue_ready_to_reimburse(
+                                round_idx,
+                                used_kickoffs,
+                                possible_kickoffs,
+                                kickoff_finalizers_spent,
+                                context,
+                            )
+                            .await?;
+                            Ok::<(), BridgeError>(())
+                        }
+                        .wrap_err(self.round_meta("round_tx kickoff_finalizer_spent"))
+                    })
+                    .await;
+                Handled
             }
             RoundEvent::SavedToDb => Handled,
             RoundEvent::SetChallenged { round_idx } => {
@@ -349,7 +554,7 @@ impl<T: Owner> RoundStateMachine<T> {
     /// which cannot be created anymore as the collateral is spent. So we do not want to challenge it, etc.
     #[action]
     pub(crate) async fn on_operator_exit_entry(&mut self) {
-        self.matchers = HashMap::new();
+        self.matchers.clear();
         tracing::warn!(?self.operator_data, "Operator exited the protocol.");
     }
 
@@ -357,10 +562,13 @@ impl<T: Owner> RoundStateMachine<T> {
     /// This method will check if all kickoffs were used in the round.
     /// If not, the owner will send a "Unspent Kickoff Connector" tx, slashing the operator.
     #[action]
+    #[allow(unused_variables)]
     pub(crate) async fn on_round_tx_exit(
         &mut self,
         round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
+        possible_kickoffs: &mut HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
         context: &mut StateContext<T>,
     ) {
         context
@@ -385,15 +593,19 @@ impl<T: Owner> RoundStateMachine<T> {
     /// It adds the matchers for the kickoff utxos in the round tx.
     /// It also adds the matchers for the operator exit.
     #[action]
+    #[allow(unused_variables)]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut RoundIndex,
+        used_kickoffs: &mut HashSet<usize>,
+        possible_kickoffs: &mut HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &mut HashSet<usize>,
         context: &mut StateContext<T>,
     ) {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
                     // On the round after last round, do not care about anything,
                     // last round has index num_round_txs and is there only for reimbursement generators of previous round
                     // nothing is signed with them
@@ -441,6 +653,26 @@ impl<T: Owner> RoundStateMachine<T> {
                             ),
                             RoundEvent::OperatorExit,
                         );
+                        self.reconcile_used_kickoffs_from_syncer(
+                            round_idx,
+                            used_kickoffs,
+                            possible_kickoffs,
+                            kickoff_finalizers_spent,
+                            &round_txhandler,
+                            context,
+                        )
+                        .await?;
+
+                        for (kickoff_idx, txid) in possible_kickoffs.clone() {
+                            self.ensure_kickoff_finalizer_tracking(
+                                kickoff_idx,
+                                txid,
+                                kickoff_finalizers_spent,
+                                context,
+                            )
+                            .await?;
+                        }
+
                         // Add a matcher for each kickoff utxo in the round tx.
                         for idx in 0..context.config.protocol_paramset.num_kickoffs_per_round {
                             let outpoint = *round_txhandler
@@ -454,12 +686,53 @@ impl<T: Owner> RoundStateMachine<T> {
                                 },
                             );
                         }
+                        self.check_and_dispatch_queue_ready_to_reimburse(
+                            round_idx,
+                            used_kickoffs,
+                            possible_kickoffs,
+                            kickoff_finalizers_spent,
+                            context,
+                        )
+                        .await?;
                         Ok::<(), BridgeError>(())
                     }
                 }
                 .wrap_err(self.round_meta("on_round_tx_entry"))
             })
             .await;
+    }
+
+    /// Checks if all conditions are met to dispatch the QueueReadyToReimburse duty:
+    /// 1. All kickoff UTXOs in the round are spent
+    /// 2. All kickoff finalizers for possible kickoffs (yes or structure-matched) are spent
+    async fn check_and_dispatch_queue_ready_to_reimburse(
+        &self,
+        round_idx: &RoundIndex,
+        used_kickoffs: &HashSet<usize>,
+        possible_kickoffs: &HashMap<usize, Txid>,
+        kickoff_finalizers_spent: &HashSet<usize>,
+        context: &StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        let all_kickoffs_spent =
+            used_kickoffs.len() == context.config.protocol_paramset.num_kickoffs_per_round;
+        let all_finalizers_spent = possible_kickoffs
+            .keys()
+            .all(|idx| kickoff_finalizers_spent.contains(idx));
+
+        if all_kickoffs_spent && all_finalizers_spent {
+            tracing::info!(
+                "All kickoff UTXOs spent and all possible kickoff finalizers spent for operator: {}, round: {}. Dispatching QueueReadyToReimburse.",
+                self.operator_data.xonly_pk,
+                round_idx
+            );
+            context
+                .dispatch_duty(Duty::QueueReadyToReimburse {
+                    round_idx: *round_idx,
+                    operator_xonly_pk: self.operator_data.xonly_pk,
+                })
+                .await?;
+        }
+        Ok(())
     }
 
     #[state(entry_action = "on_ready_to_reimburse_entry")]
@@ -474,7 +747,12 @@ impl<T: Owner> RoundStateMachine<T> {
             // If the next round tx is mined, we transition to the round tx state.
             RoundEvent::RoundSent {
                 round_idx: next_round_idx,
-            } => Transition(State::round_tx(*next_round_idx, HashSet::new())),
+            } => Transition(State::round_tx(
+                *next_round_idx,
+                HashSet::new(),
+                HashMap::new(),
+                HashSet::new(),
+            )),
             RoundEvent::SavedToDb => Handled,
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             RoundEvent::SetChallenged { round_idx } => {
@@ -499,7 +777,7 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers.clear();
                     // get next rounds Round tx
                     let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,

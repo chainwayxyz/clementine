@@ -38,19 +38,19 @@ macro_rules! log_error_for_tx {
 
 pub use clementine_errors::SendTxError;
 pub use client::TxSenderClient;
-pub use tx_sender_types::{ActivatedWithOutpoint, ActivatedWithTxid};
+pub use tx_sender_types::ActivatedWithTxid;
 
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, OutPoint, Sequence, Transaction, Weight};
 use bitcoincore_rpc::RpcApi;
-use clementine_config::tx_sender::TxSenderLimits;
+use clementine_config::tx_sender::{derive_input_unspent_max_retries, TxSenderLimits};
 use clementine_errors::{BridgeError, ResultExt};
 use clementine_primitives::FeeRateKvb;
 
 pub type Result<T, E = SendTxError> = std::result::Result<T, E>;
 
 use clementine_utils::{FeePayingType, TxMetadata};
-use eyre::OptionExt;
+use eyre::{OptionExt, WrapErr};
 use signer::TxSenderSigningKey;
 
 /// Default sequence for transactions.
@@ -132,6 +132,7 @@ pub struct TxSender {
     client: TxSenderClient,
     pub network: bitcoin::Network,
     pub tx_sender_limits: TxSenderLimits,
+    input_unspent_max_retries: u32,
     pub finality_depth: u32,
     pub http_client: reqwest::Client,
     mempool_config: MempoolConfig,
@@ -149,6 +150,7 @@ impl std::fmt::Debug for TxSender {
             .field("db", &self.db)
             .field("network", &self.network)
             .field("tx_sender_limits", &self.tx_sender_limits)
+            .field("input_unspent_max_retries", &self.input_unspent_max_retries)
             .field("include_unsafe", &self.include_unsafe)
             .finish()
     }
@@ -167,23 +169,44 @@ impl TxSender {
     pub async fn new(
         tx_sender_config: crate::config::TxSenderConfig,
     ) -> std::result::Result<Self, BridgeError> {
-        let secret_key = tx_sender_config.secret_key;
-        let signer = TxSenderSigningKey::new(secret_key, tx_sender_config.network);
+        let crate::config::TxSenderConfig {
+            network,
+            secret_key,
+            private_da_key: _private_da_key,
+            postgres,
+            bitcoin_rpc,
+            mempool,
+            limits,
+            finality_depth,
+            poll_delay_ms,
+            input_unspent_max_retries,
+            include_unsafe,
+            jsonrpc: _,
+        } = tx_sender_config;
+
+        let input_unspent_max_retries =
+            crate::config::validate_input_unspent_max_retries(input_unspent_max_retries)
+                .map_err(|msg| {
+                    BridgeError::ConfigError(format!("input_unspent_max_retries {msg}"))
+                })?
+                .unwrap_or_else(|| derive_input_unspent_max_retries(finality_depth, poll_delay_ms));
+
+        let signer = TxSenderSigningKey::new(secret_key, network);
         #[cfg(feature = "citrea")]
         let da_signer = {
-            let da_key = tx_sender_config.private_da_key.unwrap_or(secret_key);
-            TxSenderSigningKey::new(da_key, tx_sender_config.network)
+            let da_key = _private_da_key.unwrap_or(secret_key);
+            TxSenderSigningKey::new(da_key, network)
         };
         let rpc = clementine_extended_rpc::ExtendedBitcoinRpc::connect(
-            tx_sender_config.bitcoin_rpc.url.clone(),
-            tx_sender_config.bitcoin_rpc.user.clone(),
-            tx_sender_config.bitcoin_rpc.password.clone(),
+            bitcoin_rpc.url.clone(),
+            bitcoin_rpc.user.clone(),
+            bitcoin_rpc.password.clone(),
             None,
         )
         .await
         .map_err(|e| BridgeError::Eyre(e.into()))?;
 
-        let db = TxSenderDb::connect(&tx_sender_config.postgres).await?;
+        let db = TxSenderDb::connect(&postgres).await?;
         let client = TxSenderClient::new(db.clone());
 
         Ok(Self {
@@ -193,12 +216,13 @@ impl TxSender {
             rpc,
             db,
             client,
-            network: tx_sender_config.network,
-            tx_sender_limits: tx_sender_config.limits,
-            finality_depth: tx_sender_config.finality_depth,
+            network,
+            tx_sender_limits: limits,
+            input_unspent_max_retries,
+            finality_depth,
             http_client: reqwest::Client::new(),
-            mempool_config: tx_sender_config.mempool,
-            include_unsafe: tx_sender_config.include_unsafe,
+            mempool_config: mempool,
+            include_unsafe,
         })
     }
 
@@ -295,6 +319,69 @@ impl TxSender {
             .map_err(BridgeError::Eyre)
     }
 
+    async fn is_txid_in_mempool(&self, txid: &bitcoin::Txid) -> Result<bool> {
+        match self.rpc.get_mempool_entry(txid).await {
+            Ok(_) => Ok(true),
+            Err(e) if crate::rpc_errors::is_mempool_not_found_error(&e) => Ok(false),
+            Err(e) => Err(e)
+                .wrap_err_with(|| format!("Failed to get mempool entry for {txid}"))
+                .map_err(Into::into),
+        }
+    }
+
+    async fn is_tracked_tx_in_mempool(
+        &self,
+        try_to_send_id: u32,
+        tx: &Transaction,
+        fee_paying_type: FeePayingType,
+    ) -> Result<bool> {
+        if self.is_txid_in_mempool(&tx.compute_txid()).await? {
+            return Ok(true);
+        }
+
+        if matches!(
+            fee_paying_type,
+            FeePayingType::RBF | FeePayingType::RbfWtxidGrind
+        ) {
+            let rbf_txids = self
+                .db
+                .list_rbf_txids_for_id(None, try_to_send_id)
+                .await
+                .wrap_err("Failed to list RBF txids")?;
+
+            for txid in rbf_txids {
+                if self.is_txid_in_mempool(&txid).await? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Checks whether all inputs of a transaction are available for a new mempool submission.
+    ///
+    /// `include_mempool=true` makes this exact-outpoint check cover both confirmed UTXOs and
+    /// unconfirmed parent outputs, while returning `None` if another mempool transaction already
+    /// spends the outpoint.
+    async fn are_tx_inputs_available_for_new_submission(&self, tx: &Transaction) -> Result<bool> {
+        for input in &tx.input {
+            let outpoint = input.previous_output;
+
+            let utxo = self
+                .rpc
+                .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+                .await
+                .wrap_err("Failed to gettxout for tx input")?;
+
+            if utxo.is_none() {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Fetches transactions that are eligible to be sent or bumped from
     /// database based on the given fee rate and tip height. Then, places a send
     /// transaction request to the Bitcoin based on the fee strategy.
@@ -381,6 +468,87 @@ impl TxSender {
                     .update_tx_debug_sending_state(id, "confirmed", true)
                     .await;
 
+                continue;
+            }
+
+            // Before attempting to (re)send, ensure all inputs are still available. If this
+            // try-to-send row is already represented in the mempool, its inputs may look spent by
+            // that mempool transaction, so do not treat that as an unavailable-input failure.
+            let inputs_available = match self
+                .is_tracked_tx_in_mempool(id, &tx, fee_paying_type)
+                .await
+            {
+                Ok(true) => Ok(true),
+                Ok(false) => self.are_tx_inputs_available_for_new_submission(&tx).await,
+                Err(e) => Err(e),
+            };
+
+            let inputs_available = match inputs_available {
+                Ok(res) => res,
+                Err(e) => {
+                    log_error_for_tx!(
+                        self.db,
+                        id,
+                        format!("Failed to verify tx inputs are available: {}", e)
+                    );
+                    continue;
+                }
+            };
+
+            if !inputs_available {
+                let timed_out = match self
+                    .db
+                    .mark_input_unspent_check_failed(None, id, self.input_unspent_max_retries)
+                    .await
+                {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log_error_for_tx!(
+                            self.db,
+                            id,
+                            format!("Failed to update input-unspent retry tracking: {}", e)
+                        );
+                        continue;
+                    }
+                };
+
+                tracing::debug!(
+                    try_to_send_id = id,
+                    timed_out,
+                    "Skipping tx because one or more inputs are unavailable"
+                );
+
+                let sending_state = if timed_out {
+                    "inputs_already_spent_timed_out"
+                } else {
+                    "inputs_already_spent_retrying"
+                };
+
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(id, sending_state, true)
+                    .await;
+
+                if timed_out {
+                    log_error_for_tx!(
+                        self.db,
+                        id,
+                        format!(
+                            "Tx inputs stayed unavailable for {} consecutive checks; marking tx as timed out",
+                            self.input_unspent_max_retries
+                        )
+                    );
+                }
+
+                continue;
+            }
+
+            if let Err(e) = self.db.clear_input_unspent_check_failures(None, id).await {
+                log_error_for_tx!(
+                    self.db,
+                    id,
+                    format!("Failed to clear input-unspent retry tracking: {}", e)
+                );
                 continue;
             }
 
@@ -595,15 +763,6 @@ impl TxSender {
                         "No funding tx rejected (tx already in mempool): {err_str}"
                     );
                     return Ok(());
-                } else {
-                    tracing::error!(
-                        "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                    );
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("send_raw_transaction error for no funding tx: {err_str}")
-                    );
                 }
                 let _ = self
                     .db

@@ -52,7 +52,7 @@ impl BackgroundTaskManager {
             let exit_reason = match handle.await {
                 Ok(Ok(_)) => {
                     // Task completed successfully
-                    tracing::debug!("Task {task_variant:?} completed successfully");
+                    tracing::info!("Task {task_variant:?} completed successfully");
                     "Completed successfully".to_owned()
                 }
                 Ok(Err(e)) => {
@@ -63,7 +63,7 @@ impl BackgroundTaskManager {
                 Err(e) => {
                     if e.is_cancelled() {
                         // Task was cancelled, which is expected during cleanup
-                        tracing::debug!("Task {task_variant:?} was cancelled");
+                        tracing::info!("Task {task_variant:?} was cancelled");
                         "Cancelled".to_owned()
                     } else {
                         // Task panicked or was aborted

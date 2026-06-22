@@ -369,8 +369,9 @@ impl BridgeConfig {
             mempool: self.mempool_config(),
             limits: self.tx_sender_limits.clone(),
             finality_depth: self.protocol_paramset.finality_depth,
-            // poll_delay_ms not used in clementine, poll delay for txsender is defined in core/src/task/tx_sender.rs
-            poll_delay_ms: 60_000,
+            // Must match core/src/task/tx_sender.rs POLL_DELAY for retry-time derivations. (max retries derivation depends on this)
+            poll_delay_ms: crate::task::tx_sender::POLL_DELAY.as_millis() as u64,
+            input_unspent_max_retries: None,
             include_unsafe: false,
             jsonrpc: None,
         }

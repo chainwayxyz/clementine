@@ -3,8 +3,8 @@
 //! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
-use crate::{ActivatedWithOutpoint, ActivatedWithTxid};
-use bitcoin::{OutPoint, Transaction, Txid};
+use crate::ActivatedWithTxid;
+use bitcoin::Transaction;
 use clementine_errors::BridgeError;
 use clementine_utils::{FeePayingType, RbfSigningInfo, TxMetadata};
 use eyre::eyre;
@@ -28,28 +28,32 @@ impl TxSenderClient {
     /// Saves a transaction to the database queue for sending/fee bumping.
     ///
     /// This function determines the initial parameters for a transaction send attempt,
-    /// including its [`FeePayingType`], associated metadata, and dependencies (cancellations/activations).
-    /// It then persists this information in the database via [`Database::save_tx`] and related functions.
-    /// The actual sending logic (CPFP/RBF) is handled later by the transaction sender's task loop.
+    /// including its [`FeePayingType`], associated metadata, and any txid-based
+    /// activation prerequisites. It then persists this information in the database
+    /// via [`Database::save_tx`] and related functions. The actual sending logic
+    /// (CPFP/RBF) is handled later by the transaction sender's task loop.
     ///
-    /// # Default Activation and Cancellation Conditions
+    /// # Activation Conditions
     ///
-    /// By default, this function automatically adds cancellation conditions for all outpoints
-    /// spent by the `signed_tx` itself. If `signed_tx` confirms, these input outpoints
-    /// are marked as spent/cancelled in the database.
+    /// Activation is modeled purely in terms of txids.
     ///
-    /// There are no default activation conditions added implicitly; all activation prerequisites
-    /// must be explicitly provided via the `activate_txids` and `activate_outpoints` arguments.
+    /// 1. Explicit activations are provided via the `activate_txids` argument.
+    /// 2. Implicit activations are derived from the inputs of `signed_tx`:
+    ///    for each input, the previous-output txid is treated as an activation
+    ///    prerequisite, with an optional relative timelock taken from the input's
+    ///    sequence (if it encodes a relative block height).
+    ///
+    /// For each txid, the maximum relative block height across both explicit
+    /// and implicit activations is stored.
     ///
     /// # Arguments
     /// * `dbtx` - An active database transaction.
     /// * `tx_metadata` - Optional metadata about the transaction's purpose.
     /// * `signed_tx` - The transaction to be potentially sent.
     /// * `fee_paying_type` - Whether to use CPFP or RBF for fee management.
-    /// * `cancel_outpoints` - Outpoints that should be marked invalid if this tx confirms (in addition to the tx's own inputs).
-    /// * `cancel_txids` - Txids that should be marked invalid if this tx confirms.
-    /// * `activate_txids` - Txids that are prerequisites for this tx, potentially with a relative timelock.
-    /// * `activate_outpoints` - Outpoints that are prerequisites for this tx, potentially with a relative timelock.
+    /// * `rbf_signing_info` - Optional RBF signing info used when fee bumping via RBF if the signatures provided already is not a SighashSingle signature.
+    /// * `activate_txids` - Additional txid activation prerequisites for this tx,
+    ///   potentially with a relative timelock.
     ///
     /// # Returns
     ///
@@ -63,10 +67,7 @@ impl TxSenderClient {
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         rbf_signing_info: Option<RbfSigningInfo>,
-        cancel_outpoints: &[OutPoint],
-        cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
-        activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32, BridgeError> {
         let txid = signed_tx.compute_txid();
 
@@ -103,24 +104,6 @@ impl TxSenderClient {
         // only log the raw tx in tests so that logs do not contain sensitive information
         #[cfg(test)]
         tracing::debug!(target: "ci", "Saved tx to database with try_to_send_id: {try_to_send_id}, metadata: {tx_metadata:?}, raw tx: {}", hex::encode(bitcoin::consensus::serialize(signed_tx)));
-
-        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
-            self.db
-                .save_cancelled_outpoint(dbtx, try_to_send_id, input_outpoint)
-                .await?;
-        }
-
-        for outpoint in cancel_outpoints {
-            self.db
-                .save_cancelled_outpoint(dbtx, try_to_send_id, *outpoint)
-                .await?;
-        }
-
-        for txid in cancel_txids {
-            self.db
-                .save_cancelled_txid(dbtx, try_to_send_id, *txid)
-                .await?;
-        }
 
         let mut max_timelock_of_activated_txids = BTreeMap::new();
 
@@ -166,12 +149,6 @@ impl TxSenderClient {
                         relative_block_height: timelock,
                     },
                 )
-                .await?;
-        }
-
-        for activated_outpoint in activate_outpoints {
-            self.db
-                .save_activated_outpoint(dbtx, try_to_send_id, activated_outpoint)
                 .await?;
         }
 

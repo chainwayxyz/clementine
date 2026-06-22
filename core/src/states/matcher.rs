@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use super::block_cache::BlockCache;
 
-/// A trait that will return a single event when a block matches any of the matchers.
+/// A trait that returns events when a block matches any of the matchers.
 pub(crate) trait BlockMatcher {
     type StateEvent;
 
@@ -80,5 +80,115 @@ impl Matcher {
             }
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct MatcherMap<E> {
+    entries: Vec<(Matcher, E)>,
+}
+
+impl<E> MatcherMap<E> {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub(crate) fn match_block(&self, block: &BlockCache) -> Vec<E>
+    where
+        E: Clone,
+    {
+        let Some(best_matcher) = self
+            .entries
+            .iter()
+            .filter_map(|(matcher, _)| matcher.matches(block).map(|ord| (ord, matcher)))
+            .min_by(|(left_ord, left_matcher), (right_ord, right_matcher)| {
+                left_ord
+                    .cmp(right_ord)
+                    .then_with(|| left_matcher.cmp(right_matcher))
+            })
+            .map(|(_, matcher)| matcher)
+        else {
+            return Vec::new();
+        };
+
+        self.entries
+            .iter()
+            .filter(|&(matcher, _event)| matcher == best_matcher)
+            .map(|(_matcher, event)| event.clone())
+            .collect()
+    }
+}
+
+impl<E: Eq> MatcherMap<E> {
+    pub(crate) fn insert(&mut self, matcher: Matcher, event: E) {
+        if !self
+            .entries
+            .iter()
+            .any(|(existing_matcher, existing_event)| {
+                existing_matcher == &matcher && existing_event == &event
+            })
+        {
+            self.entries.push((matcher, event));
+        }
+    }
+
+    pub(crate) fn remove_event(&mut self, event: &E) {
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|(_, existing_event)| existing_event == event)
+        {
+            self.entries.remove(pos);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::hashes::Hash as _;
+
+    #[derive(
+        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    )]
+    enum TestEvent {
+        A,
+        B,
+    }
+
+    fn txid(byte: u8) -> Txid {
+        Txid::from_byte_array([byte; 32])
+    }
+
+    #[test]
+    fn matcher_map_serializes_like_legacy_entries() {
+        let matcher = Matcher::SentTx(txid(1));
+        let entries = vec![
+            (matcher.clone(), TestEvent::A),
+            (matcher.clone(), TestEvent::B),
+        ];
+        let legacy_json = serde_json::to_string(&entries).unwrap();
+
+        let matchers: MatcherMap<TestEvent> = serde_json::from_str(&legacy_json).unwrap();
+        let serialized = serde_json::to_value(&matchers).unwrap();
+        assert_eq!(serialized.as_array().unwrap().len(), 2);
+        assert_eq!(serialized, serde_json::json!(entries));
+
+        let mut deduped = MatcherMap::new();
+        deduped.insert(matcher.clone(), TestEvent::A);
+        deduped.insert(matcher.clone(), TestEvent::A);
+        deduped.insert(matcher, TestEvent::B);
+
+        assert_eq!(
+            serde_json::from_value::<MatcherMap<TestEvent>>(serialized).unwrap(),
+            deduped
+        );
     }
 }

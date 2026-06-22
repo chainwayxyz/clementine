@@ -1,23 +1,23 @@
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TxHandlerBuilder;
-use crate::constants::MIN_TAPROOT_AMOUNT;
-use crate::deposit::DepositData;
-use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
-use bitcoin::blockdata::block::BlockHash;
-use bitcoin::secp256k1::PublicKey;
-use bitcoin::secp256k1::SecretKey;
-use bitcoin::ScriptBuf;
-use bitcoin::Transaction;
-use bitcoin::TxOut;
+use crate::{
+    builder::transaction::{output::UnspentTxOut, TxHandlerBuilder},
+    deposit::DepositData,
+    extended_bitcoin_rpc::ExtendedBitcoinRpc,
+    header_chain_prover::HeaderChainProver,
+};
+use bitcoin::{
+    blockdata::block::BlockHash,
+    secp256k1::{PublicKey, SecretKey},
+    ScriptBuf, Transaction, TxOut,
+};
 use bitvm::chunk::api::Assertions;
-use circuits_lib::bridge_circuit::structs::CircuitWitness;
-use circuits_lib::bridge_circuit::structs::{CircuitTxOut, WatchtowerInput};
-use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::bridge_circuit::{
+    structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
+    transaction::CircuitTransaction,
+};
+use clementine_config::MIN_TAPROOT_AMOUNT;
 use risc0_zkvm::Receipt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestParams {

@@ -7,7 +7,7 @@ use clementine_tx_sender::task::TxSenderTaskInternal;
 use clementine_tx_sender::TxSender;
 use tonic::async_trait;
 
-const POLL_DELAY: Duration = if cfg!(test) {
+pub const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(400)
 } else {
     Duration::from_secs(30)

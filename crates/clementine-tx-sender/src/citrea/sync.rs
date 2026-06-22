@@ -559,9 +559,6 @@ impl TxSender {
                     TapSighashType::Default,
                 )),
                 &[],
-                &[],
-                &[],
-                &[],
             )
             .await?;
 
