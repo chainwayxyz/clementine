@@ -6,6 +6,7 @@ bitvm_cache_dev.bin
 risc0-guests/operator/guest/Cargo.lock
 risc0-guests/verifier/guest/Cargo.lock
 target/
+/result
 .env
 /configs
 /core/configs
