@@ -2,8 +2,8 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use crate::EVMAddress;
 use crate::citrea::LightClientCircuitInputRpcResponse;
+use crate::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
