@@ -204,6 +204,11 @@ impl WatchtowerInput {
     /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
     /// should be supplied in `prevout_txs` if they exist.
     ///
+    /// This helper is stale for transactions that spend multiple watchtower challenge connectors,
+    /// because it infers the watchtower index from the first kickoff input. It is kept unchanged to
+    /// avoid changing the circuit method ID; host code should pass the matched watchtower index and
+    /// construct `WatchtowerInput` directly.
+    ///
     /// # Errors
     ///
     /// This function will return errors if:
