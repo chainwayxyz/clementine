@@ -15,6 +15,7 @@ use crate::deposit::DepositData;
 use crate::errors::BridgeError;
 use crate::errors::ResultExt;
 use crate::operator::OperatorServer;
+use crate::operator_auth::sign_operator_deposit_keys;
 use crate::rpc::clementine::{CompatibilityParamsRpc, RawSignedTx, WithdrawParamsWithSig};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OperatorWithdrawalMessage,
@@ -74,15 +75,16 @@ where
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
         tracing::info!("Get params rpc called");
-        let operator = self.operator.clone();
         let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
         let monitor_err_sender = tx.clone();
 
-        let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
+        let (mut wpk_receiver, mut signature_receiver, setup_auth_sig) =
+            self.operator.get_params().await?;
+        let operator_config =
+            parser::operator::operator_params_from_operator(&self.operator, setup_auth_sig);
 
         let handle = tokio::spawn(async move {
-            let operator_config: OperatorParams = operator.clone().into();
             tx.send(Ok(operator_config))
                 .await
                 .map_err(output_stream_ended_prematurely)?;
@@ -309,6 +311,12 @@ where
         let hashes = self
             .operator
             .generate_challenge_ack_preimages_and_hashes(&deposit_data)?;
+        let operator_auth_sig = sign_operator_deposit_keys(
+            &self.operator.signer,
+            &deposit_data,
+            &winternitz_keys,
+            &hashes,
+        )?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {
@@ -320,6 +328,9 @@ where
                 .into_iter()
                 .map(|hash| ChallengeAckDigest { hash: hash.into() })
                 .collect(),
+            operator_auth_sig: Some(SchnorrSig {
+                schnorr_sig: operator_auth_sig.serialize().to_vec(),
+            }),
         }))
     }
 

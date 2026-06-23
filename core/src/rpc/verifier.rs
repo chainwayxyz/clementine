@@ -184,8 +184,12 @@ where
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
         tracing::info!("set_operator rpc called");
-        let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
-            parser::operator::parse_details(&mut in_stream).await?;
+        let (
+            collateral_funding_outpoint,
+            operator_xonly_pk,
+            wallet_reimburse_address,
+            setup_auth_sig,
+        ) = parser::operator::parse_details(&mut in_stream).await?;
         tracing::info!("Parsed set_operator rpc params for operator xonly pk: {}, collateral funding outpoint: {}, wallet reimburse address: {:?}", operator_xonly_pk, collateral_funding_outpoint, wallet_reimburse_address);
 
         // check if address is valid
@@ -228,6 +232,7 @@ where
                 wallet_reimburse_address_checked,
                 operator_kickoff_winternitz_public_keys,
                 unspent_kickoff_sigs,
+                setup_auth_sig,
             )
             .await?;
 

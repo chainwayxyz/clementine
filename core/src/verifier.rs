@@ -34,6 +34,7 @@ use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::L1SyncStatusProvider;
 use crate::operator::RoundIndex;
+use crate::operator_auth::{verify_operator_deposit_keys, verify_operator_setup};
 use crate::rpc::clementine::{EntityStatus, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::rpc::ecdsa_verification_sig::{
     recover_address_from_ecdsa_signature, OptimisticPayoutMessage,
@@ -720,6 +721,7 @@ where
         wallet_reimburse_address: Address,
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
+        setup_auth_sig: Signature,
     ) -> Result<(), BridgeError> {
         tracing::info!("Setting operator: {:?}", operator_xonly_pk);
         let operator_data = OperatorData {
@@ -732,6 +734,16 @@ where
             operator_winternitz_public_keys,
             self.config.protocol_paramset().num_kickoffs_per_round,
             self.config.protocol_paramset().num_round_txs,
+        )?;
+        let operator_winternitz_public_keys = kickoff_wpks.clone().get_all_keys();
+
+        verify_operator_setup(
+            operator_xonly_pk,
+            collateral_funding_outpoint,
+            &operator_data.reimburse_addr,
+            &operator_winternitz_public_keys,
+            &unspent_kickoff_sigs,
+            &setup_auth_sig,
         )?;
 
         if !self
@@ -758,7 +770,6 @@ where
             &kickoff_wpks,
         )?;
 
-        let operator_winternitz_public_keys = kickoff_wpks.get_all_keys();
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
@@ -1499,8 +1510,17 @@ where
             )
             .await?;
 
-        let hashes: Vec<[u8; 20]> = keys
-            .challenge_ack_digests
+        let OperatorKeys {
+            winternitz_pubkeys,
+            challenge_ack_digests,
+            operator_auth_sig,
+        } = keys;
+
+        let operator_auth_sig: Signature = operator_auth_sig
+            .ok_or_else(|| eyre::eyre!("operator_auth_sig not provided"))?
+            .try_into()?;
+
+        let hashes: Vec<[u8; 20]> = challenge_ack_digests
             .into_iter()
             .map(|x| {
                 x.hash.try_into().map_err(|e: Vec<u8>| {
@@ -1524,36 +1544,34 @@ where
             .await?
             .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
-        self.db
-            .insert_operator_challenge_ack_hashes_if_not_exist(
-                Some(&mut dbtx),
-                operator_xonly_pk,
-                deposit_data.get_deposit_outpoint(),
-                &hashes,
-            )
-            .await?;
-
-        if keys.winternitz_pubkeys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+        if winternitz_pubkeys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
             tracing::error!(
                 "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
                 operator_xonly_pk,
-                keys.winternitz_pubkeys.len(),
+                winternitz_pubkeys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             );
             return Err(eyre::eyre!(
                 "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
                 operator_xonly_pk,
-                keys.winternitz_pubkeys.len(),
+                winternitz_pubkeys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             )
             .into());
         }
 
-        let winternitz_keys: Vec<winternitz::PublicKey> = keys
-            .winternitz_pubkeys
+        let winternitz_keys: Vec<winternitz::PublicKey> = winternitz_pubkeys
             .into_iter()
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
+
+        verify_operator_deposit_keys(
+            operator_xonly_pk,
+            &deposit_data,
+            &winternitz_keys,
+            &hashes,
+            &operator_auth_sig,
+        )?;
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
 
@@ -1595,6 +1613,15 @@ where
             .root_hash()
             .to_raw_hash()
             .to_byte_array();
+
+        self.db
+            .insert_operator_challenge_ack_hashes_if_not_exist(
+                Some(&mut dbtx),
+                operator_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
+                &hashes,
+            )
+            .await?;
 
         self.db
             .insert_operator_bitvm_keys_if_not_exist(

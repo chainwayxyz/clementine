@@ -20,23 +20,28 @@ use eyre::Context;
 use std::str::FromStr;
 use tonic::Status;
 
-impl<C> From<Operator<C>> for OperatorParams
+/// Builds setup operator params with the operator auth signature.
+pub fn operator_params_from_operator<C>(
+    operator: &Operator<C>,
+    setup_auth_sig: Signature,
+) -> OperatorParams
 where
     C: CitreaClientT,
 {
-    fn from(operator: Operator<C>) -> Self {
-        let operator_config = OperatorConfig {
-            collateral_funding_outpoint: Some(Outpoint {
-                txid: Some(operator.collateral_funding_outpoint.txid.into()),
-                vout: operator.collateral_funding_outpoint.vout,
-            }),
-            xonly_pk: operator.signer.xonly_public_key.to_string(),
-            wallet_reimburse_address: operator.reimburse_addr.to_string(),
-        };
+    let operator_config = OperatorConfig {
+        collateral_funding_outpoint: Some(Outpoint {
+            txid: Some(operator.collateral_funding_outpoint.txid.into()),
+            vout: operator.collateral_funding_outpoint.vout,
+        }),
+        xonly_pk: operator.signer.xonly_public_key.to_string(),
+        wallet_reimburse_address: operator.reimburse_addr.to_string(),
+        setup_auth_sig: Some(SchnorrSig {
+            schnorr_sig: setup_auth_sig.serialize().to_vec(),
+        }),
+    };
 
-        OperatorParams {
-            response: Some(operator_params::Response::OperatorDetails(operator_config)),
-        }
+    OperatorParams {
+        response: Some(operator_params::Response::OperatorDetails(operator_config)),
     }
 }
 
@@ -102,7 +107,15 @@ impl TryFrom<XOnlyPublicKeyRpc> for XOnlyPublicKey {
 /// - Wallet reimburse address
 pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
-) -> Result<(OutPoint, XOnlyPublicKey, Address<NetworkUnchecked>), Status> {
+) -> Result<
+    (
+        OutPoint,
+        XOnlyPublicKey,
+        Address<NetworkUnchecked>,
+        Signature,
+    ),
+    Status,
+> {
     let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let operator_config =
@@ -127,10 +140,16 @@ pub async fn parse_details(
             Status::invalid_argument(format!("Failed to parse wallet reimburse address: {e:?}"))
         })?;
 
+    let setup_auth_sig = operator_config
+        .setup_auth_sig
+        .ok_or(Status::invalid_argument("setup_auth_sig not provided"))?
+        .try_into()?;
+
     Ok((
         collateral_funding_outpoint,
         operator_xonly_pk,
         wallet_reimburse_address,
+        setup_auth_sig,
     ))
 }
 

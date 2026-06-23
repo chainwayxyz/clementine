@@ -20,6 +20,7 @@ use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 
 use crate::metrics::L1SyncStatusProvider;
+use crate::operator_auth::sign_operator_setup;
 use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -460,6 +461,7 @@ where
         (
             mpsc::Receiver<winternitz::PublicKey>,
             mpsc::Receiver<schnorr::Signature>,
+            schnorr::Signature,
         ),
         BridgeError,
     > {
@@ -477,6 +479,13 @@ where
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         tracing::info!("Unspent kickoff signatures generated");
         let wpks = kickoff_wpks.get_all_keys();
+        let setup_auth_sig = sign_operator_setup(
+            &self.signer,
+            self.collateral_funding_outpoint,
+            &self.reimburse_addr,
+            &wpks,
+            &kickoff_sigs,
+        );
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -497,7 +506,7 @@ where
             Ok::<(), BridgeError>(())
         });
 
-        Ok((wpk_rx, sig_rx))
+        Ok((wpk_rx, sig_rx, setup_auth_sig))
     }
 
     pub async fn deposit_sign(
@@ -2573,7 +2582,7 @@ mod tests {
             .unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
-        let (mut wpk_rx, _) = operator.get_params().await.unwrap();
+        let (mut wpk_rx, _, _) = operator.get_params().await.unwrap();
         let mut idx = 0;
         while let Some(wpk) = wpk_rx.recv().await {
             assert_eq!(actual_wpks[idx], wpk);

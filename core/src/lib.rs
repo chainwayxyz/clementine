@@ -130,6 +130,7 @@ pub mod header_chain_prover;
 pub mod metrics;
 pub mod musig2;
 pub mod operator;
+pub mod operator_auth;
 pub mod rpc;
 pub mod servers;
 pub mod task;
