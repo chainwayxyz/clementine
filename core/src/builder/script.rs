@@ -1191,7 +1191,7 @@ mod tests {
 
     /// On-chain, the ListpickVerifier uses `OP_MIN(digit, max_digit)` to clamp digits.
     /// Off-chain, `extract_winternitz_commits` uses raw digit values from the witness.
-    /// Check that even if the digit commited to chain is higher than 15, we clamp it to 15 when parsing.
+    /// Check that even if the digit committed to chain is higher than 15, we clamp it to 15 when parsing.
     #[test]
     fn test_unclamped_digit_extraction() {
         // On-chain, ListpickVerifier::verify_digits applies OP_MIN to clamp digits.
