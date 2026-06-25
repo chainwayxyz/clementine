@@ -1290,7 +1290,7 @@ mod tests {
             tampered_extracted[0]
         );
 
-        let mut non_minimal_witness_vec = c;
+        let mut non_minimal_witness_vec = witness_vec;
 
         // Change digit from 15 to a non-minimal script integer encoding of
         // 256. Without SCRIPT_VERIFY_MINIMALDATA, script arithmetic decodes
