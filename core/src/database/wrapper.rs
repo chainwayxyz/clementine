@@ -2,6 +2,7 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
+use crate::citrea::LightClientCircuitInputRpcResponse;
 use crate::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
@@ -14,7 +15,6 @@ use bitcoin::{
 };
 use eyre::eyre;
 use prost::Message as _;
-use risc0_zkvm::Receipt;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -245,10 +245,14 @@ impl_bytea_wrapper_custom!(
 );
 
 impl_bytea_wrapper_custom_with_error!(
-    ReceiptDB,
-    Receipt,
-    |lcp: &Receipt| -> Result<Vec<u8>, BoxDynError> { borsh::to_vec(lcp).map_err(Into::into) },
-    |x: &[u8]| -> Result<Receipt, BoxDynError> { borsh::from_slice(x).map_err(Into::into) }
+    LightClientCircuitInputDB,
+    LightClientCircuitInputRpcResponse,
+    |input: &LightClientCircuitInputRpcResponse| -> Result<Vec<u8>, BoxDynError> {
+        borsh::to_vec(input).map_err(Into::into)
+    },
+    |x: &[u8]| -> Result<LightClientCircuitInputRpcResponse, BoxDynError> {
+        borsh::from_slice(x).map_err(Into::into)
+    }
 );
 
 impl_text_wrapper_custom!(

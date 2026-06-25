@@ -20,6 +20,7 @@ use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 
 use crate::metrics::L1SyncStatusProvider;
+use crate::operator_auth::sign_operator_setup;
 use crate::rpc::clementine::{EntityStatus, StoppedTasks};
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
@@ -460,6 +461,7 @@ where
         (
             mpsc::Receiver<winternitz::PublicKey>,
             mpsc::Receiver<schnorr::Signature>,
+            schnorr::Signature,
         ),
         BridgeError,
     > {
@@ -477,6 +479,13 @@ where
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         tracing::info!("Unspent kickoff signatures generated");
         let wpks = kickoff_wpks.get_all_keys();
+        let setup_auth_sig = sign_operator_setup(
+            &self.signer,
+            self.collateral_funding_outpoint,
+            &self.reimburse_addr,
+            &wpks,
+            &kickoff_sigs,
+        );
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
@@ -497,7 +506,7 @@ where
             Ok::<(), BridgeError>(())
         });
 
-        Ok((wpk_rx, sig_rx))
+        Ok((wpk_rx, sig_rx, setup_auth_sig))
     }
 
     pub async fn deposit_sign(
@@ -1387,8 +1396,9 @@ where
 
         let lcp_receipt = self
             .citrea_client
-            .fetch_validate_and_store_lcp(
+            .prove_lcp_for_assert(
                 payout_block_height as u64,
+                payout_block_hash,
                 deposit_idx as u32,
                 &self.db,
                 Some(dbtx),
@@ -1544,9 +1554,15 @@ where
         )?;
         tracing::info!("Calculated spv proof in send_asserts");
 
-        let mut wt_contexts = Vec::new();
-        for (_, tx) in watchtower_challenges.iter() {
+        let mut wt_contexts = Vec::with_capacity(watchtower_challenges.len());
+        let mut watchtower_challenges_sorted = watchtower_challenges.iter().collect::<Vec<_>>();
+        // Deterministic host input order; correctness comes from the watchtower_idx key.
+        watchtower_challenges_sorted.sort_by_key(|(watchtower_idx, _)| **watchtower_idx);
+        for (watchtower_idx, tx) in watchtower_challenges_sorted {
+            let watchtower_idx = u32::try_from(*watchtower_idx)
+                .wrap_err("Watchtower index does not fit into u32")?;
             wt_contexts.push(WatchtowerContext {
+                watchtower_idx,
                 watchtower_tx: tx.clone(),
                 prevout_txs: self.rpc.get_prevout_txs(tx).await?,
             });
@@ -1902,10 +1918,10 @@ where
                         .await?
                         .ok_or_eyre("Couldn't find payout info from move txid")?;
 
-                    let _ = self
-                        .citrea_client
+                    self.citrea_client
                         .fetch_validate_and_store_lcp(
                             payout_block_height as u64,
+                            payout_blockhash,
                             citrea_idx as u32,
                             &self.db,
                             dbtx.as_deref_mut(),
@@ -2566,7 +2582,7 @@ mod tests {
             .unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
-        let (mut wpk_rx, _) = operator.get_params().await.unwrap();
+        let (mut wpk_rx, _, _) = operator.get_params().await.unwrap();
         let mut idx = 0;
         while let Some(wpk) = wpk_rx.recv().await {
             assert_eq!(actual_wpks[idx], wpk);

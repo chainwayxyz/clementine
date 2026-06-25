@@ -8,6 +8,8 @@ mod deposit_and_withdraw_e2e;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod full_flow;
 #[cfg(all(feature = "automation", feature = "integration-tests"))]
+mod lcp_method_id_check;
+#[cfg(all(feature = "automation", feature = "integration-tests"))]
 mod reorg;
 
 #[cfg(feature = "integration-tests")]
@@ -42,7 +44,7 @@ mod bridge_circuit_test_data;
 mod bitvm_script;
 
 pub const CITREA_E2E_DOCKER_IMAGE: &str =
-    "chainwayxyz/citrea-test:9db5124dd87f612ad2453188151e717ab07154e6";
+    "chainwayxyz/citrea-test:9a882137c8d316ada4106d6f395205b8b52967a3";
 
 use ctor::ctor;
 

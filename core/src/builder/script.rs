@@ -43,14 +43,14 @@ pub enum SpendPath {
     Unknown,
 }
 
-/// Converts a minimal serialized u32 (trailing zeros removed) to full 4 byte representation
-fn from_minimal_to_u32_le_bytes(minimal: &[u8]) -> Result<[u8; 4]> {
-    if minimal.len() > 4 {
-        return Err(eyre::eyre!("u32 bytes length is greater than 4"));
+fn parse_winternitz_digit(digit: &[u8], max_digit: u8) -> Result<u8> {
+    let parsed = bitcoin::script::read_scriptint_non_minimal(digit)
+        .wrap_err("Failed to parse Winternitz digit as Bitcoin script integer")?;
+    if parsed < 0 {
+        return Err(eyre::eyre!("Winternitz digit cannot be negative: {parsed}"));
     }
-    let mut bytes = [0u8; 4];
-    bytes[..minimal.len()].copy_from_slice(minimal);
-    Ok(bytes)
+
+    Ok(std::cmp::min(parsed, i64::from(max_digit)) as u8)
 }
 
 /// Extracts the committed data from the witness.
@@ -63,11 +63,24 @@ pub fn extract_winternitz_commits(
     if paramset.winternitz_log_d != 4 {
         return Err(eyre::eyre!("Only winternitz_log_d = 4 is supported"));
     }
+    let digit_base = 1u8
+        .checked_shl(paramset.winternitz_log_d)
+        .ok_or_else(|| eyre::eyre!("Winternitz digit base overflow"))?;
+    let expected_max_digit = digit_base - 1;
+
     let mut commits: Vec<Vec<u8>> = Vec::new();
     let mut cur_witness_iter = witness.into_iter().skip(1);
 
     for wt_path in wt_derive_paths.iter().rev() {
         let wt_params = wt_path.get_params();
+        let actual_max_digit =
+            u8::try_from(wt_params.max_digit()).wrap_err("Failed to convert max digit to u8")?;
+        if actual_max_digit != expected_max_digit {
+            return Err(eyre::eyre!(
+                "Winternitz path log2_base must match paramset winternitz_log_d: max_digit={actual_max_digit}, expected_max_digit={expected_max_digit}"
+            ));
+        }
+
         let message_digits =
             (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
         let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
@@ -87,17 +100,10 @@ pub fn extract_winternitz_commits(
             elements
                 .chunks_exact(2)
                 .map(|digits| {
-                    let first_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[0])?);
-                    let second_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[1])?);
+                    let first_digit = parse_winternitz_digit(digits[0], expected_max_digit)?;
+                    let second_digit = parse_winternitz_digit(digits[1], expected_max_digit)?;
 
-                    let first_u8 = u8::try_from(first_digit)
-                        .wrap_err("Failed to convert first digit to u8")?
-                        .min(15);
-                    let second_u8 = u8::try_from(second_digit)
-                        .wrap_err("Failed to convert second digit to u8")?
-                        .min(15);
-
-                    Ok(second_u8 * (1 << paramset.winternitz_log_d) + first_u8)
+                    Ok(second_digit * digit_base + first_digit)
                 })
                 .collect::<Result<Vec<_>>>()?,
         );
@@ -1190,8 +1196,9 @@ mod tests {
     }
 
     /// On-chain, the ListpickVerifier uses `OP_MIN(digit, max_digit)` to clamp digits.
-    /// Off-chain, `extract_winternitz_commits` uses raw digit values from the witness.
-    /// Check that even if the digit commited to chain is higher than 15, we clamp it to 15 when parsing.
+    /// Off-chain, `extract_winternitz_commits` must mirror that normalization.
+    /// Check that digits higher than 15 are clamped and non-minimal script integer
+    /// encodings are still accepted when parsing witness digits.
     #[test]
     fn test_unclamped_digit_extraction() {
         // On-chain, ListpickVerifier::verify_digits applies OP_MIN to clamp digits.
@@ -1246,23 +1253,27 @@ mod tests {
         // Winternitz signature. After extraction, elements are reversed and chunked
         // into pairs: [high_nibble, low_nibble] → byte = high * 16 + low.
         //
-        // We find a digit element with value 15 (0x0F) and change it to 16 (0x10)..
-
-        let mut tampered_witness_vec: Vec<Vec<u8>> = witness.to_vec();
-
-        // Find a digit element (at even witness index >= 2) with value 15.
+        // Find a message digit element (at even witness index >= 2) with value 15.
         // Digit elements are at indices 2, 4, 6, ... (skipping hash elements at 1, 3, 5, ...).
+        let witness_vec: Vec<Vec<u8>> = witness.to_vec();
+        let message_digits =
+            (kickoff.get_params().message_byte_len() * 8).div_ceil(paramset.winternitz_log_d);
         let mut tampered_idx = None;
-        for i in (2..tampered_witness_vec.len()).step_by(2) {
-            if tampered_witness_vec[i] == vec![0x0F] {
-                tampered_idx = Some(i);
+        for i in 0..message_digits as usize {
+            let witness_idx = 2 + 2 * i;
+            if witness_vec[witness_idx] == vec![0x0F] {
+                tampered_idx = Some(witness_idx);
                 break;
             }
         }
         let tampered_idx = tampered_idx.expect("Should find a digit element with value 15");
 
-        // Change digit from 15 to 16
-        tampered_witness_vec[tampered_idx] = vec![0x10];
+        let mut tampered_witness_vec = witness_vec.clone();
+
+        // Change digit from 15 to 256. On-chain OP_MIN clamps it back to 15.
+        let mut scriptint_buf = [0u8; 8];
+        let scriptint_len = bitcoin::script::write_scriptint(&mut scriptint_buf, 256);
+        tampered_witness_vec[tampered_idx] = scriptint_buf[..scriptint_len].to_vec();
 
         let tampered_witness = bitcoin::Witness::from_slice(&tampered_witness_vec);
 
@@ -1271,9 +1282,7 @@ mod tests {
             extract_winternitz_commits(tampered_witness.clone(), &[kickoff.clone()], paramset)
                 .unwrap();
 
-        // The extracted data should differ from the original message.
-        // This demonstrates the vulnerability: off-chain extraction produces
-        // different data than what on-chain verification actually validated.
+        // The extracted data should match what on-chain verification validated after OP_MIN.
         assert_eq!(
             tampered_extracted[0], original_message,
             "Extraction should match original message
@@ -1281,11 +1290,35 @@ mod tests {
             tampered_extracted[0]
         );
 
+        let mut non_minimal_witness_vec = witness_vec;
+
+        // Change digit from 15 to a non-minimal script integer encoding of
+        // 256. Without SCRIPT_VERIFY_MINIMALDATA, script arithmetic decodes
+        // this as 256 and OP_MIN clamps it back to 15.
+        non_minimal_witness_vec[tampered_idx] = vec![0x00, 0x01, 0x00];
+
+        let non_minimal_witness = bitcoin::Witness::from_slice(&non_minimal_witness_vec);
+
+        let non_minimal_extracted =
+            extract_winternitz_commits(non_minimal_witness, &[kickoff.clone()], paramset).unwrap();
+
+        // SCRIPT_VERIFY_MINIMALDATA is a standardness/policy rule here, not a
+        // mandatory consensus rule. A transaction mined directly into a block
+        // can reveal this non-minimal digit, so off-chain extraction must mirror
+        // consensus script arithmetic: decode 256, then clamp it to 15.
+        assert_eq!(
+            non_minimal_extracted[0], original_message,
+            "Extraction should match original message
+             Original: {original_message:?}, Non-minimal extraction: {:?}",
+            non_minimal_extracted[0]
+        );
+
         // ===== Verify on-chain script ACCEPTS the tampered witness =====
         //
         // Build the on-chain Winternitz verification script and run it with the
-        // tampered witness to prove that on-chain verification passes (because
-        // ListpickVerifier applies OP_MIN to clamp digit 16 → 15).
+        // oversized but minimally encoded witness to prove that OP_MIN clamps it.
+        // The BitVM script executor enables minimal-data policy by default, so it
+        // cannot be used to prove the non-minimal witness case above.
         use bitvm::signatures::winternitz::{
             generate_public_key as wt_generate_public_key, ListpickVerifier, VoidConverter,
             Winternitz,
@@ -1309,7 +1342,7 @@ mod tests {
         assert!(
             result.success,
             "On-chain Winternitz verification should ACCEPT the tampered witness \
-             (digit=16 is clamped to 15 by OP_MIN). Script error: {:?}",
+             (digit=256 is clamped to 15 by OP_MIN). Script error: {:?}",
             result.error
         );
     }

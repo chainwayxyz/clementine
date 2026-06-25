@@ -183,6 +183,9 @@ pub struct OperatorConfig {
     pub xonly_pk: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub wallet_reimburse_address: ::prost::alloc::string::String,
+    /// Signature over setup data to authenticate values forwarded by the aggregator.
+    #[prost(message, optional, tag = "4")]
+    pub setup_auth_sig: ::core::option::Option<SchnorrSig>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
@@ -221,6 +224,9 @@ pub struct OperatorKeys {
     /// Hashes of preimages that will be used to ACK watchtower challenges.
     #[prost(message, repeated, tag = "2")]
     pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
+    /// Signature over deposit key data to authenticate values forwarded by the aggregator.
+    #[prost(message, optional, tag = "3")]
+    pub operator_auth_sig: ::core::option::Option<SchnorrSig>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchnorrSig {

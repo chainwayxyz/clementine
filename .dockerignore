@@ -8,6 +8,7 @@
 !/bridge-circuit-host
 !/core
 !/scripts
+!/resources
 !Cargo.lock
 !Cargo.toml
 

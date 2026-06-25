@@ -210,6 +210,8 @@ message OperatorConfig {
   Outpoint collateral_funding_outpoint = 1;
   string xonly_pk = 2;
   string wallet_reimburse_address = 3;
+  // Signature over setup data to authenticate values forwarded by the aggregator.
+  SchnorrSig setup_auth_sig = 4;
 }
 
 message OperatorParams {
@@ -234,6 +236,8 @@ message OperatorKeys {
   repeated WinternitzPubkey winternitz_pubkeys = 1;
   // Hashes of preimages that will be used to ACK watchtower challenges.
   repeated ChallengeACKDigest challenge_ack_digests = 2;
+  // Signature over deposit key data to authenticate values forwarded by the aggregator.
+  SchnorrSig operator_auth_sig = 3;
 }
 
 message SchnorrSig {

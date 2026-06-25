@@ -406,8 +406,9 @@ mod tests {
     };
     use circuits_lib::{
         bridge_circuit::constants::{
-            MAINNET_WORK_ONLY_METHOD_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
-            TESTNET4_WORK_ONLY_METHOD_ID,
+            DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, MAINNET_WORK_ONLY_METHOD_ID,
+            REGTEST_LC_IMAGE_ID, REGTEST_WORK_ONLY_METHOD_ID, SIGNET_WORK_ONLY_METHOD_ID,
+            TESTNET4_LC_IMAGE_ID, TESTNET4_WORK_ONLY_METHOD_ID,
         },
         common::constants::{
             MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
@@ -615,6 +616,47 @@ mod tests {
                 current_method_id,
                 method_id,
                 "Work only method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}",
+                hex::encode(current_method_id)
+            );
+        }
+    }
+
+    #[test]
+    fn test_light_client_method_ids() {
+        let networks = [
+            (
+                include_bytes!("../../../resources/guests/risc0/mainnet/light-client-proof-0.bin")
+                    .as_slice(),
+                MAINNET_LC_IMAGE_ID,
+                "mainnet",
+            ),
+            (
+                include_bytes!("../../../resources/guests/risc0/testnet/light-client-proof-1.bin")
+                    .as_slice(),
+                TESTNET4_LC_IMAGE_ID,
+                "testnet4",
+            ),
+            (
+                include_bytes!("../../../resources/guests/risc0/regtest/light-client-proof-0.bin")
+                    .as_slice(),
+                REGTEST_LC_IMAGE_ID,
+                "regtest",
+            ),
+            (
+                include_bytes!("../../../resources/guests/risc0/devnet/light-client-proof-1.bin")
+                    .as_slice(),
+                DEVNET_LC_IMAGE_ID,
+                "signet",
+            ),
+        ];
+
+        for (elf, method_id, network) in networks.into_iter() {
+            let light_client_method_id = compute_image_id(elf).expect("should compute image id");
+            let current_method_id = light_client_method_id.as_bytes();
+            assert_eq!(
+                current_method_id,
+                method_id,
+                "Light client method ID mismatch for {network}, please update the constant here: circuits-lib/src/bridge_circuit/constants.rs. Hex format of correct value: {:?}",
                 hex::encode(current_method_id)
             );
         }

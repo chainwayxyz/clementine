@@ -1,5 +1,8 @@
 //! # Citrea Related Utilities
 
+mod lcp;
+mod rpc_types;
+
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
@@ -21,7 +24,7 @@ use alloy::{
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
-use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, BlockHash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
 use circuits_lib::bridge_circuit::{
     lc_proof::check_method_id,
@@ -31,7 +34,12 @@ use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCirc
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use lcp::{
+    create_light_client_circuit_input, prove_light_client_proof_from_input,
+    validate_light_client_circuit_input,
+};
 use risc0_zkvm::{InnerReceipt, Receipt};
+pub use rpc_types::LightClientCircuitInputRpcResponse;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -164,6 +172,17 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
+        deposit_index: u32,
+        db: &Database,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError>;
+
+    async fn prove_lcp_for_assert(
+        &self,
+        payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -313,38 +332,74 @@ impl CitreaClientT for CitreaClient {
     async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
+        payout_block_hash: BlockHash,
+        deposit_index: u32,
+        db: &Database,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<(), BridgeError> {
+        let saved_data = db
+            .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
+            .await?;
+        if let Some(lcp_input) = saved_data {
+            validate_light_client_circuit_input(
+                &lcp_input,
+                payout_block_height,
+                payout_block_hash,
+                paramset,
+            )
+            .await?;
+            // if already saved, do nothing
+            return Ok(());
+        };
+
+        let lcp_input = create_light_client_circuit_input(self, payout_block_height).await?;
+        validate_light_client_circuit_input(
+            &lcp_input,
+            payout_block_height,
+            payout_block_hash,
+            paramset,
+        )
+        .await?;
+
+        // save the LCP circuit input for assert
+        db.insert_lcp_input_for_assert(dbtx, deposit_index, lcp_input)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn prove_lcp_for_assert(
+        &self,
+        payout_block_height: u64,
+        payout_block_hash: BlockHash,
         deposit_index: u32,
         db: &Database,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<Receipt, BridgeError> {
-        let saved_data = db
-            .get_lcp_for_assert(dbtx.as_deref_mut(), deposit_index)
-            .await?;
-        if let Some(lcp) = saved_data {
-            // if already saved, do nothing
-            return Ok(lcp);
-        };
+        self.fetch_validate_and_store_lcp(
+            payout_block_height,
+            payout_block_hash,
+            deposit_index,
+            db,
+            dbtx.as_deref_mut(),
+            paramset,
+        )
+        .await?;
 
-        let lcp_result = self
-            .get_light_client_proof(payout_block_height, paramset)
-            .await?;
-        let (_lcp, lcp_receipt, _l2_height) = match lcp_result {
-            Some(lcp) => lcp,
-            None => {
-                return Err(eyre::eyre!(
-                    "Light client proof could not be fetched found for block height {}",
-                    payout_block_height
-                )
-                .into())
-            }
-        };
+        let lcp_input = db
+            .get_lcp_input_for_assert(dbtx, deposit_index)
+            .await?
+            .ok_or_else(|| eyre::eyre!("Light client circuit input not found for assert"))?;
 
-        // save the LCP for assert
-        db.insert_lcp_for_assert(dbtx, deposit_index, lcp_receipt.clone())
-            .await?;
-
-        Ok(lcp_receipt)
+        prove_light_client_proof_from_input(
+            lcp_input,
+            payout_block_height,
+            payout_block_hash,
+            paramset,
+        )
+        .await
     }
 
     async fn new(
@@ -509,17 +564,15 @@ impl CitreaClientT for CitreaClient {
             let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
                 .wrap_err("Failed to deserialize light client circuit output")?;
 
-            if !paramset.is_regtest() {
-                receipt
-                    .verify(lc_image_id)
-                    .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
+            receipt
+                .verify(lc_image_id)
+                .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
 
-                if !check_method_id(&proof_output, lc_image_id) {
-                    return Err(eyre::eyre!(
+            if !check_method_id(&proof_output, lc_image_id) {
+                return Err(eyre::eyre!(
                     "Current light client proof method ID does not match the expected LC image ID"
                 )
-                    .into());
-                }
+                .into());
             }
 
             Some((
@@ -638,6 +691,13 @@ trait LightClientProverRpc {
         &self,
         l1_height: u64,
     ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
+
+    /// Create read-only light client circuit input for the given L1 block height.
+    #[method(name = "createCircuitInput")]
+    async fn create_light_client_circuit_input(
+        &self,
+        l1_height: u64,
+    ) -> RpcResult<LightClientCircuitInputRpcResponse>;
 }
 
 #[rpc(client, namespace = "eth")]
