@@ -1256,8 +1256,8 @@ mod tests {
         // Find a message digit element (at even witness index >= 2) with value 15.
         // Digit elements are at indices 2, 4, 6, ... (skipping hash elements at 1, 3, 5, ...).
         let witness_vec: Vec<Vec<u8>> = witness.to_vec();
-        let message_digits = (kickoff.get_params().message_byte_len() * 8)
-            .div_ceil(paramset.winternitz_log_d);
+        let message_digits =
+            (kickoff.get_params().message_byte_len() * 8).div_ceil(paramset.winternitz_log_d);
         let mut tampered_idx = None;
         for i in 0..message_digits as usize {
             let witness_idx = 2 + 2 * i;
@@ -1290,7 +1290,7 @@ mod tests {
             tampered_extracted[0]
         );
 
-        let mut non_minimal_witness_vec = witness_vec;
+        let mut non_minimal_witness_vec = c;
 
         // Change digit from 15 to a non-minimal script integer encoding of
         // 256. Without SCRIPT_VERIFY_MINIMALDATA, script arithmetic decodes
@@ -1300,8 +1300,7 @@ mod tests {
         let non_minimal_witness = bitcoin::Witness::from_slice(&non_minimal_witness_vec);
 
         let non_minimal_extracted =
-            extract_winternitz_commits(non_minimal_witness, &[kickoff.clone()], paramset)
-                .unwrap();
+            extract_winternitz_commits(non_minimal_witness, &[kickoff.clone()], paramset).unwrap();
 
         // SCRIPT_VERIFY_MINIMALDATA is a standardness/policy rule here, not a
         // mandatory consensus rule. A transaction mined directly into a block
