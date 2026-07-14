@@ -182,7 +182,8 @@ pub trait Owner: Clone + NamedEntity {
 #[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
     pub owner: Arc<T>,
-    pub cache: Arc<block_cache::BlockCache>,
+    pub cache: Option<Arc<block_cache::BlockCache>>,
+    pub block_height: u32,
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
@@ -195,7 +196,8 @@ impl<T: Owner> StateContext<T> {
     pub fn new(
         shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
         owner: Arc<T>,
-        cache: Arc<block_cache::BlockCache>,
+        cache: Option<Arc<block_cache::BlockCache>>,
+        block_height: u32,
         config: BridgeConfig,
     ) -> Self {
         // Get the owner type string from the owner instance
@@ -205,6 +207,7 @@ impl<T: Owner> StateContext<T> {
             shared_dbtx,
             owner,
             cache,
+            block_height,
             new_round_machines: Vec::new(),
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
@@ -216,6 +219,12 @@ impl<T: Owner> StateContext<T> {
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         let mut guard = self.shared_dbtx.lock().await;
         self.owner.handle_duty(&mut guard, duty).await
+    }
+
+    pub fn block_cache(&self) -> Result<&block_cache::BlockCache, BridgeError> {
+        self.cache
+            .as_deref()
+            .ok_or_else(|| eyre::eyre!("Block cache required for block event").into())
     }
 
     /// Run an async closure and capture any errors in execution.

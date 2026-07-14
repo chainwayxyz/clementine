@@ -1,5 +1,4 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{ClementineBitVMPublicKeys, REPLACE_SCRIPTS_LOCK};
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
@@ -30,6 +29,7 @@ use crate::constants::{
 use crate::database::{Database, DatabaseTransaction};
 use crate::deposit::{DepositData, KickoffData, OperatorData};
 use crate::extended_bitcoin_rpc::{BridgeRpcQueries, ExtendedBitcoinRpc};
+use crate::finalized_block_fetcher::FINALIZED_BLOCK_CURSOR_POLL_DELAY;
 #[cfg(feature = "automation")]
 use crate::header_chain_prover::HeaderChainProver;
 use crate::metrics::SyncStatusProvider;
@@ -311,9 +311,6 @@ where
                     dbtx.commit().await?;
                 }
                 self.background_tasks
-                    .ensure_task_looping(state_manager.block_fetcher_task().await?)
-                    .await;
-                self.background_tasks
                     .ensure_task_looping(state_manager.into_task())
                     .await;
             }
@@ -323,25 +320,15 @@ where
             .ensure_task_looping(
                 LcpSyncerTask::new(
                     self.verifier.db.clone(),
+                    rpc.clone(),
                     Verifier::<C>::LCP_SYNCER_CONSUMER_ID.to_string(),
                     self.verifier.config.protocol_paramset(),
                     self.verifier.clone(),
                 )
                 .await?
                 .into_buffered_errors(20, 3, Duration::from_secs(10))
-                .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
+                .with_delay(FINALIZED_BLOCK_CURSOR_POLL_DELAY),
             )
-            .await;
-
-        let syncer = BitcoinSyncer::new(
-            self.verifier.db.clone(),
-            rpc.clone(),
-            self.verifier.config.protocol_paramset(),
-        )
-        .await?;
-
-        self.background_tasks
-            .ensure_task_looping(syncer.into_task())
             .await;
 
         self.background_tasks
@@ -1374,57 +1361,101 @@ where
         kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
         move_txid: Txid,
     ) -> Result<Vec<(Txid, u32)>, BridgeError> {
-        // Build a mapping from txid -> (operator_xonly_pk, round_idx, kickoff_idx)
+        if !kickoff_txids
+            .iter()
+            .any(|operator| operator.iter().any(|round| !round.is_empty()))
+        {
+            return Ok(Vec::new());
+        }
+
         let mut kickoff_metadata: std::collections::HashMap<
             Txid,
             (XOnlyPublicKey, RoundIndex, usize),
         > = std::collections::HashMap::new();
-        let mut all_kickoff_txids: Vec<Txid> = Vec::new();
+        let mut canonical_kickoffs = Vec::new();
+        let mut move_tx_height = None;
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let operators = deposit_data.get_operators();
+        let mut outpoints = Vec::new();
+        let mut expected_spenders = std::collections::HashMap::new();
 
-        for (operator_idx, operator_xonly_pk) in
-            deposit_data.get_operators().into_iter().enumerate()
-        {
+        for (operator_idx, operator_xonly_pk) in operators.into_iter().enumerate() {
+            let operator_data = self
+                .db
+                .get_operator(Some(&mut *dbtx), operator_xonly_pk)
+                .await?
+                .ok_or_else(|| eyre::eyre!("Operator data not found for {operator_xonly_pk}"))?;
+            let kickoff_winternitz_pks = self
+                .db
+                .get_operator_kickoff_winternitz_public_keys(Some(&mut *dbtx), operator_xonly_pk)
+                .await?;
+            let kickoff_wpks = KickoffWinternitzKeys::new(
+                kickoff_winternitz_pks,
+                self.config.protocol_paramset().num_kickoffs_per_round,
+                self.config.protocol_paramset().num_round_txs,
+            )?;
+            let mut prev_ready_to_reimburse: Option<TxHandler> = None;
             for round_idx in RoundIndex::iter_rounds(self.config.protocol_paramset().num_round_txs)
             {
+                let txhandlers = create_round_txhandlers(
+                    self.config.protocol_paramset(),
+                    round_idx,
+                    &operator_data,
+                    &kickoff_wpks,
+                    prev_ready_to_reimburse.as_ref(),
+                )?;
+                let round_txhandler = txhandlers
+                    .iter()
+                    .find(|txhandler| txhandler.get_transaction_type() == TransactionType::Round)
+                    .ok_or_else(|| eyre::eyre!("Round txhandler not found"))?;
+                let ready_to_reimburse_txhandler = txhandlers
+                    .iter()
+                    .find(|txhandler| {
+                        txhandler.get_transaction_type() == TransactionType::ReadyToReimburse
+                    })
+                    .ok_or_else(|| eyre::eyre!("Ready to reimburse txhandler not found"))?;
+                let round_txid = round_txhandler.get_cached_tx().compute_txid();
                 for (kickoff_txid, kickoff_idx) in
                     &kickoff_txids[operator_idx][round_idx.to_index()]
                 {
                     kickoff_metadata
                         .insert(*kickoff_txid, (operator_xonly_pk, round_idx, *kickoff_idx));
-                    all_kickoff_txids.push(*kickoff_txid);
+                    let outpoint = OutPoint {
+                        txid: round_txid,
+                        vout: UtxoVout::Kickoff(*kickoff_idx).get_vout(),
+                    };
+                    expected_spenders.insert(
+                        outpoint,
+                        (*kickoff_txid, operator_xonly_pk, round_idx, *kickoff_idx),
+                    );
+                    outpoints.push(outpoint);
+                }
+                prev_ready_to_reimburse = Some(ready_to_reimburse_txhandler.clone());
+            }
+        }
+
+        outpoints.push(deposit_outpoint);
+        for (outpoint, (spending_txid, height)) in self.rpc.confirmed_spenders(&outpoints).await? {
+            if outpoint == deposit_outpoint {
+                if spending_txid == move_txid {
+                    move_tx_height = Some(height);
+                }
+                continue;
+            }
+            if let Some((expected_txid, _, _, _)) = expected_spenders.get(&outpoint) {
+                if spending_txid == *expected_txid {
+                    canonical_kickoffs.push((*expected_txid, height));
                 }
             }
         }
 
-        if all_kickoff_txids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Query all txids (move + kickoffs) in one DB call
-        let mut txids_to_check = all_kickoff_txids.clone();
-        txids_to_check.push(move_txid);
-
-        let canonical_txids_with_heights = self
-            .db
-            .get_canonical_block_heights_for_txids(Some(dbtx), &txids_to_check)
-            .await?;
-
-        // Check move_txid/kickoffs consistency
-        let canonical_txid_set: std::collections::HashSet<Txid> = canonical_txids_with_heights
-            .iter()
-            .map(|(txid, _)| *txid)
-            .collect();
-
-        let move_txid_in_chain = canonical_txid_set.contains(&move_txid);
-
         // if move txid is in chain, that means the deposit was already finished before, and current new_deposit call is just to resign,
         // meaning if there are any kickoffs already in chain, it is ok.
-        if !move_txid_in_chain {
+        if move_tx_height.is_none() {
             // Check if any kickoffs are in chain
-            let kickoffs_in_chain: Vec<_> = all_kickoff_txids
+            let kickoffs_in_chain: Vec<_> = canonical_kickoffs
                 .iter()
-                .filter(|txid| canonical_txid_set.contains(*txid))
-                .filter_map(|txid| {
+                .filter_map(|(txid, _)| {
                     kickoff_metadata
                         .get(txid)
                         .map(|(op_pk, round_idx, kickoff_idx)| {
@@ -1454,22 +1485,12 @@ where
             }
         }
 
-        // Filter to only kickoff txids (exclude move_txid) that are canonical
-        let canonical_kickoffs: Vec<(Txid, u32)> = canonical_txids_with_heights
-            .into_iter()
-            .filter(|(txid, _)| *txid != move_txid)
-            .collect();
-
         if canonical_kickoffs.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Get the current chain tip height for finalization check
-        let current_chain_height = self
-            .db
-            .get_max_height(Some(dbtx))
-            .await?
-            .ok_or_else(|| eyre::eyre!("No blocks in bitcoin_syncer database"))?;
+        // Get the current chain tip height for finalization check.
+        let current_chain_height = self.rpc.get_current_chain_height().await?;
 
         // Filter for finalized blocks
         let finalized_txids: Vec<(Txid, u32)> = canonical_kickoffs
@@ -1491,86 +1512,56 @@ where
 
         #[cfg(feature = "automation")]
         {
-            // Group by block height to minimize block reads
-            let mut txids_by_height: std::collections::HashMap<u32, Vec<Txid>> =
-                std::collections::HashMap::new();
-            for (txid, height) in &finalized_txids {
-                txids_by_height.entry(*height).or_default().push(*txid);
-            }
+            for (txid, block_height) in &finalized_txids {
+                let tx = self
+                    .rpc
+                    .get_tx_of_txid(txid)
+                    .await
+                    .wrap_err_with(|| format!("Failed to fetch finalized kickoff tx {txid}"))?;
+                let witness = tx
+                    .input
+                    .first()
+                    .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
+                    .witness
+                    .clone();
+                let (operator_xonly_pk, round_idx, kickoff_idx) = kickoff_metadata
+                    .get(txid)
+                    .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
 
-            // For each block height, get the full block and extract witnesses
-            for (block_height, txids_in_block) in txids_by_height {
-                let block = self
-                .db
-                .get_full_block(Some(dbtx), block_height)
-                .await?
-                .ok_or_else(|| {
-                    eyre::eyre!(
-                        "Block at height {} not found in database despite being in bitcoin_syncer_txs",
-                        block_height
-                    )
-                })?;
+                StateManager::<Self>::dispatch_new_kickoff_machine(
+                    &self.db,
+                    &mut *dbtx,
+                    KickoffData {
+                        operator_xonly_pk: *operator_xonly_pk,
+                        round_idx: *round_idx,
+                        kickoff_idx: *kickoff_idx as u32,
+                    },
+                    *block_height,
+                    deposit_data.clone(),
+                    witness.clone(),
+                )
+                .await?;
 
-                for txid in txids_in_block {
-                    // Find the transaction in the block
-                    let tx = block
-                        .txdata
-                        .iter()
-                        .find(|tx| tx.compute_txid() == txid)
-                        .ok_or_else(|| {
-                            eyre::eyre!(
-                                "Transaction {} not found in block at height {}",
-                                txid,
-                                block_height
-                            )
-                        })?;
-
-                    let witness = tx
-                        .input
-                        .first()
-                        .ok_or_else(|| eyre::eyre!("Kickoff transaction {txid} has no inputs"))?
-                        .witness
-                        .clone();
-                    let (operator_xonly_pk, round_idx, kickoff_idx) =
-                        kickoff_metadata
-                            .get(&txid)
-                            .ok_or_else(|| eyre::eyre!("Metadata not found for txid {}", txid))?;
-
-                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                // send it to operator state manager too, if the state manager queue for the operator exists
+                // if it doesn't exist, it means this verifier does not have an operator with automation enabled
+                if self
+                    .db
+                    .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(&mut *dbtx))
+                    .await?
+                {
+                    StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
                         &self.db,
-                        dbtx,
+                        &mut *dbtx,
                         KickoffData {
                             operator_xonly_pk: *operator_xonly_pk,
                             round_idx: *round_idx,
                             kickoff_idx: *kickoff_idx as u32,
                         },
-                        block_height,
+                        *block_height,
                         deposit_data.clone(),
                         witness.clone(),
                     )
                     .await?;
-
-                    // send it to operator state manager too, if the state manager queue for the operator exists
-                    // if it doesn't exist, it means this verifier does not have an operator with automation enabled
-                    if self
-                        .db
-                        .pgmq_queue_exists(&StateManager::<Operator<C>>::queue_name(), Some(dbtx))
-                        .await?
-                    {
-                        StateManager::<Operator<C>>::dispatch_new_kickoff_machine(
-                            &self.db,
-                            dbtx,
-                            KickoffData {
-                                operator_xonly_pk: *operator_xonly_pk,
-                                round_idx: *round_idx,
-                                kickoff_idx: *kickoff_idx as u32,
-                            },
-                            block_height,
-                            deposit_data.clone(),
-                            witness.clone(),
-                        )
-                        .await?;
-                    }
                 }
             }
         }
@@ -2268,32 +2259,21 @@ where
     async fn update_finalized_payouts(
         &self,
         dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
-        let payout_txids = self
+        let spent_outpoints: Vec<_> = block_cache.spent_utxos.keys().copied().collect();
+        let payout_utxos = self
             .db
-            .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
+            .get_pending_withdrawal_utxos(Some(dbtx), &spent_outpoints)
             .await?;
-
-        let block = &block_cache.block;
-
-        let block_hash = block.block_hash();
+        let block_hash = block_cache.block.block_hash();
 
         let mut payout_txs_and_payer_operator_idx = vec![];
-        for (idx, payout_txid) in payout_txids {
-            let payout_tx_idx = block_cache.txids.get(&payout_txid);
-            if payout_tx_idx.is_none() {
-                tracing::error!(
-                    "Payout tx not found in block cache: {:?} and in block: {:?}",
-                    payout_txid,
-                    block_id
-                );
-                tracing::error!("Block cache: {:?}", block_cache);
-                return Err(eyre::eyre!("Payout tx not found in block cache").into());
-            }
-            let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
-            let payout_tx = &block.txdata[*payout_tx_idx];
+        for (idx, payout_utxo) in payout_utxos {
+            let payout_tx = block_cache
+                .get_tx_of_utxo(&payout_utxo)
+                .expect("DB query only returns outpoints from the block cache");
+            let payout_txid = payout_tx.compute_txid();
             // Find the first output that contains OP_RETURN
             let circuit_payout_tx = CircuitTransaction::from(payout_tx.clone());
             let op_return_output = get_first_op_return_output(&circuit_payout_tx);
@@ -3032,7 +3012,6 @@ where
     pub async fn handle_finalized_block(
         &self,
         mut dbtx: DatabaseTransaction<'_>,
-        block_id: u32,
         block_height: u32,
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
@@ -3066,8 +3045,7 @@ where
         )
         .await?;
 
-        self.update_finalized_payouts(dbtx, block_id, &block_cache)
-            .await?;
+        self.update_finalized_payouts(dbtx, &block_cache).await?;
 
         #[cfg(feature = "automation")]
         {
@@ -3092,8 +3070,7 @@ where
     C: CitreaClientT,
 {
     const ENTITY_NAME: &'static str = "verifier";
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
-        "verifier_finalized_block_fetcher_automation";
+    const STATE_MANAGER_CONSUMER_ID: &'static str = "verifier_state_manager";
     const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 
@@ -3375,8 +3352,47 @@ mod tests {
     use crate::rpc::ecdsa_verification_sig::OperatorWithdrawalMessage;
     use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
-    use bitcoin::Block;
+    use bitcoin::{Block, ScriptBuf, Sequence, Transaction, TxIn, Witness};
     use std::str::FromStr;
+
+    #[test]
+    fn block_cache_detects_payout_spend() {
+        let withdrawal = OutPoint::from_str(
+            "1111111111111111111111111111111111111111111111111111111111111111:0",
+        )
+        .unwrap();
+        let other = OutPoint::from_str(
+            "2222222222222222222222222222222222222222222222222222222222222222:0",
+        )
+        .unwrap();
+        let payout_tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: withdrawal,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_LOCKTIME_NO_RBF,
+                witness: Witness::new(),
+            }],
+            output: vec![],
+        };
+        let payout_txid = payout_tx.compute_txid();
+        let block = Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::ONE,
+                prev_blockhash: bitcoin::BlockHash::all_zeros(),
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 1234567890,
+                bits: bitcoin::CompactTarget::from_consensus(0x207fffff),
+                nonce: 12345,
+            },
+            txdata: vec![payout_tx],
+        };
+        let cache = block_cache::BlockCache::from_block(block, 1);
+
+        assert_eq!(cache.get_txid_of_utxo(&withdrawal), Some(payout_txid));
+        assert_eq!(cache.get_txid_of_utxo(&other), None);
+    }
 
     #[tokio::test]
     #[cfg(feature = "automation")]

@@ -60,8 +60,8 @@
 //! properly. The task interface is defined in the [`crate::task`] module. These
 //! tasks are:
 //!
-//! - The [`crate::bitcoin_syncer`] module syncs Bitcoin blocks and
-//!   transactions.
+//! - The [`crate::finalized_block_fetcher`] module fetches finalized Bitcoin
+//!   blocks from RPC for state and LCP processing.
 //! - The [`crate::tx_sender`] module sends transactions to the Bitcoin network
 //!   depending on the transaction type.
 //! - The [`crate::states`] module provides state machine implementations for
@@ -110,7 +110,6 @@
 
 pub mod actor;
 pub mod aggregator;
-pub mod bitcoin_syncer;
 pub mod bitvm_client;
 pub mod builder;
 pub mod citrea;
@@ -123,6 +122,7 @@ pub mod deposit;
 pub mod encryption;
 pub mod errors;
 pub mod extended_bitcoin_rpc;
+pub mod finalized_block_fetcher;
 pub mod header_chain_prover;
 pub mod metrics;
 pub mod musig2;

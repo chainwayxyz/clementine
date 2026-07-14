@@ -239,7 +239,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         // create a matcher to send latest blockhash tx after finality depth blocks pass from current block height
                         self.matchers.insert(
                             Matcher::BlockHeight(
-                                context.cache.block_height
+                                context.block_height
                                     + context.config.protocol_paramset.finality_depth
                                     - 1,
                             ),
@@ -346,7 +346,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .dispatch_duty(Duty::SendLatestBlockhash {
                             kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
-                            latest_blockhash: context.cache.block.header.block_hash(),
+                            latest_blockhash: context.block_cache()?.block.header.block_hash(),
                         })
                         .await?;
                     Ok::<(), BridgeError>(())
@@ -456,7 +456,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
                 let tx = context
-                    .cache
+                    .block_cache()
+                    .expect("block context required")
                     .get_tx_of_utxo(challenge_outpoint)
                     .expect("Challenge outpoint that got matched should be in block");
                 tracing::info!(
@@ -497,7 +498,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 assert_outpoint,
             } => {
                 let witness = context
-                    .cache
+                    .block_cache()
+                    .expect("block context required")
                     .get_witness_of_utxo(assert_outpoint)
                     .expect("Assert outpoint that got matched should be in block");
                 tracing::info!(
@@ -519,7 +521,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 challenge_ack_outpoint,
             } => {
                 let witness = context
-                    .cache
+                    .block_cache()
+                    .expect("block context required")
                     .get_witness_of_utxo(challenge_ack_outpoint)
                     .expect("Challenge ack outpoint that got matched should be in block");
                 // save challenge ack witness
@@ -570,7 +573,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 latest_blockhash_outpoint,
             } => {
                 let witness = context
-                    .cache
+                    .block_cache()
+                    .expect("block context required")
                     .get_witness_of_utxo(latest_blockhash_outpoint)
                     .expect("Latest blockhash outpoint that got matched should be in block");
                 tracing::info!("Detected latest blockhash for {}", self.kickoff_data,);

@@ -438,7 +438,7 @@ impl PartialEq for MockOwner {
 impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
     const LCP_SYNCER_CONSUMER_ID: &'static str = "test_lcp_syncer";
-    const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str = "test_finalized_block_automation";
+    const STATE_MANAGER_CONSUMER_ID: &'static str = "test_finalized_block_automation";
 }
 
 #[cfg(feature = "automation")]

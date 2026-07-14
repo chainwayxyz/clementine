@@ -204,6 +204,7 @@ async fn spawn_peer_node(
         format!("-rpcuser={}", rpc_user.expose_secret()),
         format!("-rpcpassword={}", rpc_password.expose_secret()),
         "-txindex=1".to_string(),
+        "-txospenderindex=1".to_string(),
         "-maxmempool=5".to_string(),
         "-minrelaytxfee=0.00000001".to_string(),
         "-incrementalrelayfee=0.00000001".to_string(),

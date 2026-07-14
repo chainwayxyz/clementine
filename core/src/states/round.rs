@@ -279,7 +279,8 @@ impl<T: Owner> RoundStateMachine<T> {
                 );
                 used_kickoffs.insert(*kickoff_idx);
                 let txid = context
-                    .cache
+                    .block_cache()
+                    .expect("block context required")
                     .get_txid_of_utxo(kickoff_outpoint)
                     .expect("UTXO should be in block");
 
@@ -289,9 +290,9 @@ impl<T: Owner> RoundStateMachine<T> {
                             let duty_result = context
                                 .dispatch_duty(Duty::CheckIfKickoff {
                                     txid,
-                                    block_height: context.cache.block_height,
+                                    block_height: context.block_height,
                                     witness: context
-                                        .cache
+                                        .block_cache()?
                                         .get_witness_of_utxo(kickoff_outpoint)
                                         .expect("UTXO should be in block"),
                                 })
@@ -305,7 +306,7 @@ impl<T: Owner> RoundStateMachine<T> {
                                     // treat it as a possible kickoff even though we don't have it in our DB
                                     // this is done so that if db was lost, and the operator is during a round/kickoff, it doesn't instantly send a ready to reimburse tx, even if it doesn't recognize the kickoff tx.
                                     let tx = context
-                                        .cache
+                                        .block_cache()?
                                         .get_tx_of_utxo(kickoff_outpoint)
                                         .expect("UTXO should be in block");
                                     // simple heuristic for kickoff tx, a true burnunusedkickoffconnectors tx is very likely to not match this structure.

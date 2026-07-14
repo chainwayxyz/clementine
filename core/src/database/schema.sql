@@ -6,12 +6,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
@@ -97,6 +91,8 @@ create table if not exists operators_challenge_ack_hashes (
 /*******************************************************************************
  *                               BITCOIN SYNCER
  ******************************************************************************/
+-- Legacy Bitcoin Syncer table kept so older migrations can run after schema.sql bootstrap.
+-- 0002 reads bitcoin_syncer for seen_block_id backfills, and migrations 0004/0006 join it for old LCP progress.
 create table if not exists bitcoin_syncer (
     id serial primary key,
     blockhash text not null unique,
@@ -104,28 +100,7 @@ create table if not exists bitcoin_syncer (
     height int not null,
     is_canonical boolean not null default true
 );
-create table if not exists bitcoin_syncer_txs (
-    block_id int not null references bitcoin_syncer (id),
-    txid bytea not null,
-    primary key (block_id, txid)
-);
--- Index for fast txid lookups in bitcoin_syncer_txs
-CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs(txid);
-create table if not exists bitcoin_syncer_spent_utxos (
-    block_id bigint not null references bitcoin_syncer (id),
-    spending_txid bytea not null,
-    txid bytea not null,
-    vout bigint not null,
-    primary key (block_id, spending_txid, txid, vout),
-    foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
-);
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
--- enum for bitcoin_syncer_events
+-- Legacy Bitcoin Syncer event enum kept for older migrations.
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
     FROM pg_type
@@ -133,17 +108,26 @@ DO $$ BEGIN IF NOT EXISTS (
 ) THEN CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
 END IF;
 END $$;
+-- Legacy Bitcoin Syncer event table kept so migrations 0004/0006 can read old events.
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
     block_id int not null references bitcoin_syncer (id),
     event_type bitcoin_syncer_event_type not null,
     created_at timestamp not null default now()
 );
+-- Legacy Bitcoin Syncer handler table kept so migration 0006 can migrate old handler progress.
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
     last_processed_event_id int not null,
     created_at timestamp not null default now(),
     primary key (consumer_handle)
+);
+create table if not exists finalized_block_fetcher_progress (
+    consumer_handle text primary key,
+    last_processed_height int not null,
+    last_processed_block_hash text not null,
+    created_at timestamp not null default now(),
+    updated_at timestamp not null default now()
 );
 /*******************************************************************************
  *                                 TX SENDER
@@ -191,7 +175,7 @@ create table if not exists tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
 );
--- Will be deleted in migration 0005. Can't remove it from here due to 2nd migration that doesn't have "if exists".
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -201,7 +185,7 @@ create table if not exists tx_sender_cancel_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (cancelled_id, txid, vout)
 );
--- Will be deleted in migration 0005. Can't remove it from here due to 2nd migration that doesn't have "if exists".
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_cancel_try_to_send_txids (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -221,7 +205,7 @@ create table if not exists tx_sender_activate_try_to_send_txids (
     created_at timestamp not null default now(),
     primary key (activated_id, txid)
 );
--- Will be deleted in migration 0005. Can't remove it from here due to 2nd migration that doesn't have "if exists".
+-- Legacy tx-sender table kept so migrations 0002 and 0003 can run before 0005 drops it.
 create table if not exists tx_sender_activate_try_to_send_outpoints (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -299,7 +283,9 @@ CREATE TABLE IF NOT EXISTS state_machines (
     -- For kickoff machines
     UNIQUE(machine_type, operator_xonly_pk, owner_type) -- For round machines
 );
--- Status table to track the last processed block
+-- Legacy state manager status kept so older migrations can run after
+-- schema.sql bootstrap; migration 0006 moves this progress to finalized block
+-- cursor progress while keeping this table for rollback compatibility.
 CREATE TABLE IF NOT EXISTS state_manager_status (
     owner_type VARCHAR(100) PRIMARY KEY,
     next_height_to_process INT NOT NULL,

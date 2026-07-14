@@ -24,9 +24,8 @@ use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, State
 #[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum SystemEvent {
-    /// An event for a new finalized block
-    /// So that state manager can update the states of all current state machines
-    NewFinalizedBlock { block: bitcoin::Block, height: u32 },
+    #[serde(rename = "NewFinalizedBlock")]
+    DeprecatedNewFinalizedBlock {},
     /// An event for when a new operator is set in clementine
     /// So that the state machine can create a new round state machine to track the operator
     NewOperator { operator_data: OperatorData },
@@ -109,23 +108,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), BridgeError> {
         let event_start = std::time::Instant::now();
         match event {
-            // Received when a block is finalized in Bitcoin
-            SystemEvent::NewFinalizedBlock { block, height } => {
-                tracing::trace!(height, "handle_event: NewFinalizedBlock starting");
-                if self.next_height_to_process != height {
-                    return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_height_to_process, height).into());
-                }
-
-                let mut context = self.new_context(dbtx.clone(), &block, height)?;
-
-                self.process_block_parallel(&mut context).await?;
-
-                self.last_finalized_block = Some(context.cache.clone());
-                tracing::trace!(
-                    height,
-                    elapsed_ms = event_start.elapsed().as_millis() as u64,
-                    "handle_event: NewFinalizedBlock completed process_block_parallel"
-                );
+            SystemEvent::DeprecatedNewFinalizedBlock {} => {
+                tracing::warn!("Ignoring deprecated NewFinalizedBlock event from state queue");
+                return Ok(());
             }
             // Received when a new operator is set in clementine
             SystemEvent::NewOperator { operator_data } => {
@@ -138,15 +123,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-                // Initialize context using the block just before the start height
-                // so subsequent processing can begin from start_height
                 let prev_height = self.config.protocol_paramset.start_height.saturating_sub(1);
-                let init_block = {
-                    let mut guard = dbtx.lock().await;
-                    self.get_block(Some(&mut *guard), prev_height).await?
-                };
-
-                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
+                let mut context = self.new_context_without_block(dbtx.clone(), prev_height);
 
                 let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
@@ -195,8 +173,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     ];
                     let match_count = matches.iter().filter(|&&b| b).count();
 
-                    // sanity check, should never be a partial match, otherwise something is really wrong with the bitcoin sync
-                    // this error is basically just to make sure we only added finalized kickoffs to the state manager. If it was not finalized + reorged, there can be a mismatch here.
+                    // sanity check, should never be a partial match. This makes sure we only add finalized kickoffs to the state manager.
+                    // If RPC-backed finality is inconsistent or a finalized block is reorged, there can be a mismatch here.
                     match match_count {
                         3 => return Ok(()), // exact duplicate, skip
                         n => {
@@ -230,15 +208,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
 
-                // Initialize context using the block just before the kickoff height
-                // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
-                let init_block = {
-                    let mut guard = dbtx.lock().await;
-                    self.get_block(Some(&mut *guard), prev_height).await?
-                };
-
-                let mut context = self.new_context(dbtx.clone(), &init_block, prev_height)?;
+                let mut context = self.new_context_without_block(dbtx.clone(), prev_height);
 
                 // Check if the kickoff machine already exists. If so do not add a new one.
                 // This can happen if during block processing an error happens, reverting the state machines
@@ -279,17 +250,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 )
                 .await?;
 
-                // check if malicious if lcp is already processed for the kickoff height
-                if let Some(last_lcp_height) = self.last_processed_lcp {
-                    if last_lcp_height >= kickoff_height {
-                        self.check_if_kickoff_malicious(
-                            &payout_blockhash,
-                            &kickoff_data,
-                            &deposit_data,
-                            &mut context,
-                        )
-                        .await?;
-                    }
+                let lcp_synced_height = self.lcp_synced_height(dbtx.clone()).await?;
+                if lcp_synced_height.is_some_and(|height| height >= kickoff_height) {
+                    self.check_if_kickoff_malicious(
+                        &payout_blockhash,
+                        &kickoff_data,
+                        &deposit_data,
+                        &mut context,
+                    )
+                    .await?;
                 }
             }
             // Received when a the LCP for an L1 block height is processed
@@ -309,12 +278,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
                 if !kickoffs_to_check.is_empty() {
                     // create a dummy context for duty processing, a block is not needed for LCPProcessed
-                    let mut dummy_context = self.new_context_with_block_cache(
-                        dbtx.clone(),
-                        self.last_finalized_block.clone().ok_or_eyre(
-                            "Last finalized block not found, should always be Some after initialization",
-                        )?,
-                    )?;
+                    let mut dummy_context =
+                        self.new_context_without_block(dbtx.clone(), self.context_height());
 
                     for (payout_blockhash, kickoff_data, deposit_data) in kickoffs_to_check {
                         self.check_if_kickoff_malicious(
@@ -328,17 +293,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 }
 
                 tracing::info!("LCP processed for height: {}", height);
-
-                self.last_processed_lcp = Some(height);
             }
         };
 
-        let mut context = self.new_context_with_block_cache(
-            dbtx,
-            self.last_finalized_block.clone().ok_or_eyre(
-                "Last finalized block not found, should always be Some after initialization",
-            )?,
-        )?;
+        let mut context = self.new_context_without_block(dbtx, self.context_height());
 
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
@@ -352,6 +310,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         );
 
         Ok(())
+    }
+
+    fn context_height(&self) -> u32 {
+        self.last_finalized_height
+            .unwrap_or_else(|| self.config.protocol_paramset.start_height.saturating_sub(1))
+    }
+
+    async fn lcp_synced_height(
+        &self,
+        dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let mut dbtx = dbtx.lock().await;
+        Ok(self
+            .db
+            .get_finalized_block_progress(Some(&mut dbtx), T::LCP_SYNCER_CONSUMER_ID)
+            .await?
+            .map(|progress| progress.last_processed_height))
     }
 
     async fn get_round_machine(
@@ -419,11 +394,30 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     }
                 }
             }
-            _ => {
-                unreachable!("Expected CheckIfKickoffMalicious result");
+            DutyResult::Handled => {}
+            DutyResult::CheckIfKickoff { .. } => {
+                return Err(eyre::eyre!("Expected CheckIfKickoffMalicious result").into());
             }
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_deprecated_new_finalized_block_event() {
+        let event: SystemEvent = serde_json::from_value(serde_json::json!({
+            "NewFinalizedBlock": {
+                "height": 1,
+                "block": { "legacy": "payload is intentionally ignored" }
+            }
+        }))
+        .unwrap();
+
+        assert!(matches!(event, SystemEvent::DeprecatedNewFinalizedBlock {}));
     }
 }

@@ -1,6 +1,6 @@
 //! This module includes helper functions to get the blockchain synchronization status of the entity.
 //! The entity tracks on-chain transactions for many purposes (TxSender,
-//! FinalizedBlockFetcher, HCP) and takes action (header chain proving, payout,
+//! finalized block cursors, HCP) and takes action (header chain proving, payout,
 //! disprove, L2 state sync, etc.)
 //! SyncStatus tracks the latest processed block heights for each of these tasks.
 //!
@@ -23,7 +23,7 @@ use metrics_derive::Metrics;
 
 const L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT: Duration = Duration::from_secs(45);
 
-// Metric scope is named l1_sync_status for backward compatibility even if it includes l2 metrics.
+// Metric scope stays l1_sync_status because existing dashboards use it.
 #[derive(Metrics)]
 #[metrics(scope = "l1_sync_status")]
 /// The sync status metrics for the currently running entity. (operator/verifier)
@@ -32,13 +32,13 @@ pub struct SyncStatusMetrics {
     pub wallet_balance_btc: Gauge,
     #[metric(describe = "The block height of the chain as seen by Bitcoin Core RPC")]
     pub rpc_tip_height: Gauge,
-    #[metric(describe = "The block height of the Bitcoin Syncer")]
+    #[metric(describe = "Legacy Bitcoin Syncer metric; reports the Bitcoin RPC tip height")]
     pub btc_syncer_synced_height: Gauge,
     #[metric(describe = "The block height of the latest header chain proof")]
     pub hcp_last_proven_height: Gauge,
     #[metric(describe = "The block height processed by the Transaction Sender")]
     pub tx_sender_synced_height: Gauge,
-    #[metric(describe = "The finalized block height as seen by the FinalizedBlockFetcher task")]
+    #[metric(describe = "The finalized block height as seen by the finalized block cursor")]
     pub finalized_synced_height: Gauge,
     #[metric(describe = "The next block height to process for the State Manager")]
     pub state_manager_next_height: Gauge,
@@ -66,14 +66,16 @@ pub struct EntitySyncStatusMetrics {
         describe = "The block height of the chain as seen by Bitcoin Core RPC for the entity"
     )]
     pub rpc_tip_height: Gauge,
-    #[metric(describe = "The block height of the Bitcoin Syncer for the entity")]
+    #[metric(
+        describe = "Legacy Bitcoin Syncer metric; reports the Bitcoin RPC tip height for the entity"
+    )]
     pub btc_syncer_synced_height: Gauge,
     #[metric(describe = "The block height of the latest header chain proof for the entity")]
     pub hcp_last_proven_height: Gauge,
     #[metric(describe = "The block height processed by the Transaction Sender for the entity")]
     pub tx_sender_synced_height: Gauge,
     #[metric(
-        describe = "The finalized block height as seen by the FinalizedBlockFetcher task for the entity"
+        describe = "The finalized block height as seen by the finalized block cursor for the entity"
     )]
     pub finalized_synced_height: Gauge,
     #[metric(describe = "The next block height to process for the State Manager for the entity")]
@@ -131,33 +133,16 @@ pub async fn get_rpc_tip_height(rpc: &ExtendedBitcoinRpc) -> Result<u32, BridgeE
     Ok(height)
 }
 
-/// Get the last processed block height of the given consumer or None if no
-/// block was processed by the consumer.
-pub async fn get_btc_syncer_consumer_last_processed_block_height(
-    db: &Database,
-    consumer_handle: &str,
-) -> Result<Option<u32>, BridgeError> {
-    db.get_last_processed_event_block_height(None, consumer_handle)
-        .await
-}
-
 /// Get the last processed finalized block height of the given consumer or None if no
 /// block was processed by the consumer.
-pub async fn get_btc_syncer_consumer_last_processed_finalized_block_height(
+pub async fn get_finalized_block_fetcher_consumer_last_processed_height(
     db: &Database,
     consumer_handle: &str,
-    finality_depth: u32,
 ) -> Result<Option<u32>, BridgeError> {
-    get_btc_syncer_consumer_last_processed_block_height(db, consumer_handle)
-        .await
-        .map(|opt_height| opt_height.map(|h| h.saturating_sub(finality_depth - 1)))
-}
-
-/// Get the last processed block height of the Bitcoin Syncer or None if no
-/// block is present in the database.
-pub async fn get_btc_syncer_synced_height(db: &Database) -> Result<Option<u32>, BridgeError> {
-    let height = db.get_max_height(None).await?;
-    Ok(height)
+    Ok(db
+        .get_finalized_block_progress(None, consumer_handle)
+        .await?
+        .map(|progress| progress.last_processed_height))
 }
 
 /// Get the last proven block height of the HCP or None if no block has been proven.
@@ -181,26 +166,6 @@ pub async fn get_tx_sender_synced_height(db: &Database) -> Result<Option<u32>, B
     Ok(result
         .map(|h| u32::try_from(h).wrap_err("Failed to convert height from DB"))
         .transpose()?)
-}
-
-/// Get the next height of the State Manager or None if the State Manager status
-/// for the owner is missing or the next_height_to_process is NULL.
-pub async fn get_state_manager_next_height(
-    db: &Database,
-    owner_type: &str,
-) -> Result<Option<u32>, BridgeError> {
-    #[cfg(feature = "automation")]
-    {
-        let next_height = db
-            .get_next_height_to_process(None, owner_type)
-            .await?
-            .map(|x| x as u32);
-        Ok(next_height)
-    }
-    #[cfg(not(feature = "automation"))]
-    {
-        Ok(None)
-    }
 }
 
 /// Get the current Bitcoin fee rate in sat/vB.
@@ -289,10 +254,9 @@ impl<T: NamedEntity> SyncStatusProvider for T {
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
                 "get_finalized_synced_height",
-                get_btc_syncer_consumer_last_processed_finalized_block_height(
+                get_finalized_block_fetcher_consumer_last_processed_height(
                     db,
-                    T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
-                    config.protocol_paramset.finality_depth,
+                    T::STATE_MANAGER_CONSUMER_ID,
                 ),
             )
             .await,
@@ -301,16 +265,15 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         .flatten();
 
         #[cfg(not(feature = "automation"))]
-        let finalized_synced_height = None;
+        let finalized_synced_height: Option<u32> = None;
 
         let lcp_synced_height = log_errs_and_ok::<_, T>(
             timed_request_base(
                 L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
                 "get_lcp_synced_height",
-                get_btc_syncer_consumer_last_processed_finalized_block_height(
+                get_finalized_block_fetcher_consumer_last_processed_height(
                     db,
                     T::LCP_SYNCER_CONSUMER_ID,
-                    config.protocol_paramset.finality_depth,
                 ),
             )
             .await,
@@ -318,16 +281,8 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         )
         .flatten();
 
-        let btc_syncer_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_btc_syncer_synced_height",
-                get_btc_syncer_synced_height(db),
-            )
-            .await,
-            "getting btc syncer synced height",
-        )
-        .flatten();
+        // Legacy Bitcoin Syncer field; there is no Bitcoin Syncer task anymore.
+        let btc_syncer_synced_height = rpc_tip_height;
 
         let hcp_last_proven_height = log_errs_and_ok::<_, T>(
             timed_request_base(
@@ -351,16 +306,8 @@ impl<T: NamedEntity> SyncStatusProvider for T {
         )
         .flatten();
 
-        let state_manager_next_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_state_manager_next_height",
-                get_state_manager_next_height(db, T::ENTITY_NAME),
-            )
-            .await,
-            "getting state manager next height",
-        )
-        .flatten();
+        let state_manager_next_height =
+            finalized_synced_height.map(|height| height.saturating_add(1));
 
         let bitcoin_fee_rate_sat_vb = log_errs_and_ok::<_, T>(
             timed_request_base(

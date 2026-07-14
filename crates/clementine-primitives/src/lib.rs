@@ -356,31 +356,6 @@ pub enum TransactionType {
     Dummy,
 }
 
-/// Events emitted by the Bitcoin syncer.
-/// It emits the block_id of the block in the db that was saved.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BitcoinSyncerEvent {
-    NewBlock(u32),
-    ReorgedBlock(u32),
-}
-
-use eyre::Context;
-
-impl TryFrom<(String, i32)> for BitcoinSyncerEvent {
-    type Error = eyre::Report;
-    fn try_from(value: (String, i32)) -> Result<Self, Self::Error> {
-        match value.0.as_str() {
-            "new_block" => Ok(BitcoinSyncerEvent::NewBlock(
-                u32::try_from(value.1).wrap_err("Int conversion error for new_block")?,
-            )),
-            "reorged_block" => Ok(BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(value.1).wrap_err("Int conversion error for reorged_block")?,
-            )),
-            _ => Err(eyre::eyre!("Invalid event type: {}", value.0)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

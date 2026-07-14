@@ -49,7 +49,7 @@ Before compiling Clementine:
 
 Before running Clementine:
 
-1. Install and configure a Bitcoin node (at least v30.0) with `-txindex=1`. Automation mode additionally requires Bitcoin Core v31+ with `-txospenderindex=1`.
+1. Install and configure a Bitcoin Core v31.0+ node with `-txindex=1 -txospenderindex=1`.
 2. Install and configure PostgreSQL. Using docker:
 
    ```sh

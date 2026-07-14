@@ -2335,7 +2335,6 @@ name = "clementine-primitives"
 version = "0.6.4"
 dependencies = [
  "bitcoin",
- "eyre",
  "hex",
  "lazy_static",
  "secp256k1 0.31.0",

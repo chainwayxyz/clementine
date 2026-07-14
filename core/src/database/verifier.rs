@@ -165,31 +165,48 @@ impl Database {
         }
     }
 
-    /// Returns the withdrawal indexes and their spending txid for the given
-    /// block id.
-    pub async fn get_payout_txs_for_withdrawal_utxos(
+    pub async fn get_pending_withdrawal_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_>>,
-        block_id: u32,
-    ) -> Result<Vec<(u32, Txid)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB)>(
-            "SELECT w.idx, bsu.spending_txid
+        outpoints: &[OutPoint],
+    ) -> Result<Vec<(u32, OutPoint)>, BridgeError> {
+        if outpoints.is_empty() {
+            return Ok(Vec::new());
+        }
+        let txids: Vec<_> = outpoints
+            .iter()
+            .map(|outpoint| TxidDB(outpoint.txid))
+            .collect();
+        let vouts = outpoints
+            .iter()
+            .map(|outpoint| {
+                i32::try_from(outpoint.vout)
+                    .wrap_err("Failed to convert withdrawal utxo vout to i32")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let query = sqlx::query_as::<_, (i32, TxidDB, i32)>(
+            "SELECT w.idx, w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
-             JOIN bitcoin_syncer_spent_utxos bsu
-                ON bsu.txid = w.withdrawal_utxo_txid
-                AND bsu.vout = w.withdrawal_utxo_vout
-             WHERE bsu.block_id = $1",
+             JOIN unnest($1::bytea[], $2::int[]) AS spent(txid, vout)
+                ON spent.txid = w.withdrawal_utxo_txid
+                AND spent.vout = w.withdrawal_utxo_vout
+             WHERE w.payout_txid IS NULL",
         )
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?);
+        .bind(&txids)
+        .bind(&vouts);
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         results
             .into_iter()
-            .map(|(idx, txid)| {
+            .map(|(idx, txid, vout)| {
                 Ok((
                     u32::try_from(idx).wrap_err("Failed to convert withdrawal index to u32")?,
-                    txid.0,
+                    OutPoint {
+                        txid: txid.0,
+                        vout: u32::try_from(vout)
+                            .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
+                    },
                 ))
             })
             .collect()
@@ -401,22 +418,7 @@ mod tests {
         };
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-
-        let block_id = db
-            .insert_block_info(
-                Some(&mut dbtx),
-                &BlockHash::all_zeros(),
-                &BlockHash::all_zeros(),
-                utxo.vout,
-            )
-            .await
-            .unwrap();
-        db.insert_txid_to_block(&mut dbtx, block_id, &txid)
-            .await
-            .unwrap();
-        db.insert_spent_utxo(&mut dbtx, block_id, &txid, &utxo.txid, utxo.vout.into())
-            .await
-            .unwrap();
+        let withdrawal_batch_height = 42;
 
         assert!(db
             .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
@@ -425,9 +427,20 @@ mod tests {
         db.upsert_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
             .await
             .unwrap();
-        db.update_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(
+            Some(&mut dbtx),
+            index,
+            utxo,
+            withdrawal_batch_height,
+        )
+        .await
+        .unwrap();
+
+        let pending = db
+            .get_pending_withdrawal_utxos(Some(&mut dbtx), &[utxo])
             .await
             .unwrap();
+        assert_eq!(pending, vec![(index, utxo)]);
 
         let block_hash = BlockHash::all_zeros();
 
@@ -438,14 +451,11 @@ mod tests {
         .await
         .unwrap();
 
-        let txs = db
-            .get_payout_txs_for_withdrawal_utxos(Some(&mut dbtx), block_id)
+        assert!(db
+            .get_pending_withdrawal_utxos(Some(&mut dbtx), &[utxo])
             .await
-            .unwrap();
-
-        assert_eq!(txs.len(), 1);
-        assert_eq!(txs[0].0, index);
-        assert_eq!(txs[0].1, txid);
+            .unwrap()
+            .is_empty());
 
         let withdrawal_utxo = db
             .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
@@ -479,19 +489,23 @@ mod tests {
             vout: 1,
         };
 
-        db.insert_txid_to_block(&mut dbtx, block_id, &txid2)
-            .await
-            .unwrap();
-        db.insert_spent_utxo(&mut dbtx, block_id, &txid2, &utxo2.txid, utxo2.vout.into())
-            .await
-            .unwrap();
-
         db.upsert_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index2, &txid2)
             .await
             .unwrap();
-        db.update_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index2, utxo2, block_id)
+        db.update_withdrawal_utxo_from_citrea_withdrawal(
+            Some(&mut dbtx),
+            index2,
+            utxo2,
+            withdrawal_batch_height,
+        )
+        .await
+        .unwrap();
+
+        let pending = db
+            .get_pending_withdrawal_utxos(Some(&mut dbtx), &[utxo, utxo2])
             .await
             .unwrap();
+        assert_eq!(pending, vec![(index2, utxo2)]);
 
         // Set payout with None operator xonly pk
         db.update_payout_txs_and_payer_operator_xonly_pk(
@@ -512,11 +526,10 @@ mod tests {
         assert_eq!(payout_info2.2, txid2);
         assert_eq!(payout_info2.3, index2 as i32);
 
-        // Verify we now have 2 payout transactions
-        let all_txs = db
-            .get_payout_txs_for_withdrawal_utxos(Some(&mut dbtx), block_id)
+        assert!(db
+            .get_pending_withdrawal_utxos(Some(&mut dbtx), &[utxo, utxo2])
             .await
-            .unwrap();
-        assert_eq!(all_txs.len(), 2);
+            .unwrap()
+            .is_empty());
     }
 }

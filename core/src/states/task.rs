@@ -1,16 +1,15 @@
 use crate::{
-    bitcoin_syncer::{BlockHandler, FinalizedBlockFetcherTask},
-    database::{Database, DatabaseTransaction},
+    database::Database,
+    finalized_block_fetcher::FinalizedBlockCursor,
     task::{BufferedErrors, IntoTask, RecoverableTask, TaskVariant, WithDelay},
 };
 use eyre::{Context as _, OptionExt};
-use pgmq::{Message, PGMQueueExt};
+use pgmq::Message;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use crate::{
-    config::protocol::ProtocolParamset,
     states::SystemEvent,
     task::{Task, TaskExt},
 };
@@ -18,85 +17,13 @@ use clementine_errors::BridgeError;
 
 use super::{context::Owner, StateManager};
 
+type SharedDatabaseTransaction = Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>;
+
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(250)
 } else {
     Duration::from_secs(30)
 };
-
-/// Block handler that sends events to a PostgreSQL message queue
-#[derive(Debug, Clone)]
-pub struct QueueBlockHandler {
-    queue: PGMQueueExt,
-    queue_name: String,
-}
-
-#[async_trait]
-impl BlockHandler for QueueBlockHandler {
-    /// Handles a new block by sending a new block event to the queue.
-    /// State manager will process the block after reading the event from the queue.
-    async fn handle_new_block(
-        &mut self,
-        dbtx: DatabaseTransaction<'_>,
-        _block_id: u32,
-        block: bitcoin::Block,
-        height: u32,
-    ) -> Result<(), BridgeError> {
-        let event = SystemEvent::NewFinalizedBlock { block, height };
-
-        self.queue
-            .send_with_cxn(&self.queue_name, &event, &mut **dbtx)
-            .await
-            .wrap_err("Error sending new block event to queue")?;
-        Ok(())
-    }
-}
-
-/// A task that fetches new finalized blocks from Bitcoin and adds them to the state management queue
-#[derive(Debug)]
-pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
-    /// Owner type marker
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
-    /// Creates a new finalized block fetcher task that sends new finalized blocks to the message queue.
-    pub async fn new_finalized_block_fetcher_task(
-        db: Database,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<FinalizedBlockFetcherTask<QueueBlockHandler>, BridgeError> {
-        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        let queue_name = StateManager::<T>::queue_name();
-
-        let handler = QueueBlockHandler {
-            queue,
-            queue_name: queue_name.clone(),
-        };
-
-        // get the next finalized block height to start from
-        let next_height = db
-            .get_next_finalized_block_height_for_consumer(
-                None,
-                T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
-                paramset,
-            )
-            .await?;
-
-        tracing::info!(
-            "Creating block fetcher task for owner type {} starting from height {}",
-            T::ENTITY_NAME,
-            next_height
-        );
-
-        Ok(crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
-            db,
-            T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION.to_string(),
-            paramset,
-            next_height,
-            handler,
-        ))
-    }
-}
 
 /// A task that reads new events from the message queue and processes them.
 #[derive(Debug)]
@@ -105,6 +32,7 @@ pub struct MessageConsumerTask<T: Owner + std::fmt::Debug + 'static> {
     inner: StateManager<T>,
     /// Queue name for this owner type (cached)
     queue_name: String,
+    finalized_block_cursor: FinalizedBlockCursor,
 }
 
 #[async_trait]
@@ -113,82 +41,143 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
     const VARIANT: TaskVariant = TaskVariant::StateManager;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let new_event_received = async {
-            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
-            let mut dbtx = self.db.begin_transaction().await?;
-            tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction done, reading queue");
-
-            // Poll new event
-            let Some(Message {
-                msg_id, message, ..
-            }): Option<Message<SystemEvent>> = self
-                .inner
-                .queue
-                // 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
-                // visibility timeout is the time after which the message is visible again to other consumers
-                .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
-                .await
-                .wrap_err("Reading event from queue")?
-            else {
-                dbtx.commit().await?;
-                return Ok::<_, BridgeError>(false);
-            };
-
-            tracing::trace!(
-                queue = %self.queue_name,
-                msg_id,
-                event = ?message,
-                "MessageConsumerTask: read event from queue, starting handle_event"
-            );
-            let handle_start = std::time::Instant::now();
-
-            let arc_dbtx = Arc::new(Mutex::new(dbtx));
-
-            self.inner.handle_event(message, arc_dbtx.clone()).await?;
-
-            tracing::trace!(
-                queue = %self.queue_name,
-                msg_id,
-                elapsed_ms = handle_start.elapsed().as_millis() as u64,
-                "MessageConsumerTask: handle_event done, extracting dbtx"
-            );
-
-            let mut dbtx = Arc::into_inner(arc_dbtx)
-                .ok_or_eyre("Expected single reference to DB tx when committing")?
-                .into_inner();
-
-            // Delete event from queue
-            self.inner
-                .queue
-                .archive_with_cxn(&self.queue_name, msg_id, &mut *dbtx)
-                .await
-                .wrap_err("Deleting event from queue")?;
-
-            tracing::trace!(
-                queue = %self.queue_name,
-                msg_id,
-                "MessageConsumerTask: committing transaction"
-            );
-            dbtx.commit().await?;
-            tracing::trace!(
-                queue = %self.queue_name,
-                msg_id,
-                total_elapsed_ms = handle_start.elapsed().as_millis() as u64,
-                "MessageConsumerTask: committed successfully"
-            );
-            Ok(true)
+        if self.process_queue_event_once().await? {
+            return Ok(true);
         }
-        .await?;
 
-        Ok(new_event_received)
+        self.process_finalized_block_once().await
     }
 }
 
 #[async_trait]
 impl<T: Owner + std::fmt::Debug + 'static> RecoverableTask for MessageConsumerTask<T> {
     async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
-        // in case of any error, reload the state machines from the database
-        self.inner.reload_state_manager_from_db().await
+        self.inner.reload_state_manager_from_db().await?;
+        Ok(())
+    }
+}
+
+impl<T: Owner + std::fmt::Debug + 'static> MessageConsumerTask<T> {
+    async fn process_queue_event_once(&mut self) -> Result<bool, BridgeError> {
+        tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction");
+        let mut dbtx = self.db.begin_transaction().await?;
+        tracing::trace!(queue = %self.queue_name, "MessageConsumerTask: begin_transaction done, reading queue");
+
+        let Some(Message {
+            msg_id, message, ..
+        }): Option<Message<SystemEvent>> = self
+            .inner
+            .queue
+            .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
+            .await
+            .wrap_err("Reading event from queue")?
+        else {
+            dbtx.commit().await?;
+            return Ok(false);
+        };
+
+        tracing::trace!(
+            queue = %self.queue_name,
+            msg_id,
+            event = ?message,
+            "MessageConsumerTask: read event from queue, starting handle_event"
+        );
+        let handle_start = std::time::Instant::now();
+
+        let arc_dbtx = Arc::new(Mutex::new(dbtx));
+
+        self.inner.handle_event(message, arc_dbtx.clone()).await?;
+
+        tracing::trace!(
+            queue = %self.queue_name,
+            msg_id,
+            elapsed_ms = handle_start.elapsed().as_millis() as u64,
+            "MessageConsumerTask: handle_event done, extracting dbtx"
+        );
+
+        let mut dbtx = unwrap_shared_dbtx(arc_dbtx)?;
+
+        self.inner
+            .queue
+            .archive_with_cxn(&self.queue_name, msg_id, &mut *dbtx)
+            .await
+            .wrap_err("Deleting event from queue")?;
+
+        tracing::trace!(
+            queue = %self.queue_name,
+            msg_id,
+            "MessageConsumerTask: committing transaction"
+        );
+        dbtx.commit().await?;
+        tracing::trace!(
+            queue = %self.queue_name,
+            msg_id,
+            total_elapsed_ms = handle_start.elapsed().as_millis() as u64,
+            "MessageConsumerTask: committed successfully"
+        );
+        Ok(true)
+    }
+
+    async fn process_finalized_block_once(&mut self) -> Result<bool, BridgeError> {
+        let Some((height, block)) = self.finalized_block_cursor.next_finalized_block().await?
+        else {
+            return Ok(false);
+        };
+
+        let block_hash = block.block_hash();
+        let dbtx = self.db.begin_transaction().await?;
+        let arc_dbtx = Arc::new(Mutex::new(dbtx));
+
+        self.inner
+            .handle_finalized_block(block, height, arc_dbtx.clone())
+            .await?;
+
+        let mut dbtx = unwrap_shared_dbtx(arc_dbtx)?;
+
+        self.finalized_block_cursor
+            .save_progress(&mut dbtx, height, block_hash)
+            .await?;
+        dbtx.commit().await?;
+        self.finalized_block_cursor
+            .record_processed(height, block_hash);
+        Ok(true)
+    }
+}
+
+fn unwrap_shared_dbtx(
+    dbtx: SharedDatabaseTransaction,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BridgeError> {
+    Ok(Arc::into_inner(dbtx)
+        .ok_or_eyre("Expected single reference to DB tx when committing")?
+        .into_inner())
+}
+
+impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    async fn handle_finalized_block(
+        &mut self,
+        block: bitcoin::Block,
+        height: u32,
+        dbtx: SharedDatabaseTransaction,
+    ) -> Result<(), BridgeError> {
+        let event_start = std::time::Instant::now();
+        tracing::trace!(height, "handle_finalized_block: starting");
+
+        if self.next_finalized_height_to_process() != height {
+            return Err(eyre::eyre!("Finalized block arrived to state manager out of order. Expected: block at height {}, Got: block at height {}", self.next_finalized_height_to_process(), height).into());
+        }
+
+        let mut context = self.new_context(dbtx, &block, height);
+        self.process_block_parallel(&mut context).await?;
+
+        tracing::trace!(
+            height,
+            elapsed_ms = event_start.elapsed().as_millis() as u64,
+            "handle_finalized_block: processed block"
+        );
+
+        self.save_state_to_db(&mut context).await?;
+
+        Ok(())
     }
 }
 
@@ -197,27 +186,22 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
 
     /// Converts the StateManager into the consumer task with a polling delay.
     fn into_task(self) -> Self::Task {
+        let finalized_block_cursor = FinalizedBlockCursor::from_last_processed_height(
+            self.db.clone(),
+            self.rpc.clone(),
+            T::STATE_MANAGER_CONSUMER_ID.to_string(),
+            self.config.protocol_paramset,
+            self.next_finalized_height_to_process().checked_sub(1),
+        );
+
         MessageConsumerTask {
             db: self.db.clone(),
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
+            finalized_block_cursor,
         }
         .into_buffered_errors(10, 3, Duration::from_secs(10))
         .with_delay(POLL_DELAY)
-    }
-}
-
-impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    pub async fn block_fetcher_task(
-        &self,
-    ) -> Result<WithDelay<impl Task<Output = bool> + std::fmt::Debug>, BridgeError> {
-        Ok(BlockFetcherTask::<T>::new_finalized_block_fetcher_task(
-            self.db.clone(),
-            self.config.protocol_paramset,
-        )
-        .await?
-        .into_buffered_errors(20, 3, Duration::from_secs(10))
-        .with_delay(POLL_DELAY))
     }
 }
 
@@ -231,7 +215,7 @@ mod tests {
     use crate::{
         builder::transaction::{ContractContext, TxHandler},
         config::BridgeConfig,
-        database::DatabaseTransaction,
+        database::{Database, DatabaseTransaction},
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
         states::{context::DutyResult, Duty},
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
@@ -244,11 +228,21 @@ mod tests {
     #[derive(Clone, Debug)]
     struct MockHandler;
 
+    fn set_test_protocol_paramset(
+        config: &mut BridgeConfig,
+        start_height: u32,
+        finality_depth: u32,
+    ) {
+        let mut paramset = config.protocol_paramset().clone();
+        paramset.start_height = start_height;
+        paramset.finality_depth = finality_depth;
+        config.protocol_paramset = Box::leak(Box::new(paramset));
+    }
+
     impl NamedEntity for MockHandler {
         const ENTITY_NAME: &'static str = "MockHandler";
         const LCP_SYNCER_CONSUMER_ID: &'static str = "mock_lcp_syncer";
-        const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
-            "mock_finalized_block_automation";
+        const STATE_MANAGER_CONSUMER_ID: &'static str = "mock_finalized_block_automation";
     }
 
     #[async_trait]
@@ -271,11 +265,10 @@ mod tests {
         }
     }
 
-    async fn create_state_manager(
-        config: &mut BridgeConfig,
-    ) -> (JoinHandle<Result<(), BridgeError>>, oneshot::Sender<()>) {
+    async fn create_mock_state_manager(
+        config: &BridgeConfig,
+    ) -> (Database, StateManager<MockHandler>) {
         let db = Database::new(config).await.unwrap();
-
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -285,9 +278,16 @@ mod tests {
         .await
         .expect("Failed to connect to Bitcoin RPC");
 
-        let state_manager = StateManager::new(db, MockHandler, rpc, config.clone())
+        let state_manager = StateManager::new(db.clone(), MockHandler, rpc, config.clone())
             .await
             .unwrap();
+        (db, state_manager)
+    }
+
+    async fn create_state_manager(
+        config: &BridgeConfig,
+    ) -> (JoinHandle<Result<(), BridgeError>>, oneshot::Sender<()>) {
+        let (_, state_manager) = create_mock_state_manager(config).await;
         let (t, shutdown) = state_manager.into_task().cancelable_loop();
         (t.into_bg(), shutdown)
     }
@@ -301,7 +301,7 @@ mod tests {
             .mine_blocks(config.protocol_paramset.start_height as u64)
             .await
             .unwrap();
-        let (handle, shutdown) = create_state_manager(&mut config).await;
+        let (handle, shutdown) = create_state_manager(&config).await;
 
         drop(shutdown);
 
@@ -321,12 +321,32 @@ mod tests {
             .mine_blocks(config.protocol_paramset.start_height as u64)
             .await
             .unwrap();
-        let (handle, shutdown) = create_state_manager(&mut config).await;
+        let (handle, shutdown) = create_state_manager(&config).await;
 
         timeout(Duration::from_secs(1), handle).await.expect_err(
             "state manager should not shutdown while shutdown handle is alive (timed out after 1s)",
         );
 
         drop(shutdown);
+    }
+
+    #[tokio::test]
+    async fn state_manager_processes_finalized_block_directly_when_queue_empty() {
+        let mut config = create_test_config_with_thread_name().await;
+        set_test_protocol_paramset(&mut config, 1, 1);
+        let cleanup = create_regtest_rpc(&mut config).await;
+        cleanup.rpc().mine_blocks(2).await.unwrap();
+        let (db, state_manager) = create_mock_state_manager(&config).await;
+        let mut task = state_manager.into_task();
+
+        task.run_once().await.unwrap();
+
+        assert_eq!(
+            db.get_finalized_block_progress(None, MockHandler::STATE_MANAGER_CONSUMER_ID)
+                .await
+                .unwrap()
+                .map(|progress| progress.last_processed_height),
+            Some(1)
+        );
     }
 }

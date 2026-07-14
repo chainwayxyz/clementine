@@ -18,7 +18,7 @@
 //! send.
 
 use super::Result;
-use crate::{log_error_for_tx, TxSender, TxSenderTransaction};
+use crate::{TxSender, TxSenderTransaction};
 use bitcoin::absolute::LockTime;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot;
@@ -504,25 +504,31 @@ impl TxSender {
                             .get_tx_of_txid(&new_txid)
                             .await
                             .map_err(|e| SendTxError::Other(eyre!(e)))?;
-                        let Some(new_vout) = bumped_tx.output.iter().position(|output| {
-                            output.value == amount
-                                && output.script_pubkey == self.signer.address().script_pubkey()
-                        }) else {
-                            tracing::warn!(
-                                "Bumped fee payer tx {} did not preserve expected output of {} sats for try_to_send_id {}, skipping DB save",
-                                new_txid,
-                                amount,
-                                try_to_send_id
-                            );
-                            continue;
-                        };
+                        let new_vout = bumped_tx
+                            .output
+                            .iter()
+                            .position(|output| {
+                                output.value == amount
+                                    && output.script_pubkey
+                                        == self.signer.address().script_pubkey()
+                            })
+                            .ok_or_else(|| {
+                                SendTxError::Other(eyre!(
+                                    "Bumped fee payer tx {new_txid} did not preserve the expected output of {amount} for try_to_send_id {try_to_send_id}"
+                                ))
+                            })?;
+                        let new_vout = u32::try_from(new_vout).map_err(|_| {
+                            SendTxError::Other(eyre!(
+                                "Fee payer vout {new_vout} does not fit in u32"
+                            ))
+                        })?;
 
                         self.db
                             .save_fee_payer_tx(
                                 None,
                                 try_to_send_id,
                                 new_txid,
-                                new_vout as u32,
+                                new_vout,
                                 amount,
                                 Some(parent_id),
                             )
@@ -588,8 +594,8 @@ impl TxSender {
     ///     Uses `testmempoolaccept` RPC to check if the package is likely to be accepted by the network before submitting.
     /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
-    /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
-    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    /// 6.  **Handle Results:** Returns an error for missing or failed results, except the expected
+    ///     insufficient-fee replacement response when periodically resubmitting a CPFP package.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
@@ -704,34 +710,35 @@ impl TxSender {
             .await
             .wrap_err("Failed to submit package")?;
 
-        // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_result.tx_results.is_empty() {
-            return Ok(());
+            return Err(SendTxError::Other(eyre!(
+                "submitpackage returned no transaction results"
+            )));
         }
 
         for (_txid, result) in submit_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
+                // CPFP packages are periodically resubmitted to counter replacement cycling.
+                // An existing package can reject the resubmission as an insufficient-fee replacement.
                 if crate::rpc_errors::is_rejecting_replacement_error(&error) {
                     tracing::debug!(
                         try_to_send_id,
-                        "Package tx rejected (tx already in mempool): {error}"
+                        "Package resubmission rejected because a replacement is already in the mempool: {error}"
                     );
-                } else {
-                    tracing::error!(
-                        try_to_send_id,
-                        "Error submitting package: {:?}, package: {:?}",
-                        error,
-                        package_refs
-                            .iter()
-                            .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                            .collect::<Vec<_>>()
-                    );
-                    log_error_for_tx!(
-                        self.db,
-                        try_to_send_id,
-                        format!("Failed to submit package: {error}")
-                    );
+                    continue;
                 }
+
+                tracing::error!(
+                    try_to_send_id,
+                    "Error submitting package: {error}, package: {:?}",
+                    package_refs
+                        .iter()
+                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                        .collect::<Vec<_>>()
+                );
+                return Err(SendTxError::Other(eyre!(
+                    "submitpackage rejected a transaction: {error}"
+                )));
             }
         }
 
