@@ -230,12 +230,11 @@ impl TxSenderClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "citrea"))]
 mod tests {
     use super::*;
     use sqlx::Row;
 
-    #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_batch_proof() {
         use crate::citrea::data_serialization::DataOnDa;
@@ -271,7 +270,6 @@ mod tests {
         assert_eq!(row.get::<i64, _>("insertion_id"), insertion_id);
     }
 
-    #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_chunks() {
         use crate::citrea::data_serialization::DataOnDa;
@@ -323,7 +321,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "citrea")]
     #[tokio::test]
     async fn test_send_citrea_tx_duplicate_body() {
         use crate::citrea::CitreaTxRequest;
@@ -358,7 +355,6 @@ mod tests {
         assert_eq!(count, 1, "Should have exactly one row with this body");
     }
 
-    #[cfg(feature = "citrea")]
     #[tokio::test]
     #[ignore = "Think about duplicate body possibility first"]
     async fn test_send_citrea_tx_transaction_rollback() {
