@@ -129,7 +129,7 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         let mut results = results;
-        results.sort_by(|a, b| a.0.cmp(&b.0));
+        results.sort_by_key(|a| a.0);
         assert_eq!(results[0].0, move_txid);
         assert_eq!(results[0].1, consensus::serialize(&emergency_stop_tx));
         assert_eq!(results[1].0, move_txid2);

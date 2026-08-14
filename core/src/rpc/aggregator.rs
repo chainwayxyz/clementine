@@ -1718,7 +1718,7 @@ impl ClementineAggregator for AggregatorServer {
             debug_assert_eq!(task_names.len(), task_outputs.len());
 
             flatten_join_named_results(
-                task_names.into_iter().zip(task_outputs.into_iter()),
+                task_names.into_iter().zip(task_outputs),
             )?;
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
 
@@ -1733,7 +1733,7 @@ impl ClementineAggregator for AggregatorServer {
                     let send_operator_sigs: Vec<_> = deposit_finalize_sender
                         .iter()
                         .zip(verifiers_ids.iter())
-                        .zip(deposit_finalize_futures.into_iter())
+                        .zip(deposit_finalize_futures)
                         .map(|((tx, id), dep_fin_fut)| async {
                             for one_op_sigs in all_op_sigs.iter() {
                                 for sig in one_op_sigs.iter() {

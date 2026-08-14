@@ -210,7 +210,7 @@ impl AllSessions {
         // Should never overflow as it counts bytes in usize
         let mut total_bytes: usize = 0;
 
-        for (_, session) in self.sessions.iter() {
+        for session in self.sessions.values() {
             total_bytes = total_bytes
                 .checked_add(Self::session_bytes(session)?)
                 .ok_or_eyre("Calculation overflow in total_byte_size")?;
@@ -1288,7 +1288,7 @@ where
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         for (operator_idx, (operator_xonly_pk, operator_sigs)) in operator_xonly_pks
             .into_iter()
-            .zip(verified_sigs.into_iter())
+            .zip(verified_sigs)
             .enumerate()
         {
             // skip indexes until round 0 (currently 0th index corresponds to collateral, which doesn't have any sigs)

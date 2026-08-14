@@ -253,7 +253,7 @@ impl BlockInclusionProof {
             let processed_sibling_hash = calculate_sha256(&mid_state_sibling_node);
             let processed_combined_hash = calculate_sha256(&combined_hash);
 
-            if index % 2 == 0 {
+            if index.is_multiple_of(2) {
                 // `combined_hash` is the left child
                 preimage[..32].copy_from_slice(&processed_combined_hash);
                 preimage[32..].copy_from_slice(&processed_sibling_hash); // Use the SHA256'd mid-state sibling

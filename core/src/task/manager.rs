@@ -190,7 +190,7 @@ impl BackgroundTaskManager {
     /// Sends cancel signals to all tasks that have a cancel_tx
     async fn send_cancel_signals(&self) {
         let mut task_registry = self.task_registry.write().await;
-        for (_, (_, _, cancel_tx)) in task_registry.iter_mut() {
+        for (_, _, cancel_tx) in task_registry.values_mut() {
             let oneshot_tx = cancel_tx.take();
             if let Some(oneshot_tx) = oneshot_tx {
                 // send can fail, but if it fails the task is dropped.
@@ -205,7 +205,7 @@ impl BackgroundTaskManager {
 
         // only one thread must have &mut self, so lock should be able to be acquired
         if let Ok(task_registry) = self.task_registry.try_read() {
-            for (_, (_, abort_handle, _)) in task_registry.iter() {
+            for (_, abort_handle, _) in task_registry.values() {
                 abort_handle.abort();
             }
         }
@@ -226,7 +226,7 @@ impl BackgroundTaskManager {
             let mut all_finished = true;
             let task_registry = self.task_registry.read().await;
 
-            for (_, (_, abort_handle, _)) in task_registry.iter() {
+            for (_, abort_handle, _) in task_registry.values() {
                 if !abort_handle.is_finished() {
                     all_finished = false;
                     break;

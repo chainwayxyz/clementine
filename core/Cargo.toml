@@ -5,7 +5,7 @@ authors = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
-rust-version = "1.88.0"
+rust-version = "1.97.0"
 
 [features]
 automation = []
@@ -105,6 +105,8 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+# tonic::Status makes Result<_, Status> exceed Clippy's Err-size threshold on 1.97.
+result_large_err = "allow"
 
 [lints.rust]
 # This is used to enable/disable the tokio-console debugging utility

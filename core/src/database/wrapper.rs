@@ -75,6 +75,7 @@ macro_rules! impl_text_wrapper_custom {
 
     // true case - with serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, true) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -83,6 +84,7 @@ macro_rules! impl_text_wrapper_custom {
 
     // false case - without serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, false) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -104,6 +106,7 @@ macro_rules! impl_text_wrapper_custom {
 /// - SQLx Decode trait for converting from database format
 macro_rules! impl_bytea_wrapper_custom {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -135,6 +138,7 @@ macro_rules! impl_bytea_wrapper_custom {
 /// Same as `impl_bytea_wrapper_custom` but with an encode function that returns a Result
 macro_rules! impl_bytea_wrapper_custom_with_error {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone)]
         pub struct $wrapper(pub $inner);
 
@@ -332,6 +336,7 @@ impl_text_wrapper_custom!(
     }
 );
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UtxoDB {
     pub outpoint_db: OutPointDB,

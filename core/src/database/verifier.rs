@@ -231,7 +231,7 @@ impl Database {
         );
 
         query_builder.push_values(
-            converted_values.into_iter(),
+            converted_values,
             |mut b, (idx, txid, operator_xonly_pk, block_hash)| {
                 b.push_bind(idx)
                     .push_bind(txid)

@@ -362,7 +362,7 @@ pub fn create_operator_sighash_stream(
                 ).await?;
 
                 let mut sum = 0;
-                for (_, txhandler) in txhandlers.iter() {
+                for txhandler in txhandlers.values() {
                     let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::OperatorDeposit, partial)?;
                     sum += sighashes.len();
                     for sighash in sighashes {

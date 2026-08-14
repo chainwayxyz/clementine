@@ -196,9 +196,7 @@ pub fn aggregate_partial_signatures(
 
     if enable_partial_sig_verification {
         let mut partial_sig_verification_errors = Vec::new();
-        for ((partial_sig, pub_nonce), pub_key) in
-            partial_sigs_and_nonces.into_iter().zip(pks.into_iter())
-        {
+        for ((partial_sig, pub_nonce), pub_key) in partial_sigs_and_nonces.into_iter().zip(pks) {
             if !session.partial_verify(
                 SECP256K1,
                 &musig_key_agg_cache,

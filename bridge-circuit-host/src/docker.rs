@@ -182,7 +182,7 @@ pub fn stark_to_bitvm2_g16(
         .to_str_radix(16);
 
     // If the length of the hexadecimal string is odd, add a leading zero
-    let output_content_hex = if output_content_hex.len() % 2 == 0 {
+    let output_content_hex = if output_content_hex.len().is_multiple_of(2) {
         output_content_hex
     } else {
         format!("0{output_content_hex}")
@@ -511,7 +511,7 @@ pub fn stark_to_bitvm2_g16_dev_mode(receipt: Receipt, journal: &[u8]) -> Result<
         .to_str_radix(16);
 
     // If the length of the hexadecimal string is odd, add a leading zero
-    let output_content_hex = if output_content_hex.len() % 2 == 0 {
+    let output_content_hex = if output_content_hex.len().is_multiple_of(2) {
         output_content_hex
     } else {
         format!("0{output_content_hex}")

@@ -158,7 +158,7 @@ pub fn extract_winternitz_commits_with_sigs(
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
 
-    fn kind(&self) -> ScriptKind;
+    fn kind(&self) -> ScriptKind<'_>;
 
     fn to_script_buf(&self) -> ScriptBuf;
 }
@@ -184,7 +184,7 @@ impl SpendableScript for OtherSpendable {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::Other(self)
     }
 
@@ -215,7 +215,7 @@ impl SpendableScript for CheckSig {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::CheckSig(self)
     }
 
@@ -248,7 +248,7 @@ impl SpendableScript for Multisig {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::ManualSpend(self)
     }
 
@@ -309,7 +309,7 @@ impl SpendableScript for WinternitzCommit {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::WinternitzCommit(self)
     }
 
@@ -395,7 +395,7 @@ impl SpendableScript for TimelockScript {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::TimelockScript(self)
     }
 
@@ -437,7 +437,7 @@ impl SpendableScript for PreimageRevealScript {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::PreimageRevealScript(self)
     }
 
@@ -488,7 +488,7 @@ impl SpendableScript for BaseDepositScript {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::BaseDepositScript(self)
     }
 
@@ -527,7 +527,7 @@ impl SpendableScript for ReplacementDepositScript {
         self
     }
 
-    fn kind(&self) -> ScriptKind {
+    fn kind(&self) -> ScriptKind<'_> {
         ScriptKind::ReplacementDepositScript(self)
     }
 
@@ -1240,7 +1240,8 @@ mod tests {
 
         // Verify normal extraction works.
         let normal_extracted =
-            extract_winternitz_commits(witness.clone(), &[kickoff.clone()], paramset).unwrap();
+            extract_winternitz_commits(witness.clone(), std::slice::from_ref(&kickoff), paramset)
+                .unwrap();
         assert_eq!(
             normal_extracted[0], original_message,
             "Normal extraction should match original message"
@@ -1278,9 +1279,12 @@ mod tests {
         let tampered_witness = bitcoin::Witness::from_slice(&tampered_witness_vec);
 
         // Extract from tampered witness
-        let tampered_extracted =
-            extract_winternitz_commits(tampered_witness.clone(), &[kickoff.clone()], paramset)
-                .unwrap();
+        let tampered_extracted = extract_winternitz_commits(
+            tampered_witness.clone(),
+            std::slice::from_ref(&kickoff),
+            paramset,
+        )
+        .unwrap();
 
         // The extracted data should match what on-chain verification validated after OP_MIN.
         assert_eq!(
@@ -1299,8 +1303,12 @@ mod tests {
 
         let non_minimal_witness = bitcoin::Witness::from_slice(&non_minimal_witness_vec);
 
-        let non_minimal_extracted =
-            extract_winternitz_commits(non_minimal_witness, &[kickoff.clone()], paramset).unwrap();
+        let non_minimal_extracted = extract_winternitz_commits(
+            non_minimal_witness,
+            std::slice::from_ref(&kickoff),
+            paramset,
+        )
+        .unwrap();
 
         // SCRIPT_VERIFY_MINIMALDATA is a standardness/policy rule here, not a
         // mandatory consensus rule. A transaction mined directly into a block

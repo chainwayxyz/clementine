@@ -1,5 +1,5 @@
 # Compile Clementine
-FROM rust:1.88.0 as builder
+FROM rust:1.97.1 as builder
 WORKDIR /clementine
 COPY . .
 RUN cargo build --release --bin clementine-core

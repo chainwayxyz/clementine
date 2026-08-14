@@ -1500,7 +1500,7 @@ where
         #[cfg(test)]
         {
             use bridge_circuit_host::utils::total_work_from_wt_tx;
-            for (_, tx) in watchtower_challenges.iter() {
+            for tx in watchtower_challenges.values() {
                 let total_work = total_work_from_wt_tx(tx);
                 total_works.push(total_work);
             }

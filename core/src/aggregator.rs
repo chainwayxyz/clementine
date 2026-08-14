@@ -425,7 +425,7 @@ impl Aggregator {
             Some(operators.ids()),
             operator_clients
                 .into_iter()
-                .zip(operator_xonly_pks.into_iter())
+                .zip(operator_xonly_pks)
                 .enumerate()
                 .map(move |(_idx, (mut operator_client, operator_xonly_pk))| {
                     let deposit_params = deposit.clone();
@@ -777,10 +777,7 @@ impl Aggregator {
                 futures::future::join_all(verifier_tasks)
             );
             // Log any errors from restart_background_tasks rpc call
-            for result in operator_results
-                .into_iter()
-                .chain(verifier_results.into_iter())
-            {
+            for result in operator_results.into_iter().chain(verifier_results) {
                 if let Err(e) = result {
                     tracing::error!("{e:?}");
                 }

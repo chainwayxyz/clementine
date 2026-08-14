@@ -42,7 +42,7 @@ jobs:
           export PATH="$PATH:$HOME/.risc0/bin"
           echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
           rzup install
-          rzup install rust 1.88.0
+          rzup install rust 1.97.0
 
       - name: Install r0vm
         run: rzup install r0vm

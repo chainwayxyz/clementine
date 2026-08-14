@@ -112,7 +112,7 @@ mod tests {
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
         for tx in txs.clone().into_iter() {
-            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(&[tx.clone()]);
+            let bitcoin_merkle_tree = BitcoinMerkleTree::new_mid_state(std::slice::from_ref(&tx));
             let bitcoin_merkle_proof = bitcoin_merkle_tree.generate_proof(0);
             assert!(verify_merkle_proof(
                 tx.mid_state_txid(),

@@ -583,7 +583,7 @@ pub fn total_work_and_watchtower_flags(
         valid_watchtower_challenge_commitments.push(commitment);
     }
 
-    valid_watchtower_challenge_commitments.sort_by(|a, b| b.total_work.cmp(&a.total_work));
+    valid_watchtower_challenge_commitments.sort_by_key(|b| std::cmp::Reverse(b.total_work));
 
     let mut total_work_result = [0u8; 16];
 
@@ -964,7 +964,7 @@ mod tests {
 
     // Helper function to divide by 2 and return None if not divisible by 2
     fn halve_if_even(n: u32) -> Option<u32> {
-        (n % 2 == 0).then_some(n / 2)
+        n.is_multiple_of(2).then_some(n / 2)
     }
 
     fn total_work_and_watchtower_flags_setup() -> (BridgeCircuitInput, Txid) {

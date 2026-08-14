@@ -207,11 +207,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         context: &ContractContext,
         dbtx: Option<DatabaseTransaction<'a, 'b>>,
     ) -> Self {
-        if context.deposit_data.is_some() {
-            let deposit_data = context
-                .deposit_data
-                .as_ref()
-                .expect("checked in if statement");
+        if let Some(deposit_data) = context.deposit_data.as_ref() {
             Self::new_for_deposit(
                 db,
                 context.operator_xonly_pk,

@@ -1036,13 +1036,8 @@ impl ExtendedBitcoinRpc {
             .get_transaction(&txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
-        if transaction_info.info.blockhash.is_some() {
-            return Err(BitcoinRPCError::TransactionAlreadyInBlock(
-                transaction_info
-                    .info
-                    .blockhash
-                    .expect("Blockhash should be present"),
-            ));
+        if let Some(blockhash) = transaction_info.info.blockhash {
+            return Err(BitcoinRPCError::TransactionAlreadyInBlock(blockhash));
         }
 
         // Calculate current fee rate

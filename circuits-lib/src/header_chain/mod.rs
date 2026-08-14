@@ -424,7 +424,7 @@ impl ChainState {
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {
                 if block_header.time > last_block_time + 1200 {
                     // If the block is an epoch block, then it still has to have the real target.
-                    if self.block_height % BLOCKS_PER_EPOCH == 0 {
+                    if self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                         (
                             current_target_bytes,
                             self.current_target_bits,
@@ -486,7 +486,7 @@ impl ChainState {
             self.best_block_hash = new_block_hash;
             current_work = current_work.wrapping_add(&work_to_add);
 
-            if !IS_REGTEST && self.block_height % BLOCKS_PER_EPOCH == 0 {
+            if !IS_REGTEST && self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                 self.epoch_start_time = block_header.time;
             }
 
@@ -637,12 +637,8 @@ fn calculate_new_difficulty(
     last_timestamp: u32,
     current_target: u32,
 ) -> [u8; 32] {
-    let mut actual_timespan = last_timestamp - epoch_start_time;
-    if actual_timespan < EXPECTED_EPOCH_TIMESPAN / 4 {
-        actual_timespan = EXPECTED_EPOCH_TIMESPAN / 4;
-    } else if actual_timespan > EXPECTED_EPOCH_TIMESPAN * 4 {
-        actual_timespan = EXPECTED_EPOCH_TIMESPAN * 4;
-    }
+    let actual_timespan = (last_timestamp - epoch_start_time)
+        .clamp(EXPECTED_EPOCH_TIMESPAN / 4, EXPECTED_EPOCH_TIMESPAN * 4);
 
     let current_target_bytes = bits_to_target(current_target);
     let mut new_target = U256::from_be_bytes(current_target_bytes)

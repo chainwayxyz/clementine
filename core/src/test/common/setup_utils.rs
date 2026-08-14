@@ -270,7 +270,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
     let db = Database::new(&temp_config).await.unwrap();
     let conn = db.get_pool();
 
-    sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &config.db_name))
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {}", config.db_name))
         .execute(&conn)
         .await
         .expect("Failed to drop database");
