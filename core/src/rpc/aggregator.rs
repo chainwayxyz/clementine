@@ -2019,6 +2019,20 @@ impl ClementineAggregator for AggregatorServer {
                     "Transaction is not a movetx, input or output lengths are not correct",
                 ));
             }
+            if movetx.input[0].previous_output != deposit_outpoint {
+                return Err(Status::invalid_argument(
+                    "Transaction input does not match deposit outpoint",
+                ));
+            }
+            let deposit_tx = self
+                .rpc
+                .get_tx_of_txid(&deposit_outpoint.txid)
+                .await
+                .map_to_status()?;
+            let deposit_txout = deposit_tx
+                .output
+                .get(deposit_outpoint.vout as usize)
+                .ok_or(Status::invalid_argument("Deposit output does not exist"))?;
             // check output values
             // movetx always has 0 sat anchor output
             if !(movetx.output[0].value == self.config.protocol_paramset().bridge_amount
@@ -2041,6 +2055,38 @@ impl ClementineAggregator for AggregatorServer {
                         ))
                     },
                 )?;
+
+            let witness = &movetx.input[0].witness;
+            if witness.len() != 3 {
+                return Err(Status::invalid_argument("Invalid movetx witness"));
+            }
+            let signature = bitcoin::taproot::Signature::from_slice(&witness[0])
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            let script = bitcoin::Script::from_bytes(&witness[1]);
+            let control_block = bitcoin::taproot::ControlBlock::decode(&witness[2])
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            let deposit_xonly_pk = deposit_txout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| Status::invalid_argument("Invalid deposit output"))?;
+            if !control_block.verify_taproot_commitment(&SECP, deposit_xonly_pk, script) {
+                return Err(Status::invalid_argument("Invalid movetx witness"));
+            }
+            let sighash = bitcoin::sighash::SighashCache::new(&movetx)
+                .taproot_script_spend_signature_hash(
+                    0,
+                    &bitcoin::sighash::Prevouts::All(std::slice::from_ref(deposit_txout)),
+                    bitcoin::TapLeafHash::from_script(script, control_block.leaf_version),
+                    signature.sighash_type,
+                )
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            SECP.verify_schnorr(
+                &signature.signature,
+                &Message::from_digest(sighash.to_byte_array()),
+                &nofn_xonly_pk,
+            )
+            .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+
             let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
             let security_council_script = Arc::new(Multisig::from_security_council(
                 self.config.security_council.clone(),
