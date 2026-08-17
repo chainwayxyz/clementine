@@ -279,6 +279,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .clone()
                 .expect("Initialized before"),
         )?;
+        // Statig replays state-entry callbacks when it materializes persisted machines, but the
+        // serialized snapshot already contains their effects.
+        ctx.set_restoring();
 
         // Process and recreate kickoff machines
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {

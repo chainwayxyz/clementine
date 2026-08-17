@@ -167,6 +167,12 @@ pub struct StateContext<T: Owner> {
     pub errors: Vec<Arc<eyre::Report>>,
     pub config: BridgeConfig,
     pub owner_type: String,
+    /// True while persisted machines are being materialized from the database.
+    ///
+    /// Statig replays state-entry callbacks on `init_with_context`, but the serialized snapshot
+    /// already contains those effects. Entry actions must not mutate persisted state or dispatch
+    /// duties while this is set.
+    restoring: bool,
     pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
 
@@ -189,7 +195,18 @@ impl<T: Owner> StateContext<T> {
             errors: Vec::new(),
             config,
             owner_type,
+            restoring: false,
         }
+    }
+
+    /// Marks the context as reinitializing state machines from persisted snapshots.
+    pub(crate) fn set_restoring(&mut self) {
+        self.restoring = true;
+    }
+
+    /// Returns whether state entry actions are running while restoring persisted state.
+    pub(crate) fn is_restoring(&self) -> bool {
+        self.restoring
     }
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {

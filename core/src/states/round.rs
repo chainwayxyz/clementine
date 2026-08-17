@@ -175,6 +175,10 @@ impl<T: Owner> RoundStateMachine<T> {
     #[action]
     #[allow(unused_variables)]
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {
@@ -308,7 +312,11 @@ impl<T: Owner> RoundStateMachine<T> {
     /// kickoff is useless as reimburse connector utxo of that kickoff is in the next round,
     /// which cannot be created anymore as the collateral is spent. So we do not want to challenge it, etc.
     #[action]
-    pub(crate) async fn on_operator_exit_entry(&mut self) {
+    pub(crate) async fn on_operator_exit_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         self.matchers = HashMap::new();
         tracing::warn!(?self.operator_data, "Operator exited the protocol.");
     }
@@ -351,6 +359,10 @@ impl<T: Owner> RoundStateMachine<T> {
         challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) {
+        if context.is_restoring() {
+            return;
+        }
+
         // ensure challenged_before starts at false for each round
         // In a single round, a challenge is enough to slash all of the operators current kickoffs in the same round.
         // This way, if the operator posts 50 different kickoffs, we only need one challenge.
@@ -458,6 +470,10 @@ impl<T: Owner> RoundStateMachine<T> {
         context: &mut StateContext<T>,
         round_idx: &mut RoundIndex,
     ) {
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {

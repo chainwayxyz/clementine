@@ -375,6 +375,10 @@ impl<T: Owner> KickoffStateMachine<T> {
     /// which changes the state to "Closed".
     #[action]
     pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         self.challenged = true;
         context
             .capture_error(async |context| {
@@ -755,6 +759,10 @@ impl<T: Owner> KickoffStateMachine<T> {
 
     #[action]
     pub(crate) async fn on_kickoff_started_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {
@@ -778,6 +786,10 @@ impl<T: Owner> KickoffStateMachine<T> {
     #[action]
     #[allow(unused_variables)]
     pub(crate) async fn on_closed_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         self.matchers.clear();
     }
 
