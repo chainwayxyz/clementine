@@ -27,6 +27,7 @@ jobs:
           rustup install 1.97
           rustup default 1.97
 
+      - uses: ./.github/actions/build-prerequisites
       - name: Install risc0
         uses: ./.github/actions/test-prerequisites
         with:

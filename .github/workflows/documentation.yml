@@ -25,6 +25,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
       - name: Clean documentation directory
         run: cargo clean --doc
       - name: Build documentation
