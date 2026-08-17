@@ -55,7 +55,7 @@ pub enum KickoffEvent {
     KickoffFinalizerSpent,
     /// Event that is dispatched when the burn connector is spent in Bitcoin
     BurnConnectorSpent,
-    /// Vvent that is used to indicate that it is time for the owner to send latest blockhash tx.
+    /// Event that is used to indicate that it is time for the owner to send latest blockhash tx.
     /// Matcher for this event is created after all watchtower challenge utxos are spent.
     /// Latest blockhash is sent some blocks after all watchtower challenge utxos are spent, so that the total work until the block commiitted
     /// in latest blockhash is definitely higher than the highest work in valid watchtower challenges.
@@ -79,9 +79,9 @@ pub enum KickoffEvent {
 ///
 /// # Events
 /// - `Challenged`: The kickoff is challenged, transitioning to the `challenged` state.
-/// - `WatchtowerChallengeSent`: A watchtower challenge is detected on Bitcoin, stores the watchtower challenge transaction, and stores the watchtower utxo as spent.
+/// - `WatchtowerChallengeSent`: A watchtower challenge is detected on Bitcoin, stores the watchtower challenge transaction, and stores the watchtower challenge utxo as spent.
 /// - `OperatorAssertSent`: An operator BitVM assert is detected, stores the witness of the assert utxo.
-/// - `WatchtowerChallengeTimeoutSent`: A watchtower challenge timeout is detected, stores watchtower utxo as spent.
+/// - `WatchtowerChallengeTimeoutSent`: A watchtower challenge timeout is detected, stores the watchtower challenge utxo as spent. Timeout also spends the ack UTXO; no preimage is revealed or needed.
 /// - `OperatorChallengeAckSent`: An operator challenge acknowledgment is detected, stores the witness of the challenge ack utxo, which holds the revealed preimage that can be used to disprove if the operator maliciously doesn't include the watchtower challenge in the BitVM proof. After sending this transaction, the operator is forced to use the corresponding watchtower challenge in its BitVM proof, otherwise it can be disproven.
 /// - `LatestBlockHashSent`: The latest blockhash is committed on Bitcoin, stores the witness of the latest blockhash utxo, which holds the blockhash that should be used by the operator in its BitVM proof.
 /// - `KickoffFinalizerSpent`: The kickoff finalizer is spent, ending the kickoff process, transitions to the `closed` state.
@@ -117,7 +117,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) payout_blockhash: Witness,
     /// Marker to indicate if the state machine is in the challenged state.
     challenged: bool,
-    /// Set of indices of watchtower UTXOs that have already been spent.
+    /// Set of watchtower indices whose challenge UTXO (1st of the pair) has been spent.
+    /// Used to know when asserts and the latest blockhash commit are safe to send.
     spent_watchtower_utxos: HashSet<usize>,
     /// The witness taken from the transaction spending the latest blockhash utxo.
     latest_blockhash: Witness,
@@ -254,18 +255,24 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    /// Checks if the disprove is ready to be sent on Bitcoin
-    /// The check is done by checking if all operator asserts are received,
-    /// latest blockhash is committed and all watchtower challenge utxos are spent
-    /// If the check is successful, the disprove is sent on Bitcoin
+    /// Whether the watchtower's ack UTXO (2nd of the pair) has been spent.
+    /// OperatorChallengeAck stores the preimage witness; WatchtowerChallengeTimeout
+    /// spends both UTXOs without a challenge (no preimage needed). Nack spends it
+    /// too but closes the machine.
+    fn ack_utxo_spent(&self, watchtower_idx: usize) -> bool {
+        self.operator_challenge_acks.contains_key(&watchtower_idx)
+            || (self.spent_watchtower_utxos.contains(&watchtower_idx)
+                && !self.watchtower_challenges.contains_key(&watchtower_idx))
+    }
+
+    /// Checks if the disprove is ready to be sent on Bitcoin.
+    /// Ready when asserts and latest blockhash are in, and every ack UTXO is spent
+    /// (OperatorChallengeAck or WatchtowerChallengeTimeout).
     async fn disprove_if_ready(&mut self, context: &mut StateContext<T>) {
-        if self.challenged && self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
+        if self.challenged
+            && self.operator_asserts.len() == ClementineBitVMPublicKeys::number_of_assert_txs()
             && self.latest_blockhash != Witness::default()
-            && self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
-            // check if all operator acks are received, one ack for each watchtower challenge
-            // to make sure we have all preimages required to disprove if operator didn't include 
-            // the watchtower challenge in the BitVM proof
-            && self.watchtower_challenges.keys().all(|idx| self.operator_challenge_acks.contains_key(idx))
+            && (0..self.deposit_data.get_num_watchtowers()).all(|idx| self.ack_utxo_spent(idx))
         {
             self.send_disprove(context).await;
         }
@@ -450,7 +457,6 @@ impl<T: Owner> KickoffStateMachine<T> {
         match event {
             // When a watchtower challenge is detected in Bitcoin,
             // save the full challenge transaction and check if the latest blockhash can be committed
-            // and if the disprove is ready to be sent
             KickoffEvent::WatchtowerChallengeSent {
                 watchtower_idx,
                 challenge_outpoint,
@@ -466,7 +472,6 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.create_matcher_for_latest_blockhash_if_ready(context)
                     .await;
                 self.send_operator_asserts_if_ready(context).await;
-                self.disprove_if_ready(context).await;
                 Handled
             }
             // When an operator assert is detected in Bitcoin,
@@ -497,7 +502,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .cache
                     .get_witness_of_utxo(challenge_ack_outpoint)
                     .expect("Challenge ack outpoint that got matched should be in block");
-                // save challenge ack witness
+                // save challenge ack witness (preimage needed for additional disprove)
                 self.operator_challenge_acks
                     .insert(*watchtower_idx, witness);
                 self.disprove_if_ready(context).await;
@@ -516,7 +521,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Transition(State::closed())
             }
             // When a watchtower challenge timeout is detected in Bitcoin,
-            // set the watchtower utxo as spent and check if the latest blockhash can be committed
+            // both the challenge UTXO (1st) and ack UTXO (2nd) are spent. No preimage
+            // is revealed and none is needed for that watchtower.
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
                 self.create_matcher_for_latest_blockhash_if_ready(context)
