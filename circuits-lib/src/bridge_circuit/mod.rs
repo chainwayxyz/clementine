@@ -113,7 +113,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// 2. Ensures the method ID in `hcp` (header chain proof) matches `HEADER_CHAIN_METHOD_ID`.
 /// 3. Verifies the header chain proof (`hcp`).
 /// 4. Computes maximum total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
-/// 5. Validates that the computed `max_total_work` does not exceed the `total_work` in `hcp.chain_state`.
+/// 5. Validates that the `total_work` in `hcp.chain_state` exceeds the computed `max_total_work`.
 /// 6. Fetches the MMR (Merkle Mountain Range) for block hashes from `hcp.chain_state`.
 /// 7. Verifies the SPV proof (`payout_spv`) using the fetched MMR.
 /// 8. Verifies the light client proof using `lc_proof_verifier`.
@@ -129,7 +129,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 /// # Panics
 ///
 /// - If the method ID in `hcp` does not match `HEADER_CHAIN_METHOD_ID`.
-/// - If `max_total_work` given by watchtowers is greater than `hcp.chain_state.total_work`.
+/// - If `max_total_work` given by watchtowers is greater than or equal to `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
 /// - If the block hash of the light client proof does not match the payout transaction's block hash.
@@ -152,8 +152,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .try_into()
         .expect("Cannot fail");
 
-    // If total work is less than the max total work of watchtowers, panic
-    if total_work < max_total_work {
+    // If total work is less than or equal to the max total work of watchtowers, panic
+    if total_work <= max_total_work {
         panic!(
             "Insufficient total work: Total Work {total_work:?} - Max Total Work: {max_total_work:?}",
         );

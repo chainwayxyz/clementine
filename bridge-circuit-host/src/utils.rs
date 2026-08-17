@@ -371,3 +371,27 @@ fn to_decimal(s: &str) -> Option<String> {
         .and_then(|stripped| BigUint::from_str_radix(stripped, 16).ok())
         .map(|n| n.to_str_radix(10))
 }
+
+#[cfg(test)]
+mod tests {
+    use ark_bn254::Bn254;
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use circuits_lib::bridge_circuit::constants::PREPARED_VK;
+
+    #[test]
+    fn prepared_vk_matches_risc0_verifying_key() {
+        // RISC Zero exposes the Arkworks key only through its canonical serde representation.
+        let verifying_key_bytes: Vec<u8> =
+            serde_json::from_value(serde_json::to_value(risc0_groth16::verifying_key()).unwrap())
+                .unwrap();
+        let verifying_key = ark_groth16::VerifyingKey::<Bn254>::deserialize_uncompressed(
+            verifying_key_bytes.as_slice(),
+        )
+        .unwrap();
+        let prepared_vk = ark_groth16::prepare_verifying_key(&verifying_key);
+        let mut serialized = Vec::new();
+        prepared_vk.serialize_uncompressed(&mut serialized).unwrap();
+
+        assert_eq!(serialized, PREPARED_VK);
+    }
+}
