@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use super::common::{create_test_config_with_thread_name, initialize_database, MockOwner};
 use crate::{
     config::BridgeConfig, database::Database, extended_bitcoin_rpc::ExtendedBitcoinRpc,
-    states::StateManager, test::common::create_regtest_rpc,
+    states::StateManager, test::common::create_regtest_rpc, utils::NamedEntity,
 };
 
 // Helper function to create a test state manager
@@ -180,4 +180,39 @@ async fn test_save_and_load_state() {
 
     assert_eq!(round_machines, round_machines_old);
     assert_eq!(kickoff_machines, kickoff_machines_old);
+
+    let mut dbtx = new_state_manager
+        .db
+        .begin_transaction()
+        .await
+        .expect("Failed to begin transaction");
+    new_state_manager
+        .db
+        .save_state_machines(
+            &mut dbtx,
+            vec![("{".to_string(), "corrupt_kickoff".to_string())],
+            vec![],
+            1,
+            MockOwner::ENTITY_NAME,
+        )
+        .await
+        .expect("Failed to insert corrupt kickoff machine");
+    dbtx.commit().await.expect("Failed to commit transaction");
+
+    let err = new_state_manager
+        .reload_state_manager_from_db()
+        .await
+        .expect_err("corrupt kickoff machine should fail reload");
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("Failed to deserialize kickoff machine with ID corrupt_kickoff"),
+        "unexpected error: {err_msg}"
+    );
+
+    let mut round_machines_after_err = new_state_manager.round_machines();
+    let mut kickoff_machines_after_err = new_state_manager.kickoff_machines();
+    round_machines_after_err.sort_by_key(|m| m.operator_data.xonly_pk);
+    kickoff_machines_after_err.sort_by_key(|m| m.kickoff_data);
+    assert_eq!(round_machines_after_err, round_machines);
+    assert_eq!(kickoff_machines_after_err, kickoff_machines);
 }

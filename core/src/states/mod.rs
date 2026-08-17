@@ -284,6 +284,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         ctx.set_restoring();
 
         // Process and recreate kickoff machines
+        let mut loaded_kickoff_machines = Vec::with_capacity(kickoff_machines.len());
         for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
             tracing::debug!(
                 "Loaded kickoff machine: state={}, block_height={}",
@@ -299,19 +300,21 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 Ok(uninitialized) => {
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
-                    self.kickoff_machines.push(initialized);
+                    loaded_kickoff_machines.push(initialized);
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    return Err(eyre::eyre!(
                         "Failed to deserialize kickoff machine with ID {}: {}",
                         kickoff_id,
                         e
-                    );
+                    )
+                    .into());
                 }
             }
         }
 
         // Process and recreate round machines
+        let mut loaded_round_machines = Vec::with_capacity(round_machines.len());
         for (state_json, operator_xonly_pk, saved_block_height) in &round_machines {
             tracing::debug!(
                 "Loaded round machine: state={}, block_height={}",
@@ -327,14 +330,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 Ok(uninitialized) => {
                     // Initialize the machine with the context
                     let initialized = uninitialized.init_with_context(&mut ctx).await;
-                    self.round_machines.push(initialized);
+                    loaded_round_machines.push(initialized);
                 }
                 Err(e) => {
-                    tracing::error!(
+                    return Err(eyre::eyre!(
                         "Failed to deserialize round machine with operator index {:?}: {}",
                         operator_xonly_pk,
                         e
-                    );
+                    )
+                    .into());
                 }
             }
         }
@@ -360,6 +364,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .into_inner()
             .commit()
             .await?;
+
+        self.kickoff_machines = loaded_kickoff_machines;
+        self.round_machines = loaded_round_machines;
 
         Ok(())
     }
