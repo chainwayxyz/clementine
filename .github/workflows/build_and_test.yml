@@ -31,10 +31,6 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
 
@@ -72,10 +68,6 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
@@ -127,11 +119,6 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
@@ -207,11 +194,6 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
@@ -317,11 +299,6 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
