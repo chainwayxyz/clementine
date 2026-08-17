@@ -2398,6 +2398,60 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                }
+                | Duty::AddRelevantTxsToTxSenderIfChallenged {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    let context = ContractContext::new_context_for_kickoff(
+                        kickoff_data,
+                        deposit_data.clone(),
+                        self.config.protocol_paramset(),
+                    );
+                    let signed_txs = create_and_sign_txs(
+                        self.db.clone(),
+                        &self.signer,
+                        self.config.clone(),
+                        context,
+                        // the blockhash is only relevant for the kickoff tx which is already on chain, so we can use a dummy value here
+                        Some([0u8; 20]),
+                        Some(dbtx),
+                    )
+                    .await?;
+                    let tx_metadata = Some(TxMetadata {
+                        tx_type: TransactionType::Dummy,
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    });
+                    for (tx_type, signed_tx) in &signed_txs {
+                        match *tx_type {
+                            TransactionType::OperatorChallengeAck(_)
+                            | TransactionType::WatchtowerChallengeTimeout(_)
+                            | TransactionType::ChallengeTimeout
+                            | TransactionType::DisproveTimeout
+                            | TransactionType::Reimburse => {
+                                self.tx_sender
+                                    .add_tx_to_queue(
+                                        dbtx,
+                                        *tx_type,
+                                        signed_tx,
+                                        &signed_txs,
+                                        tx_metadata,
+                                        &self.config,
+                                        None,
+                                    )
+                                    .await?;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(DutyResult::Handled)
+                }
                 Duty::SendOperatorAsserts {
                     kickoff_data,
                     deposit_data,
@@ -2452,55 +2506,10 @@ mod states {
                             dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data.clone(),
+                            deposit_data,
                             witness,
                         )
                         .await?;
-
-                        // resend relevant txs
-                        let context = ContractContext::new_context_for_kickoff(
-                            kickoff_data,
-                            deposit_data.clone(),
-                            self.config.protocol_paramset(),
-                        );
-                        let signed_txs = create_and_sign_txs(
-                            self.db.clone(),
-                            &self.signer,
-                            self.config.clone(),
-                            context,
-                            Some([0u8; 20]),
-                            Some(dbtx),
-                        )
-                        .await?;
-                        let tx_metadata = Some(TxMetadata {
-                            tx_type: TransactionType::Dummy,
-                            operator_xonly_pk: Some(self.signer.xonly_public_key),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        });
-                        for (tx_type, signed_tx) in &signed_txs {
-                            match *tx_type {
-                                TransactionType::OperatorChallengeAck(_)
-                                | TransactionType::WatchtowerChallengeTimeout(_)
-                                | TransactionType::ChallengeTimeout
-                                | TransactionType::DisproveTimeout
-                                | TransactionType::Reimburse => {
-                                    self.tx_sender
-                                        .add_tx_to_queue(
-                                            dbtx,
-                                            *tx_type,
-                                            signed_tx,
-                                            &signed_txs,
-                                            tx_metadata,
-                                            &self.config,
-                                            None,
-                                        )
-                                        .await?;
-                                }
-                                _ => {}
-                            }
-                        }
                     }
 
                     Ok(DutyResult::Handled)
@@ -2535,6 +2544,10 @@ mod states {
             _light_client_proof_wait_interval_secs: Option<u32>,
         ) -> Result<(), BridgeError> {
             Ok(())
+        }
+
+        fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {
+            kickoff_data.operator_xonly_pk == self.signer.xonly_public_key
         }
     }
 }

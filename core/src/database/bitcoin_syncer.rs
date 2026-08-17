@@ -270,6 +270,39 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Gets the block height for txids that exist in canonical blocks.
+    pub async fn get_canonical_block_heights_for_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txids: &[Txid],
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        if txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let txid_params: Vec<TxidDB> = txids.iter().map(|txid| TxidDB(*txid)).collect();
+        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+            "SELECT bst.txid, bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = ANY($1) AND bs.is_canonical = true",
+        )
+        .bind(&txid_params);
+
+        let results: Vec<(TxidDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .into_iter()
+            .map(|(txid, height)| {
+                Ok((
+                    txid.0,
+                    u32::try_from(height).wrap_err(BridgeError::IntConversionError)?,
+                ))
+            })
+            .collect()
+    }
+
     /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,

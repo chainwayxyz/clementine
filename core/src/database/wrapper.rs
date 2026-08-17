@@ -286,6 +286,12 @@ impl_bytea_wrapper_custom!(
     |x: &[u8]| -> Result<Txid, BoxDynError> { Ok(Txid::from_slice(x)?) }
 );
 
+impl sqlx::postgres::PgHasArrayType for TxidDB {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_bytea")
+    }
+}
+
 impl_bytea_wrapper_custom!(
     MessageDB,
     Message,

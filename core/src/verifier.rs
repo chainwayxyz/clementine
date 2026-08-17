@@ -62,6 +62,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
+use bitcoincore_rpc::RpcApi;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
@@ -711,6 +712,29 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+
+        let tx_info = self
+            .rpc
+            .get_raw_transaction_info(&deposit_txid, None)
+            .await
+            .wrap_err("Failed to get deposit transaction info")?;
+        let blockhash = tx_info.blockhash.ok_or_else(|| {
+            BridgeError::InvalidDeposit("Deposit transaction is not confirmed".to_string())
+        })?;
+        let block_height = self
+            .rpc
+            .get_block_info(&blockhash)
+            .await
+            .wrap_err_with(|| format!("Failed to get block info for deposit tx {deposit_txid}"))?
+            .height;
+        let start_height = self.config.protocol_paramset().start_height;
+        if (block_height as u32) < start_height {
+            let reason = format!(
+                "Deposit transaction height {block_height} is less than start_height {start_height}"
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
         Ok(())
     }
 
@@ -1054,8 +1078,11 @@ where
             } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx.to_index()]
-                    .push((kickoff_txid, kickoff_utxo_idx));
+                kickoff_txids[operator_idx][round_idx.to_index()].push((
+                    kickoff_txid
+                        .expect("Kickoff txid must be Some with YieldKickoffTxid signature kind"),
+                    kickoff_utxo_idx,
+                ));
                 continue;
             }
 
@@ -1210,6 +1237,7 @@ where
         // Generate partial signature for move transaction
         let move_txhandler =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?;
+        let move_txid = move_txhandler.get_cached_tx().compute_txid();
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -1306,16 +1334,6 @@ where
                     ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
-                    if kickoff_txid.is_none() {
-                        return Err(eyre::eyre!(
-                            "Kickoff txid not found for {}, {}, {}",
-                            operator_xonly_pk,
-                            round_idx, // rounds start from 1
-                            kickoff_idx
-                        )
-                        .into());
-                    }
-
                     tracing::trace!(
                         "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
                         operator_xonly_pk,
@@ -1331,16 +1349,71 @@ where
                             operator_xonly_pk,
                             RoundIndex::from_index(round_idx),
                             *kickoff_idx,
-                            kickoff_txid.expect("Kickoff txid must be Some"),
+                            *kickoff_txid,
                             std::mem::take(&mut op_round_sigs[*kickoff_idx]),
                         )
                         .await?;
                 }
             }
         }
+
+        self.check_kickoffs_on_chain(&mut dbtx, kickoff_txids, move_txid)
+            .await?;
         dbtx.commit().await?;
 
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
+    }
+
+    /// Rejects a deposit if a kickoff is already canonical while MoveToVault is not.
+    /// That would let an operator start the response clock before funds are bridged.
+    /// If MoveToVault is already canonical, the graph was already signed.
+    async fn check_kickoffs_on_chain(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        kickoff_txids: Vec<Vec<Vec<(Txid, usize)>>>,
+        move_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let all_kickoff_txids: Vec<Txid> = kickoff_txids
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|(txid, _)| *txid)
+            .collect();
+
+        if all_kickoff_txids.is_empty() {
+            return Ok(());
+        }
+
+        let mut txids_to_check = all_kickoff_txids.clone();
+        txids_to_check.push(move_txid);
+
+        let canonical_txids: HashSet<Txid> = self
+            .db
+            .get_canonical_block_heights_for_txids(Some(dbtx), &txids_to_check)
+            .await?
+            .into_iter()
+            .map(|(txid, _)| txid)
+            .collect();
+
+        if canonical_txids.contains(&move_txid) {
+            return Ok(());
+        }
+
+        let kickoffs_in_chain: Vec<_> = all_kickoff_txids
+            .into_iter()
+            .filter(|txid| canonical_txids.contains(txid))
+            .collect();
+        // Reject deposits if a kickoff is already on chain while the corresponding movetx is not.
+        if !kickoffs_in_chain.is_empty() {
+            return Err(eyre::eyre!(
+                "Deposit rejected: move_txid {} is NOT in chain, but kickoff(s) {:?} ARE in chain",
+                move_txid,
+                kickoffs_in_chain
+            )
+            .into());
+        }
+
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1716,7 +1789,6 @@ where
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
         challenged_before: bool,
-        kickoff_txid: Txid,
     ) -> Result<bool, BridgeError> {
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data, dbtx)
@@ -1763,17 +1835,23 @@ where
             if *tx_type == TransactionType::Challenge && challenged_before {
                 // do not send challenge tx if malicious but operator was already challenged in the same round
                 tracing::warn!(
-                    "Operator {:?} was already challenged in the same round, skipping challenge tx",
-                    kickoff_data.operator_xonly_pk
+                    "Operator {:?} was already challenged in the same round, skipping challenge tx, challenge tx: {}",
+                    kickoff_data.operator_xonly_pk,
+                    bitcoin::consensus::encode::serialize_hex(signed_tx)
                 );
                 continue;
             }
-            match *tx_type {
-                TransactionType::Challenge
-                | TransactionType::AssertTimeout(_)
-                | TransactionType::KickoffNotFinalized
-                | TransactionType::LatestBlockhashTimeout
-                | TransactionType::OperatorChallengeNack(_) => {
+            if *tx_type == TransactionType::Challenge {
+                tracing::warn!(
+                    "Challenge transaction for malicious {:?}: {}",
+                    kickoff_data,
+                    bitcoin::consensus::encode::serialize_hex(signed_tx)
+                );
+                // On Bitcoin and Testnet4, challenges are intentionally manual to prevent errors, never enqueue it for automatic broadcast.
+                if !matches!(
+                    self.config.protocol_paramset().network,
+                    bitcoin::Network::Bitcoin | bitcoin::Network::Testnet4
+                ) {
                     #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
@@ -1787,33 +1865,6 @@ where
                         )
                         .await?;
                 }
-                // Technically verifiers do not need to send watchtower challenge timeout tx,
-                // but in state manager we attempt to disprove only if all watchtower challenges utxos are spent
-                // so if verifiers do not send timeouts, operators can abuse this (by not sending watchtower challenge timeouts)
-                // to not get disproven
-                TransactionType::WatchtowerChallengeTimeout(idx) => {
-                    #[cfg(feature = "automation")]
-                    self.tx_sender
-                        .insert_try_to_send(
-                            dbtx,
-                            Some(TxMetadata {
-                                tx_type: TransactionType::WatchtowerChallengeTimeout(idx),
-                                ..tx_metadata
-                            }),
-                            signed_tx,
-                            FeePayingType::CPFP,
-                            None,
-                            &[OutPoint {
-                                txid: kickoff_txid,
-                                vout: UtxoVout::KickoffFinalizer.get_vout(),
-                            }],
-                            &[],
-                            &[],
-                            &[],
-                        )
-                        .await?;
-                }
-                _ => {}
             }
         }
 
@@ -2921,6 +2972,93 @@ mod states {
                     .await?;
                     Ok(DutyResult::Handled)
                 }
+                Duty::AddNecessaryTxsForKickoff { .. } => {
+                    // Verifiers do not need to queue transactions until the kickoff is challenged.
+                    Ok(DutyResult::Handled)
+                }
+                Duty::AddRelevantTxsToTxSenderIfChallenged {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    let kickoff_txid = self
+                        .db
+                        .get_kickoff_txid_from_deposit_and_kickoff_data(
+                            Some(dbtx),
+                            deposit_data.get_deposit_outpoint(),
+                            &kickoff_data,
+                        )
+                        .await?
+                        .ok_or_else(|| {
+                            eyre::eyre!("Kickoff txid not found for {kickoff_data:?}")
+                        })?;
+                    let context = ContractContext::new_context_with_signer(
+                        kickoff_data,
+                        deposit_data.clone(),
+                        self.config.protocol_paramset(),
+                        self.signer.clone(),
+                    );
+                    let signed_txs = create_and_sign_txs(
+                        self.db.clone(),
+                        &self.signer,
+                        self.config.clone(),
+                        context,
+                        None,
+                        Some(dbtx),
+                    )
+                    .await?;
+                    let tx_metadata = TxMetadata {
+                        tx_type: TransactionType::Dummy,
+                        operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    };
+                    for (tx_type, signed_tx) in &signed_txs {
+                        match *tx_type {
+                            TransactionType::AssertTimeout(_)
+                            | TransactionType::KickoffNotFinalized
+                            | TransactionType::LatestBlockhashTimeout
+                            | TransactionType::OperatorChallengeNack(_) => {
+                                self.tx_sender
+                                    .add_tx_to_queue(
+                                        dbtx,
+                                        *tx_type,
+                                        signed_tx,
+                                        &signed_txs,
+                                        Some(tx_metadata),
+                                        &self.config,
+                                        None,
+                                    )
+                                    .await?;
+                            }
+                            TransactionType::WatchtowerChallengeTimeout(idx) => {
+                                self.tx_sender
+                                    .insert_try_to_send(
+                                        dbtx,
+                                        Some(TxMetadata {
+                                            tx_type: TransactionType::WatchtowerChallengeTimeout(
+                                                idx,
+                                            ),
+                                            ..tx_metadata
+                                        }),
+                                        signed_tx,
+                                        FeePayingType::CPFP,
+                                        None,
+                                        &[OutPoint {
+                                            txid: kickoff_txid,
+                                            vout: UtxoVout::KickoffFinalizer.get_vout(),
+                                        }],
+                                        &[],
+                                        &[],
+                                        &[],
+                                    )
+                                    .await?;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(DutyResult::Handled)
+                }
                 Duty::WatchtowerChallenge {
                     kickoff_data,
                     deposit_data,
@@ -3097,7 +3235,6 @@ mod states {
                                 deposit_data,
                                 kickoff_data,
                                 challenged_before,
-                                txid,
                             )
                             .await?;
                         dbtx.commit().await?;

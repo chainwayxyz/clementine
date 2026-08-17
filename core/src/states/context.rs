@@ -56,6 +56,20 @@ pub enum Duty {
         witness: Witness,
         challenged_before: bool,
     },
+    /// This duty is sent when a new kickoff state machine starts.
+    /// It notifies the owner to add necessary transactions for the kickoff to the tx sender.
+    /// For verifiers it doesn't do anything as they don't need to add any transactions unless the kickoff is challenged.
+    /// For operators, this queues transactions like ChallengeTimeout.
+    AddNecessaryTxsForKickoff {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    },
+    /// This duty is sent after a kickoff is detected to be challenged.
+    /// It includes the kickoff data so that the owner can add the relevant txs to the tx sender.
+    AddRelevantTxsToTxSenderIfChallenged {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
     /// This duty is sent after some time (config.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
@@ -136,6 +150,10 @@ pub trait Owner: Clone + NamedEntity {
         block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError>;
+
+    fn is_kickoff_relevant_for_owner(&self, _kickoff_data: &KickoffData) -> bool {
+        true
+    }
 }
 
 /// Context for the state machine

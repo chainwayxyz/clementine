@@ -169,6 +169,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                if !self.owner.is_kickoff_relevant_for_owner(&kickoff_data) {
+                    return Ok(());
+                }
+
                 // Initialize context using the block just before the kickoff height
                 // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
