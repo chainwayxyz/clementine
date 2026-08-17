@@ -3,9 +3,12 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{
+    address::NetworkUnchecked, hashes::Hash, secp256k1::SecretKey, Network, ScriptBuf, Txid,
+    XOnlyPublicKey,
+};
 use bitcoincore_rpc::{json::SignRawTransactionInput, Auth, Client, RpcApi};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use clementine_core::{
     actor::Actor,
     builder::transaction::TransactionType,
@@ -13,9 +16,9 @@ use clementine_core::{
     deposit::SecurityCouncil,
     rpc::clementine::{
         self, clementine_aggregator_client::ClementineAggregatorClient, deposit::DepositData,
-        entity_data_with_id::DataResult, Actors, AggregatorWithdrawalInput, BaseDeposit, Deposit,
-        Empty, EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
-        SendMoveTxRequest, VerifierPublicKeys, XOnlyPublicKeyRpc, XOnlyPublicKeys,
+        entity_data_with_id::DataResult, AggregatorWithdrawalInput, BaseDeposit, Deposit, Empty,
+        EntityStatus, EntityType, GetEntityStatusesRequest, Outpoint, ReplacementDeposit,
+        SendMoveTxRequest, XOnlyPublicKeyRpc,
     },
     EVMAddress,
 };
@@ -59,38 +62,37 @@ enum Commands {
     PrintAddresses,
 }
 
+#[derive(Args)]
+struct WithdrawalArgs {
+    #[arg(long)]
+    withdrawal_id: u32,
+    #[arg(long)]
+    input_signature: String,
+    #[arg(long)]
+    input_outpoint_txid: Txid,
+    #[arg(long)]
+    input_outpoint_vout: u32,
+    #[arg(long, value_parser = parse_script_buf)]
+    output_script_pubkey: ScriptBuf,
+    #[arg(long)]
+    output_amount: u64,
+}
+
 #[derive(Subcommand)]
 enum OperatorCommands {
-    /// Get deposit keys
-    GetDepositKeys {
-        #[arg(long)]
-        deposit_outpoint_txid: String,
-        #[arg(long)]
-        deposit_outpoint_vout: u32,
-    },
     /// Get operator parameters
     GetParams,
     /// Withdraw funds
     Withdraw {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
     },
     /// Get vergen build information
     Vergen,
     /// Get kickoff related txs for sending kickoff manually
     GetReimbursementTxs {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
     },
@@ -131,76 +133,56 @@ enum AggregatorCommands {
     /// Process new deposit
     NewDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        evm_address: Option<String>,
-        #[arg(long)]
-        recovery_taproot_address: Option<String>,
+        recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
     },
     /// Sign a replacement deposit
     NewReplacementDeposit {
         #[arg(long)]
-        deposit_outpoint_txid: String,
+        deposit_outpoint_txid: Txid,
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        old_move_txid: String,
+        old_move_txid: Txid,
     },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
     /// Get deposit address
     GetDepositAddress {
+        #[arg(long, value_parser = parse_evm_address)]
+        evm_address: EVMAddress,
         #[arg(long)]
-        evm_address: Option<String>,
-        #[arg(long)]
-        recovery_taproot_address: Option<String>,
-        #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        user_takes_after: Option<u64>,
+        recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
+        #[arg(long, default_value_t = Network::Regtest)]
+        network: Network,
+        #[arg(long, default_value_t = 200)]
+        user_takes_after: u16,
     },
     GetReplacementDepositAddress {
         #[arg(long)]
-        move_txid: String,
+        move_txid: Txid,
+        #[arg(long, default_value_t = Network::Regtest)]
+        network: Network,
         #[arg(long)]
-        network: Option<String>,
-        #[arg(long)]
-        security_council: Option<SecurityCouncil>,
+        security_council: SecurityCouncil,
     },
     /// Process a new withdrawal
     NewWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
-        #[arg(long)]
-        operator_xonly_pks: Option<Vec<String>>,
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
+        operator_xonly_pks: Option<Vec<XOnlyPublicKey>>,
     },
     NewOptimisticWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
+        #[command(flatten)]
+        withdrawal: WithdrawalArgs,
         #[arg(long)]
         verification_signature: Option<String>,
     },
@@ -211,9 +193,9 @@ enum AggregatorCommands {
     },
     /// Internal command to get the emergency stop encryption public key
     InternalGetEmergencyStopTx {
-        #[arg(long)]
+        #[arg(long, required = true, num_args = 1.., value_delimiter = ',')]
         /// A comma-separated list of move txids
-        move_txids: String,
+        move_txids: Vec<Txid>,
     },
     /// Get compatibility parameters for all entities
     GetCompatibilityParamsFromAll,
@@ -228,7 +210,7 @@ enum BitcoinCommands {
         #[arg(long)]
         raw_tx: String,
         #[arg(long)]
-        fee_payer_address: Option<String>,
+        fee_payer_address: Option<bitcoin::Address<NetworkUnchecked>>,
         #[arg(long)]
         fee_rate: Option<f64>,
         #[arg(long)]
@@ -272,6 +254,39 @@ fn create_minimal_config() -> BridgeConfig {
     }
 }
 
+fn parse_script_buf(script: &str) -> Result<ScriptBuf, String> {
+    ScriptBuf::from_hex(script).map_err(|error| error.to_string())
+}
+
+fn parse_evm_address(address: &str) -> Result<EVMAddress, String> {
+    alloy::primitives::Address::from_str(address)
+        .map(|address| EVMAddress(address.into_array()))
+        .map_err(|error| error.to_string())
+}
+
+fn rpc_outpoint(txid: Txid, vout: u32) -> Outpoint {
+    Outpoint {
+        txid: Some(txid.into()),
+        vout,
+    }
+}
+
+fn withdrawal_params_from_args(
+    withdrawal: WithdrawalArgs,
+) -> clementine_core::rpc::clementine::WithdrawParams {
+    clementine_core::rpc::clementine::WithdrawParams {
+        withdrawal_id: withdrawal.withdrawal_id,
+        input_signature: hex::decode(withdrawal.input_signature)
+            .expect("Failed to decode input signature"),
+        input_outpoint: Some(rpc_outpoint(
+            withdrawal.input_outpoint_txid,
+            withdrawal.input_outpoint_vout,
+        )),
+        output_script_pubkey: withdrawal.output_script_pubkey.into_bytes(),
+        output_amount: withdrawal.output_amount,
+    }
+}
+
 async fn handle_operator_call(url: String, command: OperatorCommands) {
     let config = create_minimal_config();
     let mut operator = clementine_core::rpc::get_clients(
@@ -285,49 +300,6 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         .clone();
 
     match command {
-        OperatorCommands::GetDepositKeys {
-            deposit_outpoint_txid,
-            deposit_outpoint_vout,
-        } => {
-            println!(
-                "Getting deposit keys for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
-            );
-            let params = clementine_core::rpc::clementine::DepositParams {
-                security_council: Some(clementine::SecurityCouncil {
-                    pks: vec![],
-                    threshold: 0,
-                }),
-                deposit: Some(Deposit {
-                    deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine::Txid {
-                            txid: hex::decode(deposit_outpoint_txid)
-                                .expect("Failed to decode txid"),
-                        }),
-                        vout: deposit_outpoint_vout,
-                    }),
-                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
-                        evm_address: vec![1; 20],
-                        recovery_taproot_address: String::new(),
-                    })),
-                }),
-                actors: Some(Actors {
-                    verifiers: Some(VerifierPublicKeys {
-                        verifier_public_keys: vec![],
-                    }),
-                    watchtowers: Some(XOnlyPublicKeys {
-                        xonly_public_keys: vec![],
-                    }),
-                    operators: Some(XOnlyPublicKeys {
-                        xonly_public_keys: vec![],
-                    }),
-                }),
-            };
-            let response = operator
-                .get_deposit_keys(Request::new(params))
-                .await
-                .expect("Failed to make a request to operator");
-            println!("Get deposit keys response: {response:?}");
-        }
         OperatorCommands::GetParams => {
             let params = operator
                 .get_params(Empty {})
@@ -335,35 +307,11 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .expect("Failed to make a request to operator");
             println!("Operator params: {params:?}");
         }
-        OperatorCommands::Withdraw {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
-        } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
+        OperatorCommands::Withdraw { withdrawal } => {
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: hex::decode(input_signature)
-                    .expect("Failed to decode input signature"),
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: Txid::from_str(&input_outpoint_txid)
-                            .expect("Failed to decode txid")
-                            .to_byte_array()
-                            .to_vec(),
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: hex::decode(output_script_pubkey)
-                    .expect("Failed to decode output script pubkey"),
-                output_amount,
-            };
             operator
-                .internal_withdraw(Request::new(params))
+                .internal_withdraw(Request::new(withdrawal_params_from_args(withdrawal)))
                 .await
                 .expect("Failed to make a request to operator");
         }
@@ -389,13 +337,11 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             println!(
                 "Getting kickoff txs for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
             );
-            let mut txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            txid_bytes.reverse();
             let response = operator
-                .get_reimbursement_txs(Request::new(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid { txid: txid_bytes }),
-                    vout: deposit_outpoint_vout,
-                }))
+                .get_reimbursement_txs(Request::new(rpc_outpoint(
+                    deposit_outpoint_txid,
+                    deposit_outpoint_vout,
+                )))
                 .await
                 .expect("Failed to make a request to operator")
                 .into_inner();
@@ -571,37 +517,11 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
         } => {
-            let evm_address = match evm_address {
-                Some(address) => EVMAddress(
-                    hex::decode(address)
-                        .expect("Failed to decode evm address")
-                        .try_into()
-                        .expect("Failed to convert evm address to array"),
-                ),
-                None => EVMAddress([1; 20]),
-            };
-
-            let recovery_taproot_address = match recovery_taproot_address {
-                Some(address) => bitcoin::Address::from_str(&address)
-                    .expect("Failed to parse recovery taproot address"),
-                None => bitcoin::Address::from_str(
-                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
-                )
-                .expect("Failed to parse recovery taproot address"),
-            };
-
-            let mut deposit_outpoint_txid =
-                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            deposit_outpoint_txid.reverse();
+            let deposit_outpoint = rpc_outpoint(deposit_outpoint_txid, deposit_outpoint_vout);
 
             let move_to_vault_tx = aggregator
                 .new_deposit(Deposit {
-                    deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid.clone(),
-                        }),
-                        vout: deposit_outpoint_vout,
-                    }),
+                    deposit_outpoint: Some(deposit_outpoint.clone()),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
                         evm_address: evm_address.0.to_vec(),
                         recovery_taproot_address: recovery_taproot_address
@@ -617,12 +537,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(move_to_vault_tx.clone()),
-                    deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid,
-                        }),
-                        vout: deposit_outpoint_vout,
-                    }),
+                    deposit_outpoint: Some(deposit_outpoint),
                 })
                 .await;
 
@@ -646,42 +561,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             }
         }
         AggregatorCommands::NewOptimisticWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
-
-            let mut input_outpoint_txid_bytes =
-                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
-            input_outpoint_txid_bytes.reverse();
-
-            let input_signature_bytes =
-                hex::decode(input_signature).expect("Failed to decode input signature");
-
-            let output_script_pubkey_bytes =
-                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: input_outpoint_txid_bytes,
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey_bytes,
-                output_amount,
-            };
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::OptimisticWithdrawParams {
-                    withdrawal: Some(params),
+                    withdrawal: Some(withdrawal_params_from_args(withdrawal)),
                     verification_signature: verification_signature.clone(),
                 };
 
@@ -713,37 +600,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .expect("Failed to parse xonly_pk");
 
-            let recovery_taproot_address = match recovery_taproot_address {
-                Some(address) => bitcoin::Address::from_str(&address)
-                    .expect("Failed to parse recovery taproot address"),
-                None => bitcoin::Address::from_str(
-                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
-                )
-                .expect("Failed to parse recovery taproot address"),
-            };
-
-            let evm_address = match evm_address {
-                Some(address) => EVMAddress(
-                    hex::decode(address)
-                        .expect("Failed to decode evm address")
-                        .try_into()
-                        .expect("Failed to convert evm address to array"),
-                ),
-                None => EVMAddress([1; 20]),
-            };
-
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
-
-            let user_takes_after = match user_takes_after {
-                Some(amount) => amount as u16,
-                None => 200,
-            };
-
             let deposit_address = clementine_core::builder::address::generate_deposit_address(
                 xonly_pk,
                 &recovery_taproot_address,
@@ -757,20 +613,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             println!("Deposit address: {address}");
         }
         AggregatorCommands::InternalGetEmergencyStopTx { move_txids } => {
-            let move_txids = move_txids
-                .split(',')
-                .map(|txid| Txid::from_str(txid).expect("Failed to parse txid"))
-                .collect::<Vec<Txid>>();
             let emergency_stop_tx = aggregator
                 .internal_get_emergency_stop_tx(Request::new(
                     clementine::GetEmergencyStopTxRequest {
-                        txids: move_txids
-                            .clone()
-                            .into_iter()
-                            .map(|txid| clementine::Txid {
-                                txid: txid.to_byte_array().to_vec(),
-                            })
-                            .collect(),
+                        txids: move_txids.clone().into_iter().map(Into::into).collect(),
                     },
                 ))
                 .await
@@ -794,14 +640,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             network,
             security_council,
         } => {
-            let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
-            move_txid.reverse();
-            let move_txid = bitcoin::Txid::from_byte_array(
-                move_txid
-                    .try_into()
-                    .expect("Failed to convert txid to array"),
-            );
-
             let response = aggregator
                 .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
@@ -811,19 +649,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                     .expect("Failed to parse xonly_pk");
 
-            let network = match network {
-                Some(network) => {
-                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
-                }
-                None => bitcoin::Network::Regtest,
-            };
-
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    security_council.expect("Security council is required"),
+                    security_council,
                 )
                 .expect("Failed to generate replacement deposit address");
 
@@ -834,25 +665,13 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             deposit_outpoint_vout,
             old_move_txid,
         } => {
-            let mut old_move_txid = hex::decode(old_move_txid).expect("Failed to decode txid");
-            old_move_txid.reverse();
-
-            let mut deposit_outpoint_txid =
-                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
-            deposit_outpoint_txid.reverse();
+            let deposit_outpoint = rpc_outpoint(deposit_outpoint_txid, deposit_outpoint_vout);
 
             let deposit = aggregator
                 .new_deposit(Deposit {
-                    deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid.clone(),
-                        }),
-                        vout: deposit_outpoint_vout,
-                    }),
+                    deposit_outpoint: Some(deposit_outpoint.clone()),
                     deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
-                        old_move_txid: Some(clementine::Txid {
-                            txid: old_move_txid,
-                        }),
+                        old_move_txid: Some(old_move_txid.into()),
                     })),
                 })
                 .await
@@ -860,12 +679,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .send_move_to_vault_tx(SendMoveTxRequest {
                     raw_tx: Some(deposit.into_inner()),
-                    deposit_outpoint: Some(Outpoint {
-                        txid: Some(clementine_core::rpc::clementine::Txid {
-                            txid: deposit_outpoint_txid,
-                        }),
-                        vout: deposit_outpoint_vout,
-                    }),
+                    deposit_outpoint: Some(deposit_outpoint),
                 })
                 .await
                 .expect("Failed to make a request");
@@ -878,58 +692,23 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             println!("Move txid: {txid}");
         }
         AggregatorCommands::NewWithdrawal {
-            withdrawal_id,
-            input_signature,
-            input_outpoint_txid,
-            input_outpoint_vout,
-            output_script_pubkey,
-            output_amount,
+            withdrawal,
             verification_signature,
             operator_xonly_pks,
         } => {
-            println!("Processing withdrawal with id {withdrawal_id}");
-
-            let mut input_outpoint_txid_bytes =
-                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
-            input_outpoint_txid_bytes.reverse();
-
-            let input_signature_bytes =
-                hex::decode(input_signature).expect("Failed to decode input signature");
-
-            let output_script_pubkey_bytes =
-                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
-
-            let params = clementine_core::rpc::clementine::WithdrawParams {
-                withdrawal_id,
-                input_signature: input_signature_bytes,
-                input_outpoint: Some(Outpoint {
-                    txid: Some(clementine_core::rpc::clementine::Txid {
-                        txid: input_outpoint_txid_bytes,
-                    }),
-                    vout: input_outpoint_vout,
-                }),
-                output_script_pubkey: output_script_pubkey_bytes,
-                output_amount,
-            };
+            println!("Processing withdrawal with id {}", withdrawal.withdrawal_id);
 
             let withdraw_params_with_sig =
                 clementine_core::rpc::clementine::WithdrawParamsWithSig {
-                    withdrawal: Some(params),
+                    withdrawal: Some(withdrawal_params_from_args(withdrawal)),
                     verification_signature,
                 };
 
             let operator_xonly_pks = operator_xonly_pks
-                .map(|pks| {
-                    pks.iter()
-                        .map(|pk| {
-                            XOnlyPublicKeyRpc::from(
-                                XOnlyPublicKey::from_str(pk)
-                                    .expect("Failed to parse xonly public key"),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .map(XOnlyPublicKeyRpc::from)
+                .collect::<Vec<_>>();
 
             let response = aggregator
                 .withdraw(Request::new(AggregatorWithdrawalInput {
@@ -1147,7 +926,7 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                 .await
                 .expect("Failed to connect to Bitcoin RPC");
 
-            if fee_payer_address.is_none() {
+            let Some(fee_payer_address) = fee_payer_address else {
                 let temp_address = rpc
                     .get_new_address(
                         Some("fee_payer_address"),
@@ -1161,13 +940,9 @@ async fn handle_bitcoin_call(url: String, command: BitcoinCommands) {
                 );
                 println!("Please use this address for the fee payer in the next command");
                 return;
-            }
+            };
 
-            let fee_payer_address = bitcoin::Address::from_str(
-                &fee_payer_address.expect("Fee payer address is required"),
-            )
-            .expect("Failed to parse fee payer address")
-            .assume_checked();
+            let fee_payer_address = fee_payer_address.assume_checked();
 
             let fee_rate_sat_vb = fee_rate.unwrap_or(10.0) as u64;
 
