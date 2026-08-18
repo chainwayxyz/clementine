@@ -9,6 +9,8 @@ runs:
   steps:
   - name: Install Protoc
     uses: arduino/setup-protoc@v3
+    with:
+      repo-token: ${{ github.token }}
 
   # Keep the crate version, artifact digest, cache path, and cache key synchronized with
   # risc0-circuit-recursion's build.rs whenever that dependency is upgraded.
