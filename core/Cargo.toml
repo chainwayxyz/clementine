@@ -98,8 +98,9 @@ url = { version = "2.5.4" }
 jsonrpc-async = { version = "2.0.2" }
 wiremock = "0.5"
 
+# Intended for node operators (aggregator/operator/verifier), not end users.
 [[bin]]
-name = "clementine-cli"
+name = "clementine-node-cli"
 path = "src/bin/cli.rs"
 
 

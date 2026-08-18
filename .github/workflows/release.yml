@@ -40,7 +40,8 @@ jobs:
       - name: Copy No Features Binaries
         run: |
           cp target/release/clementine-core target/release/clementine-core-no-automation
-          cp target/release/clementine-cli target/release/clementine-cli-no-automation
+          # Asset name is still clementine-cli-*. Update clementine-deployer before changing this upload name.
+          cp target/release/clementine-node-cli target/release/clementine-cli-no-automation
 
       - name: Build Project (with automation)
         run: |
@@ -49,7 +50,8 @@ jobs:
       - name: Copy Automation Feature Binaries
         run: |
           cp target/release/clementine-core target/release/clementine-core-with-automation
-          cp target/release/clementine-cli target/release/clementine-cli-with-automation
+          # Asset name is still clementine-cli-*. Update clementine-deployer before changing this upload name.
+          cp target/release/clementine-node-cli target/release/clementine-cli-with-automation
 
       - name: Upload clementine no-automation linux-amd64 Binary
         uses: actions/upload-artifact@v4

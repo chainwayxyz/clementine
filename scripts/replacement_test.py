@@ -20,7 +20,7 @@ def run_cmd(cmd, capture=True):
 
 def get_deposit_address():
     output = run_cmd(
-        f"cargo run --bin clementine-cli -- --node-url {NODE_URL} aggregator get-deposit-address"
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator get-deposit-address"
     )
     for word in output.split():
         if word.startswith("bcrt") or word.startswith("tb1") or word.startswith("bc1"):
@@ -45,7 +45,7 @@ def get_output_index(txid, address):
 
 def register_deposit(txid, vout):
     output = run_cmd(
-        f"cargo run --bin clementine-cli -- --node-url {NODE_URL} aggregator new-deposit "
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator new-deposit "
         f"--deposit-outpoint-txid {txid} --deposit-outpoint-vout {vout}"
     )
 
@@ -54,7 +54,7 @@ def register_deposit(txid, vout):
 
 def setup():
     output = run_cmd(
-        f"cargo run --bin clementine-cli -- --node-url {NODE_URL} aggregator setup"
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator setup"
     )
 
     return output
@@ -62,7 +62,7 @@ def setup():
 
 def get_replacement_address(move_txid):
     output = run_cmd(
-        f"cargo run --bin clementine-cli -- --node-url {NODE_URL} aggregator get-replacement-deposit-address "
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator get-replacement-deposit-address "
         f"--move-txid {move_txid}"
     )
     for word in output.split():
@@ -73,7 +73,7 @@ def get_replacement_address(move_txid):
 
 def register_replacement_deposit(new_txid, new_vout, old_txid):
     final_output = run_cmd(
-        f"cargo run --bin clementine-cli -- --node-url {NODE_URL} aggregator new-replacement-deposit "
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator new-replacement-deposit "
         f"--deposit-outpoint-txid {new_txid} "
         f"--deposit-outpoint-vout {new_vout} "
         f"--old-move-txid {old_txid}"

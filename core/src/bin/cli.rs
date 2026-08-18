@@ -1,4 +1,8 @@
-//! This module defines a command line interface for the RPC client.
+//! Command-line interface for Clementine node operators.
+//!
+//! This binary talks to running Clementine actor servers (aggregator, operator,
+//! verifier). It is intended for node operators, not for end users of the
+//! bridge.
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -24,6 +28,7 @@ use clementine_core::{
 };
 use tonic::Request;
 
+/// Clementine CLI for node operators. Not intended for end users of the bridge.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -89,7 +94,8 @@ enum OperatorCommands {
     },
     /// Get vergen build information
     Vergen,
-    /// Get kickoff related txs for sending kickoff manually
+    /// Get kickoff related txs for sending kickoff manually.
+    /// On automated operator nodes this is only needed if automation fails.
     GetReimbursementTxs {
         #[arg(long)]
         deposit_outpoint_txid: Txid,
@@ -328,12 +334,6 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             deposit_outpoint_txid,
             deposit_outpoint_vout,
         } => {
-            #[cfg(feature = "automation")]
-            {
-                println!("WARNING: Automation is enabled, do not use this command unless some error happens with the automation \n
-                Automation should handle the reimbursement process automatically");
-            }
-
             println!(
                 "Getting kickoff txs for outpoint {deposit_outpoint_txid}:{deposit_outpoint_vout}"
             );
