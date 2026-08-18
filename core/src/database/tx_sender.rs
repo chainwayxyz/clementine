@@ -713,11 +713,11 @@ impl Database {
                     AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
                     -- Transaction must not be already confirmed
                     AND txs.seen_block_id IS NULL
-                    -- Check if fee_rate is lower than the provided fee rate or null
+                    -- Check if stored sat/kWU is lower than the provided fee rate or null
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(
-            i64::try_from(fee_rate.to_sat_per_vb_ceil())
+            i64::try_from(fee_rate.to_sat_per_kwu())
                 .wrap_err("Failed to convert fee rate to i64")?,
         )
         .bind(
@@ -736,6 +736,7 @@ impl Database {
         Ok(txs)
     }
 
+    /// Persist `effective_fee_rate` as sat/kWU (`FeeRate::to_sat_per_kwu`).
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -746,7 +747,7 @@ impl Database {
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
         .bind(
-            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
+            i64::try_from(effective_fee_rate.to_sat_per_kwu())
                 .wrap_err("Failed to convert effective fee rate to i64")?,
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);

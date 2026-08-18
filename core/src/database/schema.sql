@@ -160,6 +160,7 @@ create table if not exists tx_sender_try_to_send_txs (
     raw_tx bytea not null,
     tx_metadata text,
     fee_paying_type fee_paying_type not null,
+    -- sat/kWU, matching bitcoin::FeeRate::to_sat_per_kwu()
     effective_fee_rate bigint,
     txid bytea,
     -- txid of the tx if it is CPFP

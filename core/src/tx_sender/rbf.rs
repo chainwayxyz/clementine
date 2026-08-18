@@ -273,12 +273,26 @@ impl TxSender {
             let prevouts: Vec<bitcoin::TxOut> = decoded_psbt
                 .inputs
                 .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .clone()
-                        .ok_or_eyre("expected inputs to be segwit")
+                .zip(tx.input.iter())
+                .map(|(psbt_input, tx_input)| {
+                    if let Some(witness_utxo) = psbt_input.witness_utxo.clone() {
+                        Ok(witness_utxo)
+                    } else if let Some(ref non_witness_tx) = psbt_input.non_witness_utxo {
+                        let vout = tx_input.previous_output.vout as usize;
+                        non_witness_tx
+                            .output
+                            .get(vout)
+                            .cloned()
+                            .ok_or_eyre(format!(
+                                "Output index {vout} out of bounds in previous transaction",
+                            ))
+                            .map_err(SendTxError::Other)
+                    } else {
+                        Err(eyre!(
+                            "Neither witness_utxo nor non_witness_utxo found for input"
+                        ))
                         .map_err(SendTxError::Other)
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
 
@@ -376,6 +390,57 @@ impl TxSender {
         };
 
         psbt.inputs.len() > original_tx.input.len()
+    }
+
+    /// Keep original protocol outputs at their original indexes. Wallet funding
+    /// or bumping may append change, but must not reorder existing outputs.
+    fn reorder_psbt_outputs(&self, psbt: &mut Psbt, original_tx: &Transaction) -> Result<()> {
+        if psbt.unsigned_tx.output.len() != psbt.outputs.len() {
+            return Err(SendTxError::Other(eyre!(
+                "PSBT outputs length mismatch: unsigned_tx outputs={} psbt outputs={}",
+                psbt.unsigned_tx.output.len(),
+                psbt.outputs.len()
+            )));
+        }
+
+        let mut used = vec![false; psbt.unsigned_tx.output.len()];
+        let mut new_outputs = Vec::with_capacity(psbt.unsigned_tx.output.len());
+        let mut new_psbt_outputs = Vec::with_capacity(psbt.outputs.len());
+
+        for original_out in &original_tx.output {
+            let mut found_idx = None;
+            for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+                if !used[idx]
+                    && out.value == original_out.value
+                    && out.script_pubkey == original_out.script_pubkey
+                {
+                    found_idx = Some(idx);
+                    break;
+                }
+            }
+
+            let Some(idx) = found_idx else {
+                return Err(SendTxError::Other(eyre!(
+                    "Failed to find original output in PSBT"
+                )));
+            };
+
+            used[idx] = true;
+            new_outputs.push(psbt.unsigned_tx.output[idx].clone());
+            new_psbt_outputs.push(psbt.outputs[idx].clone());
+        }
+
+        for (idx, out) in psbt.unsigned_tx.output.iter().enumerate() {
+            if !used[idx] {
+                new_outputs.push(out.clone());
+                new_psbt_outputs.push(psbt.outputs[idx].clone());
+            }
+        }
+
+        psbt.unsigned_tx.output = new_outputs;
+        psbt.outputs = new_psbt_outputs;
+
+        Ok(())
     }
 
     pub async fn get_tx_fee(&self, tx: &Transaction) -> Result<Amount> {
@@ -483,7 +548,7 @@ impl TxSender {
                 .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
-            let bumped_psbt = match bump_result {
+            let mut bumped_psbt = match bump_result {
                 Err(e) => {
                     // Check for common errors indicating the tx is already confirmed or spent
                     let rpc_error_str = e.to_string();
@@ -534,10 +599,35 @@ impl TxSender {
                 }
             };
 
+            self.fill_in_utxo_info(&mut bumped_psbt)
+                .await
+                .map_err(|err| {
+                    let err = eyre!(err).wrap_err("Failed to fill in utxo info");
+                    self.handle_err(
+                        format!("{err:?}"),
+                        "rbf_fill_in_utxo_info_failed",
+                        try_to_send_id,
+                    );
+
+                    err
+                })?;
+
             let bumped_psbt = self
                 .copy_witnesses(bumped_psbt, &tx)
                 .await
                 .wrap_err("Failed to fill SAP signatures")?;
+
+            let mut unsigned_psbt = Psbt::from_str(&bumped_psbt).map_err(|e| eyre!(e))?;
+            if let Err(err) = self.reorder_psbt_outputs(&mut unsigned_psbt, &tx) {
+                let err_msg = format!("Failed to reorder bumped PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
+            }
+            let bumped_psbt = unsigned_psbt.to_string();
 
             // Wallet first pass
             // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
@@ -712,6 +802,15 @@ impl TxSender {
             let mut psbt = Psbt::from_str(&create_result.psbt).map_err(|e| eyre!(e))?;
             psbt.unsigned_tx.lock_time = tx.lock_time;
             psbt.unsigned_tx.version = tx.version;
+            if let Err(err) = self.reorder_psbt_outputs(&mut psbt, &tx) {
+                let err_msg = format!("Failed to reorder initial PSBT outputs: {err}");
+                self.handle_err(
+                    err_msg.clone(),
+                    "rbf_psbt_output_reorder_failed",
+                    try_to_send_id,
+                );
+                return Err(err);
+            }
 
             tracing::debug!(
                 try_to_send_id,
