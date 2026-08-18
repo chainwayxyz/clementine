@@ -8,6 +8,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  actions: read
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
@@ -24,29 +28,30 @@ env:
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
 
 jobs:
-  # Build ----------------------------------------------------------------------
-  release_build_all_features:
-    name: Release | All features | Compile
+  # Compile check --------------------------------------------------------------
+  release_check:
+    name: Release | All features | Check
     runs-on: ubicloud-standard-16
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save/restore build artifacts
+      - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: release-check
 
-      - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_ALL_FEATURES --release
+      - name: Check release compilation
+        run: cargo check $CARGOFLAGS_ALL_FEATURES --release
 
   release_build:
     name: Release | No features | Compile and Test
-    permissions:
-      contents: read
     runs-on: ubicloud-standard-4
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-no-automation-test.log
@@ -77,6 +82,12 @@ jobs:
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
+      - name: Restore Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          add-job-id-key: "false"
+          key: release-no-automation
+
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --release
 
@@ -98,6 +109,7 @@ jobs:
   debug_build_test_all_features:
     name: Debug | All features | Test
     runs-on: ubicloud-standard-16
+    timeout-minutes: 60
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
@@ -128,10 +140,11 @@ jobs:
       - name: Create test log directories
         run: mkdir -p test-logs/debug
 
-      - name: Save/restore build artifacts
+      - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: debug-all-features
 
       - name: Run unit tests
         id: unit_tests
@@ -171,8 +184,8 @@ jobs:
   release_build_test_all_features:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
+    timeout-minutes: 90
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
@@ -203,17 +216,18 @@ jobs:
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
-      - name: Save/restore build artifacts
+      - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: release-all-features
 
       - name: Run unit tests
         id: unit_tests
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test_unit --release 2>&1 | tee unit_test_output.log
+          cargo test_unit_release 2>&1 | tee unit_test_output.log
 
       - name: Check for specific test failure and run generate_deposit_state
         if: failure()
@@ -247,8 +261,8 @@ jobs:
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-8
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
@@ -308,10 +322,11 @@ jobs:
       - name: Create test log directories
         run: mkdir -p test-logs/standalone
 
-      - name: Save/restore build artifacts
+      - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: release-all-features
 
       - name: Run tests
         run: |

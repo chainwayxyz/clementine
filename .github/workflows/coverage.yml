@@ -2,6 +2,10 @@ name: Run Coverage
 
 on: [workflow_dispatch]
 
+permissions:
+  actions: read
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
@@ -49,10 +53,10 @@ jobs:
       - name: Create test log directories
         run: mkdir -p test-logs/coverage
 
-      - name: Save/restore build artifacts
+      - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          key: coverage-release
 
       - name: Run coverage
         run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --output-path lcov.info -- --test-threads 6
