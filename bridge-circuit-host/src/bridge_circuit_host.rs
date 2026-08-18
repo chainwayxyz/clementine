@@ -394,7 +394,19 @@ pub fn create_spv(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{mock_zkvm::MockZkvmHost, utils::total_work_from_wt_tx};
+    use crate::mock_zkvm::MockZkvmHost;
+    #[cfg(feature = "use-test-vk")]
+    use crate::utils::total_work_from_wt_tx;
+    #[cfg(not(feature = "use-test-vk"))]
+    use bitcoin::{
+        hashes::Hash as _,
+        key::Secp256k1,
+        opcodes::all::OP_PUSHNUM_1,
+        script::{Builder, PushBytesBuf},
+        secp256k1::{Keypair, Message, SecretKey},
+        sighash::{Prevouts, SighashCache},
+        Network, ScriptBuf, TapSighashType, Witness,
+    };
 
     const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
@@ -402,11 +414,19 @@ mod tests {
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     use borsh::BorshDeserialize;
+    #[cfg(not(feature = "use-test-vk"))]
+    use circuits_lib::bridge_circuit::{constants::REGTEST_LC_IMAGE_ID, structs::CircuitWitness};
+    #[cfg(feature = "use-test-vk")]
+    use circuits_lib::bridge_circuit::{
+        structs::ChallengeSendingWatchtowers, total_work_and_watchtower_flags,
+    };
+    #[cfg(not(feature = "use-test-vk"))]
+    use circuits_lib::common::constants::REGTEST_HEADER_CHAIN_METHOD_ID;
     use circuits_lib::{
         bridge_circuit::{
             constants::REGTEST_WORK_ONLY_METHOD_ID,
-            structs::{ChallengeSendingWatchtowers, TotalWork, WorkOnlyCircuitOutput},
-            total_work_and_watchtower_flags,
+            groth16::CircuitGroth16Proof,
+            structs::{TotalWork, WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
         },
         common::zkvm::ZkvmHost,
         header_chain::{
@@ -415,9 +435,26 @@ mod tests {
         },
     };
     use risc0_zkvm::default_executor;
+    #[cfg(not(feature = "use-test-vk"))]
+    use risc0_zkvm::{Digest, FakeReceipt, InnerReceipt, Receipt, ReceiptClaim, VerifierContext};
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
     const MAINNET_HEADERS: &[u8] = include_bytes!("../bin-files/mainnet-headers.bin");
+
+    #[cfg(not(feature = "use-test-vk"))]
+    fn fake_receipt(image_id: impl Into<Digest>, journal: Vec<u8>) -> Receipt {
+        let claim = ReceiptClaim::ok(image_id, journal.clone());
+        Receipt::new(InnerReceipt::Fake(FakeReceipt::new(claim)), journal)
+    }
+
+    #[cfg(not(feature = "use-test-vk"))]
+    fn p2tr_data_script(data: &[u8]) -> ScriptBuf {
+        let data = PushBytesBuf::try_from(data.to_vec()).expect("32-byte data push is valid");
+        Builder::new()
+            .push_opcode(OP_PUSHNUM_1)
+            .push_slice(data)
+            .into_script()
+    }
 
     #[test]
     fn test_header_chain_circuit() {
@@ -633,7 +670,7 @@ mod tests {
 
         println!("Output: {header_chain_output:?}");
 
-        let work_only_input = circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput {
+        let work_only_input = WorkOnlyCircuitInput {
             header_chain_circuit_output: header_chain_output.clone(),
         };
 
@@ -669,6 +706,271 @@ mod tests {
 
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
         println!("Circuit G16 proof: {circuit_g16_proof:?}");
+    }
+
+    /// Operator work used after a real watchtower Groth16 is produced. Must stay strictly
+    /// between 0 and the watchtower's work so Groth16 success is a guest panic and Groth16
+    /// failure is not.
+    #[cfg(not(feature = "use-test-vk"))]
+    const OPERATOR_WORK_BELOW_WATCHTOWER: [u8; 16] = {
+        let mut work = [0u8; 16];
+        work[15] = 1;
+        work
+    };
+
+    /// Packs a watchtower Groth16 commit into a signed challenge and runs the production
+    /// operator guest. Operator HCP/LCP stay fake; only the watchtower commit is the variable.
+    #[cfg(not(feature = "use-test-vk"))]
+    fn run_operator_bridge_circuit_with_watchtower_commit(
+        compressed_g16_proof: [u8; 128],
+        watchtower_work: [u8; 16],
+        genesis_state_hash: [u8; 32],
+    ) -> Result<Receipt, String> {
+        assert!(
+            watchtower_work > OPERATOR_WORK_BELOW_WATCHTOWER,
+            "watchtower work must exceed the lowered operator work"
+        );
+
+        let commit_data: [u8; 144] = [compressed_g16_proof.as_slice(), watchtower_work.as_slice()]
+            .concat()
+            .try_into()
+            .unwrap();
+
+        let input_bytes = include_bytes!("../bin-files/bch_params_varying_total_works.bin");
+        let mut bridge_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes).unwrap();
+
+        // One honest challenger. Remaining registered public keys stay in the deposit
+        // constant, but no other challenge input is needed.
+        bridge_params.watchtower_inputs.truncate(1);
+        let watchtower_idx = bridge_params.watchtower_inputs[0].watchtower_idx as usize;
+        let challenge_input_idx =
+            bridge_params.watchtower_inputs[0].watchtower_challenge_input_idx as usize;
+
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[42; 32]).unwrap();
+        let keypair = Keypair::from_secret_key(&secp, &secret_key);
+        let (watchtower_pubkey, _) = keypair.x_only_public_key();
+        bridge_params.all_tweaked_watchtower_pubkeys[watchtower_idx] = watchtower_pubkey.into();
+
+        let challenge_connector_vout = bridge_params.watchtower_inputs[0]
+            .watchtower_challenge_tx
+            .input[challenge_input_idx]
+            .previous_output
+            .vout as usize;
+        bridge_params.kickoff_tx.output[challenge_connector_vout].script_pubkey =
+            p2tr_data_script(&watchtower_pubkey.serialize());
+        let challenge_prevout = bridge_params.kickoff_tx.output[challenge_connector_vout].clone();
+        let kickoff_txid = bridge_params.kickoff_tx.compute_txid();
+
+        {
+            let watchtower_input = &mut bridge_params.watchtower_inputs[0];
+            watchtower_input.annex_digest = None;
+            watchtower_input.watchtower_challenge_tx.input[challenge_input_idx]
+                .previous_output
+                .txid = kickoff_txid;
+            watchtower_input.watchtower_challenge_utxos[challenge_input_idx].0 = challenge_prevout;
+            watchtower_input.watchtower_challenge_tx.output[0].script_pubkey =
+                p2tr_data_script(&commit_data[0..32]);
+            watchtower_input.watchtower_challenge_tx.output[1].script_pubkey =
+                p2tr_data_script(&commit_data[32..64]);
+            let remaining = PushBytesBuf::try_from(commit_data[64..].to_vec()).unwrap();
+            watchtower_input.watchtower_challenge_tx.output[2].script_pubkey =
+                ScriptBuf::new_op_return(remaining);
+        }
+
+        let challenge_sighash = {
+            let watchtower_input = &bridge_params.watchtower_inputs[0];
+            let prevouts = watchtower_input
+                .watchtower_challenge_utxos
+                .iter()
+                .map(|utxo| utxo.0.clone())
+                .collect::<Vec<_>>();
+            SighashCache::new(&watchtower_input.watchtower_challenge_tx.0)
+                .taproot_key_spend_signature_hash(
+                    challenge_input_idx,
+                    &Prevouts::All(&prevouts),
+                    TapSighashType::Default,
+                )
+                .unwrap()
+        };
+        let signature = secp.sign_schnorr(
+            &Message::from_digest(*challenge_sighash.as_byte_array()),
+            &keypair,
+        );
+        bridge_params.watchtower_inputs[0].watchtower_challenge_witness =
+            CircuitWitness::from(Witness::from_slice(&[signature.as_ref()]));
+
+        // Operator HCP/LCP stay fake. Lower operator work so only a verifying
+        // watchtower Groth16 can fail the guest.
+        bridge_params.block_header_circuit_output.genesis_state_hash = genesis_state_hash;
+        bridge_params
+            .block_header_circuit_output
+            .chain_state
+            .total_work[16..]
+            .copy_from_slice(&OPERATOR_WORK_BELOW_WATCHTOWER);
+        let operator_hcp_journal =
+            borsh::to_vec(&bridge_params.block_header_circuit_output).unwrap();
+        bridge_params.headerchain_receipt =
+            fake_receipt(REGTEST_HEADER_CHAIN_METHOD_ID, operator_hcp_journal);
+        bridge_params.lcp_receipt = fake_receipt(
+            REGTEST_LC_IMAGE_ID,
+            bridge_params.light_client_proof.lc_journal.clone(),
+        );
+
+        let bridge_input = bridge_params.clone().into_bridge_circuit_input();
+        let bridge_env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&bridge_input).unwrap())
+            .add_assumption(bridge_params.headerchain_receipt)
+            .add_assumption(bridge_params.lcp_receipt)
+            .build()
+            .unwrap();
+
+        default_prover()
+            .prove_with_opts(
+                bridge_env,
+                REGTEST_BRIDGE_CIRCUIT_ELF,
+                &ProverOpts::succinct().with_dev_mode(true),
+            )
+            .map(|prove_info| prove_info.receipt)
+            .map_err(|err| format!("{err:?}"))
+    }
+
+    #[cfg(feature = "use-test-vk")]
+    #[test]
+    #[ignore = "requires x86_64, Docker, and real RISC0 proving; run by the dedicated CI job"]
+    fn operator_verifies_real_risc0_watchtower_challenge() {
+        panic!("this test requires the production Groth16 VK; do not enable use-test-vk");
+    }
+
+    #[cfg(not(feature = "use-test-vk"))]
+    #[test]
+    #[ignore = "requires x86_64, Docker, and real RISC0 proving; run by the dedicated CI job"]
+    fn operator_verifies_real_risc0_watchtower_challenge() {
+        let verifier_context = VerifierContext::default().with_dev_mode(false);
+        let header_chain_image_id = compute_image_id(REGTEST_HEADER_CHAIN_ELF).unwrap();
+        assert_eq!(
+            header_chain_image_id.as_words(),
+            &REGTEST_HEADER_CHAIN_METHOD_ID
+        );
+
+        // One regtest header is enough to produce non-zero, honestly accumulated work while
+        // keeping the real header-chain proof small enough for a CPU-only test server.
+        let genesis_state = ChainState::genesis_state();
+        let genesis_header =
+            CircuitBlockHeader::from(bitcoin::constants::genesis_block(Network::Regtest).header);
+        let header_chain_input = HeaderChainCircuitInput {
+            method_id: REGTEST_HEADER_CHAIN_METHOD_ID,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock(genesis_state.clone()),
+            block_headers: vec![genesis_header],
+        };
+
+        let header_chain_env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&header_chain_input).unwrap())
+            .build()
+            .unwrap();
+        eprintln!("proving one-header watchtower HCP with RISC0");
+        let header_chain_proving_started = std::time::Instant::now();
+        let header_chain_receipt = default_prover()
+            .prove_with_opts(
+                header_chain_env,
+                REGTEST_HEADER_CHAIN_ELF,
+                &ProverOpts::default().with_dev_mode(false),
+            )
+            .unwrap()
+            .receipt;
+        eprintln!(
+            "one-header watchtower HCP proved in {:?}",
+            header_chain_proving_started.elapsed()
+        );
+
+        assert!(
+            !matches!(header_chain_receipt.inner, InnerReceipt::Fake(_)),
+            "the watchtower header-chain receipt must be a real RISC0 proof"
+        );
+        header_chain_receipt
+            .verify_with_context(&verifier_context, header_chain_image_id)
+            .unwrap();
+
+        let header_chain_output =
+            BlockHeaderCircuitOutput::try_from_slice(&header_chain_receipt.journal.bytes).unwrap();
+        assert_eq!(
+            header_chain_output.genesis_state_hash,
+            genesis_state.to_hash()
+        );
+
+        let work_only_input = WorkOnlyCircuitInput {
+            header_chain_circuit_output: header_chain_output,
+        };
+        let work_only_env = ExecutorEnv::builder()
+            .write_slice(&borsh::to_vec(&work_only_input).unwrap())
+            .add_assumption(header_chain_receipt)
+            .build()
+            .unwrap();
+        eprintln!("converting watchtower HCP to a RISC0 Groth16 receipt");
+        let groth16_proving_started = std::time::Instant::now();
+        let work_only_receipt = default_prover()
+            .prove_with_opts(
+                work_only_env,
+                REGTEST_WORK_ONLY_ELF,
+                &ProverOpts::groth16().with_dev_mode(false),
+            )
+            .unwrap()
+            .receipt;
+        eprintln!(
+            "watchtower Groth16 receipt generated in {:?}",
+            groth16_proving_started.elapsed()
+        );
+
+        assert!(
+            matches!(work_only_receipt.inner, InnerReceipt::Groth16(_)),
+            "the watchtower challenge must contain a real RISC0 Groth16 proof"
+        );
+        let work_only_image_id = compute_image_id(REGTEST_WORK_ONLY_ELF).unwrap();
+        assert_eq!(work_only_image_id.as_bytes(), &REGTEST_WORK_ONLY_METHOD_ID);
+        work_only_receipt
+            .verify_with_context(&verifier_context, work_only_image_id)
+            .unwrap();
+
+        let work_only_output =
+            WorkOnlyCircuitOutput::try_from_slice(&work_only_receipt.journal.bytes).unwrap();
+        assert_ne!(work_only_output.work_u128, [0; 16]);
+
+        let groth16_seal: [u8; 256] = work_only_receipt
+            .inner
+            .groth16()
+            .unwrap()
+            .seal
+            .as_slice()
+            .try_into()
+            .unwrap();
+        let compressed_proof = CircuitGroth16Proof::from_seal(&groth16_seal)
+            .to_compressed()
+            .unwrap();
+
+        let expected_insufficient_work = format!(
+            "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
+            TotalWork(OPERATOR_WORK_BELOW_WATCHTOWER),
+            TotalWork(work_only_output.work_u128),
+        );
+        let real_proof_err = run_operator_bridge_circuit_with_watchtower_commit(
+            compressed_proof,
+            work_only_output.work_u128,
+            work_only_output.genesis_state_hash,
+        )
+        .expect_err("a verifying watchtower Groth16 must fail the operator work comparison");
+        assert!(
+            real_proof_err.contains(&expected_insufficient_work),
+            "expected `{expected_insufficient_work}` in guest error, got `{real_proof_err}`"
+        );
+
+        let mut tampered_proof = compressed_proof;
+        tampered_proof[0] ^= 1;
+        run_operator_bridge_circuit_with_watchtower_commit(
+            tampered_proof,
+            work_only_output.work_u128,
+            work_only_output.genesis_state_hash,
+        )
+        .expect("a 1-byte-tampered Groth16 must be ignored so the operator's tiny work still wins");
     }
 
     #[test]

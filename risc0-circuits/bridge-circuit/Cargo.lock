@@ -1049,9 +1049,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
-version = "3.0.2"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8f97f81bcdead4101bca06469ecef481a2695cd04e7e877b49dea56a7f6f2a"
+checksum = "d836c6ad82f4ced7c61d5feedf905a17780312e393aa681d29cc0bbc5131672b"
 dependencies = [
  "anyhow",
  "borsh",
@@ -1070,9 +1070,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-build"
-version = "3.0.3"
+version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bbb512d728e011d03ce0958ca7954624ee13a215bcafd859623b3c63b2a3f60"
+checksum = "bd8216cdd9f573808a94769767480b06ad1e74ae60841c9582fdf51b8e29ba53"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -1094,9 +1094,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
-version = "3.0.0"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80f2723fedace48c6c5a505bd8f97ac4e1712bc4cb769083e10536d862b66987"
+checksum = "d6eb2d2b2c6cac0e43cbb2202daacee1a2f24d0dfa03fd08887a11dc6defdcc1"
 dependencies = [
  "bytemuck",
  "rand_core 0.9.3",
@@ -1104,9 +1104,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkos-v1compat"
-version = "2.2.0"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "840c2228803557a8b7dc035a8f196516b6fd68c9dc6ac092f0c86241b5b1bafb"
+checksum = "b8b0b598ba7946354b10ca5c56e382de801e6c7fce9fccad0396ec436bc5072b"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
@@ -1115,9 +1115,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkp"
-version = "3.0.2"
+version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb6bf356f469bb8744f72a07a37134c5812c1d55d6271bba80e87bdb7a58c8e"
+checksum = "21c0c921e5e2d44197940d387a45e29c6165e318b5a168fdfdbd50f50ba03678"
 dependencies = [
  "anyhow",
  "blake2",
@@ -1140,9 +1140,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm-platform"
-version = "2.2.1"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfaa10feba15828c788837ddde84b994393936d8f5715228627cfe8625122a40"
+checksum = "2eb37a97ff7e8e4ee1b2a1c43ec143b4887759883c343507af9e4787a57914cd"
 dependencies = [
  "cfg-if",
  "num_enum",
@@ -1219,9 +1219,9 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "rzup"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d2aed296f203fa64bcb4b52069356dd86d6ec578593985b919b6995bee1f0ae"
+checksum = "96909a7ea8fdf7e18da727d7facbc43eea8a4f77635e7ec75a69794dede16fb6"
 dependencies = [
  "hex",
  "rsa",

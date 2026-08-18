@@ -6,8 +6,8 @@ edition = "2021"
 [workspace]
 
 [build-dependencies]
-risc0-build = { version = "3.0.3", features = ["unstable"] }
-risc0-binfmt = {version = "3.0.2"}
+risc0-build = { version = "3.0.6", features = ["unstable"] }
+risc0-binfmt = { version = "3.0.5" }
 
 [package.metadata.risc0]
 methods = ["guest"]

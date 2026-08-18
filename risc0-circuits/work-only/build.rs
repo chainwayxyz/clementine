@@ -87,6 +87,7 @@ fn get_guest_options(network: String) -> HashMap<&'static str, risc0_build::Gues
 
         let docker_opts = DockerOptionsBuilder::default()
             .root_dir(root_dir)
+            .docker_container_tag("r0.1.97.0")
             .env(vec![("BITCOIN_NETWORK".to_string(), network.clone())])
             .build()
             .unwrap();

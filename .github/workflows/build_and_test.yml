@@ -257,6 +257,64 @@ jobs:
           path: test-logs/release/
           retention-days: 7
 
+  real_risc0_watchtower_proof:
+    name: Release | Real RISC0 watchtower proof
+    runs-on: ubicloud-standard-16
+
+    env:
+      # Keep this synchronized with the image pinned by risc0-groth16 3.0.5.
+      RISC0_GROTH16_IMAGE: risczero/risc0-groth16-prover:v2025-04-03.1
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
+
+      - name: Install RISC Zero
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --location https://risczero.com/install | bash
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          export PATH="$PATH:$HOME/.risc0/bin"
+          rzup install
+          rzup install rust 1.97.0
+
+      - name: Save/restore build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: real-risc0-RELEASE-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Restore RISC Zero Groth16 prover image
+        id: cache-risc0-groth16-image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/risc0-groth16-prover-v2025-04-03.1.tar
+          key: risc0-groth16-prover-${{ runner.os }}-${{ runner.arch }}-v2025-04-03.1
+
+      - name: Load cached RISC Zero Groth16 prover image
+        if: steps.cache-risc0-groth16-image.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/risc0-groth16-prover-v2025-04-03.1.tar"
+
+      - name: Download RISC Zero Groth16 prover image
+        if: steps.cache-risc0-groth16-image.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          docker pull "$RISC0_GROTH16_IMAGE"
+          docker save \
+            --output "$RUNNER_TEMP/risc0-groth16-prover-v2025-04-03.1.tar" \
+            "$RISC0_GROTH16_IMAGE"
+
+      - name: Verify real watchtower challenge proof
+        run: |
+          # Production Groth16 VK is required. Do not enable use-test-vk:
+          # the guest under test is regtest-bridge-circuit-guest.bin.
+          cargo test \
+            -p bridge-circuit-host \
+            --release \
+            bridge_circuit_host::tests::operator_verifies_real_risc0_watchtower_challenge \
+            -- --exact --ignored --nocapture
+
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
