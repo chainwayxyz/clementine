@@ -191,10 +191,15 @@ pub fn stark_to_bitvm2_g16(
     // Step 3: Decode the hexadecimal string to a byte vector
     let output_byte_vec =
         hex::decode(&output_content_hex).wrap_err("Failed to decode hex string")?;
-    let output_bytes: [u8; 31] = output_byte_vec
-        .as_slice()
-        .try_into()
-        .wrap_err("Failed to convert output bytes to array")?;
+    if output_byte_vec.len() > 31 {
+        return Err(eyre!(
+            "Failed to convert output bytes to array: {} bytes",
+            output_byte_vec.len()
+        ));
+    }
+    let mut output_bytes = [0u8; 31];
+    let start_index = 31 - output_byte_vec.len();
+    output_bytes[start_index..].copy_from_slice(&output_byte_vec);
 
     Ok((
         proof_json
