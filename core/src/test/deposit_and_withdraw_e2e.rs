@@ -31,6 +31,7 @@ use crate::test::common::clementine_utils::{
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_state_mngr_sync,
     ensure_tx_onchain, get_tx_from_signed_txs_with_type, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync,
     wait_for_fee_payer_utxos_to_be_in_mempool,
 };
 use crate::test::common::{
@@ -1313,19 +1314,31 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    let _kickoff_block_height =
+    let kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
             .unwrap();
+
+    tracing::info!("Kickoff tx mined at height: {:?}", kickoff_block_height);
+
+    // sync all nodes
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: UtxoVout::Challenge.get_vout(),
     };
 
-    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
-        .await
-        .unwrap();
+    let challenge_spent_txid = get_txid_where_utxo_is_spent_while_waiting_for_state_mngr_sync(
+        &rpc,
+        challenge_outpoint,
+        &actors,
+        None,
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Challenge outpoint spent txid: {:?}", challenge_spent_txid);
 
@@ -1359,6 +1372,10 @@ async fn mock_citrea_run_malicious() {
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
             .unwrap();
+
+    rpc.mine_blocks_while_synced(1, &actors, None)
+        .await
+        .unwrap();
 
     tracing::info!(
         "Kickoff txid: {:?}, kickoff txid 2: {:?}",

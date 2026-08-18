@@ -54,7 +54,7 @@ use crate::test::common::citrea::CitreaE2EData;
 #[cfg(test)]
 use crate::{
     citrea::CitreaClientT,
-    test::common::{are_all_state_managers_synced, test_actors::TestActors},
+    test::common::{are_all_nodes_synced, test_actors::TestActors},
 };
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
@@ -821,7 +821,7 @@ impl ExtendedBitcoinRpc {
 
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
@@ -853,7 +853,7 @@ impl ExtendedBitcoinRpc {
                 // mined blocks has to be block_num higher than reorg_blocks + 1, because this callers of this fn expects
                 // chain size to increase by at least block_num starting from where cpfp fee payer is in mempool.
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
@@ -866,7 +866,7 @@ impl ExtendedBitcoinRpc {
                 // do not do a reorg here, just mine blocks
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
