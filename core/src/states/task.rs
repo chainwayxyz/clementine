@@ -199,7 +199,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::collections::BTreeMap;
 
     use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
     use tonic::async_trait;
@@ -209,7 +209,7 @@ mod tests {
         config::BridgeConfig,
         database::DatabaseTransaction,
         extended_bitcoin_rpc::ExtendedBitcoinRpc,
-        states::{block_cache, context::DutyResult, Duty},
+        states::{context::DutyResult, Duty},
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
         utils::NamedEntity,
     };
@@ -224,6 +224,7 @@ mod tests {
         const TX_SENDER_CONSUMER_ID: &'static str = "mock_tx_sender";
         const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
             "mock_finalized_block_no_automation";
+        const LCP_SYNCER_CONSUMER_ID: &'static str = "mock_lcp_syncer";
         const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str =
             "mock_finalized_block_automation";
     }
@@ -233,9 +234,14 @@ mod tests {
         async fn handle_duty(
             &self,
             _dbtx: DatabaseTransaction<'_, '_>,
-            _: Duty,
+            duty: Duty,
         ) -> Result<DutyResult, BridgeError> {
-            Ok(DutyResult::Handled)
+            Ok(match duty {
+                Duty::CheckIfKickoffMalicious { .. } => {
+                    DutyResult::CheckIfKickoffMalicious { challenged: false }
+                }
+                _ => DutyResult::Handled,
+            })
         }
 
         async fn create_txhandlers(
@@ -245,17 +251,6 @@ mod tests {
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
         }
     }
 

@@ -194,6 +194,7 @@ async fn test_save_and_load_state() {
             vec![],
             1,
             MockOwner::ENTITY_NAME,
+            None,
         )
         .await
         .expect("Failed to insert corrupt kickoff machine");

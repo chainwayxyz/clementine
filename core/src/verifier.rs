@@ -44,6 +44,7 @@ use crate::states::StateManager;
 use crate::task::entity_metric_publisher::{
     EntityMetricPublisher, ENTITY_METRIC_PUBLISHER_INTERVAL,
 };
+use crate::task::lcp_syncer::LcpSyncerTask;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 #[cfg(feature = "automation")]
@@ -317,33 +318,19 @@ where
                     .await;
             }
         }
-        #[cfg(not(feature = "automation"))]
-        {
-            // get the next finalized block height to start from
-            let next_height = self
-                .verifier
-                .db
-                .get_next_finalized_block_height_for_consumer(
-                    None,
-                    Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION,
+        self.background_tasks
+            .ensure_task_looping(
+                LcpSyncerTask::new(
+                    self.verifier.db.clone(),
+                    Verifier::<C>::LCP_SYNCER_CONSUMER_ID.to_owned(),
                     self.verifier.config.protocol_paramset(),
+                    self.verifier.clone(),
                 )
-                .await?;
-
-            self.background_tasks
-                .ensure_task_looping(
-                    crate::bitcoin_syncer::FinalizedBlockFetcherTask::new(
-                        self.verifier.db.clone(),
-                        Verifier::<C>::FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION.to_string(),
-                        self.verifier.config.protocol_paramset(),
-                        next_height,
-                        self.verifier.clone(),
-                    )
-                    .into_buffered_errors(20, 3, Duration::from_secs(10))
-                    .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
-                )
-                .await;
-        }
+                .await?
+                .into_buffered_errors(20, 3, Duration::from_secs(10))
+                .with_delay(crate::bitcoin_syncer::BTC_SYNCER_POLL_DELAY),
+            )
+            .await;
 
         let syncer = BitcoinSyncer::new(
             self.verifier.db.clone(),
@@ -395,6 +382,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: l1_sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: l1_sync_status.bitcoin_fee_rate_sat_vb,
+            lcp_synced_height: l1_sync_status.lcp_synced_height,
         })
     }
 
@@ -2828,7 +2816,7 @@ where
         Ok(())
     }
 
-    async fn handle_finalized_block(
+    pub(crate) async fn handle_finalized_block(
         &self,
         mut dbtx: DatabaseTransaction<'_, '_>,
         block_id: u32,
@@ -2880,34 +2868,10 @@ where
                 // Continue until prove_if_ready returns None
                 // If it doesn't return None, it means next batch_size amount of blocks were proven
             }
+            StateManager::<Self>::dispatch_lcp_processed(&self.db, dbtx, block_height).await?;
         }
 
         Ok(())
-    }
-}
-
-// This implementation is only relevant for non-automation mode, where the verifier is run as a standalone process
-#[cfg(not(feature = "automation"))]
-#[async_trait::async_trait]
-impl<C> crate::bitcoin_syncer::BlockHandler for Verifier<C>
-where
-    C: CitreaClientT,
-{
-    async fn handle_new_block(
-        &mut self,
-        dbtx: DatabaseTransaction<'_, '_>,
-        block_id: u32,
-        block: bitcoin::Block,
-        height: u32,
-    ) -> Result<(), BridgeError> {
-        self.handle_finalized_block(
-            dbtx,
-            block_id,
-            height,
-            Arc::new(block_cache::BlockCache::from_block(block, height)),
-            None,
-        )
-        .await
     }
 }
 
@@ -2921,6 +2885,7 @@ where
         "verifier_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
         "verifier_finalized_block_fetcher_no_automation";
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "verifier_lcp_syncer";
 }
 
 #[cfg(feature = "automation")]
@@ -2930,7 +2895,7 @@ mod states {
         create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner};
+    use crate::states::{Duty, Owner};
     use std::collections::BTreeMap;
     use tonic::async_trait;
 
@@ -3188,7 +3153,6 @@ mod states {
                     txid,
                     block_height,
                     witness,
-                    challenged_before,
                 } => {
                     tracing::debug!(
                         "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -3200,38 +3164,40 @@ mod states {
                         .db
                         .get_deposit_data_with_kickoff_txid(Some(dbtx), txid)
                         .await?;
-                    let mut challenged = false;
                     if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
                         tracing::debug!(
                             "New kickoff found {:?}, for deposit: {:?}",
                             kickoff_data,
                             deposit_data.get_deposit_outpoint()
                         );
-                        let mut dbtx = self.db.begin_transaction().await?;
-                        // add kickoff machine if there is a new kickoff
-                        // do not add if kickoff finalizer is already spent => kickoff is finished
-                        // this can happen if we are resyncing
                         StateManager::<Self>::dispatch_new_kickoff_machine(
                             self.db.clone(),
-                            &mut dbtx,
+                            dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data.clone(),
-                            witness.clone(),
+                            deposit_data,
+                            witness,
                         )
                         .await?;
-                        challenged = self
-                            .handle_kickoff(
-                                &mut dbtx,
-                                witness,
-                                deposit_data,
-                                kickoff_data,
-                                challenged_before,
-                            )
-                            .await?;
-                        dbtx.commit().await?;
                     }
-                    Ok(DutyResult::CheckIfKickoff { challenged })
+                    Ok(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoffMalicious {
+                    kickoff_witness,
+                    deposit_data,
+                    kickoff_data,
+                    challenged_before,
+                } => {
+                    let challenged = self
+                        .handle_kickoff(
+                            dbtx,
+                            kickoff_witness,
+                            deposit_data,
+                            kickoff_data,
+                            challenged_before,
+                        )
+                        .await?;
+                    Ok(DutyResult::CheckIfKickoffMalicious { challenged })
                 }
             }
         }
@@ -3252,24 +3218,6 @@ mod states {
             )
             .await?;
             Ok(txhandlers)
-        }
-
-        async fn handle_finalized_block(
-            &self,
-            dbtx: DatabaseTransaction<'_, '_>,
-            block_id: u32,
-            block_height: u32,
-            block_cache: Arc<block_cache::BlockCache>,
-            light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            self.handle_finalized_block(
-                dbtx,
-                block_id,
-                block_height,
-                block_cache,
-                light_client_proof_wait_interval_secs,
-            )
-            .await
         }
     }
 }

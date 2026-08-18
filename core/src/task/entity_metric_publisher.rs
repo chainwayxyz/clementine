@@ -90,6 +90,9 @@ impl<T: NamedEntity> Task for EntityMetricPublisher<T> {
         metric
             .bitcoin_fee_rate_sat_vb
             .set(l1_status.bitcoin_fee_rate_sat_vb.unwrap_or(0) as f64);
+        metric
+            .lcp_synced_height
+            .set(l1_status.lcp_synced_height.unwrap_or(0) as f64);
 
         Ok(false)
     }

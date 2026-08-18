@@ -126,6 +126,7 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     config: BridgeConfig,
     next_height_to_process: u32,
+    last_processed_lcp: Option<u32>,
     rpc: ExtendedBitcoinRpc,
     // Set on the first finalized block event or the load_from_db method
     last_finalized_block: Option<Arc<BlockCache>>,
@@ -146,6 +147,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_machines: Vec::new(),
             config: self.config.clone(),
             next_height_to_process: self.next_height_to_process,
+            last_processed_lcp: self.last_processed_lcp,
             rpc: self.rpc.clone(),
             last_finalized_block: self.last_finalized_block.clone(),
         }
@@ -202,6 +204,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_machines: Vec::new(),
             queue,
             next_height_to_process: config.protocol_paramset.start_height,
+            last_processed_lcp: None,
             rpc,
         };
 
@@ -233,8 +236,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .get_next_height_to_process(Some(&mut dbtx), owner_type)
             .await?;
 
-        // If no state is saved, return early
-        self.next_height_to_process = match status {
+        let loaded_last_processed_lcp = self
+            .db
+            .get_last_processed_lcp(Some(&mut dbtx), owner_type)
+            .await?
+            .map(u32::try_from)
+            .transpose()
+            .wrap_err("Last processed LCP doesn't fit into u32")?;
+
+        let loaded_next_height_to_process = match status {
             Some(block_height) => {
                 u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?
             }
@@ -246,18 +256,17 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tracing::info!(
             "Loading state machines from block height {}",
-            self.next_height_to_process.saturating_sub(1)
+            loaded_next_height_to_process.saturating_sub(1)
         );
 
-        let last_height = self.next_height_to_process.saturating_sub(1);
-
-        self.last_finalized_block = Some(Arc::new(BlockCache::from_block(
+        let last_height = loaded_next_height_to_process.saturating_sub(1);
+        let loaded_last_finalized_block = Arc::new(BlockCache::from_block(
             match self.db.get_full_block(None, last_height).await? {
                 Some(block) => block,
                 None => self.rpc.get_block_by_height(last_height.into()).await?,
             },
             last_height,
-        )));
+        ));
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -273,12 +282,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         let init_dbtx = Arc::new(Mutex::new(dbtx));
 
-        let mut ctx = self.new_context_with_block_cache(
-            init_dbtx.clone(),
-            self.last_finalized_block
-                .clone()
-                .expect("Initialized before"),
-        )?;
+        let mut ctx = self
+            .new_context_with_block_cache(init_dbtx.clone(), loaded_last_finalized_block.clone())?;
         // Statig replays state-entry callbacks when it materializes persisted machines, but the
         // serialized snapshot already contains their effects.
         ctx.set_restoring();
@@ -355,8 +360,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tracing::info!(
             "Loaded {} kickoff machines and {} round machines from the database",
-            kickoff_machines.len(),
-            round_machines.len()
+            loaded_kickoff_machines.len(),
+            loaded_round_machines.len()
         );
 
         Arc::into_inner(init_dbtx)
@@ -365,6 +370,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .commit()
             .await?;
 
+        self.last_processed_lcp = loaded_last_processed_lcp;
+        self.next_height_to_process = loaded_next_height_to_process;
+        self.last_finalized_block = Some(loaded_last_finalized_block);
         self.kickoff_machines = loaded_kickoff_machines;
         self.round_machines = loaded_round_machines;
 
@@ -433,14 +441,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         {
             let mut dbtx = context.shared_dbtx.lock().await;
-            // Use the database function to save the state machines
+            let last_processed_lcp = self
+                .last_processed_lcp
+                .map(i32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert last_processed_lcp to i32")?;
+            let next_height = i32::try_from(context.cache.block_height)
+                .wrap_err("Failed to convert block_height to i32")?
+                + 1;
+
             self.db
                 .save_state_machines(
                     &mut dbtx,
                     kickoff_machines?,
                     round_machines?,
-                    context.cache.block_height as i32 + 1,
+                    next_height,
                     owner_type,
+                    last_processed_lcp,
                 )
                 .await?;
         }

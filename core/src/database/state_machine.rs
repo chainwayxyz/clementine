@@ -28,6 +28,7 @@ impl Database {
         round_machines: Vec<(String, XOnlyPublicKey)>,
         block_height: i32,
         owner_type: &str,
+        last_processed_lcp: Option<i32>,
     ) -> Result<(), BridgeError> {
         // Save kickoff machines that are dirty
         for (state_json, kickoff_id) in kickoff_machines {
@@ -88,15 +89,18 @@ impl Database {
             "INSERT INTO state_manager_status (
                 owner_type,
                 next_height_to_process,
+                last_processed_lcp,
                 updated_at
-            ) VALUES ($1, $2, NOW())
+            ) VALUES ($1, $2, $3, NOW())
             ON CONFLICT (owner_type)
             DO UPDATE SET
                 next_height_to_process = EXCLUDED.next_height_to_process,
+                last_processed_lcp = EXCLUDED.last_processed_lcp,
                 updated_at = NOW()",
         )
         .bind(owner_type)
-        .bind(block_height);
+        .bind(block_height)
+        .bind(last_processed_lcp);
 
         query.execute(&mut **tx).await?;
 
@@ -126,6 +130,22 @@ impl Database {
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         Ok(result.map(|(height,)| height))
+    }
+
+    pub async fn get_last_processed_lcp(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        owner_type: &str,
+    ) -> Result<Option<i32>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT last_processed_lcp FROM state_manager_status WHERE owner_type = $1",
+        )
+        .bind(owner_type);
+
+        let result: Option<(Option<i32>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.and_then(|(height,)| height))
     }
 
     /// Loads kickoff machines from the database
@@ -228,6 +248,7 @@ mod tests {
             round_machines.clone(),
             123,
             owner_type,
+            Some(1234),
         )
         .await
         .unwrap();
@@ -239,6 +260,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(block_height, Some(123));
+        assert_eq!(
+            db.get_last_processed_lcp(None, owner_type).await.unwrap(),
+            Some(1234)
+        );
 
         // Load kickoff machines
         let loaded_kickoff = db.load_kickoff_machines(None, owner_type).await.unwrap();
