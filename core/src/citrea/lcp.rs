@@ -185,7 +185,11 @@ async fn prove_light_client_proof_from_input_with_opts(
     Ok(receipt)
 }
 
-fn validate_light_client_receipt(
+/// Verifies an LCP receipt and binds its journal to the expected DA block.
+///
+/// Used both for locally proved receipts and for receipts fetched from the
+/// light client prover RPC.
+pub(super) fn validate_light_client_receipt(
     receipt: &Receipt,
     lcp_image_id: [u8; 32],
     expected_l1_height: u64,
@@ -208,6 +212,22 @@ fn validate_light_client_receipt(
             .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
     }
 
+    check_lcp_output_binding(
+        &proof_output,
+        lcp_image_id,
+        expected_l1_height,
+        expected_l1_hash,
+    )?;
+
+    Ok(proof_output)
+}
+
+fn check_lcp_output_binding(
+    proof_output: &LightClientCircuitOutput,
+    lcp_image_id: [u8; 32],
+    expected_l1_height: u64,
+    expected_l1_hash: [u8; 32],
+) -> Result<(), BridgeError> {
     if proof_output.latest_da_state.block_height != expected_l1_height {
         return Err(eyre::eyre!(
             "Light client proof L1 height mismatch: expected {}, got {}",
@@ -226,14 +246,14 @@ fn validate_light_client_receipt(
         .into());
     }
 
-    if !check_method_id(&proof_output, lcp_image_id) {
+    if !check_method_id(proof_output, lcp_image_id) {
         return Err(eyre::eyre!(
             "Light client proof method ID does not match the expected LC image ID"
         )
         .into());
     }
 
-    Ok(proof_output)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -243,10 +263,11 @@ mod tests {
     use bitcoin::Network;
     use bridge_circuit_host::receipt_from_inner;
     use circuits_lib::bridge_circuit::lc_proof::check_method_id;
+    use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
     use jsonrpsee::core::client::ClientT as _;
     use jsonrpsee::http_client::HttpClientBuilder;
     use jsonrpsee::rpc_params;
-    use risc0_zkvm::InnerReceipt;
+    use risc0_zkvm::{InnerReceipt, Receipt};
     use std::path::Path;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -261,6 +282,52 @@ mod tests {
         network: Network::Bitcoin,
         ..TESTNET4_TEST_PARAMSET.clone()
     });
+
+    fn fixture_lcp_output() -> LightClientCircuitOutput {
+        let receipt: Receipt = borsh::from_slice(include_bytes!(
+            "../../../circuits-lib/test_data/lcp_receipt.bin"
+        ))
+        .unwrap();
+        borsh::from_slice(&receipt.journal.bytes).unwrap()
+    }
+
+    #[test]
+    fn lcp_output_binding_accepts_journal_da_state() {
+        let output = fixture_lcp_output();
+        check_lcp_output_binding(
+            &output,
+            circuits_lib::bridge_circuit::constants::REGTEST_LC_IMAGE_ID,
+            output.latest_da_state.block_height,
+            output.latest_da_state.block_hash,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn lcp_output_binding_rejects_mismatched_height_or_hash() {
+        let output = fixture_lcp_output();
+        let image_id = circuits_lib::bridge_circuit::constants::REGTEST_LC_IMAGE_ID;
+
+        let err = check_lcp_output_binding(
+            &output,
+            image_id,
+            output.latest_da_state.block_height.wrapping_add(1),
+            output.latest_da_state.block_hash,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("L1 height mismatch"), "{err:?}");
+
+        let mut wrong_hash = output.latest_da_state.block_hash;
+        wrong_hash[0] ^= 0xff;
+        let err = check_lcp_output_binding(
+            &output,
+            image_id,
+            output.latest_da_state.block_height,
+            wrong_hash,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("L1 hash mismatch"), "{err:?}");
+    }
 
     #[tokio::test]
     #[ignore = "hits public Citrea testnet RPCs and proves the next LCP in RISC0 dev mode"]

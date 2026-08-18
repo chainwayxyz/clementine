@@ -26,17 +26,13 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, BlockHash, OutPoint, Txid, XOnlyPublicKey};
 use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::{
-    lc_proof::check_method_id,
-    structs::{LightClientProof, StorageProof},
-};
-use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
 use lcp::{
     create_light_client_circuit_input, prove_light_client_proof_from_input,
-    validate_light_client_circuit_input,
+    validate_light_client_circuit_input, validate_light_client_receipt,
 };
 use risc0_zkvm::{InnerReceipt, Receipt};
 pub use rpc_types::LightClientCircuitInputRpcResponse;
@@ -102,28 +98,35 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
-    /// Returns the light client proof and its L2 height for the given L1 block
-    /// height.
+    /// Returns the light client proof and its L2 height for the given L1 block.
+    ///
+    /// The receipt is verified and bound to `l1_height` / `l1_hash` via the
+    /// journal (`latest_da_state`). The returned L2 height is taken from that
+    /// same verified journal.
     ///
     /// # Returns
     ///
     /// A tuple, wrapped around a [`Some`] if present:
     ///
-    /// - [`u64`]: Last L2 block height.
-    /// - [`ProtocolParamset`]: Protocol paramset.
+    /// - [`LightClientProof`]: Journal bytes from the verified receipt.
+    /// - [`Receipt`]: The verified RISC0 receipt.
+    /// - [`u64`]: Last L2 block height from the verified journal.
     ///
     /// If not present, [`None`] is returned.
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        l1_hash: BlockHash,
         paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
 
-    /// Returns the L2 block height range for the given L1 block height.
+    /// Returns the L2 block height range for the given L1 block.
     ///
     /// # Parameters
     ///
     /// - `block_height`: L1 block height.
+    /// - `block_hash`: Hash of the L1 block at `block_height`.
+    /// - `prev_block_hash`: Hash of the L1 block at `block_height - 1`.
     /// - `timeout`: Timeout duration.
     ///
     /// # Returns
@@ -135,6 +138,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
+        block_hash: BlockHash,
+        prev_block_hash: BlockHash,
         timeout: Duration,
         paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError>;
@@ -537,6 +542,7 @@ impl CitreaClientT for CitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        l1_hash: BlockHash,
         paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         let proof_result = self
@@ -556,31 +562,20 @@ impl CitreaClientT for CitreaClient {
             let receipt = receipt_from_inner(decoded)
                 .wrap_err("Failed to create receipt from light client proof")?;
 
-            let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
-                .wrap_err("Failed to convert l2 height to u64")?;
-
-            let lc_image_id = paramset.get_lcp_image_id()?;
-
-            let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
-                .wrap_err("Failed to deserialize light client circuit output")?;
-
-            receipt
-                .verify(lc_image_id)
-                .map_err(|_| eyre::eyre!("Light client proof verification failed"))?;
-
-            if !check_method_id(&proof_output, lc_image_id) {
-                return Err(eyre::eyre!(
-                    "Current light client proof method ID does not match the expected LC image ID"
-                )
-                .into());
-            }
+            let proof_output = validate_light_client_receipt(
+                &receipt,
+                paramset.get_lcp_image_id()?,
+                l1_height,
+                l1_hash.to_byte_array(),
+                false,
+            )?;
 
             Some((
                 LightClientProof {
                     lc_journal: receipt.journal.bytes.clone(),
                 },
                 receipt,
-                l2_height,
+                proof_output.last_l2_height,
             ))
         } else {
             None
@@ -592,12 +587,17 @@ impl CitreaClientT for CitreaClient {
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
+        block_hash: BlockHash,
+        prev_block_hash: BlockHash,
         timeout: Duration,
         paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError> {
         let start = std::time::Instant::now();
         let proof_current = loop {
-            if let Some(proof) = self.get_light_client_proof(block_height, paramset).await? {
+            if let Some(proof) = self
+                .get_light_client_proof(block_height, block_hash, paramset)
+                .await?
+            {
                 break proof;
             }
 
@@ -614,7 +614,7 @@ impl CitreaClientT for CitreaClient {
         };
 
         let proof_previous = self
-            .get_light_client_proof(block_height - 1, paramset)
+            .get_light_client_proof(block_height - 1, prev_block_hash, paramset)
             .await?
             .ok_or(eyre::eyre!(
                 "Light client proof not found for block height: {}",

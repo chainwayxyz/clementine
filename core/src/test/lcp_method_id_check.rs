@@ -106,12 +106,13 @@ impl TestCase for CitreaLcpProverE2E {
         )
         .await?;
 
-        let (_, receipt, _) = poll_lcp(&citrea_client, target_l1_height, &config).await?;
+        let l1_hash = rpc.get_block_hash(target_l1_height).await?;
+        let (_, receipt, _) = poll_lcp(&citrea_client, target_l1_height, l1_hash, &config).await?;
         let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)?;
 
         assert_eq!(
             proof_output.latest_da_state.block_hash,
-            rpc.get_block_hash(target_l1_height).await?.to_byte_array()
+            l1_hash.to_byte_array()
         );
         let expected_method_id = config.protocol_paramset().get_lcp_image_id()?;
         let actual_method_id = lcp_method_id(&proof_output);
@@ -145,6 +146,7 @@ fn lcp_method_id(proof_output: &LightClientCircuitOutput) -> [u8; 32] {
 async fn poll_lcp(
     citrea_client: &CitreaClient,
     l1_height: u64,
+    l1_hash: bitcoin::BlockHash,
     config: &crate::config::BridgeConfig,
 ) -> citrea_e2e::Result<(
     circuits_lib::bridge_circuit::structs::LightClientProof,
@@ -156,7 +158,7 @@ async fn poll_lcp(
 
     loop {
         if let Some(proof) = citrea_client
-            .get_light_client_proof(l1_height, config.protocol_paramset())
+            .get_light_client_proof(l1_height, l1_hash, config.protocol_paramset())
             .await?
         {
             return Ok(proof);

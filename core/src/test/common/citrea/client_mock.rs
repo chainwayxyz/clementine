@@ -194,6 +194,7 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        _l1_hash: BlockHash,
         _paramset: &'static ProtocolParamset,
     ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         Ok(Some((
@@ -209,6 +210,8 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
+        _block_hash: BlockHash,
+        _prev_block_hash: BlockHash,
         _timeout: Duration,
         _paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError> {

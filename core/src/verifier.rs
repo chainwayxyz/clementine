@@ -2846,6 +2846,8 @@ where
             .citrea_client
             .get_citrea_l2_height_range(
                 block_height.into(),
+                block_cache.block.block_hash(),
+                block_cache.block.header.prev_blockhash,
                 timeout,
                 self.config.protocol_paramset(),
             )
