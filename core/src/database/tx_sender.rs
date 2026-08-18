@@ -18,277 +18,154 @@ use sqlx::Executor;
 use std::ops::DerefMut;
 
 impl Database {
-    /// Set all transactions' `seen_block_id` to the given block id. This will
-    /// be called once a block is confirmed on the Bitcoin side.
-    pub async fn confirm_transactions(
+    /// Align `seen_block_id` with the current canonical chain.
+    ///
+    /// Confirm only updates rows with `seen_block_id IS NULL`. A Postgres `WITH`
+    /// uses one snapshot, so unconfirm and confirm in the same statement cannot
+    /// re-stamp a row that just lost its old block. Unconfirm first, then confirm.
+    pub async fn sync_transaction_confirmations(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: u32,
     ) -> Result<(), BridgeError> {
-        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
-
-        // CTEs for collecting a block's transactions, spent UTXOs and confirmed
-        // RBF transactions.
-        let common_ctes = r#"
-            WITH relevant_txs AS (
-                SELECT txid
-                FROM bitcoin_syncer_txs
-                WHERE block_id = $1
+        sqlx::query(
+            r#"
+            WITH
+            u1 AS (
+                UPDATE tx_sender_activate_try_to_send_txids AS tap
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE tap.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
             ),
-            relevant_spent_utxos AS (
-                SELECT txid, vout
-                FROM bitcoin_syncer_spent_utxos
-                WHERE block_id = $1
+            u2 AS (
+                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE tap.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
             ),
-            confirmed_rbf_ids AS (
-                SELECT rbf.id
-                FROM tx_sender_rbf_txids AS rbf
-                JOIN bitcoin_syncer_txs AS syncer ON rbf.txid = syncer.txid
-                WHERE syncer.block_id = $1
+            u3 AS (
+                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE ctt.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+            ),
+            u4 AS (
+                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE cto.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+            ),
+            u5 AS (
+                UPDATE tx_sender_fee_payer_utxos AS fpu
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE fpu.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+            ),
+            u6 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = NULL
+                FROM bitcoin_syncer bs
+                WHERE txs.seen_block_id = bs.id
+                  AND bs.is_canonical = FALSE
+            ),
+            u7 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = NULL
+                WHERE txs.seen_block_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
+                      WHERE rbf.id = txs.id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tx_sender_rbf_txids AS rbf
+                      JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
+                      JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                      WHERE rbf.id = txs.id
+                        AND bs.is_canonical = TRUE
+                  )
             )
-        "#;
-
-        // Update tx_sender_activate_try_to_send_txids
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_activate_try_to_send_txids AS tap
-            SET seen_block_id = $1
-            WHERE tap.txid IN (SELECT txid FROM relevant_txs)
-            AND tap.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_activate_try_to_send_outpoints
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-            SET seen_block_id = $1
-            WHERE (tap.txid, tap.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND tap.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_cancel_try_to_send_txids
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-            SET seen_block_id = $1
-            WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
-            AND ctt.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_cancel_try_to_send_outpoints
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-            SET seen_block_id = $1
-            WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND cto.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_fee_payer_utxos
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET seen_block_id = $1
-            WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
-            AND fpu.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_try_to_send_txs for CPFP txid confirmation
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = $1
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_try_to_send_txs for RBF txid confirmation
-        sqlx::query(&format!(
-            "{common_ctes}
-            UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = $1
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL"
-        ))
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        let bg_db = self.clone();
-        // Update debug information in the background to not block core behavior
-        tokio::spawn(async move {
-            // Get confirmed direct transactions for debugging
-            let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
-                "{common_ctes}
-            SELECT txs.id, txs.txid
-            FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)",
-            ))
-            .bind(block_id)
-            .fetch_all(&bg_db.connection)
-            .await
-            else {
-                tracing::error!("Failed to update debug info for confirmed txs");
-                return;
-            };
-
-            // Get confirmed RBF transactions for debugging
-            let Ok(confirmed_rbf_txs): Result<Vec<(i32,)>, _> = sqlx::query_as(&format!(
-                "{common_ctes}
-            SELECT txs.id
-            FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)",
-            ))
-            .bind(block_id)
-            .fetch_all(&bg_db.connection)
-            .await
-            else {
-                tracing::error!("Failed to update debug info for confirmed txs");
-                return;
-            };
-
-            // Record debug info for confirmed transactions
-            for (tx_id, txid) in confirmed_direct_txs {
-                // Add debug state change
-                tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: direct confirmation of txid {}",
-            block_id, txid.0);
-
-                // Update sending state
-                let _ = bg_db
-                    .update_tx_debug_sending_state(tx_id as u32, "confirmed", true)
-                    .await;
-            }
-
-            // Record debug info for confirmed RBF transactions
-            for (tx_id,) in confirmed_rbf_txs {
-                // Add debug state change
-                tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
-            block_id);
-
-                // Update sending state
-                let _ = bg_db
-                    .update_tx_debug_sending_state(tx_id as u32, "confirmed", true)
-                    .await;
-            }
-        });
-
-        Ok(())
-    }
-
-    /// Unassigns `seen_block_id` from all transactions in the given block id.
-    /// By default, all transactions' `seen_block_id` is set to NULL. And they
-    /// get assigned a block id when they are confirmed on Bitcoin side. If a
-    /// reorg happens, block ids must be unassigned from all transactions.
-    pub async fn unconfirm_transactions(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        block_id: u32,
-    ) -> Result<(), BridgeError> {
-        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
-
-        // Need to get these before they're unconfirmed below, so that we can update the debug info
-        // Ignore the error here to not affect production behavior.
-        let previously_confirmed_txs = sqlx::query_as::<_, (i32,)>(
-            "SELECT id FROM tx_sender_try_to_send_txs WHERE seen_block_id = $1",
+            SELECT 1;
+            "#,
         )
-        .bind(block_id)
-        .fetch_all(tx.deref_mut())
-        .await;
+        .execute(tx.deref_mut())
+        .await?;
 
-        let bg_db = self.clone();
-        tokio::spawn(async move {
-            let previously_confirmed_txs = match previously_confirmed_txs {
-                Ok(txs) => txs,
-                Err(e) => {
-                    tracing::error!(error=?e, "Failed to get previously confirmed txs from database");
-                    return;
-                }
-            };
-
-            for (tx_id,) in previously_confirmed_txs {
-                tracing::debug!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
-                let _ = bg_db
-                    .update_tx_debug_sending_state(tx_id as u32, "unconfirmed", false)
-                    .await;
-            }
-        });
-
-        // Unconfirm tx_sender_fee_payer_utxos
-        // Update tx_sender_activate_try_to_send_txids
         sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_txids AS tap
-             SET seen_block_id = NULL
-             WHERE tap.seen_block_id = $1",
+            r#"
+            WITH
+            u1 AS (
+                UPDATE tx_sender_activate_try_to_send_txids AS tap
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE tap.txid = bst.txid
+                  AND tap.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u2 AS (
+                UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_spent_utxos bsu
+                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+                WHERE tap.txid = bsu.txid
+                  AND tap.vout = bsu.vout
+                  AND tap.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u3 AS (
+                UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE ctt.txid = bst.txid
+                  AND ctt.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u4 AS (
+                UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_spent_utxos bsu
+                JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+                WHERE cto.txid = bsu.txid
+                  AND cto.vout = bsu.vout
+                  AND cto.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u5 AS (
+                UPDATE tx_sender_fee_payer_utxos AS fpu
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE fpu.fee_payer_txid = bst.txid
+                  AND fpu.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u6 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = bs.id
+                FROM bitcoin_syncer_txs bst
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE txs.txid = bst.txid
+                  AND txs.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            ),
+            u7 AS (
+                UPDATE tx_sender_try_to_send_txs AS txs
+                SET seen_block_id = bs.id
+                FROM tx_sender_rbf_txids AS rbf
+                JOIN bitcoin_syncer_txs AS bst ON rbf.txid = bst.txid
+                JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+                WHERE txs.id = rbf.id
+                  AND txs.seen_block_id IS NULL
+                  AND bs.is_canonical = TRUE
+            )
+            SELECT 1;
+            "#,
         )
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_activate_try_to_send_outpoints
-        sqlx::query(
-            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-             SET seen_block_id = NULL
-             WHERE tap.seen_block_id = $1",
-        )
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_cancel_try_to_send_txids
-        sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-             SET seen_block_id = NULL
-             WHERE ctt.seen_block_id = $1",
-        )
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_cancel_try_to_send_outpoints
-        sqlx::query(
-            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-             SET seen_block_id = NULL
-             WHERE cto.seen_block_id = $1",
-        )
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_fee_payer_utxos
-        sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos AS fpu
-             SET seen_block_id = NULL
-             WHERE fpu.seen_block_id = $1",
-        )
-        .bind(block_id)
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_try_to_send_txs
-        sqlx::query(
-            "UPDATE tx_sender_try_to_send_txs AS txs
-             SET seen_block_id = NULL
-             WHERE txs.seen_block_id = $1",
-        )
-        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -971,7 +848,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
+    use bitcoin::{BlockHash, OutPoint, TapNodeHash, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -1054,56 +931,95 @@ mod tests {
 
     #[tokio::test]
     async fn test_confirm_and_unconfirm_transactions() {
-        const BLOCK_HEX: &str = "0200000035ab154183570282ce9afc0b494c9fc6a3cfea05aa8c1add2ecc56490000000038ba3d78e4500a5a7570dbe61960398add4410d278b21cd9708e6d9743f374d544fc055227f1001c29c1ea3b0101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff3703a08601000427f1001c046a510100522cfabe6d6d0000000000000000000068692066726f6d20706f6f6c7365727665726aac1eeeed88ffffffff0100f2052a010000001976a914912e2b234f941f30b18afbb4fa46171214bf66c888ac00000000";
-        let block: Block = deserialize(&hex::decode(BLOCK_HEX).unwrap()).unwrap();
-
         let db = setup_test_db().await;
         let mut dbtx = db.begin_transaction().await.unwrap();
-
-        // Create a block to use for confirmation
-        let block_id = crate::bitcoin_syncer::save_block(&db, &mut dbtx, &block, 100)
-            .await
-            .unwrap();
-
-        // Create a transaction
         let tx = Transaction {
             version: Version::TWO,
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
             input: vec![],
             output: vec![],
         };
-        let tx_id = db
+        let cpfp_txid = Txid::from_byte_array([1; 32]);
+        let rbf_txid = Txid::from_byte_array([2; 32]);
+        let rbf_template = Txid::from_byte_array([3; 32]);
+
+        // Block already canonical before the try-to-send rows exist.
+        let old = db
+            .insert_block_info(
+                Some(&mut dbtx),
+                &BlockHash::from_byte_array([10; 32]),
+                &BlockHash::from_byte_array([9; 32]),
+                50,
+            )
+            .await
+            .unwrap();
+        db.insert_txid_to_block(&mut dbtx, old, &cpfp_txid)
+            .await
+            .unwrap();
+        db.insert_txid_to_block(&mut dbtx, old, &rbf_txid)
+            .await
+            .unwrap();
+
+        let cpfp_id = db
             .save_tx(
                 Some(&mut dbtx),
                 None,
                 &tx,
                 FeePayingType::CPFP,
-                Txid::all_zeros(),
+                cpfp_txid,
                 None,
             )
             .await
             .unwrap();
-
-        // Save fee payer UTXO
-        let fee_payer_txid = Txid::hash(&[1u8; 32]);
-        db.save_fee_payer_tx(
-            Some(&mut dbtx),
-            tx_id,
-            fee_payer_txid,
-            0,
-            Amount::from_sat(50000),
-            None,
-        )
-        .await
-        .unwrap();
-
-        // Save the transaction in the block
-        db.insert_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
+        let rbf_id = db
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::RBF,
+                rbf_template,
+                None,
+            )
+            .await
+            .unwrap();
+        db.save_rbf_txid(Some(&mut dbtx), rbf_id, rbf_txid)
             .await
             .unwrap();
 
-        // Confirm transactions
-        db.confirm_transactions(&mut dbtx, block_id).await.unwrap();
+        db.sync_transaction_confirmations(&mut dbtx).await.unwrap();
+        assert_eq!(
+            db.get_try_to_send_tx(Some(&mut dbtx), cpfp_id)
+                .await
+                .unwrap()
+                .3,
+            Some(old)
+        );
+        assert_eq!(
+            db.get_try_to_send_tx(Some(&mut dbtx), rbf_id)
+                .await
+                .unwrap()
+                .3,
+            Some(old)
+        );
+
+        db.update_non_canonical_block_hashes(Some(&mut dbtx), 49)
+            .await
+            .unwrap();
+        db.sync_transaction_confirmations(&mut dbtx).await.unwrap();
+        assert_eq!(
+            db.get_try_to_send_tx(Some(&mut dbtx), cpfp_id)
+                .await
+                .unwrap()
+                .3,
+            None
+        );
+        assert_eq!(
+            db.get_try_to_send_tx(Some(&mut dbtx), rbf_id)
+                .await
+                .unwrap()
+                .3,
+            None
+        );
 
         dbtx.commit().await.unwrap();
     }

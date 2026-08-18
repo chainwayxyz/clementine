@@ -1,4 +1,5 @@
 CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs (txid);
+CREATE INDEX IF NOT EXISTS bitcoin_syncer_spent_utxos_txid_vout_idx ON bitcoin_syncer_spent_utxos (txid, vout);
 
 -- Convert persisted effective_fee_rate from sat/vB (`FeeRate::to_sat_per_vb_ceil`)
 -- to sat/kWU (`FeeRate::to_sat_per_kwu`). 1 sat/vB = 250 sat/kWU. Existing

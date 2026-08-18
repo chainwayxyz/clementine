@@ -3,10 +3,11 @@
 //! This module provides the [`Task`] implementation for the [`TxSender`].
 //!
 //! This task will fetch block events from [`Bitcoin Syncer`](crate::bitcoin_syncer)
-//! and confirms or unconfirms transaction based on the event. Finally, it will
-//! try to send transactions that are in the queue. Transactions are picked from
-//! the database and sent to the Bitcoin network if a transaction is in queue
-//! and not in the [`Bitcoin Syncer`](crate::bitcoin_syncer) database.
+//! to keep the consumer cursor and tip height up to date. Confirmations are
+//! reconciled against the canonical chain once, immediately before sending.
+//! Transactions are picked from the database and sent to the Bitcoin network if
+//! a transaction is in queue and not in the [`Bitcoin Syncer`](crate::bitcoin_syncer)
+//! database.
 
 use super::TxSender;
 use crate::errors::ResultExt;
@@ -43,18 +44,17 @@ impl Task for TxSenderTask {
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
 
-        let is_block_update = async {
-            let Some(event) = self
-                .db
-                .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
-                .await?
-            else {
-                return Ok(false);
-            };
-            tracing::info!("Received Bitcoin syncer event: {:?}", event);
+        // Events only move the cursor and tip. Reconcile once below, before send.
 
+        if let Some(event) = self
+            .db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
+            .await?
+        {
+            tracing::info!("Received Bitcoin syncer event: {:?}", event);
             tracing::debug!("TXSENDER: Event: {:?}", event);
-            Ok::<_, BridgeError>(match event {
+
+            match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     let block_height = self
                         .db
@@ -65,15 +65,10 @@ impl Task for TxSenderTask {
                     tracing::info!(
                         height = self.current_tip_height,
                         block_id = %block_id,
-                        "Block mined, confirming transactions..."
+                        "New block"
                     );
-
-                    self.db.confirm_transactions(&mut dbtx, block_id).await?;
-
                     dbtx.commit().await?;
-                    // update after db commit
                     self.current_tip_height = block_height;
-                    true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
                     let height = self
@@ -85,23 +80,18 @@ impl Task for TxSenderTask {
                     tracing::info!(
                         height = height,
                         block_id = %block_id,
-                        "Reorged happened, unconfirming transactions..."
+                        "Reorged block"
                     );
-
-                    self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
-
                     dbtx.commit().await?;
-                    true
                 }
-            })
-        }
-        .await?;
+            }
 
-        // If there is a block update, it is possible that there are more.
-        // Before sending, fetch all events and process them without waiting.
-        if is_block_update {
+            // More events may be queued; drain them before sending.
             return Ok(true);
         }
+
+        self.db.sync_transaction_confirmations(&mut dbtx).await?;
+        dbtx.commit().await?;
 
         tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate_result = self.inner.get_fee_rate().await;

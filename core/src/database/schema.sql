@@ -118,6 +118,7 @@ create table if not exists bitcoin_syncer_spent_utxos (
     primary key (block_id, spending_txid, txid, vout),
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
+CREATE INDEX IF NOT EXISTS bitcoin_syncer_spent_utxos_txid_vout_idx ON bitcoin_syncer_spent_utxos (txid, vout);
 create table if not exists bitcoin_blocks (
     height int primary key not null,
     block_hash text not null,
