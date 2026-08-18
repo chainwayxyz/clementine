@@ -1654,20 +1654,9 @@ where
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
-        // wrap around a mutex lock to avoid OOM
         let guard = REPLACE_SCRIPTS_LOCK.lock().await;
         let start = std::time::Instant::now();
-        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts()?;
-
-        let taproot_builder = taproot_builder_with_scripts(scripts);
-
-        let root_hash = taproot_builder
-            .try_into_taptree()
-            .expect("taproot builder always builds a full taptree")
-            .root_hash()
-            .to_byte_array();
-
-        // bitvm scripts are dropped, release the lock
+        let root_hash = bitvm_pks.get_g16_verifier_disprove_root_hash()?;
         drop(guard);
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
 
@@ -2572,7 +2561,6 @@ where
         use bridge_circuit_host::utils::get_verifying_key;
 
         let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
-        let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
 
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let paramset = self.config.protocol_paramset();
@@ -2709,6 +2697,7 @@ where
         let res = tokio::task::spawn_blocking(move || {
             use bitvm::chunk::api::validate_assertions_return_vector;
 
+            let disprove_scripts = bitvm_pks.get_g16_verifier_disprove_scripts()?;
             validate_assertions_return_vector(
                 &vk,
                 (first_box, second_box, third_box),

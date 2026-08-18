@@ -1,10 +1,12 @@
 use crate::actor::WinternitzDerivationPath;
-use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::address::{calculate_taproot_leaf_depths, taproot_builder_with_scripts};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::MAX_SCRIPT_REPLACEMENT_OPERATIONS;
 use crate::errors::BridgeError;
+use bitcoin::hashes::Hash;
+use bitcoin::taproot::{LeafVersion, TapNodeHash, TaprootBuilder};
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
@@ -26,8 +28,6 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-/// Replacing bitvm scripts require cloning the scripts, which can be ~4GB. And this operation is done every deposit.
-/// So we ensure only 1 thread is doing this at a time to avoid OOM.
 pub static REPLACE_SCRIPTS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 lazy_static::lazy_static! {
@@ -62,6 +62,7 @@ pub static BITVM_CACHE: OnceCell<BitvmCacheWithMetadata> = OnceCell::new();
 pub struct BitvmCacheWithMetadata {
     pub bitvm_cache: BitvmCache,
     pub sha256_bitvm_cache: [u8; 32],
+    disprove_replacements_by_script: Vec<Vec<DisproveScriptReplacement>>,
 }
 
 /// Returns the BitVM cache file path from `BITVM_CACHE_PATH` env var or a default based on RISC0 dev/prod mode.
@@ -116,9 +117,12 @@ pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeEr
     );
     tracing::info!("SHA256 of bitvm cache: {:?}", sha256_bitvm_cache);
 
+    let disprove_replacements_by_script = collect_disprove_script_replacement_plan(&bitvm_cache);
+
     Ok(BitvmCacheWithMetadata {
         bitvm_cache,
         sha256_bitvm_cache,
+        disprove_replacements_by_script,
     })
 }
 
@@ -649,6 +653,143 @@ impl ClementineBitVMPublicKeys {
             Ok(replace_disprove_scripts(self)?)
         }
     }
+
+    pub fn get_g16_verifier_disprove_root_hash(&self) -> Result<[u8; 32], BridgeError> {
+        if cfg!(debug_assertions) {
+            let script = ScriptBuf::from_bytes(vec![0x51]); // OP_TRUE
+            return Ok(TapNodeHash::from_script(&script, LeafVersion::TapScript).to_byte_array());
+        }
+
+        let cache = BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)?;
+        let estimated_operations =
+            calculate_replacement_operations(&cache.bitvm_cache.replacement_places);
+        if estimated_operations > MAX_SCRIPT_REPLACEMENT_OPERATIONS {
+            return Err(BridgeError::BitvmReplacementResourceExhaustion(
+                estimated_operations,
+            ));
+        }
+
+        let depths = calculate_taproot_leaf_depths(cache.bitvm_cache.disprove_scripts.len());
+        let mut taproot_builder = TaprootBuilder::new();
+
+        for (script_idx, base_script) in cache.bitvm_cache.disprove_scripts.iter().enumerate() {
+            let mut script = base_script.clone();
+            for replacement in &cache.disprove_replacements_by_script[script_idx] {
+                script[replacement.pos..replacement.pos + 20]
+                    .copy_from_slice(&replacement.source.value(self));
+            }
+            let leaf_hash =
+                TapNodeHash::from_script(&ScriptBuf::from_bytes(script), LeafVersion::TapScript);
+            taproot_builder = taproot_builder
+                .add_hidden_node(depths[script_idx], leaf_hash)
+                .expect("algorithm tested to be correct");
+        }
+
+        Ok(taproot_builder
+            .try_into_node_info()
+            .expect("taproot builder always builds a full taptree")
+            .node_hash()
+            .to_byte_array())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DisproveScriptReplacement {
+    pos: usize,
+    source: DisproveReplacementSource,
+}
+
+#[derive(Clone, Copy)]
+enum DisproveReplacementSource {
+    PayoutTxBlockhash { digit_idx: usize },
+    LatestBlockhash { digit_idx: usize },
+    ChallengeSendingWatchtowers { digit_idx: usize },
+    BitvmPks0 { pk_idx: usize, digit_idx: usize },
+    BitvmPks1 { pk_idx: usize, digit_idx: usize },
+    BitvmPks2 { pk_idx: usize, digit_idx: usize },
+}
+
+impl DisproveReplacementSource {
+    fn value(self, pks: &ClementineBitVMPublicKeys) -> [u8; 20] {
+        match self {
+            Self::PayoutTxBlockhash { digit_idx } => pks.payout_tx_blockhash_pk[digit_idx],
+            Self::LatestBlockhash { digit_idx } => pks.latest_blockhash_pk[digit_idx],
+            Self::ChallengeSendingWatchtowers { digit_idx } => {
+                pks.challenge_sending_watchtowers_pk[digit_idx]
+            }
+            Self::BitvmPks0 { pk_idx, digit_idx } => pks.bitvm_pks.0[pk_idx][digit_idx],
+            Self::BitvmPks1 { pk_idx, digit_idx } => pks.bitvm_pks.1[pk_idx][digit_idx],
+            Self::BitvmPks2 { pk_idx, digit_idx } => pks.bitvm_pks.2[pk_idx][digit_idx],
+        }
+    }
+}
+
+fn collect_disprove_script_replacement_plan(
+    cache: &BitvmCache,
+) -> Vec<Vec<DisproveScriptReplacement>> {
+    let mut replacements_by_script = vec![Vec::new(); cache.disprove_scripts.len()];
+    let replacement_places = &cache.replacement_places;
+
+    for (digit_idx, places) in replacement_places.payout_tx_blockhash_pk.iter().enumerate() {
+        for &(script_idx, pos) in places {
+            replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                pos,
+                source: DisproveReplacementSource::PayoutTxBlockhash { digit_idx },
+            });
+        }
+    }
+    for (digit_idx, places) in replacement_places.latest_blockhash_pk.iter().enumerate() {
+        for &(script_idx, pos) in places {
+            replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                pos,
+                source: DisproveReplacementSource::LatestBlockhash { digit_idx },
+            });
+        }
+    }
+    for (digit_idx, places) in replacement_places
+        .challenge_sending_watchtowers_pk
+        .iter()
+        .enumerate()
+    {
+        for &(script_idx, pos) in places {
+            replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                pos,
+                source: DisproveReplacementSource::ChallengeSendingWatchtowers { digit_idx },
+            });
+        }
+    }
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.0.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                    pos,
+                    source: DisproveReplacementSource::BitvmPks0 { pk_idx, digit_idx },
+                });
+            }
+        }
+    }
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.1.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                    pos,
+                    source: DisproveReplacementSource::BitvmPks1 { pk_idx, digit_idx },
+                });
+            }
+        }
+    }
+    for (pk_idx, digit_places) in replacement_places.bitvm_pks.2.iter().enumerate() {
+        for (digit_idx, places) in digit_places.iter().enumerate() {
+            for &(script_idx, pos) in places {
+                replacements_by_script[script_idx].push(DisproveScriptReplacement {
+                    pos,
+                    source: DisproveReplacementSource::BitvmPks2 { pk_idx, digit_idx },
+                });
+            }
+        }
+    }
+
+    replacements_by_script
 }
 
 pub fn replace_disprove_scripts(
