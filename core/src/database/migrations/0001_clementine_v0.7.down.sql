@@ -1,5 +1,6 @@
 DROP INDEX IF EXISTS bitcoin_syncer_txs_txid_idx;
 DROP INDEX IF EXISTS bitcoin_syncer_spent_utxos_txid_vout_idx;
+DROP INDEX IF EXISTS bitcoin_blocks_block_hash_idx;
 
 -- Keep consumer progress so a downgrade and later upgrade cannot replay old LCP work.
 ALTER TABLE state_manager_status DROP COLUMN IF EXISTS last_processed_lcp;

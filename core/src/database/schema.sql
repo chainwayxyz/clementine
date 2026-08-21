@@ -6,12 +6,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
@@ -125,6 +119,7 @@ create table if not exists bitcoin_blocks (
     block_data bytea not null,
     created_at timestamp not null default now()
 );
+CREATE INDEX IF NOT EXISTS bitcoin_blocks_block_hash_idx ON bitcoin_blocks (block_hash);
 -- enum for bitcoin_syncer_events
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1

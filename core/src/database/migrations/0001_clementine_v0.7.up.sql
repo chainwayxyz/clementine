@@ -1,5 +1,6 @@
 CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs (txid);
 CREATE INDEX IF NOT EXISTS bitcoin_syncer_spent_utxos_txid_vout_idx ON bitcoin_syncer_spent_utxos (txid, vout);
+CREATE INDEX IF NOT EXISTS bitcoin_blocks_block_hash_idx ON bitcoin_blocks (block_hash);
 
 ALTER TABLE state_manager_status
 ADD COLUMN IF NOT EXISTS last_processed_lcp INT;

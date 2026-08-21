@@ -621,6 +621,7 @@ where
                     &operator_data,
                     &kickoff_wpks,
                     self.config.protocol_paramset(),
+                    &self.db,
                 )
                 .await?;
             // if operator is not in deposit but its collateral is still on chain, return false
@@ -634,7 +635,7 @@ where
             // if operator is in deposit, but the collateral is not usable, return false
             if operators_in_deposit_data.contains(xonly_pk) && !is_collateral_usable {
                 let reason = format!(
-                    "Operator {xonly_pk:?} is in the deposit data from aggregator but its collateral is spent, operator cannot fulfill withdrawals anymore",
+                    "Operator {xonly_pk:?} is in the deposit data from aggregator but is not usable in the protocol (collateral spent or leftover kickoffs in passed rounds)",
                 );
                 tracing::error!("{reason}");
                 return Err(BridgeError::InvalidDeposit(reason));
@@ -764,11 +765,12 @@ where
                 &operator_data,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
+                &self.db,
             )
             .await?
         {
             return Err(eyre::eyre!(
-                "Collateral utxo of operator {:?} does not exist or is not usable in bitcoin, cannot set operator",
+                "Collateral of operator {:?} is missing, spent, or has leftover kickoffs in passed rounds, cannot set operator",
                 operator_xonly_pk,
             )
             .into());

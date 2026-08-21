@@ -71,6 +71,8 @@ pub use creator::{
 pub use operator_collateral::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
 };
+#[cfg(test)]
+pub(crate) use operator_reimburse::{create_kickoff_txhandler, AssertScripts, DisprovePath};
 pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 

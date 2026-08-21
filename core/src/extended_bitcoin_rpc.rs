@@ -11,43 +11,45 @@
 //! [`crate::test::common`] for using [`ExtendedBitcoinRpc`] in tests.
 
 use async_trait::async_trait;
-use bitcoin::Address;
-use bitcoin::Amount;
-use bitcoin::BlockHash;
-use bitcoin::FeeRate;
-use bitcoin::Network;
-use bitcoin::OutPoint;
-use bitcoin::ScriptBuf;
-use bitcoin::TxOut;
-use bitcoin::Txid;
-use bitcoincore_rpc::Auth;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
-use eyre::eyre;
-use eyre::Context;
-use eyre::OptionExt;
+use bitcoin::{
+    Address, Amount, BlockHash, FeeRate, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+    XOnlyPublicKey,
+};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
+use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use reqwest;
-use secrecy::ExposeSecret;
-use secrecy::SecretString;
-use std::iter::Take;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
+use secrecy::{ExposeSecret, SecretString};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::Take,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time::timeout;
-use tokio_retry::strategy::{jitter, ExponentialBackoff};
-use tokio_retry::RetryIf;
+use tokio_retry::{
+    strategy::{jitter, ExponentialBackoff},
+    RetryIf,
+};
 
-use crate::builder::address::create_taproot_address;
-use crate::builder::transaction::create_round_txhandlers;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::KickoffWinternitzKeys;
-use crate::builder::transaction::TransactionType;
-use crate::builder::transaction::TxHandler;
-use crate::config::protocol::ProtocolParamset;
-use crate::deposit::OperatorData;
-use crate::errors::{BridgeError, FeeErr};
-use crate::operator::RoundIndex;
+use crate::{
+    bitvm_client::ClementineBitVMPublicKeys,
+    builder::{
+        address::create_taproot_address,
+        transaction::{
+            create_round_txhandlers, input::UtxoVout, KickoffWinternitzKeys, TransactionType,
+            TxHandler,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    constants::NON_STANDARD_V3,
+    database::Database,
+    deposit::OperatorData,
+    errors::{BridgeError, FeeErr},
+    operator::RoundIndex,
+};
+use circuits_lib::{bridge_circuit::parse_op_return_data, common::constants::FIRST_FIVE_OUTPUTS};
 
 #[cfg(test)]
 use crate::test::common::citrea::CitreaE2EData;
@@ -427,32 +429,37 @@ impl ExtendedBitcoinRpc {
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
     }
 
-    /// Checks if an operator's collateral is valid and available for use.
+    /// Checks if an operator is still safely usable in the protocol.
     ///
-    /// This function validates the operator's collateral by:
-    /// 1. Verifying the collateral UTXO exists and has the correct amount
-    /// 2. Creating the round transaction chain to track current collateral position
-    /// 3. Determining if the current collateral UTXO in the chain is spent in a non-protocol tx, signaling the exit of operator from the protocol
+    /// This validates:
+    /// 1. The collateral UTXO exists with the correct amount and script
+    /// 2. The round chain is followed to the current collateral position
+    /// 3. The current collateral is not spent outside the protocol
+    /// 4. Every already-passed round (ready-to-reimburse is on chain) has no leftover
+    ///    kickoff UTXOs. UnspentKickoff cannot slash those once the next round spends
+    ///    the ready-to-reimburse burn connector, so leftover kickoffs can later be used
+    ///    with already-mined reimburse connectors.
+    /// 5. If a passed-round kickoff UTXO was spent as a kickoff, that kickoff's finalizer
+    ///    must also be spent. An in-flight kickoff in a passed round is not watched by the
+    ///    round state machine. This uses the actual spending transaction of each leftover
+    ///    kickoff UTXO, including kickoffs that commit to a deposit that is not yet signed.
     ///
-    /// # Parameters
+    /// `db` is the bitcoin syncer. Kickoff UTXOs of finished rounds are looked
+    /// up there; we only load block bodies for spends that might be kickoffs.
     ///
-    /// * `operator_data`: Data about the operator including collateral funding outpoint
-    /// * `kickoff_wpks`: Kickoff Winternitz public keys for round transaction creation
-    /// * `paramset`: Protocol parameters
+    /// Spent-or-not comes from the syncer, not from bitcoind. If the syncer has
+    /// no spend for a kickoff UTXO, treat it as still live and reject.
+    /// A short mismatch with bitcoind is fine on mainnet.
     ///
     /// # Returns
     ///
-    /// - [`bool`]: `true` if the collateral is still usable, thus operator is still in protocol, `false` if the collateral is spent, thus operator is not in protocol anymore
-    ///
-    /// # Errors
-    ///
-    /// - [`BridgeError`]: If there was an error retrieving transaction data, creating round transactions,
-    ///   or checking UTXO status
+    /// - [`bool`]: `true` if the operator is still in protocol and safe to include in deposits
     pub async fn collateral_check(
         &self,
         operator_data: &OperatorData,
         kickoff_wpks: &KickoffWinternitzKeys,
         paramset: &'static ProtocolParamset,
+        db: &Database,
     ) -> std::result::Result<bool, BridgeError> {
         // first check if the collateral utxo is on chain or mempool
         let tx = self
@@ -588,6 +595,24 @@ impl ExtendedBitcoinRpc {
                 break;
             }
 
+            // Ready-to-reimburse is on chain, so this round is passed. Leftover
+            // kickoffs can no longer be slashed via UnspentKickoff once the next
+            // round spends that burn connector.
+            let round_txhandler =
+                round_txhandler_opt.expect("Round txhandler should exist, checked above");
+            if !self
+                .passed_round_kickoffs_are_safe(
+                    round_txhandler,
+                    round_idx,
+                    paramset,
+                    operator_data,
+                    db,
+                )
+                .await?
+            {
+                return Ok(false);
+            }
+
             current_collateral_outpoint = OutPoint {
                 txid: ready_to_reimburse_txid,
                 vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
@@ -600,6 +625,118 @@ impl ExtendedBitcoinRpc {
         // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
         // if not spent, it should exist in chain, which is checked below
         Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
+    }
+
+    /// Returns false if a passed round still has a live kickoff UTXO, or an
+    /// in-flight kickoff whose finalizer is unspent.
+    ///
+    /// Kickoff UTXOs of this finished round must all be spent. Spent-or-not
+    /// comes from the syncer, not from bitcoind. No spend row means the UTXO
+    /// is still live: reject. Do not add a `gettxout` check. A short mismatch
+    /// with bitcoind is fine on mainnet.
+    ///
+    /// A tx that spends more than one of these UTXOs cannot be a protocol
+    /// kickoff (those have a single input), so it is a burn and its block is
+    /// not loaded. Other spends are loaded from their blocks. Sequence is the
+    /// first filter: burn / UnspentKickoff set CSV, so a relative locktime
+    /// cannot be a kickoff. After that it is a protocol kickoff only if it has
+    /// exactly one input, version 3, the kickoff output layout, and the kickoff
+    /// OP_RETURN (`move_txid || this operator's xonly pk`). Any other Winternitz
+    /// spend still uses up the UTXO.
+    async fn passed_round_kickoffs_are_safe(
+        &self,
+        round_txhandler: &TxHandler,
+        round_idx: RoundIndex,
+        paramset: &'static ProtocolParamset,
+        operator_data: &OperatorData,
+        db: &Database,
+    ) -> std::result::Result<bool, BridgeError> {
+        let mut kickoff_outpoints = Vec::with_capacity(paramset.num_kickoffs_per_round);
+        for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+            kickoff_outpoints.push(
+                *round_txhandler
+                    .get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?
+                    .get_prev_outpoint(),
+            );
+        }
+        let mut dbtx = db.begin_transaction().await?;
+        let spends = db
+            .get_canonical_spending_txids(Some(&mut dbtx), &kickoff_outpoints)
+            .await?;
+
+        let mut spend_count: HashMap<Txid, usize> = HashMap::new();
+        for (spending_txid, _) in spends.values() {
+            *spend_count.entry(*spending_txid).or_default() += 1;
+        }
+
+        let mut to_classify = Vec::new();
+        let mut wanted_txids = HashSet::new();
+        let mut unique_blockhashes = HashSet::new();
+        for (kickoff_idx, kickoff_outpoint) in kickoff_outpoints.iter().enumerate() {
+            let Some((spending_txid, blockhash)) = spends.get(kickoff_outpoint) else {
+                tracing::error!(
+                    ?operator_data,
+                    ?round_idx,
+                    kickoff_idx,
+                    %kickoff_outpoint,
+                    "Passed round has an unspent kickoff UTXO; operator is not safe to include in deposits"
+                );
+                dbtx.commit().await?;
+                return Ok(false);
+            };
+            // A tx that consumes more than one leftover kickoff in this round cannot
+            // be a protocol kickoff (those have a single input).
+            if spend_count[spending_txid] > 1 {
+                continue;
+            }
+            to_classify.push((*kickoff_outpoint, *spending_txid));
+            wanted_txids.insert(*spending_txid);
+            unique_blockhashes.insert(*blockhash);
+        }
+
+        // It is assumed that the number of unique block hashes is small, so we can fetch all the transactions in one query.
+        // It will be obvious on mainnet if an operator intentionally tries to grief this.
+        let spending_txs = db
+            .get_txs_from_block_hashes(Some(&mut dbtx), unique_blockhashes, &wanted_txids)
+            .await?;
+
+        let mut finalizer_outpoints = Vec::new();
+        for (kickoff_outpoint, spending_txid) in to_classify {
+            let Some(spending_tx) = spending_txs.get(&spending_txid) else {
+                return Err(eyre!(
+                    "Canonical spending txid {spending_txid} was indexed but missing from its block"
+                )
+                .into());
+            };
+            if spending_is_protocol_kickoff(kickoff_outpoint, spending_tx, operator_data.xonly_pk)?
+            {
+                finalizer_outpoints.push(OutPoint {
+                    txid: spending_txid,
+                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                });
+            }
+        }
+
+        if !finalizer_outpoints.is_empty() {
+            let spent_finalizers = db
+                .get_canonical_spending_txids(Some(&mut dbtx), &finalizer_outpoints)
+                .await?;
+            if let Some(finalizer) = finalizer_outpoints
+                .iter()
+                .find(|outpoint| !spent_finalizers.contains_key(outpoint))
+            {
+                tracing::error!(
+                    ?operator_data,
+                    ?round_idx,
+                    %finalizer,
+                    "Passed round kickoff UTXO was spent as a kickoff but the kickoff finalizer is still unspent"
+                );
+                dbtx.commit().await?;
+                return Ok(false);
+            }
+        }
+        dbtx.commit().await?;
+        Ok(true)
     }
 
     /// Returns block hash of a transaction, if confirmed.
@@ -1130,7 +1267,7 @@ impl ExtendedBitcoinRpc {
                 _ => {
                     return Err(eyre::eyre!(e)
                         .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
-                        .into())
+                        .into());
                 }
             },
         };
@@ -1283,7 +1420,8 @@ impl ExtendedBitcoinRpc {
                     (Err(mempool_err), Err(rpc_err)) => {
                         tracing::warn!(
                             "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
-                            mempool_err, rpc_err
+                            mempool_err,
+                            rpc_err
                         );
                         Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
                     }
@@ -1396,6 +1534,56 @@ async fn get_fee_rate_from_mempool_space(
     Ok(fee_rate)
 }
 
+/// Challenge, KickoffFinalizer, Reimburse, Disprove, LatestBlockhash, asserts,
+/// OP_RETURN, and the CPFP anchor. Watchtower pairs are extra and deposit-dependent.
+fn min_kickoff_output_count() -> usize {
+    FIRST_FIVE_OUTPUTS + ClementineBitVMPublicKeys::number_of_assert_txs() + 2
+}
+
+/// True if `spending_tx` spends `kickoff_outpoint` as a protocol kickoff.
+///
+/// Sequence is the first filter: the 1-block CSV burn / UnspentKickoff path
+/// cannot be a kickoff. A kickoff spends only that UTXO, so more than one
+/// input cannot be a kickoff. After that it must be version 3, have the
+/// protocol output count, and include the kickoff OP_RETURN ending in this
+/// operator's xonly pk. Missing the spent input is an invariant error: the
+/// caller only passes transactions indexed as spending this outpoint.
+fn spending_is_protocol_kickoff(
+    kickoff_outpoint: OutPoint,
+    spending_tx: &Transaction,
+    operator_xonly_pk: XOnlyPublicKey,
+) -> std::result::Result<bool, BridgeError> {
+    let Some(txin) = spending_tx
+        .input
+        .iter()
+        .find(|txin| txin.previous_output == kickoff_outpoint)
+    else {
+        return Err(eyre!(
+            "Spending transaction {} does not include kickoff outpoint {}",
+            spending_tx.compute_txid(),
+            kickoff_outpoint
+        )
+        .into());
+    };
+    if txin.sequence.is_relative_lock_time() {
+        return Ok(false);
+    }
+    if spending_tx.input.len() != 1 {
+        return Ok(false);
+    }
+    if spending_tx.version != NON_STANDARD_V3 {
+        return Ok(false);
+    }
+    if spending_tx.output.len() < min_kickoff_output_count() {
+        return Ok(false);
+    }
+    let operator_pk = operator_xonly_pk.serialize();
+    Ok(spending_tx.output.iter().any(|output| {
+        parse_op_return_data(&output.script_pubkey)
+            .is_some_and(|data| data.len() == 64 && data[32..] == operator_pk)
+    }))
+}
+
 #[async_trait]
 /// Implementation of the `RpcApi` trait for `ExtendedBitcoinRpc`. All RPC calls
 /// are made with retry logic that only retries when errors are retryable.
@@ -1423,22 +1611,23 @@ impl RpcApi for ExtendedBitcoinRpc {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::actor::Actor;
-    use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
-    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-    use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
-        bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
+        actor::Actor,
+        bitvm_client::SECP,
+        config::protocol::{ProtocolParamset, REGTEST_PARAMSET},
+        extended_bitcoin_rpc::{BitcoinRPCError, ExtendedBitcoinRpc},
+        test::common::{citrea, create_regtest_rpc, create_test_config_with_thread_name},
     };
-    use bitcoin::Amount;
-    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, Amount, FeeRate, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
-    use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-    use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
-    use citrea_e2e::node::NodeKind;
-    use citrea_e2e::test_case::TestCaseRunner;
-    use citrea_e2e::Result;
-    use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+    use citrea_e2e::{
+        bitcoin::DEFAULT_FINALITY_DEPTH,
+        config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
+        framework::TestFramework,
+        node::NodeKind,
+        test_case::{TestCase, TestCaseRunner},
+        Result,
+    };
     use tonic::async_trait;
 
     #[tokio::test]
@@ -1986,5 +2175,376 @@ mod tests {
             // Should return a different txid since fee was actually bumped
             assert_ne!(new_txid, utxo.txid);
         }
+    }
+
+    /// `nofn` is the test signer so the kickoff finalizer is a CheckSig we can spend.
+    fn test_kickoff_tx(
+        signer: &Actor,
+        round_tx: &crate::builder::transaction::TxHandler,
+        kickoff_idx: u32,
+        extra_watchtowers: Vec<XOnlyPublicKey>,
+        unlock_hashes: Vec<[u8; 20]>,
+        paramset: &'static ProtocolParamset,
+    ) -> crate::builder::transaction::TxHandler {
+        use crate::{
+            bitvm_client::ClementineBitVMPublicKeys,
+            builder::transaction::{
+                create_kickoff_txhandler, create_move_to_vault_txhandler, AssertScripts,
+                DisprovePath,
+            },
+            deposit::{
+                Actors, BaseDepositData, DepositData, DepositInfo, DepositType, KickoffData,
+                SecurityCouncil,
+            },
+            operator::RoundIndex,
+            EVMAddress,
+        };
+        use bitcoin::{hashes::Hash, OutPoint, ScriptBuf, Txid};
+        use std::str::FromStr;
+
+        let mut deposit_data = DepositData {
+            nofn_xonly_pk: Some(signer.xonly_public_key),
+            deposit: DepositInfo {
+                deposit_outpoint: OutPoint::new(Txid::all_zeros(), 1),
+                deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                    evm_address: EVMAddress([0u8; 20]),
+                    recovery_taproot_address: bitcoin::Address::from_str(
+                        "bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss",
+                    )
+                    .unwrap(),
+                }),
+            },
+            actors: Actors {
+                verifiers: vec![],
+                watchtowers: extra_watchtowers,
+                operators: vec![signer.xonly_public_key],
+            },
+            security_council: SecurityCouncil {
+                pks: vec![signer.xonly_public_key],
+                threshold: 1,
+            },
+        };
+        let move_tx = create_move_to_vault_txhandler(&mut deposit_data, paramset).unwrap();
+        let assert_hashes = vec![[0u8; 32]; ClementineBitVMPublicKeys::number_of_assert_txs()];
+        let disprove_root = [1u8; 32];
+        create_kickoff_txhandler(
+            KickoffData {
+                operator_xonly_pk: signer.xonly_public_key,
+                round_idx: RoundIndex::Round(0),
+                kickoff_idx,
+            },
+            round_tx,
+            &move_tx,
+            &mut deposit_data,
+            signer.xonly_public_key,
+            AssertScripts::AssertScriptTapNodeHash(&assert_hashes),
+            DisprovePath::HiddenNode(&disprove_root),
+            ScriptBuf::from_bytes(vec![0x51]).to_bytes(),
+            AssertScripts::AssertScriptTapNodeHash(&[[2u8; 32]]),
+            &unlock_hashes,
+            paramset,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn collateral_check_rejects_leftover_kickoffs_in_passed_round() {
+        use crate::{
+            actor::WinternitzDerivationPath,
+            builder::{
+                script::SpendPath,
+                transaction::{
+                    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+                    input::UtxoVout, output::UnspentTxOut, KickoffWinternitzKeys, TransactionType,
+                    TxHandlerBuilder, DEFAULT_SEQUENCE,
+                },
+            },
+            constants::NON_STANDARD_V3,
+            database::Database,
+            deposit::OperatorData,
+            operator::RoundIndex,
+            rpc::clementine::NormalSignatureKind,
+        };
+        use bitcoin::Transaction;
+
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.mine_0_fee_txs = true;
+        let db = Database::new(&config).await.unwrap();
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let paramset = config.protocol_paramset();
+
+        async fn mine_and_index(db: &Database, rpc: &ExtendedBitcoinRpc) {
+            rpc.mine_blocks(1).await.unwrap();
+            let height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
+            let hash = rpc.get_block_hash(height as u64).await.unwrap();
+            let block = rpc.get_block(&hash).await.unwrap();
+            let mut dbtx = db.begin_transaction().await.unwrap();
+            crate::bitcoin_syncer::save_block(db, &mut dbtx, &block, height)
+                .await
+                .unwrap();
+            dbtx.commit().await.unwrap();
+        }
+        async fn broadcast(db: &Database, rpc: &ExtendedBitcoinRpc, tx: &Transaction) {
+            rpc.send_raw_transaction(tx).await.unwrap();
+            mine_and_index(db, rpc).await;
+        }
+
+        let signer = Actor::new(
+            config.test_params.all_operators_secret_keys[0],
+            paramset.network,
+        );
+        let collateral = rpc
+            .send_to_address(&signer.address, paramset.collateral_funding_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let mut wpks = Vec::new();
+        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs + 1) {
+            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                wpks.push(
+                    signer
+                        .derive_winternitz_pk(WinternitzDerivationPath::Kickoff(
+                            round_idx,
+                            kickoff_idx as u32,
+                            paramset,
+                        ))
+                        .unwrap(),
+                );
+            }
+        }
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            wpks,
+            paramset.num_kickoffs_per_round,
+            paramset.num_round_txs,
+        )
+        .unwrap();
+        let operator_data = OperatorData {
+            xonly_pk: signer.xonly_public_key,
+            collateral_funding_outpoint: collateral,
+            reimburse_addr: signer.address.clone(),
+        };
+
+        let (mut round_tx, mut ready_to_reimburse_tx) = create_round_nth_txhandler(
+            signer.xonly_public_key,
+            collateral,
+            paramset.collateral_funding_amount,
+            RoundIndex::Round(0),
+            &kickoff_wpks,
+            paramset,
+        )
+        .unwrap();
+
+        signer
+            .tx_sign_and_fill_sigs(&mut round_tx, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, round_tx.get_cached_tx()).await;
+
+        assert!(
+            rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "current round with unspent kickoffs should still be accepted"
+        );
+
+        signer
+            .tx_sign_and_fill_sigs(&mut ready_to_reimburse_tx, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, ready_to_reimburse_tx.get_cached_tx()).await;
+
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "passed round with leftover kickoffs should be rejected"
+        );
+
+        let key_out = || {
+            UnspentTxOut::from_scripts(
+                Amount::ZERO,
+                vec![],
+                Some(signer.xonly_public_key),
+                paramset.network,
+            )
+        };
+        // Winternitz spend of leftover 0 that is not a protocol kickoff.
+        let mut dummy_spend = TxHandlerBuilder::new(TransactionType::Kickoff)
+            .with_version(NON_STANDARD_V3)
+            .add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                round_tx.get_spendable_output(UtxoVout::Kickoff(0)).unwrap(),
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(key_out())
+            .add_output(key_out())
+            .finalize();
+        signer
+            .tx_sign_winternitz(
+                &mut dummy_spend,
+                &[(
+                    vec![0u8; 20],
+                    WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset),
+                )],
+            )
+            .unwrap();
+        rpc.send_raw_transaction(dummy_spend.get_cached_tx())
+            .await
+            .unwrap();
+
+        let mut protocol_kickoff = test_kickoff_tx(&signer, &round_tx, 1, vec![], vec![], paramset);
+        signer
+            .tx_sign_winternitz(
+                &mut protocol_kickoff,
+                &[(
+                    vec![0u8; 20],
+                    WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset),
+                )],
+            )
+            .unwrap();
+        rpc.send_raw_transaction(protocol_kickoff.get_cached_tx())
+            .await
+            .unwrap();
+
+        let unused: Vec<usize> = (2..paramset.num_kickoffs_per_round).collect();
+        let mut burn_tx = create_burn_unused_kickoff_connectors_txhandler(
+            &round_tx,
+            &unused,
+            &signer.address,
+            paramset,
+        )
+        .unwrap();
+        signer
+            .tx_sign_and_fill_sigs(&mut burn_tx, &[], None)
+            .unwrap();
+        rpc.send_raw_transaction(burn_tx.get_cached_tx())
+            .await
+            .unwrap();
+        mine_and_index(&db, rpc).await;
+
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "kickoff in a passed round with unspent finalizer should be rejected"
+        );
+
+        let mut spend_finalizer = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(NON_STANDARD_V3)
+            .add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                protocol_kickoff
+                    .get_spendable_output(UtxoVout::KickoffFinalizer)
+                    .unwrap(),
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(key_out())
+            .finalize();
+        signer
+            .tx_sign_and_fill_sigs(&mut spend_finalizer, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, spend_finalizer.get_cached_tx()).await;
+
+        assert!(
+            rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "operator should be accepted after leftover kickoffs are burned and the kickoff finalizer is spent"
+        );
+    }
+
+    /// Locks the classifier to `create_kickoff_txhandler`: a real kickoff, with and
+    /// without extra watchtower outputs, must be classified as a protocol kickoff.
+    #[test]
+    fn create_kickoff_txhandler_is_classified_as_protocol_kickoff() {
+        use crate::{
+            bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
+            builder::transaction::{
+                create_round_nth_txhandler, input::UtxoVout, KickoffWinternitzKeys,
+            },
+            operator::RoundIndex,
+        };
+        use bitcoin::{
+            hashes::Hash, secp256k1::rand::thread_rng, secp256k1::SecretKey, Network, OutPoint,
+            Txid,
+        };
+
+        let paramset = &REGTEST_PARAMSET;
+        let signer = Actor::new(SecretKey::new(&mut thread_rng()), Network::Regtest);
+        let wpks = KickoffWinternitzKeys::new(
+            vec![
+                vec![[0u8; 20]; 43];
+                (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
+            ],
+            paramset.num_kickoffs_per_round,
+            paramset.num_round_txs,
+        )
+        .unwrap();
+        let (round_tx, _) = create_round_nth_txhandler(
+            signer.xonly_public_key,
+            OutPoint::new(Txid::all_zeros(), 0),
+            paramset.collateral_funding_amount,
+            RoundIndex::Round(0),
+            &wpks,
+            paramset,
+        )
+        .unwrap();
+        let kickoff_outpoint = *round_tx
+            .get_spendable_output(UtxoVout::Kickoff(0))
+            .unwrap()
+            .get_prev_outpoint();
+
+        let classify = |extra_watchtowers: Vec<bitcoin::XOnlyPublicKey>,
+                        unlock_hashes: Vec<[u8; 20]>| {
+            let kickoff = test_kickoff_tx(
+                &signer,
+                &round_tx,
+                0,
+                extra_watchtowers,
+                unlock_hashes,
+                paramset,
+            );
+            super::spending_is_protocol_kickoff(
+                kickoff_outpoint,
+                kickoff.get_cached_tx(),
+                signer.xonly_public_key,
+            )
+            .unwrap()
+        };
+
+        assert!(
+            classify(vec![], vec![]),
+            "create_kickoff_txhandler output with no extra watchtowers must be a protocol kickoff"
+        );
+        assert!(
+            classify(vec![*UNSPENDABLE_XONLY_PUBKEY], vec![[0u8; 20]]),
+            "create_kickoff_txhandler output with extra watchtower outputs must still be a protocol kickoff"
+        );
+    }
+
+    #[test]
+    fn spending_is_protocol_kickoff_errors_if_input_is_missing() {
+        use bitcoin::hashes::Hash;
+        let kickoff_outpoint = bitcoin::OutPoint {
+            txid: bitcoin::Txid::all_zeros(),
+            vout: 1,
+        };
+        let spending_tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let err = super::spending_is_protocol_kickoff(
+            kickoff_outpoint,
+            &spending_tx,
+            *crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("does not include kickoff outpoint"));
     }
 }
