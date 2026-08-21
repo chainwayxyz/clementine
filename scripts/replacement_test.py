@@ -7,6 +7,13 @@ import time
 
 NODE_URL = "http://127.0.0.1:17000"
 RPC = "bitcoin-cli -regtest -rpcport=18443 -rpcuser=admin -rpcpassword=admin"
+EVM_ADDRESS = "0x0101010101010101010101010101010101010101"
+RECOVERY_TAPROOT_ADDRESS = (
+    "bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss"
+)
+SECURITY_COUNCIL = (
+    "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+)
 
 
 def run_cmd(cmd, capture=True):
@@ -20,7 +27,8 @@ def run_cmd(cmd, capture=True):
 
 def get_deposit_address():
     output = run_cmd(
-        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator get-deposit-address"
+        f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator get-deposit-address "
+        f"--evm-address {EVM_ADDRESS} --recovery-taproot-address {RECOVERY_TAPROOT_ADDRESS}"
     )
     for word in output.split():
         if word.startswith("bcrt") or word.startswith("tb1") or word.startswith("bc1"):
@@ -46,7 +54,8 @@ def get_output_index(txid, address):
 def register_deposit(txid, vout):
     output = run_cmd(
         f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator new-deposit "
-        f"--deposit-outpoint-txid {txid} --deposit-outpoint-vout {vout}"
+        f"--deposit-outpoint-txid {txid} --deposit-outpoint-vout {vout} "
+        f"--evm-address {EVM_ADDRESS} --recovery-taproot-address {RECOVERY_TAPROOT_ADDRESS}"
     )
 
     return output.split("Move txid: ")[1].strip()
@@ -63,7 +72,7 @@ def setup():
 def get_replacement_address(move_txid):
     output = run_cmd(
         f"cargo run --bin clementine-node-cli -- --node-url {NODE_URL} aggregator get-replacement-deposit-address "
-        f"--move-txid {move_txid}"
+        f"--move-txid {move_txid} --security-council {SECURITY_COUNCIL}"
     )
     for word in output.split():
         if word.startswith("bcrt") or word.startswith("tb1") or word.startswith("bc1"):

@@ -2019,6 +2019,11 @@ impl ClementineAggregator for AggregatorServer {
                     "Transaction is not a movetx, input or output lengths are not correct",
                 ));
             }
+            if !movetx.input[0].script_sig.is_empty() {
+                return Err(Status::invalid_argument(
+                    "Native P2TR scriptSig must be empty",
+                ));
+            }
             if movetx.input[0].previous_output != deposit_outpoint {
                 return Err(Status::invalid_argument(
                     "Transaction input does not match deposit outpoint",

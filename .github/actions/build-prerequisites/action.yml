@@ -8,14 +8,14 @@ runs:
 
   steps:
   - name: Install Protoc
-    uses: arduino/setup-protoc@v3
+    uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
     with:
       repo-token: ${{ github.token }}
 
   # Keep the crate version, artifact digest, cache path, and cache key synchronized with
   # risc0-circuit-recursion's build.rs whenever that dependency is upgraded.
   - name: Restore RISC Zero recursion artifact
-    uses: actions/cache@v4
+    uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
     with:
       path: ~/.cache/risc0-circuit-recursion/4.0.5/recursion_zkr.zip
       key: risc0-circuit-recursion-4.0.5-zkr-744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849

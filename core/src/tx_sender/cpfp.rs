@@ -753,6 +753,7 @@ impl TxSender {
             )));
         }
 
+        let mut rejected_as_insufficient_replacement = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 // CPFP packages are periodically resubmitted to counter replacement cycling.
@@ -762,6 +763,7 @@ impl TxSender {
                         try_to_send_id,
                         "Package resubmission rejected because a replacement is already in the mempool: {error}"
                     );
+                    rejected_as_insufficient_replacement = true;
                     continue;
                 }
 
@@ -779,6 +781,10 @@ impl TxSender {
                     "submitpackage rejected a transaction: {error}"
                 )));
             }
+        }
+
+        if rejected_as_insufficient_replacement {
+            return Ok(());
         }
 
         tracing::info!("Package submitted successfully.");

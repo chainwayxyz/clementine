@@ -22,7 +22,7 @@ use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepos
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, GetEntityStatusesRequest, SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, EntityType, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
@@ -142,7 +142,7 @@ pub async fn poll_get<T>(
 /// LCP syncers must have processed that height. `lcp_synced_height` is a last
 /// processed height, so this compares `lcp_synced_height + 1` with the finalized
 /// tip. Entities that do not run an LCP syncer omit `lcp_synced_height` and are
-/// skipped for that check.
+/// skipped for that check. A verifier with a missing LCP cursor is not synced.
 pub async fn are_all_nodes_synced<C: CitreaClientT>(
     rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
@@ -180,9 +180,20 @@ pub async fn are_all_nodes_synced<C: CitreaClientT>(
         };
 
         // LCP syncer runs even without automation, but only on verifiers.
-        if let Some(lcp_height) = status.lcp_synced_height {
-            if lcp_height.saturating_add(1) <= current_finalized_chain_height {
-                lcp_synced = false;
+        let is_verifier = entity
+            .entity_id
+            .as_ref()
+            .is_some_and(|id| id.kind == EntityType::Verifier as i32);
+        if is_verifier {
+            match status.lcp_synced_height {
+                Some(lcp_height) => {
+                    if lcp_height.saturating_add(1) <= current_finalized_chain_height {
+                        lcp_synced = false;
+                    }
+                }
+                None => {
+                    lcp_synced = false;
+                }
             }
         }
 

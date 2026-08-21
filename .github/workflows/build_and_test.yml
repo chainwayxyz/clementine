@@ -36,11 +36,11 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           add-job-id-key: "false"
           key: release-check
@@ -73,7 +73,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
@@ -83,7 +83,7 @@ jobs:
         run: mkdir -p test-logs/release
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           add-job-id-key: "false"
           key: release-no-automation
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-no-automation-test-logs
           path: test-logs/release/
@@ -131,7 +131,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
@@ -141,7 +141,7 @@ jobs:
         run: mkdir -p test-logs/debug
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           add-job-id-key: "false"
           key: debug-all-features
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deposit-state-debug
           path: core/src/test/data/deposit_state_debug.bincode
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: debug-test-logs
           path: test-logs/debug/
@@ -207,7 +207,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
@@ -217,7 +217,7 @@ jobs:
         run: mkdir -p test-logs/release
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           add-job-id-key: "false"
           key: release-all-features
@@ -239,7 +239,7 @@ jobs:
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deposit-state-release
           path: core/src/test/data/deposit_state_release.bincode
@@ -251,7 +251,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-test-logs
           path: test-logs/release/
@@ -266,7 +266,7 @@ jobs:
       RISC0_GROTH16_IMAGE: risczero/risc0-groth16-prover:v2025-04-03.1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
 
       - name: Install RISC Zero
@@ -281,13 +281,13 @@ jobs:
           rzup install rust 1.97.0
 
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: real-risc0-RELEASE-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Restore RISC Zero Groth16 prover image
         id: cache-risc0-groth16-image
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/risc0-groth16-prover-v2025-04-03.1.tar
           key: risc0-groth16-prover-${{ runner.os }}-${{ runner.arch }}-v2025-04-03.1
@@ -371,7 +371,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
         with:
@@ -381,7 +381,7 @@ jobs:
         run: mkdir -p test-logs/standalone
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           add-job-id-key: "false"
           key: release-all-features
@@ -393,7 +393,7 @@ jobs:
 
       - name: Upload test logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: standalone-test-logs-${{ matrix.test_name }}
           path: test-logs/standalone/
