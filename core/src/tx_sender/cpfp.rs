@@ -73,8 +73,10 @@ impl TxSender {
             &tx.compute_txid().to_string(),
             bumped_id
         );
+        let parent_tx_fee = self.get_tx_fee(tx).await.map_err(|e| eyre!(e))?;
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
+            parent_tx_fee,
             fee_payer_utxos_len + 1,
             fee_rate,
             FeePayingType::CPFP,
@@ -220,7 +222,7 @@ impl TxSender {
     /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
     /// by this child transaction.
     ///
-    /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
+    /// The remaining value (total input value - `required_fee`) is sent to the CPFP change script.
     ///
     /// # Signing
     /// We sign the input spending the P2A anchor and all fee payer UTXOs.
@@ -233,6 +235,7 @@ impl TxSender {
         anchor_sat: Amount,
         fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
+        parent_tx_fee: Amount,
         fee_rate: FeeRate,
     ) -> Result<Transaction> {
         tracing::debug!(
@@ -241,25 +244,33 @@ impl TxSender {
         );
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
+            parent_tx_fee,
             fee_payer_utxos.len(),
             fee_rate,
             FeePayingType::CPFP,
         )
         .map_err(|e| eyre!(e))?;
 
-        let change_address = self
-            .rpc
-            .get_new_wallet_address()
-            .await
-            .wrap_err("Failed to get new wallet address")?;
+        let change_script_pubkey = self
+            .cpfp_change_script_pubkey
+            .get_or_try_init(|| async {
+                Ok::<_, SendTxError>(
+                    self.rpc
+                        .get_new_wallet_address()
+                        .await
+                        .wrap_err("Failed to get CPFP change address")?
+                        .script_pubkey(),
+                )
+            })
+            .await?
+            .clone();
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
             .map(|utxo| utxo.get_prevout().value)
             .sum::<Amount>()
             + anchor_sat; // We add the anchor output value to the total amount.
-        if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
-        {
+        if change_script_pubkey.minimal_non_dust() + required_fee > total_fee_payer_amount {
             return Err(SendTxError::InsufficientFeePayerAmount);
         }
 
@@ -286,7 +297,7 @@ impl TxSender {
 
         builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
             value: total_fee_payer_amount - required_fee,
-            script_pubkey: change_address.script_pubkey(),
+            script_pubkey: change_script_pubkey,
         }));
 
         let mut tx_handler = builder.finalize();
@@ -341,6 +352,7 @@ impl TxSender {
 
         // get sat amount of anchor output in the tx
         let anchor_sat = tx.output[p2a_vout].value;
+        let parent_tx_fee = self.get_tx_fee(&tx).await.map_err(|e| eyre!(e))?;
 
         let child_tx = self
             .create_child_tx(
@@ -351,6 +363,7 @@ impl TxSender {
                 anchor_sat,
                 fee_payer_utxos,
                 tx.weight(),
+                parent_tx_fee,
                 fee_rate,
             )
             .await
@@ -423,7 +436,7 @@ impl TxSender {
         let mut not_evicted_ids = HashSet::new();
         let mut all_parent_ids = HashSet::new();
 
-        for (id, try_to_send_id, fee_payer_txid, vout, amount, replacement_of_id) in
+        for (id, try_to_send_id, fee_payer_txid, _vout, amount, replacement_of_id) in
             bumpable_fee_payer_txs
         {
             tracing::debug!(
@@ -487,12 +500,37 @@ impl TxSender {
             match new_txid_result {
                 Ok(new_txid) => {
                     if new_txid != fee_payer_txid {
+                        let bumped_tx = match self.rpc.get_tx_of_txid(&new_txid).await {
+                            Ok(tx) => tx,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to fetch bumped fee payer tx {new_txid} (replacement of {fee_payer_txid}): {e}, skipping"
+                                );
+                                continue;
+                            }
+                        };
+                        let Some(new_vout) = bumped_tx.output.iter().position(|output| {
+                            output.value == amount
+                                && output.script_pubkey == self.signer.address.script_pubkey()
+                        }) else {
+                            tracing::warn!(
+                                "Bumped fee payer tx {new_txid} did not preserve the expected output of {amount} for try_to_send_id {try_to_send_id}, skipping"
+                            );
+                            continue;
+                        };
+                        let Ok(new_vout) = u32::try_from(new_vout) else {
+                            tracing::warn!(
+                                "Fee payer vout {new_vout} does not fit in u32, skipping"
+                            );
+                            continue;
+                        };
+
                         self.db
                             .save_fee_payer_tx(
                                 None,
                                 try_to_send_id,
                                 new_txid,
-                                vout,
+                                new_vout,
                                 amount,
                                 match replacement_of_id {
                                     Some(replacement_of_id) => Some(replacement_of_id),
@@ -570,8 +608,7 @@ impl TxSender {
     ///     to check if the package is likely to be accepted by the network before submitting.
     /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
-    /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
-    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    /// 6.  **Handle Results:** Returns an error for missing or failed `submitpackage` results.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
@@ -710,14 +747,24 @@ impl TxSender {
             "Submit package result: {submit_package_result:?}"
         );
 
-        // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
-            return Ok(());
+            return Err(SendTxError::Other(eyre!(
+                "submitpackage returned no transaction results"
+            )));
         }
 
-        let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
+                // CPFP packages are periodically resubmitted to counter replacement cycling.
+                // An existing package can reject the resubmission as an insufficient-fee replacement.
+                if error.contains("insufficient fee, rejecting replacement") {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Package resubmission rejected because a replacement is already in the mempool: {error}"
+                    );
+                    continue;
+                }
+
                 tracing::error!(
                     try_to_send_id,
                     "Error submitting package: {:?}, package: {:?}",
@@ -728,11 +775,10 @@ impl TxSender {
                         .collect::<Vec<_>>()
                 );
 
-                early_exit = true;
+                return Err(SendTxError::Other(eyre!(
+                    "submitpackage rejected a transaction: {error}"
+                )));
             }
-        }
-        if early_exit {
-            return Ok(());
         }
 
         tracing::info!("Package submitted successfully.");

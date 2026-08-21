@@ -29,6 +29,8 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::OptionExt;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 #[cfg(test)]
 use std::env;
@@ -38,6 +40,9 @@ mod cpfp;
 mod nonstandard;
 mod rbf;
 mod task;
+
+#[cfg(test)]
+mod replacement_cycling_tests;
 
 pub use client::TxSenderClient;
 pub use task::TxSenderTask;
@@ -76,6 +81,8 @@ pub struct TxSender {
     pub config: BridgeConfig,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
+    /// CPFP change script, lazily initialized once and reused for all CPFP child txs.
+    cpfp_change_script_pubkey: Arc<OnceCell<bitcoin::ScriptBuf>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -130,6 +137,7 @@ impl TxSender {
             btc_syncer_consumer_id,
             config: config.clone(),
             http_client: reqwest::Client::new(),
+            cpfp_change_script_pubkey: Arc::new(OnceCell::new()),
         }
     }
 
@@ -160,6 +168,7 @@ impl TxSender {
     ///
     /// # Arguments
     /// * `parent_tx_weight` - The weight of the main transaction being bumped.
+    /// * `parent_tx_fee` - The fee already paid by the parent transaction.
     /// * `num_fee_payer_utxos` - The number of fee payer UTXOs used (relevant for child tx size in CPFP).
     /// * `fee_rate` - The target fee rate (sat/kwu or similar).
     /// * `fee_paying_type` - The strategy being used (CPFP or RBF).
@@ -167,8 +176,8 @@ impl TxSender {
     /// # Calculation Logic
     /// *   **CPFP:** Calculates the weight of the hypothetical child transaction based on the
     ///     number of fee payer inputs and standard P2TR output sizes. It then calculates the
-    ///     fee based on the *combined virtual size* (vbytes) of the parent and child transactions,
-    ///     as miners evaluate the package deal.
+    ///     target fee based on the *combined virtual size* (vbytes) of the parent and child
+    ///     transactions, then subtracts the parent fee because miners evaluate the package deal.
     /// *   **RBF:** Calculates the weight of the replacement transaction itself (assuming inputs
     ///     and potentially outputs change slightly). The fee is calculated based on the weight
     ///     of this single replacement transaction.
@@ -176,6 +185,7 @@ impl TxSender {
     /// Reference for weight estimates: <https://bitcoin.stackexchange.com/a/116959>
     fn calculate_required_fee(
         parent_tx_weight: Weight,
+        parent_tx_fee: Amount,
         num_fee_payer_utxos: usize,
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
@@ -202,9 +212,8 @@ impl TxSender {
             FeePayingType::NoFunding => Weight::from_wu_usize(0),
         };
 
-        // Calculate total weight for fee calculation.
-        // For CPFP, miners consider the effective fee rate over the combined *vbytes* of parent + child.
-        // For RBF, miners consider the fee rate of the single replacement transaction's weight.
+        // Core package feerate calculation is fee / (vsize(parent) + vsize(child)), with
+        // vsize = ceil(weight/4) per tx. Round each tx to vbytes before summing.
         let total_weight = match fee_paying_type {
             FeePayingType::CPFP => Weight::from_vb_unchecked(
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
@@ -213,10 +222,24 @@ impl TxSender {
             FeePayingType::NoFunding => parent_tx_weight,
         };
 
-        fee_rate
+        let required_fee = fee_rate
             .checked_mul_by_weight(total_weight)
             .ok_or_eyre("Fee calculation overflow")
-            .map_err(Into::into)
+            .map_err(SendTxError::from)?;
+
+        if fee_paying_type != FeePayingType::CPFP {
+            return Ok(required_fee);
+        }
+
+        let child_target_fee = fee_rate
+            .checked_mul_by_weight(Weight::from_vb_unchecked(child_tx_weight.to_vbytes_ceil()))
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+        let package_deficit = required_fee
+            .checked_sub(parent_tx_fee)
+            .unwrap_or(Amount::ZERO);
+
+        Ok(std::cmp::max(package_deficit, child_target_fee))
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
@@ -271,7 +294,8 @@ impl TxSender {
         current_tip_height: u32,
         is_tip_height_increased: bool,
     ) -> Result<()> {
-        // get_sendable_txs doesn't return txs that we already sent in the past with >= fee rate to the current fee rate
+        // get_sendable_txs doesn't return non-CPFP txs that we already sent in the past
+        // with >= fee rate to the current fee rate.
         // but if we have a new block height, but the tx is still not confirmed, we want to send it again anyway in case
         // some error occurred on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
@@ -448,7 +472,7 @@ mod tests {
     use wiremock::matchers::{body_partial_json, method, path};
     use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
-    pub(super) async fn create_tx_sender(
+    pub(crate) async fn create_tx_sender(
         rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSender,
@@ -657,6 +681,7 @@ mod tests {
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
+            Amount::ZERO,
             1,
             fee_rate,
             FeePayingType::CPFP,

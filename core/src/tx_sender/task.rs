@@ -111,6 +111,18 @@ impl Task for TxSenderTask {
     }
 }
 
+#[cfg(test)]
+impl TxSenderTask {
+    pub fn new_for_test(inner: TxSender) -> Self {
+        Self {
+            db: inner.db.clone(),
+            current_tip_height: 0,
+            last_processed_tip_height: 0,
+            inner,
+        }
+    }
+}
+
 impl IntoTask for TxSender {
     type Task = WithDelay<IgnoreError<TxSenderTask>>;
 

@@ -343,7 +343,8 @@ impl Database {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount
              FROM tx_sender_fee_payer_utxos fpu
-             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
+             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL
+             ORDER BY fpu.id",
         )
         .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
@@ -590,8 +591,13 @@ impl Database {
                     AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
                     -- Transaction must not be already confirmed
                     AND txs.seen_block_id IS NULL
-                    -- Check if stored sat/kWU is lower than the provided fee rate or null
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
+                    -- Always reselect unconfirmed CPFP txs so they can be resubmitted each loop.
+                    -- For other fee-paying types, include if stored sat/kWU is null or lower than $1.
+                    AND (
+                        txs.fee_paying_type = 'cpfp'::fee_paying_type
+                        OR txs.effective_fee_rate IS NULL
+                        OR txs.effective_fee_rate < $1
+                    );",
         )
         .bind(
             i64::try_from(fee_rate.to_sat_per_kwu())
@@ -1123,8 +1129,8 @@ mod tests {
         assert!(sendable_txs.contains(&id1));
         assert!(sendable_txs.contains(&id2));
 
-        // Test updating effective fee rate for tx1 with a fee rate equal to the query fee rate
-        // This should  make tx1 not sendable since the condition is "effective_fee_rate < fee_rate"
+        // CPFP txs stay sendable at the same fee rate so they can be resubmitted
+        // each loop. RBF txs with an equal stored fee rate are skipped.
         db.update_effective_fee_rate(Some(&mut dbtx), id1, fee_rate)
             .await
             .unwrap();
@@ -1133,8 +1139,20 @@ mod tests {
             .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
             .unwrap();
-        assert_eq!(sendable_txs.len(), 1);
+        assert_eq!(sendable_txs.len(), 2);
+        assert!(sendable_txs.contains(&id1));
         assert!(sendable_txs.contains(&id2));
+
+        db.update_effective_fee_rate(Some(&mut dbtx), id2, fee_rate)
+            .await
+            .unwrap();
+
+        let sendable_txs = db
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .await
+            .unwrap();
+        assert_eq!(sendable_txs.len(), 1);
+        assert!(sendable_txs.contains(&id1));
 
         // increase fee rate, all should be sendable again
         let sendable_txs = db
