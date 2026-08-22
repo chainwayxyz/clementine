@@ -123,11 +123,10 @@ fn copy_binary_to_elfs_folder(network: String) {
     // Build source path
     let src_path = current_dir.join("target/riscv-guest/work-only/work-only-guest/riscv32im-risc0-zkvm-elf/docker/work-only-guest.bin");
     if !src_path.exists() {
-        println!(
-            "cargo:warning=Source binary not found at {:?}, skipping copy",
+        panic!(
+            "Source binary not found at {:?}; guest docker build did not produce the ELF",
             src_path
         );
-        return;
     }
 
     // Build destination path with network prefix

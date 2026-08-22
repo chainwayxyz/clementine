@@ -122,11 +122,10 @@ fn copy_binary_to_elfs_folder(network: String) {
 
     let src_path = current_dir.join("target/riscv-guest/bridge-circuit/bridge-circuit-guest/riscv32im-risc0-zkvm-elf/docker/bridge-circuit-guest.bin");
     if !src_path.exists() {
-        println!(
-            "cargo:warning=Source binary not found at {:?}, skipping copy",
+        panic!(
+            "Source binary not found at {:?}; guest docker build did not produce the ELF",
             src_path
         );
-        return;
     }
 
     let prefix = if cfg!(feature = "use-test-vk") {

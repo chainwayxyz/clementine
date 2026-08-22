@@ -9,8 +9,6 @@ on:
       - main
       - "releases/*"
   pull_request:
-    branches:
-      - main
     types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -27,11 +25,27 @@ jobs:
     name: ${{ matrix.circuit }} Method ID Check
     runs-on: ubicloud-standard-8
     strategy:
+      fail-fast: false
       matrix:
-        circuit: [bridge-circuit, header-chain, work-only]
+        include:
+          # Non-empty source_commit: rebuild that circuit from the frozen snapshot.
+          # Empty source_commit: rebuild from this PR / push commit.
+          - circuit: header-chain
+            source_commit: 5ae25cf85ae81432a82bbc2b7b6685836cad38f9
+          - circuit: work-only
+            source_commit: ""
+          - circuit: bridge-circuit
+            source_commit: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Checkout frozen ${{ matrix.circuit }} source
+        if: matrix.source_commit != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source_commit }}
+          path: circuit-source
 
       - name: Install risc0
         shell: bash
@@ -55,8 +69,21 @@ jobs:
           echo "pre_id=$PRE_ID" >> "$GITHUB_OUTPUT"
 
       - name: Build ${{ matrix.circuit }}
+        if: matrix.source_commit == ''
         working-directory: risc0-circuits/${{ matrix.circuit }}
         run: cargo build -p ${{ matrix.circuit }} --release
+
+      - name: Build ${{ matrix.circuit }} from frozen source
+        if: matrix.source_commit != ''
+        working-directory: circuit-source/risc0-circuits/${{ matrix.circuit }}
+        run: |
+          cargo build -p ${{ matrix.circuit }} --release
+          ELF="target/riscv-guest/${{ matrix.circuit }}/${{ matrix.circuit }}-guest/riscv32im-risc0-zkvm-elf/docker/${{ matrix.circuit }}-guest.bin"
+          if [ ! -f "$ELF" ]; then
+            echo "Rebuilt ${{ matrix.circuit }} ELF not found at $ELF"
+            exit 1
+          fi
+          cp "$ELF" "$GITHUB_WORKSPACE/risc0-circuits/elfs/mainnet-${{ matrix.circuit }}-guest.bin"
 
       - name: Compute ${{ matrix.circuit }} post-build method ID
         id: post_id
