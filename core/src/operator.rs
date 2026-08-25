@@ -28,7 +28,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
+use crate::utils::{ensure_deposit_finality, monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -517,6 +517,13 @@ where
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
+
+        ensure_deposit_finality(
+            &self.rpc,
+            &self.config,
+            deposit_data.get_deposit_outpoint().txid,
+        )
+        .await?;
 
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);

@@ -183,6 +183,15 @@ impl BridgeConfig {
             .and_then(|timeout| timeout.parse::<u64>().ok())
             .map(Duration::from_secs);
 
+        let deposit_finality_depth = std::env::var("DEPOSIT_FINALITY_DEPTH")
+            .ok()
+            .map(|depth| {
+                depth.parse::<u32>().map_err(|e| {
+                    BridgeError::EnvVarMalformed("DEPOSIT_FINALITY_DEPTH", e.to_string())
+                })
+            })
+            .transpose()?;
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -240,6 +249,7 @@ impl BridgeConfig {
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
                 "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
+            deposit_finality_depth,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -440,7 +450,13 @@ mod tests {
             default_config.time_to_send_watchtower_challenge.to_string(),
         );
 
+        std::env::remove_var("DEPOSIT_FINALITY_DEPTH");
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
+
+        std::env::set_var("DEPOSIT_FINALITY_DEPTH", "6");
+        let parsed = super::BridgeConfig::from_env().unwrap();
+        assert_eq!(parsed.deposit_finality_depth, Some(6));
+        std::env::remove_var("DEPOSIT_FINALITY_DEPTH");
     }
 
     #[test]

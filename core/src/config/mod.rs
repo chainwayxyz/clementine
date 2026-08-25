@@ -157,6 +157,17 @@ pub struct BridgeConfig {
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
 
+    /// Bitcoin confirmations required before signing a new deposit.
+    ///
+    /// This is a total confirmation count (chain tip has 1), not an extra
+    /// amount on top of the verifier's "must be in a block" check.
+    ///
+    /// If unset, aggregator and operator skip this check; the verifier still
+    /// requires the deposit to be in a block. If set, the deposit transaction
+    /// must have at least this many confirmations.
+    #[serde(default)]
+    pub deposit_finality_depth: Option<u32>,
+
     #[cfg(test)]
     #[serde(skip)]
     pub test_params: test::TestParams,
@@ -221,6 +232,31 @@ impl BridgeConfig {
     /// Get the protocol paramset defined by the paramset name.
     pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
         self.protocol_paramset
+    }
+
+    /// Rejects a deposit that does not yet have `deposit_finality_depth`
+    /// confirmations. If the config var is unset, this is a no-op.
+    ///
+    /// Callers fetch the confirmation count (via Bitcoin RPC or an already
+    /// loaded tx info) and pass it in.
+    pub fn ensure_deposit_confirmations(
+        &self,
+        deposit_txid: bitcoin::Txid,
+        confirmations: u32,
+    ) -> Result<(), BridgeError> {
+        let Some(required_depth) = self.deposit_finality_depth else {
+            return Ok(());
+        };
+
+        if confirmations < required_depth {
+            let reason = format!(
+                "Deposit {deposit_txid} has {confirmations} confirmation(s), deposit_finality_depth requires {required_depth}"
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        Ok(())
     }
 
     /// Read contents of a TOML file and generate a `BridgeConfig`.
@@ -293,6 +329,14 @@ impl BridgeConfig {
                 "Finality depth ({}) cannot be less than 1",
                 self.protocol_paramset().finality_depth
             ));
+        }
+
+        if let Some(depth) = self.deposit_finality_depth {
+            if depth < 1 {
+                reasons.push(format!(
+                    "Deposit finality depth ({depth}) cannot be less than 1"
+                ));
+            }
         }
 
         if !reasons.is_empty() {
@@ -389,7 +433,8 @@ impl PartialEq for BridgeConfig {
             && self.client_verification == other.client_verification
             && self.aggregator_cert_path == other.aggregator_cert_path
             && self.test_params == other.test_params
-            && self.grpc == other.grpc;
+            && self.grpc == other.grpc
+            && self.deposit_finality_depth == other.deposit_finality_depth;
 
         all_eq
     }
@@ -471,6 +516,7 @@ impl Default for BridgeConfig {
             telemetry: Some(TelemetryConfig::default()),
 
             time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
+            deposit_finality_depth: None,
 
             #[cfg(test)]
             test_params: test::TestParams::default(),
@@ -666,6 +712,7 @@ mod tests {
         // Use regtest node but set wrong/invalid paramset values to trigger multiple errors
         let _regtest = create_regtest_rpc(&mut config).await;
         config.protocol_paramset = &BAD_PARAMSET;
+        config.deposit_finality_depth = Some(0);
 
         let res = config.check_general_requirements().await;
         assert!(res.is_err());
@@ -676,5 +723,34 @@ mod tests {
         );
         assert!(err.contains("Start height"), "unexpected error: {err}");
         assert!(err.contains("Finality depth"), "unexpected error: {err}");
+        assert!(
+            err.contains("Deposit finality depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn deposit_finality_depth_is_optional() {
+        let content = include_str!("../test/data/bridge_config.toml");
+        let config = BridgeConfig::try_parse_from(content.to_string()).unwrap();
+        assert_eq!(config.deposit_finality_depth, None);
+
+        let with_depth = format!("deposit_finality_depth = 6\n{content}");
+        let config = BridgeConfig::try_parse_from(with_depth).unwrap();
+        assert_eq!(config.deposit_finality_depth, Some(6));
+    }
+
+    #[test]
+    fn deposit_finality_depth_rejects_young_deposits() {
+        let mut config = BridgeConfig::default();
+        let txid = Txid::all_zeros();
+        assert!(config.ensure_deposit_confirmations(txid, 0).is_ok());
+        assert!(config.ensure_deposit_confirmations(txid, 1).is_ok());
+
+        config.deposit_finality_depth = Some(6);
+        assert!(config.ensure_deposit_confirmations(txid, 0).is_err());
+        assert!(config.ensure_deposit_confirmations(txid, 5).is_err());
+        assert!(config.ensure_deposit_confirmations(txid, 6).is_ok());
+        assert!(config.ensure_deposit_confirmations(txid, 7).is_ok());
     }
 }

@@ -34,8 +34,8 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::parser;
 use crate::utils::{
-    flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
-    try_join_all_combine_errors, ScriptBufExt,
+    ensure_deposit_finality, flatten_join_named_results, get_vergen_response, timed_request,
+    timed_try_join_all, try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
@@ -1461,6 +1461,13 @@ impl ClementineAggregator for AggregatorServer {
                 deposit_info
             );
 
+            ensure_deposit_finality(
+                &self.rpc,
+                &self.config,
+                deposit_info.deposit_outpoint.txid,
+            )
+            .await?;
+
             let deposit_data = DepositData {
                 deposit: deposit_info.clone(),
                 nofn_xonly_pk: None,
@@ -2285,6 +2292,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name().await;
+        config.deposit_finality_depth = Some(6);
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let actors = create_actors::<MockCitreaClient>(&config).await;
@@ -2319,7 +2327,6 @@ mod tests {
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
-        rpc.mine_blocks(18).await.unwrap();
 
         let deposit_info = DepositInfo {
             deposit_outpoint,
@@ -2328,6 +2335,17 @@ mod tests {
                 recovery_taproot_address: signer.address.as_unchecked().clone(),
             }),
         };
+
+        let err = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info.clone()))
+            .await
+            .expect_err("unconfirmed deposit must be rejected when deposit_finality_depth is set");
+        assert!(
+            err.message().contains("deposit_finality_depth"),
+            "expected InvalidDeposit from finality check, got: {err}"
+        );
+
+        rpc.mine_blocks(18).await.unwrap();
 
         // Generate and broadcast the move-to-vault transaction
         let start_time = std::time::Instant::now();

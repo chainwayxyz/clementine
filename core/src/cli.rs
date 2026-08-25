@@ -490,6 +490,7 @@ mod tests {
         env::remove_var("TELEMETRY_HOST");
         env::remove_var("TELEMETRY_PORT");
         env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
+        env::remove_var("DEPOSIT_FINALITY_DEPTH");
     }
 
     // Helper to clean up all protocol paramset environment variables

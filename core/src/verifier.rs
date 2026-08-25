@@ -529,6 +529,8 @@ where
     /// Checks if all operators in the deposit data from aggregator are in the verifier's DB.
     /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
     /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
+    /// The deposit must be confirmed. If `deposit_finality_depth` is set, it must also have at least
+    /// that many confirmations.
     ///
     /// # Arguments
     /// * `deposit_data` - The deposit data to check.
@@ -724,6 +726,8 @@ where
             tracing::error!("{reason}");
             return Err(BridgeError::InvalidDeposit(reason));
         }
+        self.config
+            .ensure_deposit_confirmations(deposit_txid, tx_info.confirmations.unwrap_or(0))?;
         Ok(())
     }
 
