@@ -207,7 +207,11 @@ impl Database {
     /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
     /// Transactions whose replacements are confirmed are not included. But if none of the replacements are confirmed, all replacements are returned.
     ///
-    /// # Parameters
+    /// `COALESCE(fpu.replacement_of_id, fpu.id)` keys the family by its original row. Comparing
+    /// against `fpu.replacement_of_id` directly works for replacements but not for the original,
+    /// whose `replacement_of_id` is NULL: every comparison then yields NULL rather than true, so the
+    /// exclusion never fired and a replaced original kept being reported as unconfirmed even after
+    /// one of its replacements confirmed.
     ///
     /// # Returns
     ///
@@ -231,7 +235,8 @@ impl Database {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE (x.replacement_of_id = COALESCE(fpu.replacement_of_id, fpu.id)
+                         OR x.id = COALESCE(fpu.replacement_of_id, fpu.id))
                     AND x.seen_block_id IS NOT NULL
               )
             ",
@@ -277,6 +282,8 @@ impl Database {
     /// - [`Txid`]: Txid of the fee payer transaction.
     /// - [`u32`]: Output index of the UTXO.
     /// - [`Amount`]: Amount in satoshis.
+    ///
+    /// See [`Self::get_all_unconfirmed_fee_payer_txs`] for why the family is keyed with `COALESCE`.
     pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -292,7 +299,8 @@ impl Database {
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos x
-                  WHERE (x.replacement_of_id = fpu.replacement_of_id OR x.id = fpu.replacement_of_id)
+                  WHERE (x.replacement_of_id = COALESCE(fpu.replacement_of_id, fpu.id)
+                         OR x.id = COALESCE(fpu.replacement_of_id, fpu.id))
                     AND x.seen_block_id IS NOT NULL
               )
             ",

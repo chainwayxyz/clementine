@@ -30,9 +30,31 @@ const POLL_DELAY: Duration = if cfg!(test) {
 #[derive(Debug)]
 pub struct TxSenderTask {
     db: Database,
-    current_tip_height: u32,
+    /// `None` until the first run seeds it from this consumer's persisted syncer cursor. Defaulting
+    /// to 0 would make every activation condition look unmet (a timelock is satisfied once
+    /// `seen_height + timelock <= tip`), so after a restart no timelock-gated transaction could be
+    /// sent until the next block produced a `NewBlock` event.
+    current_tip_height: Option<u32>,
     last_processed_tip_height: u32,
     inner: TxSender,
+}
+
+impl TxSenderTask {
+    /// Returns the current tip height, seeding it from the database on first use.
+    async fn tip_height(&mut self) -> Result<u32, BridgeError> {
+        match self.current_tip_height {
+            Some(height) => Ok(height),
+            None => {
+                let height = self
+                    .db
+                    .get_last_processed_event_block_height(None, &self.inner.btc_syncer_consumer_id)
+                    .await?
+                    .unwrap_or(0);
+                self.current_tip_height = Some(height);
+                Ok(height)
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -63,12 +85,12 @@ impl Task for TxSenderTask {
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
                     tracing::info!(
-                        height = self.current_tip_height,
+                        height = block_height,
                         block_id = %block_id,
                         "New block"
                     );
                     dbtx.commit().await?;
-                    self.current_tip_height = block_height;
+                    self.current_tip_height = Some(block_height);
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
                     let height = self
@@ -93,6 +115,8 @@ impl Task for TxSenderTask {
         self.db.sync_transaction_confirmations(&mut dbtx).await?;
         dbtx.commit().await?;
 
+        let current_tip_height = self.tip_height().await?;
+
         tracing::debug!("TXSENDER: Getting fee rate");
         let fee_rate_result = self.inner.get_fee_rate().await;
         tracing::debug!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
@@ -101,11 +125,11 @@ impl Task for TxSenderTask {
         self.inner
             .try_to_send_unconfirmed_txs(
                 fee_rate,
-                self.current_tip_height,
-                self.last_processed_tip_height != self.current_tip_height,
+                current_tip_height,
+                self.last_processed_tip_height != current_tip_height,
             )
             .await?;
-        self.last_processed_tip_height = self.current_tip_height;
+        self.last_processed_tip_height = current_tip_height;
 
         Ok(false)
     }
@@ -116,7 +140,7 @@ impl TxSenderTask {
     pub fn new_for_test(inner: TxSender) -> Self {
         Self {
             db: inner.db.clone(),
-            current_tip_height: 0,
+            current_tip_height: None,
             last_processed_tip_height: 0,
             inner,
         }
@@ -129,7 +153,7 @@ impl IntoTask for TxSender {
     fn into_task(self) -> Self::Task {
         TxSenderTask {
             db: self.db.clone(),
-            current_tip_height: 0,
+            current_tip_height: None,
             last_processed_tip_height: 0,
             inner: self,
         }

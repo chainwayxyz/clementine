@@ -12,24 +12,23 @@ runs:
   using: "composite"
 
   steps:
+    # CI always runs with RISC0_DEV_MODE=1. test-net (and dev-net) host that
+    # cache as bitvm_cache.bin; mainnet hosts the production-proof cache.
     - name: Cache bitvm cache files
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       id: cache-bitvm
       with:
-        path: |
-          core/bitvm_cache.bin
-          core/bitvm_cache_dev.bin
-        key: bitvm-cache-23-10-2025
+        path: core/bitvm_cache.bin
+        key: bitvm-cache-test-net-2026-08-25
 
-    - name: Download bitvm cache bin
+    - name: Download bitvm cache
       if: steps.cache-bitvm.outputs.cache-hit != 'true'
       shell: bash
       run: wget https://static.citrea.xyz/test-net/clementine/conf/bitvm_cache.bin -O core/bitvm_cache.bin
 
-    - name: Download bitvm cache dev bin
-      if: steps.cache-bitvm.outputs.cache-hit != 'true'
+    - name: Point BITVM_CACHE_PATH at the downloaded cache
       shell: bash
-      run: wget https://static.citrea.xyz/dev-net/clementine/conf/bitvm_cache_dev.bin -O core/bitvm_cache_dev.bin
+      run: echo "BITVM_CACHE_PATH=${GITHUB_WORKSPACE}/core/bitvm_cache.bin" >> "$GITHUB_ENV"
 
     - name: Cache Bitcoin binaries
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0

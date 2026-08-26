@@ -71,6 +71,10 @@ pub struct RoundStateMachine<T: Owner> {
     /// dirty flag is set if any matcher matches the current block.
     /// the flag is set to true in on_transition and on_dispatch
     /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
+    ///
+    /// Not serialized: snapshots are written while the flag is still true and cleared only
+    /// afterwards, so persisting it stored a value that always claimed unsaved changes.
+    #[serde(skip)]
     pub(crate) dirty: bool,
     /// Rounds that already had a challenge sent. One challenge slashes every
     /// kickoff in that round. Kept across LCP delay, including after

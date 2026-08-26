@@ -369,10 +369,15 @@ impl Database {
             .get_cached_tx()
             .compute_txid();
 
+        // `get_deposit_id` allocates rows that carry only the outpoint, so a placeholder may already
+        // exist with NULL params. Fill it in rather than treating it as an existing deposit, which
+        // would otherwise leave the deposit permanently unstorable.
         let query = sqlx::query_as::<_, (i32,)>(
             "INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (deposit_outpoint) DO NOTHING
+                ON CONFLICT (deposit_outpoint) DO UPDATE
+                    SET deposit_params = $2, move_to_vault_txid = $3
+                    WHERE deposits.deposit_params IS NULL
                 RETURNING deposit_id",
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
@@ -387,17 +392,29 @@ impl Database {
             return Ok(u32::try_from(deposit_id).wrap_err("Failed to convert deposit id to u32")?);
         }
 
-        // If no rows were returned, data already exists - check if it matches
-        let existing_query = sqlx::query_as::<_, (i32, DepositParamsDB, TxidDB)>(
+        // If no rows were returned, populated data already exists - check if it matches
+        let existing_query = sqlx::query_as::<_, (i32, Option<DepositParamsDB>, Option<TxidDB>)>(
             "SELECT deposit_id, deposit_params, move_to_vault_txid FROM deposits WHERE deposit_outpoint = $1"
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()));
 
         let (existing_deposit_id, existing_deposit_params, existing_move_txid): (
             i32,
-            DepositParamsDB,
-            TxidDB,
+            Option<DepositParamsDB>,
+            Option<TxidDB>,
         ) = execute_query_with_tx!(self.connection, tx, existing_query, fetch_one)?;
+
+        // The upsert above fills placeholder rows, so NULLs here mean a concurrent writer left the
+        // row half-populated. Report that rather than failing with an opaque decode error.
+        let (Some(existing_deposit_params), Some(existing_move_txid)) =
+            (existing_deposit_params, existing_move_txid)
+        else {
+            return Err(eyre::eyre!(
+                "Deposit row for outpoint {} exists without params, cannot verify it",
+                deposit_data.get_deposit_outpoint()
+            )
+            .into());
+        };
 
         let existing_deposit_data: DepositData = existing_deposit_params
             .0

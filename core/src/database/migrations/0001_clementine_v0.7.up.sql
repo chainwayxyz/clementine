@@ -13,6 +13,12 @@ ADD COLUMN IF NOT EXISTS last_processed_lcp INT;
 -- Sources (MAX of whichever exist):
 -- - last event of the canonical block at next_height_to_process - 1 (automation)
 -- - verifier_finalized_block_fetcher_no_automation (LCP ran in that fetcher)
+--
+-- Accepted issue (automation source): next_height_to_process - 1 is a finalized
+-- height F, but cursor restore treats that event as a raw-chain tip and
+-- resumes at F - finality_depth + 2 instead of F + 1. The LCP syncer therefore
+-- replays about finality_depth already-finalized blocks on upgrade. The
+-- no_automation source is already correct.
 INSERT INTO bitcoin_syncer_event_handlers (consumer_handle, last_processed_event_id)
 SELECT 'verifier_lcp_syncer', candidate.last_processed_event_id
 FROM (

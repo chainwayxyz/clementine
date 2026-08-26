@@ -70,6 +70,11 @@ where
     // Create channels for server readiness and shutdown
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    // Carries the server's terminal result. `ready_tx` fires from inside the shutdown future, which
+    // tonic only polls once it is serving, so a bind or TLS failure drops it instead of signalling
+    // readiness. Without this channel that failure would only ever reach a log line.
+    let (exited_tx, exited_rx) =
+        oneshot::channel::<std::result::Result<(), tonic::transport::Error>>();
 
     // Ensure certificates exist in test mode
     #[cfg(test)]
@@ -172,9 +177,11 @@ where
             let server_name_str = server_name.to_string();
 
             tokio::spawn(async move {
-                if let Err(e) = handle.await {
+                let result = handle.await;
+                if let Err(ref e) = result {
                     tracing::error!("{} gRPC server error: {:?}", server_name_str, e);
                 }
+                let _ = exited_tx.send(result);
             });
         }
         #[cfg(unix)]
@@ -217,15 +224,27 @@ where
             let server_name_str = server_name.to_string();
 
             tokio::spawn(async move {
-                if let Err(e) = handle.await {
+                let result = handle.await;
+                if let Err(ref e) = result {
                     tracing::error!("{} gRPC server error: {:?}", server_name_str, e);
                 }
+                let _ = exited_tx.send(result);
             });
         }
     }
 
-    // Wait for server to be ready
-    let _ = ready_rx.await;
+    // Wait for server to be ready. A closed channel means the server future finished without ever
+    // serving, so report why instead of handing the caller a shutdown handle for nothing.
+    if ready_rx.await.is_err() {
+        let cause = match exited_rx.await {
+            Ok(Err(e)) => format!("{e:?}"),
+            Ok(Ok(())) => "server stopped before signalling readiness".to_string(),
+            Err(_) => "server task ended without reporting a result".to_string(),
+        };
+
+        return Err(eyre::eyre!("{} gRPC server failed to start: {}", server_name, cause).into());
+    }
+
     tracing::info!("{} gRPC server started", server_name);
 
     Ok((addr, shutdown_tx))

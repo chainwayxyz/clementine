@@ -73,8 +73,13 @@ impl BridgeConfig {
     ///
     /// # Returns
     /// The number of required N-of-N signatures per kickoff.
+    ///
+    /// The per-watchtower term counts the four N-of-N inputs built for every watchtower:
+    /// `WatchtowerChallengeTimeout1`/`2` and `OperatorChallengeNack1`/`2`. Those transactions are
+    /// created once per watchtower, not once per verifier, so this must scale with
+    /// [`DepositData::get_num_watchtowers`].
     pub fn get_num_required_nofn_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
-        7 + 4 * deposit_data.get_num_verifiers()
+        7 + 4 * deposit_data.get_num_watchtowers()
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
@@ -85,9 +90,12 @@ impl BridgeConfig {
     ///
     /// # Returns
     /// The number of required operator signatures per kickoff.
+    ///
+    /// The per-watchtower term counts `OperatorChallengeNack3`, the one operator-signed input built
+    /// for every watchtower, so this must scale with [`DepositData::get_num_watchtowers`].
     pub fn get_num_required_operator_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
         4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
-            + deposit_data.get_num_verifiers()
+            + deposit_data.get_num_watchtowers()
     }
 
     /// Returns the total number of Winternitz public keys used in kickoff UTXOs for blockhash commits.

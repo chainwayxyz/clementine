@@ -206,11 +206,14 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
+        // `is_canonical = true` keeps this to blocks that are actually transitioning. Without it a
+        // later, deeper reorg re-returns every block already marked non-canonical by an earlier one,
+        // and each becomes another ReorgedBlock event for consumers that already handled it.
         let query = sqlx::query_as(
             "WITH deleted AS (
                 UPDATE bitcoin_syncer
                 SET is_canonical = false
-                WHERE height > $1
+                WHERE height > $1 AND is_canonical = true
                 RETURNING id
             ) SELECT id FROM deleted ORDER BY id DESC",
         )

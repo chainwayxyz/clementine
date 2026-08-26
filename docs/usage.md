@@ -26,12 +26,12 @@ should ideally share the same database. Typical entities are:
 Before compiling Clementine:
 
 1. Install Rust: [rustup.rs](https://rustup.rs/)
-2. Install RiscZero (2.1.0): [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+2. Install RISC Zero 3.0.6: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
 
    ```sh
    curl -L https://risczero.com/install | bash
-   rzup install cargo-risczero 2.1.0 # Or v2.1.0
-   rzup install r0vm 2.1.0
+   rzup install cargo-risczero 3.0.6
+   rzup install r0vm 3.0.6
    rzup install rust 1.97.0
    ```
 
@@ -63,13 +63,7 @@ Before running Clementine:
    bash -c "exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
    ```
 
-3. Install RISC Zero toolchain:
-
-   ```sh
-   cargo install cargo-risczero
-   ```
-
-4. [Optional] TLS certificates required to start and connect to a Clementine
+3. [Optional] TLS certificates required to start and connect to a Clementine
    server. For tests, these are automatically generated, if not present. Please
    check [RPC Authentication](#rpc-authentication) and [Security Considerations](#security-considerations)
    sections when generating certificates for a deployment.
@@ -78,24 +72,24 @@ Before running Clementine:
    ./scripts/generate_certs.sh
    ```
 
-5. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
+4. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
    deployment that requires it:
 
    ```sh
    export RISC0_DEV_MODE=1
    ```
 
-6. [Optional] Download pre-generated BitVM cache. If not downloaded, it will be
-   generated automatically.
+5. [Optional] Download pre-generated BitVM cache. If not downloaded, it will be
+   generated automatically. The object is always `clementine/conf/bitvm_cache.bin`;
+   the network path selects the contents. `mainnet` is the production-proof cache;
+   `test-net` / `dev-net` are RISC0_DEV_MODE caches.
 
    ```sh
-   wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
-   wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
-   export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin # If RISC0_DEV_MODE is not set
-   export BITVM_CACHE_PATH=/path/to/bitvm_cache_dev.bin # If RISC0_DEV_MODE is set
+   wget https://static.citrea.xyz/test-net/clementine/conf/bitvm_cache.bin -O bitvm_cache.bin
+   export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin
    ```
 
-7. Set `RUST_MIN_STACK` environment variable to at least `33554432`
+6. Set `RUST_MIN_STACK` environment variable to at least `33554432`
 
    ```sh
    # On Unix-like systems:

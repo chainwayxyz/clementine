@@ -413,15 +413,11 @@ impl TxSender {
     ///
     /// Fee payer UTXOs are created to fund CPFP child transactions. However, these
     /// fee payer creation transactions might themselves get stuck due to low fees.
-    /// This function identifies such unconfirmed fee payer transactions associated with
-    /// a parent transaction (`bumped_id`) and attempts to RBF them using the provided `fee_rate`.
+    /// This function identifies such unconfirmed fee payer transactions and
+    /// attempts to RBF them using the provided `fee_rate`.
     ///
     /// This ensures the fee payer UTXOs confirm quickly, making them available to be spent
     /// by the actual CPFP child transaction.
-    ///
-    /// # Arguments
-    /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
-    /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, fee_rate))]
     pub(crate) async fn bump_fees_of_unconfirmed_fee_payer_txs(
         &self,
@@ -500,6 +496,15 @@ impl TxSender {
             match new_txid_result {
                 Ok(new_txid) => {
                     if new_txid != fee_payer_txid {
+                        // Accepted risk: if getrawtransaction (or the output
+                        // match) fails unexpectedly, we skip without saving.
+                        // This pass already recorded `parent_id` as not-evicted
+                        // (mempool lookup succeeded before the bump). A later
+                        // pass can see the obsolete txid gone from mempool and
+                        // unconfirmed, then mark the whole family evicted while
+                        // the replacement stays untracked. TxSender then creates
+                        // a new fee-payer UTXO; the protocol tx is delayed, not
+                        // permanently blocked. Very unlikely.
                         let bumped_tx = match self.rpc.get_tx_of_txid(&new_txid).await {
                             Ok(tx) => tx,
                             Err(e) => {
@@ -577,11 +582,13 @@ impl TxSender {
             }
         }
 
-        // if all fee payer utxos are not in mempool
-        // in very rare cases, (if tx was mined, but before we called gettransaction it was reorged)
-        // it can be marked as evicted accidentally, but this is very rare and if it was mined once but reorged,
-        // it will likely enter the chain without any bumping anyway, but an extra fee payer utxo can be created by txsender
-        // because it is considered to be evicted
+        // Mark families with no mempool/confirmed member as evicted. Two accepted
+        // rare false positives, both recovered by creating a new fee-payer UTXO
+        // (protocol tx delayed, not permanently blocked):
+        // 1. Mined then reorged between mempool lookup and gettransaction.
+        // 2. Successful bumpfee whose replacement was not persisted (see the
+        //    accepted-risk comment at the persist site above). The obsolete
+        //    txid is then gone from mempool and unconfirmed.
         for parent_id in all_parent_ids {
             if !not_evicted_ids.contains(&parent_id) {
                 self.db

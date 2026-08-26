@@ -16,5 +16,7 @@ RUN \
 COPY --from=builder /clementine/target/release/clementine-core /clementine-core
 
 # Set up Clementine
+# BitVM script generation needs far more stack than the 2 MiB default. See docs/usage.md.
+ENV RUST_MIN_STACK=33554432
 ENTRYPOINT [ "/clementine-core" ]
 EXPOSE 17000

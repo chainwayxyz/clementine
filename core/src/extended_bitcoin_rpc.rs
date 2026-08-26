@@ -63,6 +63,28 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const MAX_RETRY_ATTEMPTS: usize = 50;
 
+/// `RPC_INVALID_ADDRESS_OR_KEY`. Returned by `getrawtransaction` when the transaction is in neither
+/// the mempool nor the chain.
+pub const RPC_INVALID_ADDRESS_OR_KEY: i32 = -5;
+
+/// `RPC_INVALID_PARAMETER`. Returned by `getblockhash` when the requested height is above the tip.
+pub const RPC_INVALID_PARAMETER: i32 = -8;
+
+/// Returns the JSON-RPC error code when `error` is an error Bitcoin Core itself reported, and
+/// `None` for transport, authentication and deserialization failures.
+///
+/// Use this to tell "the node answered, and the answer is no" apart from "we could not ask the
+/// node". Collapsing the two makes a broken connection look like an empty chain or a missing
+/// transaction.
+pub fn rpc_error_code(error: &bitcoincore_rpc::Error) -> Option<i32> {
+    match error {
+        bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(rpc_error)) => {
+            Some(rpc_error.code)
+        }
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub struct RetryConfig {
     pub initial_delay_millis: u64,
@@ -837,13 +859,20 @@ impl ExtendedBitcoinRpc {
     /// # Returns
     ///
     /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Only an unknown transaction yields `Ok(false)`. Any other RPC failure is returned as an
+    /// error: callers use this to decide whether collateral is still present and whether round
+    /// transactions have landed, so a transport failure must not be reported as "not on chain".
     pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
-        Ok(self
-            .get_raw_transaction_info(txid, None)
-            .await
-            .ok()
-            .and_then(|s| s.blockhash)
-            .is_some())
+        match self.get_raw_transaction_info(txid, None).await {
+            Ok(info) => Ok(info.blockhash.is_some()),
+            Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_ADDRESS_OR_KEY) => Ok(false),
+            Err(e) => Err(eyre::eyre!(e)
+                .wrap_err(format!("Failed to look up transaction {txid}"))
+                .into()),
+        }
     }
 
     /// Checks if a transaction UTXO has expected address and amount.

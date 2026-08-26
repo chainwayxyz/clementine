@@ -242,111 +242,160 @@ impl<T: NamedEntity> L1SyncStatusProvider for T {
         rpc: &ExtendedBitcoinRpc,
         config: &crate::config::BridgeConfig,
     ) -> Result<L1SyncStatus, BridgeError> {
-        let wallet_balance = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_wallet_balance",
-                get_wallet_balance(rpc),
+        // These sub-requests are independent and each carries its own timeout, so they run
+        // concurrently. Awaited in sequence the worst case was nine times
+        // L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT, well past the caller's
+        // ENTITY_STATUS_POLL_TIMEOUT, which turned one slow node into a failed status response
+        // instead of a response with one missing field.
+        let wallet_balance_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_wallet_balance",
+                    get_wallet_balance(rpc),
+                )
+                .await,
+                "getting wallet balance",
             )
-            .await,
-            "getting wallet balance",
-        );
+        };
 
-        let rpc_tip_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_rpc_tip_height",
-                get_rpc_tip_height(rpc),
+        let rpc_tip_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_rpc_tip_height",
+                    get_rpc_tip_height(rpc),
+                )
+                .await,
+                "getting rpc tip height",
             )
-            .await,
-            "getting rpc tip height",
-        );
+        };
 
-        let tx_sender_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_tx_sender_synced_height",
-                get_btc_syncer_consumer_last_processed_block_height(db, T::TX_SENDER_CONSUMER_ID),
+        let tx_sender_synced_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_tx_sender_synced_height",
+                    get_btc_syncer_consumer_last_processed_block_height(
+                        db,
+                        T::TX_SENDER_CONSUMER_ID,
+                    ),
+                )
+                .await,
+                "getting tx sender synced height",
             )
-            .await,
-            "getting tx sender synced height",
-        )
-        .flatten();
+            .flatten()
+        };
 
         #[cfg(feature = "automation")]
-        let finalized_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_finalized_synced_height",
-                get_btc_syncer_consumer_last_processed_finalized_block_height(
-                    db,
-                    T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
-                    config.protocol_paramset.finality_depth,
-                ),
+        let finalized_synced_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_finalized_synced_height",
+                    get_btc_syncer_consumer_last_processed_finalized_block_height(
+                        db,
+                        T::FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION,
+                        config.protocol_paramset.finality_depth,
+                    ),
+                )
+                .await,
+                "getting finalized synced height",
             )
-            .await,
-            "getting finalized synced height",
-        )
-        .flatten();
+            .flatten()
+        };
 
         #[cfg(not(feature = "automation"))]
-        let finalized_synced_height = None;
+        let finalized_synced_height_fut = async { Option::<u32>::None };
 
-        let lcp_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_lcp_synced_height",
-                get_btc_syncer_consumer_last_processed_finalized_block_height(
-                    db,
-                    T::LCP_SYNCER_CONSUMER_ID,
-                    config.protocol_paramset.finality_depth,
-                ),
+        let lcp_synced_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_lcp_synced_height",
+                    get_btc_syncer_consumer_last_processed_finalized_block_height(
+                        db,
+                        T::LCP_SYNCER_CONSUMER_ID,
+                        config.protocol_paramset.finality_depth,
+                    ),
+                )
+                .await,
+                "getting lcp synced height",
             )
-            .await,
-            "getting lcp synced height",
-        )
-        .flatten();
+            .flatten()
+        };
 
-        let btc_syncer_synced_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_btc_syncer_synced_height",
-                get_btc_syncer_synced_height(db),
+        let btc_syncer_synced_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_btc_syncer_synced_height",
+                    get_btc_syncer_synced_height(db),
+                )
+                .await,
+                "getting btc syncer synced height",
             )
-            .await,
-            "getting btc syncer synced height",
-        )
-        .flatten();
+            .flatten()
+        };
 
-        let hcp_last_proven_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_hcp_last_proven_height",
-                get_hcp_last_proven_height(db),
+        let hcp_last_proven_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_hcp_last_proven_height",
+                    get_hcp_last_proven_height(db),
+                )
+                .await,
+                "getting hcp last proven height",
             )
-            .await,
-            "getting hcp last proven height",
-        )
-        .flatten();
-        let state_manager_next_height = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_state_manager_next_height",
-                get_state_manager_next_height(db, T::ENTITY_NAME),
-            )
-            .await,
-            "getting state manager next height",
-        )
-        .flatten();
+            .flatten()
+        };
 
-        let bitcoin_fee_rate_sat_vb = log_errs_and_ok::<_, T>(
-            timed_request_base(
-                L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
-                "get_bitcoin_fee_rate",
-                get_bitcoin_fee_rate(rpc, config),
+        let state_manager_next_height_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_state_manager_next_height",
+                    get_state_manager_next_height(db, T::ENTITY_NAME),
+                )
+                .await,
+                "getting state manager next height",
             )
-            .await,
-            "getting bitcoin fee rate",
+            .flatten()
+        };
+
+        let bitcoin_fee_rate_sat_vb_fut = async {
+            log_errs_and_ok::<_, T>(
+                timed_request_base(
+                    L1_SYNC_STATUS_SUB_REQUEST_METRICS_TIMEOUT,
+                    "get_bitcoin_fee_rate",
+                    get_bitcoin_fee_rate(rpc, config),
+                )
+                .await,
+                "getting bitcoin fee rate",
+            )
+        };
+
+        let (
+            wallet_balance,
+            rpc_tip_height,
+            tx_sender_synced_height,
+            finalized_synced_height,
+            lcp_synced_height,
+            btc_syncer_synced_height,
+            hcp_last_proven_height,
+            state_manager_next_height,
+            bitcoin_fee_rate_sat_vb,
+        ) = tokio::join!(
+            wallet_balance_fut,
+            rpc_tip_height_fut,
+            tx_sender_synced_height_fut,
+            finalized_synced_height_fut,
+            lcp_synced_height_fut,
+            btc_syncer_synced_height_fut,
+            hcp_last_proven_height_fut,
+            state_manager_next_height_fut,
+            bitcoin_fee_rate_sat_vb_fut,
         );
 
         Ok(L1SyncStatus {
