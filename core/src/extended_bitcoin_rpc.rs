@@ -159,23 +159,24 @@ impl std::fmt::Debug for RetryConfig {
     }
 }
 
-/// Trait to determine if an error is retryable.
-pub trait RetryableError {
-    /// Returns true if the operation should be retried for this error.
-    fn is_retryable(&self) -> bool;
-}
-
-/// JSON-RPC application codes for a node that is not ready yet. The command
-/// was refused, not applied, so they are retried for every RPC.
+/// JSON-RPC application codes for a node that is not ready.
 const RPC_CLIENT_NOT_CONNECTED: i32 = -9;
 const RPC_CLIENT_IN_INITIAL_DOWNLOAD: i32 = -10;
 const RPC_IN_WARMUP_CODE: i32 = -28;
 
-fn is_transient_node_rpc_code(code: i32) -> bool {
-    matches!(
-        code,
-        RPC_CLIENT_NOT_CONNECTED | RPC_CLIENT_IN_INITIAL_DOWNLOAD | RPC_IN_WARMUP_CODE
-    )
+/// Returns true when an RPC application error is safe to retry.
+///
+/// Bitcoin Core emits `RPC_IN_WARMUP` from the RPC dispatcher before it calls
+/// the command. The other transient codes are command-level errors and do not
+/// prove that an arbitrary command had no effect. They are retried only when
+/// repeating the command after an unknown outcome is safe.
+fn is_retryable_rpc_code(code: i32, safe_after_unknown_outcome: bool) -> bool {
+    code == RPC_IN_WARMUP_CODE
+        || (safe_after_unknown_outcome
+            && matches!(
+                code,
+                RPC_CLIENT_NOT_CONNECTED | RPC_CLIENT_IN_INITIAL_DOWNLOAD
+            ))
 }
 
 /// Connection drops that can appear as I/O sources under a decode-kind reqwest
@@ -276,46 +277,12 @@ fn is_retryable_io_error(error: &std::io::Error) -> bool {
     }
 }
 
-impl RetryableError for bitcoincore_rpc::Error {
-    /// Classifies failures along HTTP semantics. Raw status codes are not
-    /// observable here because the transport parses the body regardless of
-    /// status, so bitcoind's responses map onto error shapes instead:
-    ///
-    /// - No/failed HTTP exchange: transport error (see
-    ///   [`is_retryable_transport_error`]). Mid-flight is allowed here
-    ///   because this method is only used for command-agnostic application
-    ///   codes and tests; RPC calls use [`is_retryable_for_command`].
-    /// - HTTP 500 with a JSON-RPC error object (application errors such as
-    ///   "insufficient funds"): permanent, except transient node codes
-    ///   ([`is_transient_node_rpc_code`]).
-    ///
-    /// Error-text matching is deliberately avoided: reqwest timeout and
-    /// "error sending request" transport errors contain no "timeout" or
-    /// "connection" text, which previously misclassified them as permanent
-    /// and caused flaky CI failures.
-    fn is_retryable(&self) -> bool {
-        match self {
-            bitcoincore_rpc::Error::JsonRpc(jsonrpc_error) => match jsonrpc_error {
-                bitcoincore_rpc::RpcError::Transport(transport_error) => {
-                    is_retryable_transport_error(transport_error.as_ref(), true)
-                }
-                bitcoincore_rpc::RpcError::Rpc(rpc_error) => {
-                    is_transient_node_rpc_code(rpc_error.code)
-                }
-                _ => false,
-            },
-            bitcoincore_rpc::Error::Io(error) => is_retryable_io_error(error),
-            _ => false,
-        }
-    }
-}
-
 /// Returns true when repeating an RPC after an unknown outcome is safe and useful.
 ///
 /// Commands with side effects or duplicate-in-progress failures are deliberately
 /// absent. A retry-safe command missing from this list merely means its mid-flight
 /// failures are not retried (conservative).
-fn is_mid_flight_retry_safe_command(cmd: &str) -> bool {
+fn is_safe_to_repeat_after_unknown_outcome(cmd: &str) -> bool {
     matches!(
         cmd,
         // Chain and block queries
@@ -371,39 +338,28 @@ fn is_mid_flight_retry_safe_command(cmd: &str) -> bool {
     )
 }
 
-fn is_connect_io_error(error: &std::io::Error) -> bool {
-    use std::io::ErrorKind;
-
-    matches!(
-        error.kind(),
-        ErrorKind::ConnectionRefused | ErrorKind::NotConnected
-    )
-}
-
 /// Command-aware retry classification for individual RPC calls.
 ///
-/// Behaves like [`RetryableError`], except mid-flight transport and I/O
-/// failures are retried only for commands that are safe to repeat after an
-/// unknown outcome. Connect-style I/O never reached the server and is always
-/// retried.
+/// Definite reqwest connection failures never reached the server and are safe
+/// for every command. All errors with an unknown outcome are retried only for
+/// commands that are safe to repeat. This fail-closed rule prevents retries
+/// from repeating wallet-funded sends, fee bumps, or other monetary effects.
 fn is_retryable_for_command(cmd: &str, error: &bitcoincore_rpc::Error) -> bool {
+    let safe_after_unknown_outcome = is_safe_to_repeat_after_unknown_outcome(cmd);
+
     match error {
         bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Transport(transport_error)) => {
-            is_retryable_transport_error(
-                transport_error.as_ref(),
-                is_mid_flight_retry_safe_command(cmd),
-            )
+            is_retryable_transport_error(transport_error.as_ref(), safe_after_unknown_outcome)
         }
+        bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(rpc_error)) => {
+            is_retryable_rpc_code(rpc_error.code, safe_after_unknown_outcome)
+        }
+        // This error does not record whether the I/O failure happened before
+        // or after dispatch, so treat its outcome as unknown.
         bitcoincore_rpc::Error::Io(io_error) => {
-            if !is_retryable_io_error(io_error) {
-                false
-            } else if is_connect_io_error(io_error) {
-                true
-            } else {
-                is_mid_flight_retry_safe_command(cmd)
-            }
+            safe_after_unknown_outcome && is_retryable_io_error(io_error)
         }
-        _ => error.is_retryable(),
+        _ => false,
     }
 }
 
@@ -2043,132 +1999,7 @@ mod tests {
     }
 
     mod retryable_error_tests {
-        use crate::extended_bitcoin_rpc::RetryableError;
-
-        use std::io::{Error as IoError, ErrorKind};
         use std::time::Duration;
-
-        #[test]
-        fn test_bitcoin_rpc_error_retryable_io_errors() {
-            let retryable_kinds = [
-                ErrorKind::ConnectionRefused,
-                ErrorKind::ConnectionReset,
-                ErrorKind::ConnectionAborted,
-                ErrorKind::NotConnected,
-                ErrorKind::BrokenPipe,
-                ErrorKind::TimedOut,
-                ErrorKind::Interrupted,
-                ErrorKind::UnexpectedEof,
-            ];
-
-            for kind in retryable_kinds {
-                let io_error = IoError::new(kind, "test error");
-                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
-                assert!(
-                    rpc_error.is_retryable(),
-                    "ErrorKind::{kind:?} should be retryable"
-                );
-            }
-
-            let reset =
-                bitcoincore_rpc::Error::Io(IoError::new(ErrorKind::ConnectionReset, "test"));
-            let refused =
-                bitcoincore_rpc::Error::Io(IoError::new(ErrorKind::ConnectionRefused, "test"));
-            assert!(super::super::is_retryable_for_command(
-                "sendrawtransaction",
-                &reset
-            ));
-            assert!(!super::super::is_retryable_for_command(
-                "sendtoaddress",
-                &reset
-            ));
-            assert!(super::super::is_retryable_for_command(
-                "sendtoaddress",
-                &refused
-            ));
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_non_retryable_io_errors() {
-            let non_retryable_kinds = [
-                ErrorKind::PermissionDenied,
-                ErrorKind::NotFound,
-                ErrorKind::InvalidInput,
-                ErrorKind::InvalidData,
-            ];
-
-            for kind in non_retryable_kinds {
-                let io_error = IoError::new(kind, "test error");
-                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
-                assert!(
-                    !rpc_error.is_retryable(),
-                    "ErrorKind::{kind:?} should not be retryable"
-                );
-            }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_auth_not_retryable() {
-            let auth_error = bitcoincore_rpc::Error::Auth("Invalid credentials".to_string());
-            assert!(!auth_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_url_parse_not_retryable() {
-            let url_error = url::ParseError::EmptyHost;
-            let rpc_error = bitcoincore_rpc::Error::UrlParse(url_error);
-            assert!(!rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_invalid_cookie_not_retryable() {
-            let rpc_error = bitcoincore_rpc::Error::InvalidCookieFile;
-            assert!(!rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_returned_error_non_retryable_patterns() {
-            let non_retryable_messages = [
-                "insufficient funds",
-                "transaction already in blockchain",
-                "invalid transaction",
-                "not found in mempool",
-                "transaction conflict",
-            ];
-
-            for msg in non_retryable_messages {
-                let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
-                assert!(
-                    !rpc_error.is_retryable(),
-                    "Message '{msg}' should not be retryable"
-                );
-            }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_unexpected_structure_not_retryable() {
-            let rpc_error = bitcoincore_rpc::Error::UnexpectedStructure;
-            assert!(!rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_serialization_errors_not_retryable() {
-            use bitcoin::consensus::encode::Error as EncodeError;
-
-            let serialization_errors = [
-                bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
-                    IoError::other("test").into(),
-                )),
-                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::other("test"))),
-            ];
-
-            for error in serialization_errors {
-                assert!(
-                    !error.is_retryable(),
-                    "Serialization error should not be retryable"
-                );
-            }
-        }
 
         fn rpc_error(code: i32) -> bitcoincore_rpc::Error {
             bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(
@@ -2194,17 +2025,77 @@ mod tests {
                 &insufficient_funds
             ));
 
-            for code in [-9, -10, super::super::RPC_IN_WARMUP_CODE] {
+            for code in [
+                super::super::RPC_CLIENT_NOT_CONNECTED,
+                super::super::RPC_CLIENT_IN_INITIAL_DOWNLOAD,
+            ] {
                 let error = rpc_error(code);
                 assert!(
-                    super::super::is_retryable_for_command("sendtoaddress", &error),
-                    "{code} should be retried for every command"
+                    super::super::is_retryable_for_command("getblock", &error),
+                    "{code} should be retried for a read-only command"
+                );
+                assert!(
+                    !super::super::is_retryable_for_command("sendtoaddress", &error),
+                    "{code} must not retry a wallet-funded command"
+                );
+            }
+        }
+
+        #[test]
+        fn unknown_outcomes_never_retry_wallet_mutations() {
+            for cmd in [
+                "sendtoaddress",
+                "sendmany",
+                "bumpfee",
+                "psbtbumpfee",
+                "fundrawtransaction",
+                "walletcreatefundedpsbt",
+                "lockunspent",
+                "generatetoaddress",
+                "unknown-future-command",
+            ] {
+                let error = bitcoincore_rpc::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "test",
+                ));
+                assert!(
+                    !super::super::is_retryable_for_command(cmd, &error),
+                    "{cmd} must not be retried after an unknown outcome"
+                );
+            }
+
+            for cmd in ["getblock", "sendrawtransaction", "submitpackage"] {
+                let error = bitcoincore_rpc::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "test",
+                ));
+                assert!(
+                    super::super::is_retryable_for_command(cmd, &error),
+                    "{cmd} should be safe to repeat"
                 );
             }
         }
 
         fn transport_error(error: reqwest::Error) -> bitcoincore_rpc::Error {
             bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Transport(Box::new(error)))
+        }
+
+        #[tokio::test]
+        async fn definite_connect_failures_retry_every_command() {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            drop(listener);
+
+            let error = reqwest::Client::new()
+                .post(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap_err();
+            assert!(error.is_connect());
+            assert!(super::super::is_retryable_for_command(
+                "sendtoaddress",
+                &transport_error(error)
+            ));
         }
 
         async fn decode_error(response: Vec<u8>) -> reqwest::Error {
