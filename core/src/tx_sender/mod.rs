@@ -1160,48 +1160,57 @@ mod tests {
 
     #[tokio::test]
     async fn test_rpc_retry_after_failures() {
-        struct RpcSeqResponder {
-            n: Arc<AtomicUsize>,
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        fn http_json(body: &str) -> Vec<u8> {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .into_bytes()
         }
-        impl Respond for RpcSeqResponder {
-            fn respond(&self, _req: &Request) -> ResponseTemplate {
-                let i = self.n.fetch_add(1, Ordering::SeqCst);
-                match i {
-                    0 => ResponseTemplate::new(500).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 1"}
-                    })),
-                    1 => ResponseTemplate::new(500).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
-                    })),
-                    _ => ResponseTemplate::new(200).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
-                    })),
+
+        // Wiremock cannot simulate a mid-body drop. It always knows the real
+        // body length, so hyper 0.14 either panics on a Content-Length mismatch
+        // (debug) or writes Content-Length: 512 and then only the short body
+        // (release), leaving the client waiting for the rest. A raw listener
+        // sends the short body and closes.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_addr = listener.local_addr().unwrap();
+        let estimate_tries = Arc::new(AtomicUsize::new(0));
+        let _rpc_server = tokio::spawn({
+            let estimate_tries = estimate_tries.clone();
+            async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let mut request = [0; 2048];
+                    let Ok(n) = stream.read(&mut request).await else {
+                        continue;
+                    };
+                    let request = String::from_utf8_lossy(&request[..n]);
+                    let response = if request.contains("estimatesmartfee") {
+                        match estimate_tries.fetch_add(1, Ordering::SeqCst) {
+                            0 | 1 => {
+                                let body = r#"{"jsonrpc":"2.0","id":1,"result":{"fee"#;
+                                format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 512\r\nConnection: close\r\n\r\n{body}"
+                                )
+                                .into_bytes()
+                            }
+                            _ => http_json(
+                                r#"{"jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}}"#,
+                            ),
+                        }
+                    } else {
+                        http_json(r#"{"jsonrpc":"2.0","id":1,"result":null}"#)
+                    };
+                    let _ = stream.write_all(&response).await;
                 }
             }
-        }
-
-        let mock_rpc_server = MockServer::start().await;
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        Mock::given(method("POST"))
-            .and(path("/"))
-            .and(body_partial_json(json!({
-                "method": "estimatesmartfee"
-            })))
-            .respond_with(RpcSeqResponder { n: counter.clone() })
-            .mount(&mock_rpc_server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/"))
-            .and(body_partial_json(json!({"method": "ping"})))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": null
-            })))
-            .mount(&mock_rpc_server)
-            .await;
+        });
 
         let mock_mempool_server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1211,7 +1220,7 @@ mod tests {
             .await;
 
         let mock_rpc = ExtendedBitcoinRpc::connect(
-            mock_rpc_server.uri(),
+            format!("http://{rpc_addr}"),
             secrecy::SecretString::new("test_user".into()),
             secrecy::SecretString::new("test_password".into()),
             None,

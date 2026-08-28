@@ -37,6 +37,8 @@ const FILLER_OUTPUT_COUNT: usize = 2_100;
 const FILLER_OUTPUT_VALUE_SAT: u64 = 400;
 const FILLER_FEERATE_SAT_KVB: u64 = 1;
 const PEER_MEMPOOL_PRESSURE_MAX_TXS: usize = 90;
+const PEER_START_ATTEMPTS: usize = 5;
+const PEER_RPC_READY_ATTEMPTS: usize = 30;
 
 struct PeerNode {
     process: Option<std::process::Child>,
@@ -220,6 +222,29 @@ async fn spawn_peer_node(
     rpc_user: secrecy::SecretString,
     rpc_password: secrecy::SecretString,
 ) -> PeerNode {
+    let mut last_error = String::new();
+    for attempt in 1..=PEER_START_ATTEMPTS {
+        match try_spawn_peer_node(&rpc_user, &rpc_password).await {
+            Ok(node) => return node,
+            Err(error) => {
+                last_error = error;
+                tracing::warn!(
+                    attempt,
+                    last_error,
+                    "peer bitcoind start failed, retrying with new ports"
+                );
+            }
+        }
+    }
+    panic!("peer bitcoind rpc failed to start after {PEER_START_ATTEMPTS} attempts: {last_error}");
+}
+
+/// Bind-and-drop port selection can race with other tests. Retry with new
+/// ports when bitcoind exits early or RPC never becomes ready.
+async fn try_spawn_peer_node(
+    rpc_user: &secrecy::SecretString,
+    rpc_password: &secrecy::SecretString,
+) -> Result<PeerNode, String> {
     let data_dir = TempDir::new().expect("peer bitcoind tempdir must be created");
     let p2p_port = get_available_port();
     let rpc_port = get_available_port();
@@ -241,16 +266,21 @@ async fn spawn_peer_node(
         "-rpcallowip=0.0.0.0/0".to_string(),
     ];
 
-    let process = std::process::Command::new("bitcoind")
+    let mut process = std::process::Command::new("bitcoind")
         .args(&args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("peer bitcoind should start");
+        .map_err(|error| format!("peer bitcoind spawn failed: {error}"))?;
 
     let rpc_url = format!("http://127.0.0.1:{rpc_port}");
     let mut attempts = 0usize;
     let rpc = loop {
+        if let Ok(Some(status)) = process.try_wait() {
+            return Err(format!(
+                "peer bitcoind exited before RPC was ready (ports {p2p_port}/{rpc_port}): {status}"
+            ));
+        }
         match ExtendedBitcoinRpc::connect(
             rpc_url.clone(),
             rpc_user.clone(),
@@ -262,18 +292,24 @@ async fn spawn_peer_node(
             Ok(rpc) => break rpc,
             Err(_) => {
                 attempts += 1;
-                assert!(attempts < 30, "peer bitcoind rpc failed to start");
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                if attempts >= PEER_RPC_READY_ATTEMPTS {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    return Err(format!(
+                        "peer bitcoind RPC did not become ready on port {rpc_port}"
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
         }
     };
 
-    PeerNode {
+    Ok(PeerNode {
         process: Some(process),
         rpc,
         p2p_port,
         _data_dir: data_dir,
-    }
+    })
 }
 
 fn serialize_legacy_tx(tx: &Transaction) -> Vec<u8> {

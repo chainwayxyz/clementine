@@ -224,17 +224,21 @@ async fn test_cancelable_loop() {
 
     let (mut cancelable_loop, cancel_tx) = task.cancelable_loop();
 
+    let watcher = Arc::clone(&counter);
     tokio::spawn(async move {
-        sleep(Duration::from_millis(10)).await;
-        cancel_tx.send(()).unwrap();
+        loop {
+            if *watcher.lock().await >= 3 {
+                let _ = cancel_tx.send(());
+                return;
+            }
+            sleep(Duration::from_millis(1)).await;
+        }
     });
 
-    // Run the loop, should stop after counter reaches 3
-    let result = tokio::time::timeout(Duration::from_millis(20), cancelable_loop.run_once()).await;
-    assert!(result.is_ok());
+    let result = tokio::time::timeout(Duration::from_secs(2), cancelable_loop.run_once()).await;
+    assert!(result.is_ok(), "cancelable loop did not stop in time");
     drop(cancelable_loop);
 
-    // Counter should be at 3 (or slightly more if there was a race)
     let final_counter = *counter.lock().await;
     assert!((3..=5).contains(&final_counter));
 }
