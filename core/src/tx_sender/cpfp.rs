@@ -765,7 +765,7 @@ impl TxSender {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 // CPFP packages are periodically resubmitted to counter replacement cycling.
                 // An existing package can reject the resubmission as an insufficient-fee replacement.
-                if error.contains("insufficient fee, rejecting replacement") {
+                if super::is_rejecting_replacement_error(&error) {
                     tracing::debug!(
                         try_to_send_id,
                         "Package resubmission rejected because a replacement is already in the mempool: {error}"

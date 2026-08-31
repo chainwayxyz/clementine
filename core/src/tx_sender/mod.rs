@@ -53,7 +53,7 @@ macro_rules! log_error_for_tx {
         let db = $db.clone();
         let try_to_send_id = $try_to_send_id;
         let err = $err.to_string();
-        tracing::debug!(try_to_send_id, "{}", err);
+        tracing::warn!(try_to_send_id, "{}", err);
         tokio::spawn(async move {
             let _ = db
                 .save_tx_debug_submission_error(try_to_send_id, &err)
@@ -64,6 +64,16 @@ macro_rules! log_error_for_tx {
 
 // Exports to this module.
 use log_error_for_tx;
+
+/// Whether Bitcoin Core rejected a transaction because an equal or better replacement is already
+/// in the mempool. The transaction is already where it needs to be, so this is not a failure.
+///
+/// Matched by message because `submitpackage` reports per-transaction failures as a string only.
+/// The two parts are matched separately because Core joins the reject reason and the debug message,
+/// and the reason gains a suffix under sibling eviction.
+fn is_rejecting_replacement_error(error: &str) -> bool {
+    error.contains("insufficient fee") && error.contains("rejecting replacement")
+}
 
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
@@ -428,16 +438,13 @@ impl TxSender {
                     .await;
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
-                log_error_for_tx!(self.db, try_to_send_id, err_msg);
                 let _ = self
                     .db
                     .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
                     .await;
-                return Err(SendTxError::Other(eyre::eyre!(e)));
+                return Err(SendTxError::Other(eyre::eyre!(
+                    "send_raw_transaction error for no funding tx: {e}"
+                )));
             }
         };
 
