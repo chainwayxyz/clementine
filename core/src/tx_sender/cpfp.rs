@@ -571,7 +571,7 @@ impl TxSender {
                             continue;
                         }
                         _ => {
-                            tracing::warn!(
+                            tracing::debug!(
                                 "Failed to bump fee the fee payer tx {} with error {e}, skipping",
                                 fee_payer_txid
                             );
@@ -794,7 +794,7 @@ impl TxSender {
             return Ok(());
         }
 
-        tracing::info!("Package submitted successfully.");
+        tracing::debug!("Package submitted successfully.");
 
         // // Get the effective fee rate from the first transaction result
         // let effective_fee_rate_btc_per_kvb = submit_package_result

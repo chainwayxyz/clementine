@@ -77,7 +77,7 @@ impl Task for AggregatorMetricPublisher {
         if cfg!(test) {
             return Ok(false);
         }
-        tracing::info!("Publishing metrics for aggregator");
+        tracing::debug!("Publishing metrics for aggregator");
 
         let entity_statuses = self
             .aggregator
@@ -87,7 +87,7 @@ impl Task for AggregatorMetricPublisher {
                 tracing::error!("Error getting entities status: {:?}", e);
             })?;
 
-        tracing::info!("Entities status: {:?}", entity_statuses);
+        tracing::debug!("Entities status: {:?}", entity_statuses);
 
         // Process each entity status
         for entity_status_with_id in entity_statuses {

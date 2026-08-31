@@ -53,7 +53,7 @@ macro_rules! log_error_for_tx {
         let db = $db.clone();
         let try_to_send_id = $try_to_send_id;
         let err = $err.to_string();
-        tracing::warn!(try_to_send_id, "{}", err);
+        tracing::debug!(try_to_send_id, "{}", err);
         tokio::spawn(async move {
             let _ = db
                 .save_tx_debug_submission_error(try_to_send_id, &err)
@@ -190,7 +190,7 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
-        tracing::info!(
+        tracing::debug!(
             "Calculating required fee for {} fee payer utxos",
             num_fee_payer_utxos
         );

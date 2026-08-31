@@ -73,8 +73,7 @@ impl Task for TxSenderTask {
             .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
             .await?
         {
-            tracing::info!("Received Bitcoin syncer event: {:?}", event);
-            tracing::debug!("TXSENDER: Event: {:?}", event);
+            tracing::debug!("Received Bitcoin syncer event: {:?}", event);
 
             match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
@@ -84,7 +83,7 @@ impl Task for TxSenderTask {
                         .await?
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
-                    tracing::info!(
+                    tracing::debug!(
                         height = block_height,
                         block_id = %block_id,
                         "New block"
@@ -99,7 +98,7 @@ impl Task for TxSenderTask {
                         .await?
                         .ok_or(eyre::eyre!("Block not found in TxSenderTask"))?
                         .1;
-                    tracing::info!(
+                    tracing::debug!(
                         height = height,
                         block_id = %block_id,
                         "Reorged block"

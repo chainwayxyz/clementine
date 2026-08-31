@@ -1991,16 +1991,20 @@ where
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::debug!("New deposits received from Citrea: {:?}", new_deposits);
+        if !new_deposits.is_empty() {
+            tracing::info!("New deposits received from Citrea: {:?}", new_deposits);
+        }
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::debug!(
-            "New withdrawals received from Citrea: {:?}",
-            new_withdrawals
-        );
+        if !new_withdrawals.is_empty() {
+            tracing::info!(
+                "New withdrawals received from Citrea: {:?}",
+                new_withdrawals
+            );
+        }
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(

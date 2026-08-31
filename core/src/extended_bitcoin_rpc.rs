@@ -1488,14 +1488,14 @@ impl ExtendedBitcoinRpc {
                         }
                     }
                     (Ok(mempool_amt), Err(rpc_err)) => {
-                        tracing::warn!(
+                        tracing::debug!(
                             "RPC fee estimation failed, using mempool.space: {:#}",
                             rpc_err
                         );
                         mempool_amt
                     }
                     (Err(mempool_err), Ok(rpc_amt)) => {
-                        tracing::warn!(
+                        tracing::debug!(
                             "Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}",
                             mempool_err
                         );
@@ -1516,7 +1516,7 @@ impl ExtendedBitcoinRpc {
 
                 // Apply hard cap from config
                 if fee_sat_kvb > fee_rate_hard_cap * 1000 {
-                    tracing::warn!(
+                    tracing::debug!(
                         "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
                         fee_sat_kvb,
                         fee_rate_hard_cap * 1000
@@ -1563,7 +1563,7 @@ async fn get_fee_rate_from_mempool_space(
         Network::Testnet4 => format!("{url}testnet4/{endpoint}"),
         // Return early with error for unsupported networks
         Network::Signet => {
-            tracing::warn!("You should use Citrea signet url for mempool.space");
+            tracing::debug!("You should use Citrea signet url for mempool.space");
             format!("{url}{endpoint}")
         }
         _ => return Err(eyre!("Unsupported network for mempool.space: {network:?}").into()),

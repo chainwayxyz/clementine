@@ -574,7 +574,6 @@ impl TxSender {
                                 true,
                             )
                             .await;
-                        tracing::warn!(?try_to_send_id, "psbt_bump_fee failed: {e:?}");
                         return Err(SendTxError::Other(eyre!(e)));
                     }
                 }
@@ -650,7 +649,7 @@ impl TxSender {
                 }
                 Err(e) => {
                     let err_msg = format!("wallet_process_psbt error: {e}");
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
+                    tracing::debug!(?try_to_send_id, "{}", err_msg);
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db
@@ -792,7 +791,7 @@ impl TxSender {
                 })?;
 
             if !self.verify_new_inputs(&create_result.psbt, &tx) {
-                tracing::warn!(
+                tracing::debug!(
                     ?try_to_send_id,
                     "Transaction has not been funded and is being sent as is. This transaction will have to be manually bumped as the wallet will not add it to itself."
                 );
