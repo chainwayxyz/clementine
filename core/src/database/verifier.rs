@@ -360,6 +360,22 @@ impl Database {
         Ok(())
     }
 
+    /// Clears the kickoff assignment and marks kickoff processing as pending so the payout checker
+    /// assigns a new connector. The existing payout is unchanged; no new payout is sent.
+    pub async fn unmark_payout_handled(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE withdrawals SET is_payout_handled = FALSE, kickoff_txid = NULL WHERE kickoff_txid = $1",
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
     pub async fn get_handled_payout_kickoff_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

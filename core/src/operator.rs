@@ -1906,6 +1906,35 @@ where
                         .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
 
+                    // the kickoff spends its connector, so its first input is that connector
+                    let kickoff_connector = kickoff_tx
+                        .1
+                        .input
+                        .first()
+                        .ok_or(eyre::eyre!("Kickoff tx has no inputs"))?
+                        .previous_output;
+                    let current_chain_height = self
+                        .db
+                        .get_max_height(dbtx.as_deref_mut())
+                        .await?
+                        .ok_or_eyre(
+                        "Max block height is not found in the btc syncer database",
+                    )?;
+                    if self
+                        .reset_kickoff_assignment_if_connector_spent(
+                            dbtx.as_deref_mut(),
+                            kickoff_round_idx,
+                            kickoff_connector_idx,
+                            kickoff_txid,
+                            kickoff_connector,
+                            current_chain_height,
+                        )
+                        .await?
+                    {
+                        // nothing to send until the payout checker assigns a new kickoff connector
+                        return Ok(txs_to_send);
+                    }
+
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
                     let (_, payout_block_height) = self
                         .db
@@ -2164,7 +2193,8 @@ where
     }
 
     /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
-    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
+    /// Returns the unspent kickoff utxos that are safe to burn, excluding connectors reserved for a
+    /// kickoff that is not on chain yet, and a boolean to mark if all utxos are spent and finalized
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -2182,7 +2212,25 @@ where
                 vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
             };
             if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
-                unspent_kickoff_utxos.push(kickoff_idx);
+                // The connector can be reserved for a kickoff that is signed but not broadcast yet.
+                // Burning it would make that kickoff unspendable, so exclude it until its kickoff is on chain.
+                match self
+                    .db
+                    .get_kickoff_txid_for_used_kickoff_connector(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                    )
+                    .await?
+                {
+                    Some(kickoff_txid) => tracing::warn!(
+                        "Kickoff connector {:?} of round {:?} is reserved for kickoff tx {:?} that is not on chain yet, excluding it from BurnUnusedKickoffConnectors. That kickoff needs to be sent before ReadyToReimburse can be sent.",
+                        kickoff_idx,
+                        round_idx,
+                        kickoff_txid
+                    ),
+                    None => unspent_kickoff_utxos.push(kickoff_idx),
+                }
             } else {
                 // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                 // mark so that we don't try to use this utxo anymore
@@ -2205,9 +2253,107 @@ where
                         self.config.protocol_paramset(),
                     )
                     .await?;
+
+                let reserved_kickoff_txid = self
+                    .db
+                    .get_kickoff_txid_for_used_kickoff_connector(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                    )
+                    .await?;
+                if let Some(kickoff_txid) = reserved_kickoff_txid {
+                    self.reset_kickoff_assignment_if_connector_spent(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                        kickoff_txid,
+                        kickoff_utxo,
+                        current_chain_height,
+                    )
+                    .await?;
+                }
             }
         }
         Ok((unspent_kickoff_utxos, fully_finalized_spent))
+    }
+
+    /// A connector reserved for a kickoff can be spent by another tx, for example a burn that was
+    /// signed before the reservation existed. That kickoff can never be sent, and waiting for it
+    /// would block the round forever, so clear the unusable kickoff assignment and request
+    /// reassignment. Other finalized spent connectors in the round are marked used so
+    /// reassignment does not pick another input of the same burn. The payout is unchanged,
+    /// and the spent connector remains reserved.
+    /// The conflicting spend must be finalized, otherwise a reorg could undo it and let the
+    /// original kickoff confirm after all.
+    /// Returns true if the kickoff assignment was reset.
+    async fn reset_kickoff_assignment_if_connector_spent(
+        &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: RoundIndex,
+        kickoff_idx: u32,
+        kickoff_txid: Txid,
+        kickoff_connector: OutPoint,
+        current_chain_height: u32,
+    ) -> Result<bool, BridgeError> {
+        if self.rpc.is_tx_on_chain(&kickoff_txid).await?
+            || !self.rpc.is_utxo_spent(&kickoff_connector).await?
+            || !self
+                .db
+                .check_if_utxo_spending_tx_is_finalized(
+                    dbtx.as_deref_mut(),
+                    kickoff_connector,
+                    current_chain_height,
+                    self.config.protocol_paramset(),
+                )
+                .await?
+        {
+            return Ok(false);
+        }
+
+        tracing::warn!(
+            "Kickoff connector {:?} of round {:?} was spent by another tx, so kickoff {:?} can never be sent. Clearing its unusable kickoff assignment and requesting reassignment.",
+            kickoff_idx,
+            round_idx,
+            kickoff_txid
+        );
+
+        // Mark other finalized spent connectors in this round so reassignment
+        // does not pick another input of the same burn. ON CONFLICT DO NOTHING
+        // keeps live reservations.
+        for idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+            let connector = OutPoint {
+                txid: kickoff_connector.txid,
+                vout: UtxoVout::Kickoff(idx).get_vout(),
+            };
+            if self.rpc.is_utxo_spent(&connector).await?
+                && self
+                    .db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        connector,
+                        current_chain_height,
+                        self.config.protocol_paramset(),
+                    )
+                    .await?
+            {
+                self.db
+                    .mark_kickoff_connector_as_used(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        idx as u32,
+                        None,
+                    )
+                    .await?;
+            }
+        }
+
+        self.db
+            .clear_kickoff_txid_for_used_kickoff_connector(dbtx.as_deref_mut(), kickoff_txid)
+            .await?;
+        self.db.unmark_payout_handled(dbtx, kickoff_txid).await?;
+
+        Ok(true)
     }
 
     /// Creates a transaction that burns unused kickoff connectors.

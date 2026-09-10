@@ -916,6 +916,23 @@ impl Database {
         }
     }
 
+    /// Clears the kickoff txid of a used kickoff connector. The connector stays reserved, so it is
+    /// not handed out again, but nothing waits for its kickoff to appear on chain anymore.
+    pub async fn clear_kickoff_txid_for_used_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE used_kickoff_connectors SET kickoff_txid = NULL WHERE kickoff_txid = $1;",
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
     pub async fn get_unused_and_signed_kickoff_connector(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
