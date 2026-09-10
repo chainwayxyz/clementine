@@ -1897,10 +1897,6 @@ where
             std::cmp::Ordering::Equal => {
                 // first check if the kickoff is in chain
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                    tracing::info!(
-                        "Kickoff tx is not on chain, can send it, kickoff txid: {:?}",
-                        kickoff_txid
-                    );
                     let kickoff_tx = kickoff_txs
                         .iter()
                         .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
@@ -1934,6 +1930,21 @@ where
                         // nothing to send until the payout checker assigns a new kickoff connector
                         return Ok(txs_to_send);
                     }
+                    // Spent but not finalized: reset waits, and this kickoff would be a
+                    // double-spend. Do not return it as safe to send.
+                    if self.rpc.is_utxo_spent(&kickoff_connector).await? {
+                        return Err(eyre::eyre!(format!(
+                            "Kickoff connector {kickoff_connector:?} asasigned for the kickoff is spent, but the spending tx is not yet finalized, wait until it is finalized. Finality depth: {}
+                            If it is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.",
+                            self.config.protocol_paramset().finality_depth
+                        ))
+                        .into());
+                    }
+
+                    tracing::info!(
+                        "Kickoff tx is not on chain, can send it, kickoff txid: {:?}",
+                        kickoff_txid
+                    );
 
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
                     let (_, payout_block_height) = self
