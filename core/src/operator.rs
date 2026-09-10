@@ -2169,7 +2169,7 @@ where
                 .await?;
 
             if !unspent_kickoff_utxos.is_empty() {
-                // Not marked used. Pre-emptively marking will cause the connectors to become unusable even if the user doesnt actually send the burn tx.
+                // Not marked used. Preemptively marking will cause the connectors to become unusable even if the user doesn't actually send the burn tx.
                 let burn_txs = self
                     .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
                     .await?;
