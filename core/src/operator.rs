@@ -2158,6 +2158,7 @@ where
                 .await?;
 
             if !unspent_kickoff_utxos.is_empty() {
+                // Not marked used. Pre-emptively marking will cause the connectors to become unusable even if the user doesnt actually send the burn tx.
                 let burn_txs = self
                     .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
                     .await?;
@@ -2193,8 +2194,9 @@ where
     }
 
     /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
-    /// Returns the unspent kickoff utxos that are safe to burn, excluding connectors reserved for a
-    /// kickoff that is not on chain yet, and a boolean to mark if all utxos are spent and finalized
+    /// Skips connectors reserved for a kickoff that is not on chain yet.
+    /// Returned connectors are not marked used so that if a new kickoff is assigned, it can be used, unless the burn tx is sent..
+    /// Also returns whether every spent kickoff utxo is finalized.
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -2281,9 +2283,11 @@ where
     /// A connector reserved for a kickoff can be spent by another tx, for example a burn that was
     /// signed before the reservation existed. That kickoff can never be sent, and waiting for it
     /// would block the round forever, so clear the unusable kickoff assignment and request
-    /// reassignment. Other finalized spent connectors in the round are marked used so
-    /// reassignment does not pick another input of the same burn. The payout is unchanged,
-    /// and the spent connector remains reserved.
+    /// reassignment.
+    /// Other finalized spent connectors in the round are marked used so reassignment does not
+    /// pick another input of the same burn. Unspent connectors stay available; do not send a
+    /// burn from the same call if you want to assign them. The payout is unchanged, and the
+    /// spent connector remains reserved.
     /// The conflicting spend must be finalized, otherwise a reorg could undo it and let the
     /// original kickoff confirm after all.
     /// Returns true if the kickoff assignment was reset.

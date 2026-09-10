@@ -896,6 +896,9 @@ impl Database {
         ))
     }
 
+    /// Reserved kickoff txid for this connector.
+    /// `None` means there is no kickoff to wait for (never reserved, or txid was cleared).
+    /// A cleared row still exists, so the connector is not assigned again.
     pub async fn get_kickoff_txid_for_used_kickoff_connector(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
