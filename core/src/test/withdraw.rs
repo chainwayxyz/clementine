@@ -1,22 +1,14 @@
 use super::common::citrea::get_bridge_params;
-use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
-use crate::test::common::generate_withdrawal_transaction_and_signature;
+use crate::test::common::{citrea, create_test_config_with_thread_name};
 use crate::utils::initialize_logger;
-use crate::{
-    extended_bitcoin_rpc::ExtendedBitcoinRpc,
-    test::common::{
-        citrea::{self},
-        create_test_config_with_thread_name,
-    },
-};
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
-use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use bitcoin::{OutPoint, Txid};
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -72,31 +64,9 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             None,
         );
 
-        let rpc = ExtendedBitcoinRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-            None,
-        )
-        .await?;
-
-        let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-        let withdrawal_address = Address::p2tr(
-            &SECP,
-            user_sk.x_only_public_key(&SECP).0,
-            None,
-            config.protocol_paramset().network,
-        );
-        let withdrawal_utxo = generate_withdrawal_transaction_and_signature(
-            &config,
-            &rpc,
-            &withdrawal_address,
-            Amount::from_sat(330),
-        )
-        .await
-        .0
-        .outpoint;
-        println!("Created withdrawal UTXO: {withdrawal_utxo:?}");
+        // `Bridge.withdraw` does not check Bitcoin inclusion; only `safeWithdraw` does.
+        // A live Bitcoin tx cannot have vout `u32::MAX`, but the unguarded path still stores it.
+        let withdrawal_utxo = OutPoint::new(Txid::from_byte_array([0x11; 32]), u32::MAX);
 
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
@@ -154,6 +124,18 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .await
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(1));
+
+        let stored_utxo = citrea_client
+            .contract
+            .withdrawalUTXOs(U256::ZERO)
+            .call()
+            .await
+            .unwrap();
+        assert_eq!(stored_utxo.txId.0, withdrawal_utxo.txid.to_byte_array());
+        assert_eq!(
+            u32::from_le_bytes(stored_utxo.outputId.0),
+            withdrawal_utxo.vout
+        );
 
         let utxos = citrea_client
             .collect_withdrawal_utxos(None, withdrawal_tx_height_block_height)

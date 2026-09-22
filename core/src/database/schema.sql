@@ -298,7 +298,9 @@ create table if not exists withdrawals (
     idx int primary key,
     move_to_vault_txid bytea not null,
     withdrawal_utxo_txid bytea,
-    withdrawal_utxo_vout int,
+    -- bigint so the full Bitcoin/u32 vout range fits; Bridge.withdraw is public
+    -- and callers can persist any 4-byte outputId
+    withdrawal_utxo_vout bigint,
     withdrawal_batch_proof_bitcoin_block_height int,
     payout_txid bytea,
     payout_payer_operator_xonly_pk text,

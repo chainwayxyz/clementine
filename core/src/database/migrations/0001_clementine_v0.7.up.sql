@@ -59,3 +59,8 @@ WHERE candidate.last_processed_event_id IS NOT NULL
 UPDATE tx_sender_try_to_send_txs
 SET effective_fee_rate = effective_fee_rate * 250
 WHERE effective_fee_rate IS NOT NULL;
+-- Bridge.withdraw is public: callers can write any 4-byte outputId. Persist
+-- withdrawal_utxo_vout as bigint so u32 values above i32::MAX do not fail
+-- conversion and stall Citrea withdrawal ingest.
+ALTER TABLE withdrawals
+ALTER COLUMN withdrawal_utxo_vout TYPE BIGINT;
