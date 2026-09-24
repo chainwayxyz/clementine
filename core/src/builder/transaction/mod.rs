@@ -438,6 +438,10 @@ pub fn create_move_to_vault_txhandler(
 /// This transaction moves funds to the address controlled by the security council from the move-to-vault txout.
 /// Used to stop the deposit in case of a security issue. The moved funds will eventually be redeposited using the replacement deposit tx.
 ///
+/// By design, the aggregator can send this tx at any time, including after an operator paid a withdrawal and before it got its
+/// reimbursement. This tx spends the deposit utxo, so the reimburse tx of the deposit becomes invalid. In this case, the security
+/// council is assumed to handle the operator's reimbursement.
+///
 /// # Arguments
 ///
 /// * `deposit_data` - Mutable reference to the deposit data for the transaction.

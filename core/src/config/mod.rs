@@ -56,6 +56,11 @@ pub struct BridgeConfig {
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Operator's fee for withdrawal, in satoshis.
+    ///
+    /// This is the minimum reward the operator accepts for a withdrawal. The
+    /// operator pays the payout tx fee from its own wallet and the
+    /// profitability check does not subtract it, so this value must be
+    /// substantially higher than any realistic payout tx fee.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,

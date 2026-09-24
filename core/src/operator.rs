@@ -623,7 +623,8 @@ where
         };
 
         // Net profit must be bigger than withdrawal fee.
-        // net profit doesn't take into account the fees, but operator_withdrawal_fee_sats should
+        // Net profit does not subtract the payout tx fee, which the operator pays. By design,
+        // operator_withdrawal_fee_sats is substantially higher than any realistic payout tx fee.
         net_profit >= operator_withdrawal_fee_sats
     }
 
