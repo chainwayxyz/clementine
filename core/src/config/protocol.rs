@@ -298,6 +298,7 @@ impl Default for &'static ProtocolParamset {
     }
 }
 
+// These paramsets are used only for tests! Mainnet and testnet4 paramsets have much higher timelocks (at least 144 blocks).
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
@@ -328,6 +329,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_nonstandard: true,
 };
 
+// These paramsets are used only for tests! Mainnet and testnet4 paramsets have much higher timelocks (at least 144 blocks).
 pub const TESTNET4_TEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
     num_round_txs: 2,
