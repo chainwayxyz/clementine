@@ -426,7 +426,7 @@ impl CitreaClientT for CitreaClient {
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
-            .on_http(citrea_rpc_url.clone());
+            .connect_http(citrea_rpc_url.clone());
 
         tracing::info!("Provider created");
 
@@ -491,7 +491,7 @@ impl CitreaClientT for CitreaClient {
             tracing::info!("Deposit txid found for index: {:?}", deposit_txid);
 
             let deposit_txid = deposit_txid.expect("Failed to get deposit txid");
-            let move_txid = Txid::from_slice(deposit_txid._0.as_ref())
+            let move_txid = Txid::from_slice(deposit_txid.as_ref())
                 .wrap_err("Failed to convert move txid to Txid")?;
             move_txids.push((start_idx as u64, move_txid));
             start_idx += 1;
@@ -641,10 +641,10 @@ impl CitreaClientT for CitreaClient {
         for log in logs {
             let replacement_raw_data = &log.data().data;
 
-            let idx = DepositReplaced::abi_decode_data(replacement_raw_data, false)
+            let idx = DepositReplaced::abi_decode_data(replacement_raw_data)
                 .wrap_err("Failed to decode replacement deposit data")?
                 .0;
-            let new_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, false)
+            let new_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data)
                 .wrap_err("Failed to decode replacement deposit data")?
                 .2;
 
@@ -671,8 +671,7 @@ impl CitreaClientT for CitreaClient {
             .getAggregatedKey()
             .call()
             .await
-            .wrap_err("Failed to get script prefix")?
-            ._0;
+            .wrap_err("Failed to get script prefix")?;
 
         let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
             .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
@@ -713,7 +712,6 @@ pub trait CitreaRpc {
 
 // Ugly typedefs.
 type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
-    (),
     FillProvider<
         JoinFill<
             JoinFill<

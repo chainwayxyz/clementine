@@ -1423,7 +1423,7 @@ impl ExtendedBitcoinRpc {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {
                 tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
-                Ok(FeeRate::from_sat_per_vb_unchecked(1))
+                Ok(FeeRate::from_sat_per_vb_u32(1))
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
@@ -1811,7 +1811,7 @@ mod tests {
             })
             .is_err());
 
-        let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        let current_fee_rate = FeeRate::from_sat_per_vb_u32(1);
 
         // Trying to bump a transaction with a fee rate that is already enough
         // should return the original txid.
@@ -1823,7 +1823,7 @@ mod tests {
         assert_eq!(txid, utxo.txid);
 
         // A bigger fee rate should return a different txid.
-        let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+        let new_fee_rate = FeeRate::from_sat_per_vb_u32(10000);
         let txid = rpc
             .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
             .await
@@ -2307,7 +2307,7 @@ mod tests {
 
             // Create an unconfirmed transaction
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-            let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+            let new_fee_rate = FeeRate::from_sat_per_vb_u32(10000);
 
             let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());

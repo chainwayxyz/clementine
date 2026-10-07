@@ -4,7 +4,7 @@ use std::{
     process::Command,
 };
 
-use vergen_git2::{BuildBuilder, CargoBuilder, Emitter, Git2Builder, RustcBuilder, SysinfoBuilder};
+use vergen_git2::{Build, Cargo, Emitter, Git2, Rustc, Sysinfo};
 
 fn trim_ascii_end(s: &str) -> &str {
     let trimmed_len = s
@@ -53,28 +53,29 @@ fn compile_protobuf() {
     }
 
     // Compile server and client code from proto files
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
         .out_dir("./src/rpc")
         .compile_protos(
             &proto_files,
-            &[proto_root.to_str().expect("proto_root is not a valid path")],
+            &[proto_root
+                .to_str()
+                .expect("proto_root is not a valid path")
+                .to_string()],
         )
         .expect("Failed to compile protos");
 }
 
 fn main() {
     compile_protobuf();
-    let build = BuildBuilder::all_build().expect("Failed to build build instructions");
-    let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
-    let git2 = Git2Builder::default()
-        .all()
-        .repo_path(PathBuf::from("..").into()) // .git folder is in the workspace folder
-        .build()
-        .expect("Failed to build git2 instructions");
-    let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
-    let si = SysinfoBuilder::all_sysinfo().expect("Failed to build sysinfo instructions");
+    let build = Build::all_build();
+    let cargo = Cargo::all_cargo();
+    let git2 = Git2::all()
+        .local_repo_path(PathBuf::from("..")) // .git folder is in the workspace folder
+        .build();
+    let rustc = Rustc::all_rustc();
+    let si = Sysinfo::all_sysinfo();
 
     Emitter::default()
         .add_instructions(&build)

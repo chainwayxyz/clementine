@@ -54,7 +54,6 @@ impl From<ParserError> for tonic::Status {
 }
 
 #[allow(dead_code)]
-#[allow(clippy::result_large_err)]
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.
 pub fn convert_int_to_another<SOURCE, TARGET>(
@@ -504,7 +503,6 @@ impl TryFrom<clementine::Txid> for Txid {
     }
 }
 
-#[allow(clippy::result_large_err)]
 impl TryFrom<TransactionRequest> for TransactionRequestData {
     type Error = Status;
 

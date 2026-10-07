@@ -271,13 +271,6 @@ impl TxSender {
         }
     }
 
-    /// Submit package returns the effective fee rate in btc/kvb.
-    /// This function converts the btc/kvb to a fee rate in sat/vb.
-    #[allow(dead_code)]
-    fn btc_per_kvb_to_fee_rate(btc_per_kvb: f64) -> FeeRate {
-        FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
-    }
-
     /// Fetches transactions that are eligible to be sent or bumped from
     /// database based on the given fee rate and tip height. Then, places a send
     /// transaction request to the Bitcoin based on the fee strategy.

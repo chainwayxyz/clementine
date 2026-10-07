@@ -12,7 +12,7 @@ automation = []
 integration-tests = ["automation"]
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-prost-build = "0.14.6"
 vergen-git2 = { workspace = true }
 
 [dependencies]
@@ -43,6 +43,7 @@ toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 borsh = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 prost = { workspace = true }
 tokio-stream = { workspace = true }
 async-stream = { workspace = true }
@@ -65,6 +66,9 @@ statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
 citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
+# sov-rollup-interface's `native` feature pulls alloy-primitives 0.8 without `std`,
+# and alloy-primitives 0.8.26 does not compile without `std`.
+alloy-primitives-v08 = { package = "alloy-primitives", version = "0.8.26", features = ["std"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
@@ -96,7 +100,10 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 rand = { workspace = true }
 url = { version = "2.5.4" }
 jsonrpc-async = { version = "2.0.2" }
-wiremock = "0.5"
+wiremock = "0.6.5"
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["alloy-primitives-v08"]
 
 # Intended for node operators (aggregator/operator/verifier), not end users.
 [[bin]]
@@ -106,8 +113,6 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
-# tonic::Status makes Result<_, Status> exceed Clippy's Err-size threshold on 1.97.
-result_large_err = "allow"
 
 [lints.rust]
 # This is used to enable/disable the tokio-console debugging utility

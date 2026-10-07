@@ -22,7 +22,7 @@ use crate::rpc::ecdsa_verification_sig::{
 };
 use crate::rpc::parser;
 use crate::utils::{get_vergen_response, monitor_standalone_task, timed_request};
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
@@ -209,7 +209,7 @@ where
             let verification_signature = params
                 .verification_signature
                 .map(|sig| {
-                    PrimitiveSignature::from_str(&sig).map_err(|e| {
+                    Signature::from_str(&sig).map_err(|e| {
                         Status::invalid_argument(format!("Invalid verification signature: {e}"))
                     })
                 })

@@ -28,6 +28,10 @@ use crate::test::common::ensure_test_certificates;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
+/// Maximum duration of a TLS handshake. Without it, a peer that stalls the
+/// handshake keeps its connection open indefinitely.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Represents a network address that can be either TCP or Unix socket
 #[derive(Debug, Clone)]
 pub enum ServerAddr {
@@ -58,11 +62,12 @@ pub async fn create_grpc_server<S>(
 ) -> Result<(ServerAddr, oneshot::Sender<()>), BridgeError>
 where
     S: tower::Service<
-            http::Request<tonic::body::BoxBody>,
-            Response = http::Response<tonic::body::BoxBody>,
+            http::Request<tonic::body::Body>,
+            Response = http::Response<tonic::body::Body>,
             Error = std::convert::Infallible,
         > + Clone
         + Send
+        + Sync
         + NamedService
         + 'static,
     S::Future: Send + 'static,
@@ -114,8 +119,11 @@ where
                 ServerTlsConfig::new()
                     .identity(server_identity)
                     .client_ca_root(client_ca)
+                    .timeout(TLS_HANDSHAKE_TIMEOUT)
             } else {
-                ServerTlsConfig::new().identity(server_identity)
+                ServerTlsConfig::new()
+                    .identity(server_identity)
+                    .timeout(TLS_HANDSHAKE_TIMEOUT)
             };
 
             let service = InterceptedService::new(

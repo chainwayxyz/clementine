@@ -213,7 +213,6 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
-    #[allow(clippy::result_large_err)]
     fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 

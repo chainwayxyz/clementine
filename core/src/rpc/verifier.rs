@@ -21,7 +21,7 @@ use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature as EcdsaSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use eyre::Context as _;
@@ -107,7 +107,7 @@ where
 
         let verification_signature = verification_signature_str
             .map(|sig| {
-                PrimitiveSignature::from_str(&sig).map_err(|e| {
+                EcdsaSignature::from_str(&sig).map_err(|e| {
                     Status::invalid_argument(format!("Invalid verification signature: {e}"))
                 })
             })

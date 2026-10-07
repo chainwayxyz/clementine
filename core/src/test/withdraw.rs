@@ -92,7 +92,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .call()
             .await
             .unwrap();
-        assert_eq!(withdrawal_count._0, U256::from(0));
+        assert_eq!(withdrawal_count, U256::from(0));
 
         let withdrawal_tx_height_block_height = sequencer
             .client
@@ -123,7 +123,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .call()
             .await
             .unwrap();
-        assert_eq!(withdrawal_count._0, U256::from(1));
+        assert_eq!(withdrawal_count, U256::from(1));
 
         let stored_utxo = citrea_client
             .contract

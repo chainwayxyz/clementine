@@ -54,7 +54,7 @@ use crate::utils::FeePayingType;
 use crate::utils::TxMetadata;
 use crate::utils::{monitor_standalone_task, NamedEntity};
 use crate::{musig2, UTXO};
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature as EcdsaSignature;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand::Rng;
 use bitcoin::key::Secp256k1;
@@ -1420,7 +1420,7 @@ where
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
-        verification_signature: Option<PrimitiveSignature>,
+        verification_signature: Option<EcdsaSignature>,
     ) -> Result<PartialSignature, BridgeError> {
         // if the withdrawal utxo is spent, no reason to sign optimistic payout
         if self.rpc.is_utxo_spent(&input_outpoint).await? {
@@ -3370,7 +3370,7 @@ mod tests {
         let output_amount = Amount::from_sat(1000000000000000000);
         let deposit_id = 1;
 
-        let opt_payout_sig = PrimitiveSignature::from_str("0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b")
+        let opt_payout_sig = EcdsaSignature::from_str("0x165b7303ffe40149e297be9f1112c1484fcbd464bec26036e5a6142da92249ed7de398295ecac9e41943e326d44037073643a89049177b43c4a09f98787eafa91b")
 		.unwrap();
         let address = recover_address_from_ecdsa_signature::<OptimisticPayoutMessage>(
             deposit_id,
@@ -3387,7 +3387,7 @@ mod tests {
                 .unwrap()
         );
 
-        let op_withdrawal_sig = PrimitiveSignature::from_str("0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c")
+        let op_withdrawal_sig = EcdsaSignature::from_str("0xe540662d2ea0aeb29adeeb81a824bcb00e3d2a51d2c28e3eab6305168904e4cb7549e5abe78a91e58238a3986a5faf2ca9bbaaa79e0d0489a96ee275f7db9b111c")
 				.unwrap();
         let address = recover_address_from_ecdsa_signature::<OperatorWithdrawalMessage>(
             deposit_id,
