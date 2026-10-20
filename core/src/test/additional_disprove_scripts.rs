@@ -117,6 +117,7 @@ impl TestCase for AdditionalDisproveTest {
             }
             TestVariant::CorruptedPublicInput => {
                 config.test_params.corrupted_public_input = true;
+                config.test_params.non_canonical_assert_digits = true;
             }
         }
 
@@ -319,10 +320,12 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
 /// # Arrange
 /// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
 /// * Sets `corrupted_public_input = true` to simulate a corrupted public input scenario.
+/// * Sets `non_canonical_assert_digits = true`, so the first assert has non-minimal and
+///   out-of-range digits and is non-standard.
 ///
 /// # Act
 /// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
+/// * Processes payout and kickoff transactions, and mines the non-standard assert directly.
 /// * Waits for the disprove transaction to be triggered due to the corrupted public input.
 ///
 /// # Assert

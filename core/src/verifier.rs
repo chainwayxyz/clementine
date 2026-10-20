@@ -2659,8 +2659,13 @@ where
 
                 sig_array[..20].copy_from_slice(&sig);
 
-                let u8_part: u8 = *chunk[1].first().unwrap_or(&0);
-                sig_array[20] = u8_part;
+                // Digits are canonical here, see `extract_winternitz_commits_with_sigs`.
+                sig_array[20] = bitcoin::script::read_scriptint(&chunk[1])
+                    .ok()
+                    .and_then(|digit| u8::try_from(digit).ok())
+                    .ok_or_else(|| {
+                        eyre::eyre!("Invalid Winternitz digit encoding: {:?}", chunk[1])
+                    })?;
 
                 target[i] = sig_array;
             }

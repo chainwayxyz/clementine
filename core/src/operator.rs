@@ -1709,6 +1709,17 @@ where
             .await?;
 
         for (tx_type, tx) in assert_txs {
+            #[cfg(test)]
+            let tx = self
+                .config
+                .test_params
+                .maybe_use_non_canonical_assert_digits(
+                    tx_type,
+                    tx,
+                    deposit_data.get_deposit_outpoint(),
+                    self.config.protocol_paramset(),
+                )?;
+
             self.tx_sender
                 .add_tx_to_queue(
                     dbtx,

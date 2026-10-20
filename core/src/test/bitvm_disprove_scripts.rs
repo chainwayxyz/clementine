@@ -107,6 +107,7 @@ impl TestCase for DisproveTest {
             DisproveTestVariant::HealthyState => {}
             DisproveTestVariant::CorruptedAssert => {
                 config.test_params.corrupted_asserts = true;
+                config.test_params.non_canonical_assert_digits = true;
             }
         }
 
@@ -282,10 +283,12 @@ async fn disprove_script_test_healthy() -> Result<()> {
 /// # Arrange
 /// - Sets up the full Citrea stack: sequencer, DA node, batch prover, and light client prover.
 /// - Sets `corrupted_asserts = true` in the configuration to simulate a corrupted assert scenario.
+/// - Sets `non_canonical_assert_digits = true`, so the first assert has non-minimal and
+///   out-of-range digits and is non-standard.
 ///
 /// # Act
 /// - Executes deposit and withdrawal flows.
-/// - Processes payout and kickoff transactions.
+/// - Processes payout and kickoff transactions, and mines the non-standard assert directly.
 /// - Waits for the disprove transaction to be triggered due to the corrupted assert.
 ///
 /// # Assert
