@@ -649,7 +649,8 @@ impl Aggregator {
     }
 
     /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
-    /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
+    /// Returns a vector of EntityStatusWithId. Errors from restarting tasks are only logged, so they
+    /// don't prevent the statuses from being returned.
     pub async fn get_entity_statuses(
         &self,
         restart_tasks: bool,
@@ -742,7 +743,7 @@ impl Aggregator {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
                         client
-                            .restart_background_tasks(Request::new(Empty {}))
+                            .restart_background_tasks(request)
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
@@ -762,7 +763,7 @@ impl Aggregator {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
                         client
-                            .restart_background_tasks(Request::new(Empty {}))
+                            .restart_background_tasks(request)
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(

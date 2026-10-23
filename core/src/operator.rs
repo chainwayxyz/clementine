@@ -298,8 +298,27 @@ where
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
             Some(operator_data) => {
-                // Operator data is already set in db, we don't actually need to do anything.
-                // set_operator_checked will give error if the values set in config and db doesn't match.
+                // Signed deposits commit to the stored values, so config can't change them.
+                if config
+                    .operator_reimbursement_address
+                    .as_ref()
+                    .is_some_and(|addr| addr != operator_data.reimburse_addr.as_unchecked())
+                    || config
+                        .operator_collateral_funding_outpoint
+                        .is_some_and(|outpoint| {
+                            outpoint != operator_data.collateral_funding_outpoint
+                        })
+                {
+                    return Err(eyre::eyre!(
+                        "Operator reimbursement address or collateral funding outpoint in config doesn't match the values stored in DB. \
+                         Config: ({:?}, {:?}), DB: ({:?}, {:?})",
+                        config.operator_reimbursement_address,
+                        config.operator_collateral_funding_outpoint,
+                        operator_data.reimburse_addr,
+                        operator_data.collateral_funding_outpoint
+                    )
+                    .into());
+                }
                 (
                     operator_data.collateral_funding_outpoint,
                     operator_data.reimburse_addr,
@@ -631,9 +650,11 @@ where
     /// Prepares a withdrawal by:
     ///
     /// 1. Checking if the withdrawal has been made on Citrea
-    /// 2. Verifying the given signature
-    /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the withdrawal transaction using TxSender RBF option
+    /// 2. Checking that this operator has deposit signatures for the withdrawal's deposit, as
+    ///    otherwise the payout can't be reimbursed
+    /// 3. Verifying the given signature
+    /// 4. Checking if the withdrawal is profitable or not
+    /// 5. Funding the withdrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -685,6 +706,34 @@ where
 
         if withdrawal_utxo != input_utxo.outpoint {
             return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
+        }
+
+        // Without deposit signatures the payout can never be reimbursed, and the payout checker
+        // would stop at this payout.
+        let move_to_vault_txid = self
+            .db
+            .get_move_to_vault_txid_from_citrea_deposit(None, withdrawal_index)
+            .await?
+            .ok_or_eyre(format!(
+                "Move to vault txid not found for withdrawal {withdrawal_index}"
+            ))?;
+        let deposit_outpoint = self
+            .db
+            .get_deposit_data_with_move_tx(None, move_to_vault_txid)
+            .await?
+            .ok_or_eyre(format!(
+                "Deposit data not found for move to vault txid {move_to_vault_txid} of withdrawal {withdrawal_index}"
+            ))?
+            .get_deposit_outpoint();
+        if !self
+            .db
+            .has_deposit_signatures(None, deposit_outpoint, self.signer.xonly_public_key)
+            .await?
+        {
+            return Err(eyre::eyre!(
+                "No deposit signatures of this operator found for deposit {deposit_outpoint} of withdrawal {withdrawal_index}, payout can't be reimbursed"
+            )
+            .into());
         }
 
         let operator_withdrawal_fee_sats =

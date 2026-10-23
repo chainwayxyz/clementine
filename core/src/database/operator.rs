@@ -668,6 +668,28 @@ impl Database {
         }
     }
 
+    /// Returns whether any deposit signatures of the given operator are saved for the deposit.
+    pub async fn has_deposit_signatures(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_outpoint: OutPoint,
+        operator_xonly_pk: XOnlyPublicKey,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (bool,)>(
+            "SELECT EXISTS (
+                SELECT 1 FROM deposit_signatures ds
+                INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+                WHERE d.deposit_outpoint = $1
+                AND ds.operator_xonly_pk = $2
+            );",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk));
+
+        let (exists,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(exists)
+    }
+
     /// Retrieves the light client circuit input for a deposit to be proved while sending an assert.
     pub(crate) async fn get_lcp_input_for_assert(
         &self,
@@ -1608,6 +1630,19 @@ mod tests {
             .await
             .unwrap();
         assert!(non_existent.is_none());
+
+        assert!(database
+            .has_deposit_signatures(None, deposit_outpoint, operator_xonly_pk)
+            .await
+            .unwrap());
+        assert!(!database
+            .has_deposit_signatures(None, deposit_outpoint, unset_operator_xonly_pk)
+            .await
+            .unwrap());
+        assert!(!database
+            .has_deposit_signatures(None, OutPoint::null(), operator_xonly_pk)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
