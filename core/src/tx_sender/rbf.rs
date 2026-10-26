@@ -83,6 +83,20 @@ impl TxSender {
         )))
     }
 
+    /// Returns whether the tx is in the mempool or in a block of the active chain.
+    async fn is_tx_in_mempool_or_chain(&self, txid: &Txid) -> Result<bool> {
+        match self.rpc.get_mempool_entry(txid).await {
+            Ok(_) => return Ok(true),
+            Err(e) if e.to_string().contains("Transaction not in mempool") => {}
+            Err(e) => return Err(eyre!(e).into()),
+        }
+
+        self.rpc
+            .is_tx_on_chain(txid)
+            .await
+            .map_err(|e| eyre!(e).into())
+    }
+
     pub async fn fill_in_utxo_info(&self, psbt: &mut String) -> Result<()> {
         let mut decoded_psbt = Psbt::from_str(psbt).map_err(|e| eyre!(e))?;
         let tx = decoded_psbt.unsigned_tx.clone();
@@ -469,6 +483,7 @@ impl TxSender {
     ///
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
+    ///     If that tx is not in the mempool or chain anymore, it is handled as the first attempt.
     /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
@@ -509,11 +524,22 @@ impl TxSender {
             .await
             .wrap_err("Failed to begin database transaction")?;
 
-        let last_rbf_txid = self
+        let mut last_rbf_txid = self
             .db
             .get_last_rbf_txid(Some(&mut dbtx), try_to_send_id)
             .await
             .wrap_err("Failed to get last RBF txid")?;
+
+        // A tx evicted from the mempool can't be bumped, so the original tx is funded and sent again.
+        if let Some(txid) = last_rbf_txid {
+            if !self.is_tx_in_mempool_or_chain(&txid).await? {
+                tracing::warn!(
+                    ?try_to_send_id,
+                    "RBF tx {txid} is not in the mempool or chain, sending the original tx again"
+                );
+                last_rbf_txid = None;
+            }
+        }
 
         if let Some(last_rbf_txid) = last_rbf_txid {
             tracing::debug!(
@@ -1142,6 +1168,56 @@ pub mod tests {
         ))
         .await
         .expect("Transaction should be in mempool");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_resend_rbf_tx_not_in_mempool() -> Result<(), BridgeError> {
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+
+        let (tx_sender, btc_sender, rpc, db, signer, network) =
+            create_tx_sender(rpc.rpc().clone()).await;
+        let pair = btc_sender.into_task().cancelable_loop();
+        pair.0.into_bg();
+
+        let tx = create_challenge_tx(&rpc, &signer, network).await?;
+
+        let mut dbtx = db.begin_transaction().await?;
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        // A previous replacement that is no longer known by the node, e.g. evicted
+        db.save_rbf_txid(Some(&mut dbtx), try_to_send_id, Txid::all_zeros())
+            .await?;
+        dbtx.commit().await?;
+
+        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        tx_sender
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, current_fee_rate, None)
+            .await
+            .expect("RBF should send the original tx again");
+
+        let last_rbf_txid = db
+            .get_last_rbf_txid(None, try_to_send_id)
+            .await?
+            .expect("Last RBF txid should exist");
+        assert_ne!(last_rbf_txid, Txid::all_zeros());
+        rpc.get_mempool_entry(&last_rbf_txid)
+            .await
+            .expect("Transaction should be in mempool");
 
         Ok(())
     }

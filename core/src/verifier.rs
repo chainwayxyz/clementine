@@ -2944,8 +2944,47 @@ mod states {
                     .await?;
                     Ok(DutyResult::Handled)
                 }
-                Duty::AddNecessaryTxsForKickoff { .. } => {
-                    // Verifiers do not need to queue transactions until the kickoff is challenged.
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    let context = ContractContext::new_context_with_signer(
+                        kickoff_data,
+                        deposit_data.clone(),
+                        self.config.protocol_paramset(),
+                        self.signer.clone(),
+                    );
+                    let signed_txs = create_and_sign_txs(
+                        self.db.clone(),
+                        &self.signer,
+                        self.config.clone(),
+                        context,
+                        None,
+                        Some(dbtx),
+                    )
+                    .await?;
+                    let kickoff_not_finalized_tx = signed_txs
+                        .iter()
+                        .find(|(tx_type, _)| *tx_type == TransactionType::KickoffNotFinalized)
+                        .map(|(_, tx)| tx)
+                        .ok_or_eyre("KickoffNotFinalized tx not found in signed txs")?;
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            TransactionType::KickoffNotFinalized,
+                            kickoff_not_finalized_tx,
+                            &signed_txs,
+                            Some(TxMetadata {
+                                tx_type: TransactionType::KickoffNotFinalized,
+                                operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                                round_idx: Some(kickoff_data.round_idx),
+                                kickoff_idx: Some(kickoff_data.kickoff_idx),
+                                deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                            }),
+                            &self.config,
+                            None,
+                        )
+                        .await?;
                     Ok(DutyResult::Handled)
                 }
                 Duty::AddRelevantTxsToTxSenderIfChallenged {

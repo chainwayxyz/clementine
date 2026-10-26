@@ -905,7 +905,7 @@ impl ExtendedBitcoinRpc {
         Ok(raw_transaction)
     }
 
-    /// Checks if a transaction is on-chain.
+    /// Checks if a transaction is in a block of the active chain.
     ///
     /// # Parameters
     ///
@@ -913,7 +913,7 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
+    /// - [`bool`]: `true` if the transaction is in a block of the active chain, `false` otherwise.
     ///
     /// # Errors
     ///
@@ -922,7 +922,8 @@ impl ExtendedBitcoinRpc {
     /// transactions have landed, so a transport failure must not be reported as "not on chain".
     pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
         match self.get_raw_transaction_info(txid, None).await {
-            Ok(info) => Ok(info.blockhash.is_some()),
+            // With txindex, a tx from a reorged-out block keeps that blockhash, with 0 confirmations.
+            Ok(info) => Ok(info.blockhash.is_some() && info.confirmations.is_some_and(|c| c > 0)),
             Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_ADDRESS_OR_KEY) => Ok(false),
             Err(e) => Err(eyre::eyre!(e)
                 .wrap_err(format!("Failed to look up transaction {txid}"))

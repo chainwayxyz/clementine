@@ -368,19 +368,6 @@ impl BridgeConfig {
             misconfigs.push("CLIENT_VERIFICATION=false".to_string());
         }
 
-        /// Checks if an env var is set to a non 0 value.
-        fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
-            if let Ok(var) = std::env::var(env_var) {
-                if var == "0" || var.eq_ignore_ascii_case("false") {
-                    return;
-                }
-
-                misconfigs.push(format!("{env_var}={var}"));
-            }
-        }
-
-        check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
-
         if is_dev_mode() {
             misconfigs.push("Risc0 dev mode is enabled (RISC0_DEV_MODE=1)".to_string());
         }
@@ -628,7 +615,7 @@ mod tests {
     #[serial_test::serial]
     #[test]
     fn check_mainnet_reqs() {
-        let env_vars = vec!["DISABLE_NOFN_CHECK", "RISC0_DEV_MODE"];
+        let env_vars = vec!["RISC0_DEV_MODE"];
 
         // Nothing illegal is set.
         for var in env_vars.clone() {

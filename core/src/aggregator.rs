@@ -383,6 +383,13 @@ impl Aggregator {
         .await
     }
 
+    /// Tries to collect missing operator keys and returns the key of each operator in config order.
+    /// Unlike `fetch_operator_keys`, it does not fail if some operators can't be reached.
+    pub(crate) async fn fetch_available_operator_keys(&self) -> Vec<Option<XOnlyPublicKey>> {
+        let _ = self.fetch_operator_keys().await;
+        self.operator_keys.read().await.clone()
+    }
+
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
         &self.operator_clients
     }
@@ -610,10 +617,9 @@ impl Aggregator {
     /// Returns (operator_keys, verifier_keys) without failing if some entities are unreachable.
     async fn fetch_all_entity_keys(&self) -> (Vec<Option<XOnlyPublicKey>>, Vec<Option<PublicKey>>) {
         // Try to reach all operators and verifiers to collect keys, but do not return err if some can't be reached
-        let _ = self.fetch_operator_keys().await;
+        let operator_keys = self.fetch_available_operator_keys().await;
         let _ = self.fetch_verifier_keys().await;
 
-        let operator_keys = self.operator_keys.read().await.clone();
         let verifier_keys = self.verifier_keys.read().await.clone();
 
         (operator_keys, verifier_keys)

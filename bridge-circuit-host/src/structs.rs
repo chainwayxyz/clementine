@@ -6,7 +6,7 @@ use bitcoin::{
     hashes::{sha256, Hash},
     sighash::Annex,
     taproot::TAPROOT_ANNEX_PREFIX,
-    Network, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
+    Network, OutPoint, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use circuits_lib::{
@@ -209,7 +209,26 @@ impl BridgeCircuitHostParams {
         let wd_txid: Txid = bitcoin::consensus::deserialize(&wd_txid_bytes)
             .map_err(|_| BridgeCircuitHostParamsError::InvalidStorageProof)?;
 
-        let payout_input_index = get_payout_input_index(wd_txid, &spv.transaction.0)?;
+        let storage_proof_vout: EIP1186StorageProof =
+            serde_json::from_str(&storage_proof.storage_proof_vout).map_err(|e| {
+                BridgeCircuitHostParamsError::StorageProofDeserializationError(e.to_string())
+            })?;
+
+        // Same decoding as the bridge circuit's storage proof verification
+        let wd_vout_bytes: [u8; 32] = storage_proof_vout.value.to_be_bytes();
+        let wd_vout = u32::from_le_bytes(
+            wd_vout_bytes[28..32]
+                .try_into()
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidStorageProof)?,
+        );
+
+        let payout_input_index = get_payout_input_index(
+            OutPoint {
+                txid: wd_txid,
+                vout: wd_vout,
+            },
+            &spv.transaction.0,
+        )?;
 
         let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
             all_tweaked_watchtower_pubkeys
@@ -276,11 +295,11 @@ impl BridgeCircuitHostParams {
     }
 }
 
-/// Finds the index of the payout input in the payout transaction based on the withdrawal transaction ID.
+/// Finds the index of the payout input in the payout transaction based on the withdrawal outpoint.
 ///
 /// # Arguments
 ///
-/// * `wd_txid` - The withdrawal transaction ID to search for
+/// * `wd_outpoint` - The withdrawal outpoint to search for
 /// * `payout_tx` - The payout transaction to search within
 ///
 /// # Returns
@@ -290,14 +309,14 @@ impl BridgeCircuitHostParams {
 /// # Errors
 ///
 /// This function will return an error if:
-/// - The withdrawal transaction ID is not found in any input
+/// - The withdrawal outpoint is not spent by any input
 /// - The input index is too large to fit in a `u32`
 fn get_payout_input_index(
-    wd_txid: Txid,
+    wd_outpoint: OutPoint,
     payout_tx: &Transaction,
 ) -> Result<u32, BridgeCircuitHostParamsError> {
     for (index, input) in payout_tx.input.iter().enumerate() {
-        if input.previous_output.txid == wd_txid {
+        if input.previous_output == wd_outpoint {
             return u32::try_from(index).map_err(|_| {
                 // This should never happen
                 BridgeCircuitHostParamsError::PayoutInputIndexTooLarge(index)
@@ -840,5 +859,44 @@ impl DerefMut for CircuitXOnlyPublicKey {
 impl From<XOnlyPublicKey> for CircuitXOnlyPublicKey {
     fn from(pk: XOnlyPublicKey) -> Self {
         Self(pk)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::{absolute::LockTime, transaction::Version, TxIn};
+
+    #[test]
+    fn payout_input_index_matches_txid_and_vout() {
+        let wd_txid = Txid::from_byte_array([1; 32]);
+        let input = |vout| TxIn {
+            previous_output: OutPoint {
+                txid: wd_txid,
+                vout,
+            },
+            ..Default::default()
+        };
+        let payout_tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![input(0), input(3)],
+            output: vec![],
+        };
+
+        let wd_outpoint = OutPoint {
+            txid: wd_txid,
+            vout: 3,
+        };
+        assert_eq!(get_payout_input_index(wd_outpoint, &payout_tx).unwrap(), 1);
+
+        let missing_outpoint = OutPoint {
+            txid: wd_txid,
+            vout: 1,
+        };
+        assert!(matches!(
+            get_payout_input_index(missing_outpoint, &payout_tx),
+            Err(BridgeCircuitHostParamsError::PayoutInputIndexNotFound)
+        ));
     }
 }

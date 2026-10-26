@@ -662,10 +662,6 @@ impl CitreaClientT for CitreaClient {
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        if std::env::var("DISABLE_NOFN_CHECK").is_ok() {
-            return Ok(());
-        }
-
         let contract_nofn_xonly_pk = self
             .contract
             .getAggregatedKey()

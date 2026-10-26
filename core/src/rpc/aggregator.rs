@@ -16,7 +16,7 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
-use crate::compatibility::ActorWithConfig;
+use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
@@ -1828,9 +1828,6 @@ impl ClementineAggregator for AggregatorServer {
             ))?,
             request.operator_xonly_pks,
         );
-        // check compatibility with operators only
-        self.check_compatibility_with_actors(CompatibilityCheckScope::OperatorsOnly)
-            .await?;
 
         let withdraw_params = withdraw_params_with_sig
             .clone()
@@ -1863,21 +1860,27 @@ impl ClementineAggregator for AggregatorServer {
 
         // check if all given operator xonly pubkeys are a valid operator xonly pubkey, to warn the caller if
         // something is wrong with the given operator xonly pubkeys
-        let current_operator_xonly_pks = self.fetch_operator_keys().await?;
-        let invalid_operator_xonly_pks = operator_xonly_pks_from_rpc
+        let current_operator_xonly_pks = self.fetch_available_operator_keys().await;
+        let unknown_operator_xonly_pks = operator_xonly_pks_from_rpc
             .iter()
-            .filter(|xonly_pk| !current_operator_xonly_pks.contains(xonly_pk))
+            .filter(|xonly_pk| !current_operator_xonly_pks.contains(&Some(**xonly_pk)))
+            .copied()
             .collect::<Vec<_>>();
-        if !invalid_operator_xonly_pks.is_empty() {
+        // An unknown key can belong to an operator whose key was not collected yet.
+        if !unknown_operator_xonly_pks.is_empty()
+            && current_operator_xonly_pks.iter().all(Option::is_some)
+        {
             return Err(Status::invalid_argument(format!(
-                "Given xonly public key doesn't belong to any current operator: invalid keys: {invalid_operator_xonly_pks:?}, current operators: {current_operator_xonly_pks:?}"
+                "Given xonly public key doesn't belong to any current operator: invalid keys: {unknown_operator_xonly_pks:?}, current operators: {:?}",
+                current_operator_xonly_pks.iter().flatten().collect::<Vec<_>>()
             )));
         }
 
         let operators = self
             .get_operator_clients()
             .iter()
-            .zip(current_operator_xonly_pks.into_iter());
+            .zip(current_operator_xonly_pks.iter())
+            .filter_map(|(operator, xonly_pk)| xonly_pk.map(|xonly_pk| (operator, xonly_pk)));
         let withdraw_futures = operators
             .filter(|(_, xonly_pk)| {
                 // check if operator_xonly_pks is empty or contains the operator's xonly public key
@@ -1887,9 +1890,30 @@ impl ClementineAggregator for AggregatorServer {
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
                 let params = withdraw_params_with_sig.clone();
-                let mut request = Request::new(params);
-                request.set_timeout(WITHDRAWAL_TIMEOUT);
-                async move { (operator.withdraw(request).await, operator_xonly_pk) }
+                async move {
+                    // Checked per operator, so an unreachable or incompatible operator only
+                    // fails its own withdrawal.
+                    let response = async {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(WITHDRAWAL_TIMEOUT);
+                        let compatibility_params: CompatibilityParams = operator
+                            .get_compatibility_params(request)
+                            .await?
+                            .into_inner()
+                            .try_into()
+                            .map_to_status()?;
+                        self.aggregator.is_compatible(vec![(
+                            OperatorId(operator_xonly_pk).to_string(),
+                            compatibility_params,
+                        )])?;
+
+                        let mut request = Request::new(params);
+                        request.set_timeout(WITHDRAWAL_TIMEOUT);
+                        operator.withdraw(request).await
+                    }
+                    .await;
+                    (response, operator_xonly_pk)
+                }
             });
 
         // collect responses from operators and return them as a vector of strings
@@ -1903,22 +1927,50 @@ impl ClementineAggregator for AggregatorServer {
                 .collect::<Vec<_>>(),
             responses,
         );
+        let mut withdraw_responses: Vec<OperatorWithrawalResponse> = responses
+            .into_iter()
+            .map(|(res, xonly_pk)| match res {
+                Ok(withdraw_response) => OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::RawTx(
+                        withdraw_response.into_inner(),
+                    )),
+                },
+                Err(e) => OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::Error(e.to_string())),
+                },
+            })
+            .collect();
+
+        // add errors for operators that could not be reached to collect their keys
+        if operator_xonly_pks_from_rpc.is_empty() {
+            withdraw_responses.extend(
+                current_operator_xonly_pks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, xonly_pk)| xonly_pk.is_none())
+                    .map(|(idx, _)| OperatorWithrawalResponse {
+                        operator_xonly_pk: None,
+                        response: Some(operator_withrawal_response::Response::Error(format!(
+                            "Key of operator at index {idx} in config (0-based) was not able to be collected"
+                        ))),
+                    }),
+            );
+        } else {
+            withdraw_responses.extend(unknown_operator_xonly_pks.into_iter().map(|xonly_pk| {
+                OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::Error(
+                        "Operator key was not able to be collected, the operator may be unreachable"
+                            .to_string(),
+                    )),
+                }
+            }));
+        }
+
         Ok(Response::new(AggregatorWithdrawResponse {
-            withdraw_responses: responses
-                .into_iter()
-                .map(|(res, xonly_pk)| match res {
-                    Ok(withdraw_response) => OperatorWithrawalResponse {
-                        operator_xonly_pk: Some(xonly_pk.into()),
-                        response: Some(operator_withrawal_response::Response::RawTx(
-                            withdraw_response.into_inner(),
-                        )),
-                    },
-                    Err(e) => OperatorWithrawalResponse {
-                        operator_xonly_pk: Some(xonly_pk.into()),
-                        response: Some(operator_withrawal_response::Response::Error(e.to_string())),
-                    },
-                })
-                .collect(),
+            withdraw_responses,
         }))
     }
 
