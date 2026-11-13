@@ -503,6 +503,7 @@ async fn build_and_sign_large_low_feerate_filler_tx(
             &filler_bytes,
             Some(&FundRawTransactionOptions {
                 add_inputs: Some(true),
+                include_unsafe: Some(false),
                 change_address: None,
                 change_position: None,
                 change_type: None,
@@ -874,4 +875,71 @@ async fn cpfp_replacement_cycling_rebroadcasts_package() {
             "round {round}: peer child wtxid should match primary reentered child",
         );
     }
+}
+
+/// A restarted tx sender would build its child with a new change script. It must keep
+/// the sufficient child that is already in the mempool and re-relay it to a peer that
+/// does not have it.
+#[tokio::test]
+async fn cpfp_restarted_sender_rebroadcasts_mempool_child() {
+    let mut config = create_test_config_with_thread_name().await;
+    config.test_params.mine_0_fee_txs = true;
+    let _regtest = create_regtest_rpc(&mut config).await;
+
+    let rpc_user = config.bitcoin_rpc_user.clone();
+    let rpc_password = config.bitcoin_rpc_password.clone();
+    let admin_rpc_url = format!(
+        "{}/wallet/admin",
+        config.bitcoin_rpc_url.trim_end_matches('/')
+    );
+    let admin_rpc =
+        ExtendedBitcoinRpc::connect(admin_rpc_url, rpc_user.clone(), rpc_password.clone(), None)
+            .await
+            .expect("admin wallet rpc must connect");
+
+    let (tx_sender, syncer, _rpc, db, _actor, _network) =
+        super::tests::create_tx_sender(admin_rpc).await;
+    let syncer_loop = syncer.into_task().cancelable_loop();
+    let _syncer_cancel = syncer_loop.1;
+    syncer_loop.0.into_bg();
+    wait_for_syncer_tip(&db, &tx_sender.rpc).await;
+
+    // The peer connects after the package is relayed, so it never sees the child.
+    let peer_node = spawn_peer_node(rpc_user, rpc_password).await;
+    let mut task = TxSenderTask::new_for_test(tx_sender.clone());
+    let (parent_txid, anchor_vout, _) =
+        enqueue_parent_and_wait_for_package(&tx_sender, &mut task, &db).await;
+    let child_txid = find_child_spending_anchor(&tx_sender.rpc, parent_txid, anchor_vout)
+        .await
+        .expect("txsender child must exist");
+
+    tx_sender
+        .rpc
+        .add_node(&format!("127.0.0.1:{}", peer_node.p2p_port))
+        .await
+        .expect("primary node should add peer node");
+    wait_for_peering(&tx_sender.rpc, &peer_node.rpc, 30).await;
+    wait_for_peer_chain_sync(&tx_sender.rpc, &peer_node.rpc, 300)
+        .await
+        .expect("peer chain should sync");
+    assert!(!tx_is_in_mempool(&peer_node.rpc, child_txid).await);
+
+    let restarted_sender = TxSender::new(
+        tx_sender.signer.clone(),
+        tx_sender.rpc.clone(),
+        tx_sender.db.clone(),
+        tx_sender.btc_syncer_consumer_id.clone(),
+        tx_sender.config.clone(),
+    );
+    let mut restarted_task = TxSenderTask::new_for_test(restarted_sender);
+    drain_and_send(&mut restarted_task).await;
+
+    assert_eq!(
+        find_child_spending_anchor(&tx_sender.rpc, parent_txid, anchor_vout).await,
+        Some(child_txid),
+        "the restarted sender should keep the mempool child",
+    );
+    wait_until_peer_has_txs(&peer_node.rpc, &[parent_txid, child_txid], RELAY_WAIT_TRIES)
+        .await
+        .unwrap_or_else(|err| panic!("mempool child was not relayed to peer: {err}"));
 }

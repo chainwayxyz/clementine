@@ -20,7 +20,7 @@
 use super::{Result, SendTxError, TxMetadata, TxSender};
 use crate::constants::NON_STANDARD_V3;
 use crate::errors::{ErrorExt, ResultExt};
-use crate::extended_bitcoin_rpc::BitcoinRPCError;
+use crate::extended_bitcoin_rpc::{rpc_error_code, BitcoinRPCError, RPC_INVALID_ADDRESS_OR_KEY};
 use crate::utils::FeePayingType;
 use crate::{
     builder::{
@@ -34,13 +34,23 @@ use crate::{
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Weight};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
 use eyre::eyre;
-use eyre::Context;
+use eyre::{Context, OptionExt};
 use std::collections::HashSet;
 use std::env;
+
+/// BIP431 limit on the virtual size of a child of an unconfirmed TRUC transaction.
+const TRUC_CHILD_MAX_VSIZE: u64 = 1_000;
+
+/// The mempool transaction that spends a CPFP parent's P2A anchor.
+struct CurrentCpfpChild {
+    txid: Txid,
+    modified_fee: Amount,
+    vsize: u64,
+}
 
 impl TxSender {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
@@ -50,9 +60,13 @@ impl TxSender {
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
     /// It calculates the required fee based on the parent transaction (`tx`) and the current
     /// `fee_rate`, adding a buffer (2x required fee + dust limit) to handle potential fee spikes.
-    /// It then sends funds to the `TxSender`'s own signer address using the RPC's
-    /// `send_to_address` and saves the resulting UTXO information (`outpoint`, `amount`)
-    /// to the database, linking it to the `bumped_id`.
+    /// It then funds a transaction to the `TxSender`'s own signer address with the
+    /// node's wallet, saves the resulting UTXO information (`outpoint`, `amount`)
+    /// to the database, linking it to the `bumped_id`, and broadcasts it.
+    ///
+    /// The UTXO is saved before the broadcast: a broadcast whose outcome is unknown
+    /// stays tracked, and a saved tx that never reaches the mempool is marked evicted
+    /// by [`Self::bump_fees_of_unconfirmed_fee_payer_txs`].
     ///
     /// # Arguments
     /// * `bumped_id` - The database ID of the parent transaction requiring the fee bump.
@@ -60,6 +74,7 @@ impl TxSender {
     /// * `fee_rate` - The target fee rate for the CPFP package.
     /// * `total_fee_payer_amount` - The sum of amounts in currently available confirmed fee payer UTXOs.
     /// * `fee_payer_utxos_len` - The number of currently available confirmed fee payer UTXOs.
+    /// * `minimum_child_fee` - Core's absolute fee floor, when replacing a mempool child.
     async fn create_fee_payer_utxo(
         &self,
         bumped_id: u32,
@@ -67,6 +82,7 @@ impl TxSender {
         fee_rate: FeeRate,
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
+        minimum_child_fee: Option<Amount>,
     ) -> Result<()> {
         tracing::debug!(
             "Creating fee payer UTXO for txid {} with bump id {}",
@@ -74,13 +90,16 @@ impl TxSender {
             bumped_id
         );
         let parent_tx_fee = self.get_tx_fee(tx).await.map_err(|e| eyre!(e))?;
-        let required_fee = Self::calculate_required_fee(
-            tx.weight(),
-            parent_tx_fee,
-            fee_payer_utxos_len + 1,
-            fee_rate,
-            FeePayingType::CPFP,
-        )?;
+        let required_fee = std::cmp::max(
+            Self::calculate_required_fee(
+                tx.weight(),
+                parent_tx_fee,
+                fee_payer_utxos_len + 1,
+                fee_rate,
+                FeePayingType::CPFP,
+            )?,
+            minimum_child_fee.unwrap_or(Amount::ZERO),
+        );
 
         // Aggressively add 2x required fee to the total amount to account for sudden spikes
         // We won't actually use 2x fees, but the fee payer utxo will hold that much amount so that while fee payer utxo gets mined
@@ -156,6 +175,7 @@ impl TxSender {
                 &fee_payer_bytes,
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: None,
                     change_type: None,
@@ -192,11 +212,6 @@ impl TxSender {
             })
             .ok_or(eyre!("Failed to find outpoint vout"))?;
 
-        self.rpc
-            .send_raw_transaction(&signed_fee_payer_tx)
-            .await
-            .wrap_err("Failed to send signed fee payer tx")?;
-
         self.db
             .save_fee_payer_tx(
                 None,
@@ -209,6 +224,11 @@ impl TxSender {
             .await
             .map_to_eyre()?;
 
+        self.rpc
+            .send_raw_transaction(&signed_fee_payer_tx)
+            .await
+            .wrap_err("Failed to send signed fee payer tx")?;
+
         Ok(())
     }
 
@@ -219,8 +239,8 @@ impl TxSender {
     /// 2.  One or more confirmed "fee payer" UTXOs (`fee_payer_utxos`) controlled by the `signer`.
     ///
     /// It calculates the total fee required (`required_fee`) to make the combined parent + child
-    /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
-    /// by this child transaction.
+    /// package attractive to miners at the target `fee_rate`, and at least `minimum_child_fee`.
+    /// The `required_fee` is paid entirely by this child transaction.
     ///
     /// The remaining value (total input value - `required_fee`) is sent to the CPFP change script.
     ///
@@ -229,6 +249,7 @@ impl TxSender {
     ///
     /// # Returns
     /// The constructed and partially signed child transaction.
+    #[allow(clippy::too_many_arguments)]
     async fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
@@ -237,19 +258,23 @@ impl TxSender {
         parent_tx_size: Weight,
         parent_tx_fee: Amount,
         fee_rate: FeeRate,
+        minimum_child_fee: Option<Amount>,
     ) -> Result<Transaction> {
         tracing::debug!(
             "Creating child tx with {} fee payer utxos",
             fee_payer_utxos.len()
         );
-        let required_fee = Self::calculate_required_fee(
-            parent_tx_size,
-            parent_tx_fee,
-            fee_payer_utxos.len(),
-            fee_rate,
-            FeePayingType::CPFP,
-        )
-        .map_err(|e| eyre!(e))?;
+        let required_fee = std::cmp::max(
+            Self::calculate_required_fee(
+                parent_tx_size,
+                parent_tx_fee,
+                fee_payer_utxos.len(),
+                fee_rate,
+                FeePayingType::CPFP,
+            )
+            .map_err(|e| eyre!(e))?,
+            minimum_child_fee.unwrap_or(Amount::ZERO),
+        );
 
         let change_script_pubkey = self
             .cpfp_change_script_pubkey
@@ -339,6 +364,7 @@ impl TxSender {
         tx: Transaction,
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
+        minimum_child_fee: Option<Amount>,
     ) -> Result<Vec<Transaction>> {
         tracing::debug!(
             "Creating package with {} fee payer utxos",
@@ -365,6 +391,7 @@ impl TxSender {
                 tx.weight(),
                 parent_tx_fee,
                 fee_rate,
+                minimum_child_fee,
             )
             .await
             .wrap_err("Failed to create child tx")?;
@@ -488,68 +515,14 @@ impl TxSender {
             {
                 continue;
             }
-            let new_txid_result = self
-                .rpc
-                .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
-                .await;
-
-            match new_txid_result {
-                Ok(new_txid) => {
-                    if new_txid != fee_payer_txid {
-                        // Accepted risk: if getrawtransaction (or the output
-                        // match) fails unexpectedly, we skip without saving.
-                        // This pass already recorded `parent_id` as not-evicted
-                        // (mempool lookup succeeded before the bump). A later
-                        // pass can see the obsolete txid gone from mempool and
-                        // unconfirmed, then mark the whole family evicted while
-                        // the replacement stays untracked. TxSender then creates
-                        // a new fee-payer UTXO; the protocol tx is delayed, not
-                        // permanently blocked. Very unlikely.
-                        let bumped_tx = match self.rpc.get_tx_of_txid(&new_txid).await {
-                            Ok(tx) => tx,
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to fetch bumped fee payer tx {new_txid} (replacement of {fee_payer_txid}): {e}, skipping"
-                                );
-                                continue;
-                            }
-                        };
-                        let Some(new_vout) = bumped_tx.output.iter().position(|output| {
-                            output.value == amount
-                                && output.script_pubkey == self.signer.address.script_pubkey()
-                        }) else {
-                            tracing::warn!(
-                                "Bumped fee payer tx {new_txid} did not preserve the expected output of {amount} for try_to_send_id {try_to_send_id}, skipping"
-                            );
-                            continue;
-                        };
-                        let Ok(new_vout) = u32::try_from(new_vout) else {
-                            tracing::warn!(
-                                "Fee payer vout {new_vout} does not fit in u32, skipping"
-                            );
-                            continue;
-                        };
-
-                        self.db
-                            .save_fee_payer_tx(
-                                None,
-                                try_to_send_id,
-                                new_txid,
-                                new_vout,
-                                amount,
-                                match replacement_of_id {
-                                    Some(replacement_of_id) => Some(replacement_of_id),
-                                    None => Some(id),
-                                },
-                            )
-                            .await
-                            .map_to_eyre()?;
-                    } else {
-                        tracing::trace!(
-                            "Fee payer tx {} has enough fee, no need to bump",
-                            fee_payer_txid
-                        );
-                    }
+            let bumped_tx = match self.rpc.create_fee_bump_tx(fee_payer_txid, fee_rate).await {
+                Ok(Some(bumped_tx)) => bumped_tx,
+                Ok(None) => {
+                    tracing::trace!(
+                        "Fee payer tx {} has enough fee, no need to bump",
+                        fee_payer_txid
+                    );
+                    continue;
                 }
                 Err(e) => {
                     let e = e.into_eyre();
@@ -579,16 +552,48 @@ impl TxSender {
                         }
                     }
                 }
+            };
+            let new_txid = bumped_tx.compute_txid();
+            let Some(new_vout) = bumped_tx.output.iter().position(|output| {
+                output.value == amount
+                    && output.script_pubkey == self.signer.address.script_pubkey()
+            }) else {
+                tracing::warn!(
+                    "Bumped fee payer tx {new_txid} did not preserve the expected output of {amount} for try_to_send_id {try_to_send_id}, skipping"
+                );
+                continue;
+            };
+            let Ok(new_vout) = u32::try_from(new_vout) else {
+                tracing::warn!("Fee payer vout {new_vout} does not fit in u32, skipping");
+                continue;
+            };
+
+            // Saved before the broadcast, as in `create_fee_payer_utxo`. A saved
+            // replacement that never reaches the mempool does no harm: the family
+            // stays tracked through the replaced tx, and only confirmed rows are spent.
+            self.db
+                .save_fee_payer_tx(
+                    None,
+                    try_to_send_id,
+                    new_txid,
+                    new_vout,
+                    amount,
+                    Some(parent_id),
+                )
+                .await
+                .map_to_eyre()?;
+
+            if let Err(e) = self.rpc.send_raw_transaction(&bumped_tx).await {
+                tracing::warn!(
+                    "Failed to send bumped fee payer tx {new_txid} (replacement of {fee_payer_txid}): {e}"
+                );
             }
         }
 
-        // Mark families with no mempool/confirmed member as evicted. Two accepted
-        // rare false positives, both recovered by creating a new fee-payer UTXO
-        // (protocol tx delayed, not permanently blocked):
-        // 1. Mined then reorged between mempool lookup and gettransaction.
-        // 2. Successful bumpfee whose replacement was not persisted (see the
-        //    accepted-risk comment at the persist site above). The obsolete
-        //    txid is then gone from mempool and unconfirmed.
+        // Mark families with no mempool/confirmed member as evicted. Accepted
+        // rare false positive, recovered by creating a new fee-payer UTXO
+        // (protocol tx delayed, not permanently blocked): mined then reorged
+        // between mempool lookup and gettransaction.
         for parent_id in all_parent_ids {
             if !not_evicted_ids.contains(&parent_id) {
                 self.db
@@ -601,6 +606,183 @@ impl TxSender {
         Ok(())
     }
 
+    /// Returns the mempool transaction that spends the parent's P2A anchor.
+    async fn anchor_spender(&self, parent: &Transaction) -> Result<Option<Txid>> {
+        let anchor = OutPoint {
+            txid: parent.compute_txid(),
+            vout: self.find_p2a_vout(parent)? as u32,
+        };
+        let spenders = self
+            .rpc
+            .get_tx_spending_prevout(&[anchor], None)
+            .await
+            .wrap_err("Failed to query the anchor spender of the CPFP parent")?;
+        Ok(spenders
+            .into_iter()
+            .next()
+            .ok_or_eyre("Missing CPFP anchor spender result")?
+            .spending_txid)
+    }
+
+    /// Returns the parent's mempool child, whichever output it spends, with its fee.
+    ///
+    /// A TRUC parent normally has at most one unconfirmed child, so ours must replace it
+    /// whichever output it spends. After a reorg, Core can leave the parent with several
+    /// children and then evicts no sibling, so ours can only replace the child that spends
+    /// the anchor. If none does, the first child is returned and Core rejects ours.
+    async fn current_cpfp_child(&self, parent: &Transaction) -> Result<Option<CurrentCpfpChild>> {
+        let parent_entry = match self.rpc.get_mempool_entry(&parent.compute_txid()).await {
+            Ok(entry) => entry,
+            Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_ADDRESS_OR_KEY) => return Ok(None),
+            Err(e) => {
+                return Err(eyre!(e)
+                    .wrap_err("Failed to query CPFP parent mempool entry")
+                    .into())
+            }
+        };
+        let child_txid = match parent_entry.spent_by.as_slice() {
+            [] => return Ok(None),
+            [child_txid] => *child_txid,
+            [first_child, ..] => self.anchor_spender(parent).await?.unwrap_or(*first_child),
+        };
+        let entry = self
+            .rpc
+            .get_mempool_entry(&child_txid)
+            .await
+            .wrap_err_with(|| format!("Failed to query current CPFP child {child_txid}"))?;
+
+        Ok(Some(CurrentCpfpChild {
+            txid: child_txid,
+            modified_fee: entry.fees.modified,
+            vsize: entry.vsize,
+        }))
+    }
+
+    /// Calculates Core's minimum fee for replacing a CPFP child: the old fee plus the
+    /// incremental relay fee for the replacement's size, and a fee rate strictly above the
+    /// old child's own fee rate.
+    ///
+    /// The fee-rate rule applies up to Core 30. Core 31+ compares package fee rates instead,
+    /// so there the floor only overpays when the old child is smaller than ours.
+    fn minimum_cpfp_replacement_fee(
+        old_modified_fee: Amount,
+        old_vsize: u64,
+        replacement_weight: Weight,
+        incremental_fee_rate: FeeRate,
+    ) -> Result<Amount> {
+        let replacement_vsize = replacement_weight.to_vbytes_ceil();
+        let absolute_floor = incremental_fee_rate
+            .fee_vb(replacement_vsize)
+            .and_then(|incremental_fee| old_modified_fee.checked_add(incremental_fee));
+        let fee_rate_floor = old_modified_fee
+            .to_sat()
+            .checked_mul(replacement_vsize)
+            .and_then(|fee| fee.checked_div(old_vsize))
+            .and_then(|fee| fee.checked_add(1))
+            .map(Amount::from_sat);
+        absolute_floor
+            .zip(fee_rate_floor)
+            .map(|(absolute_floor, fee_rate_floor)| absolute_floor.max(fee_rate_floor))
+            .ok_or_eyre("CPFP replacement fee overflow")
+            .map_err(Into::into)
+    }
+
+    /// Calculates the largest child fee allowed when replacing a CPFP child.
+    ///
+    /// Any child of the parent can be up to `TRUC_CHILD_MAX_VSIZE`. A third party that holds
+    /// the signed parent can attach such a child with a package fee rate below ours but an
+    /// absolute fee above what our smaller child pays at the hard cap. The budget lets us
+    /// replace every full-size child whose package fee rate is below the hard cap.
+    fn maximum_cpfp_replacement_fee(
+        parent_tx_weight: Weight,
+        parent_tx_fee: Amount,
+        replacement_weight: Weight,
+        hard_cap: FeeRate,
+        incremental_fee_rate: FeeRate,
+    ) -> Result<Amount> {
+        let largest_child_fee = Self::calculate_cpfp_child_fee_for_vbytes(
+            parent_tx_weight,
+            parent_tx_fee,
+            TRUC_CHILD_MAX_VSIZE,
+            hard_cap,
+        )?;
+        Self::minimum_cpfp_replacement_fee(
+            largest_child_fee,
+            TRUC_CHILD_MAX_VSIZE,
+            replacement_weight,
+            incremental_fee_rate,
+        )
+    }
+
+    /// Returns Core's incremental relay fee rate, which a replacement pays for its own size.
+    async fn incremental_relay_fee_rate(&self) -> Result<FeeRate> {
+        let sat_per_kvb = self
+            .rpc
+            .get_network_info()
+            .await
+            .wrap_err("Failed to query incremental relay fee")?
+            .incremental_fee
+            .to_sat();
+        Ok(FeeRate::from_sat_per_kwu(sat_per_kvb.div_ceil(4)))
+    }
+
+    /// Submits a CPFP package. Returns false if Core keeps a child that is already in the
+    /// mempool because ours is an insufficient-fee replacement.
+    async fn submit_cpfp_package(
+        &self,
+        try_to_send_id: u32,
+        package: &[&Transaction],
+    ) -> Result<bool> {
+        let submit_package_result: PackageSubmissionResult = self
+            .rpc
+            .submit_package(package, Some(Amount::from_sat(0)), None)
+            .await
+            .wrap_err("Failed to submit package")?;
+
+        tracing::debug!(
+            try_to_send_id,
+            "Submit package result: {submit_package_result:?}"
+        );
+
+        if submit_package_result.tx_results.is_empty() {
+            return Err(SendTxError::Other(eyre!(
+                "submitpackage returned no transaction results"
+            )));
+        }
+
+        let mut rejected_as_insufficient_replacement = false;
+        for (_txid, result) in submit_package_result.tx_results {
+            if let PackageTransactionResult::Failure { error, .. } = result {
+                // CPFP packages are periodically resubmitted to counter replacement cycling.
+                // An existing package can reject the resubmission as an insufficient-fee replacement.
+                if super::is_rejecting_replacement_error(&error) {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Package resubmission rejected because a replacement is already in the mempool: {error}"
+                    );
+                    rejected_as_insufficient_replacement = true;
+                    continue;
+                }
+
+                tracing::error!(
+                    try_to_send_id,
+                    "Error submitting package: {:?}, package: {:?}",
+                    error,
+                    package
+                        .iter()
+                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                        .collect::<Vec<_>>()
+                );
+
+                return Err(SendTxError::Other(eyre!(
+                    "submitpackage rejected a transaction: {error}"
+                )));
+            }
+        }
+
+        Ok(!rejected_as_insufficient_replacement)
+    }
+
     /// Sends a transaction using the Child-Pays-For-Parent (CPFP) strategy.
     ///
     /// # Logic:
@@ -608,20 +790,24 @@ impl TxSender {
     ///     for this `try_to_send_id`. If they do, returns [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]
     ///     as they need to confirm before being spendable by the child.
     /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
-    /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
+    /// 3.  **Check Mempool Child:** If a mempool child of the parent already pays the target,
+    ///     keeps it, and resubmits it with the parent if `rebroadcast` is true. Otherwise the
+    ///     new child pays at least Core's absolute fee floor to replace it.
+    /// 4.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
     ///     The `child_tx` spends the parent's anchor output and the fee payer UTXOs, paying
     ///     a fee calculated for the whole package.
-    /// 4.  **Test Mempool Accept (Debug step):** Uses `testmempoolaccept` RPC
+    /// 5.  **Test Mempool Accept (Debug step):** Uses `testmempoolaccept` RPC
     ///     to check if the package is likely to be accepted by the network before submitting.
-    /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
+    /// 6.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
     ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
-    /// 6.  **Handle Results:** Returns an error for missing or failed `submitpackage` results.
+    /// 7.  **Handle Results:** Returns an error for missing or failed `submitpackage` results.
     ///
     /// # Arguments
     /// * `try_to_send_id` - The database ID tracking this send attempt.
     /// * `tx` - The parent transaction requiring the fee bump.
     /// * `tx_metadata` - Optional metadata associated with the transaction.
     /// * `fee_rate` - The target fee rate for the CPFP package.
+    /// * `rebroadcast` - If true, resubmit an already-sufficient package to trigger a Core re-relay.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
     pub(super) async fn send_cpfp_tx(
         &self,
@@ -629,6 +815,7 @@ impl TxSender {
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
+        rebroadcast: bool,
     ) -> Result<()> {
         let unconfirmed_fee_payer_utxos = self
             .db
@@ -662,6 +849,66 @@ impl TxSender {
         let confirmed_fee_payers = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let confirmed_fee_payer_len = confirmed_fee_payers.len();
 
+        // Core validates replacements using absolute integer fees, not only fee rates. A rebuilt
+        // child at the same or a slightly higher target is rejected as a replacement, and
+        // submitpackage then relays only the parent. Read the accepted child from Core: an
+        // already-sufficient (possibly third-party) child is left alone, and only an insufficient
+        // child needs Core's absolute replacement floor below.
+        let minimum_child_fee = match self.current_cpfp_child(&tx).await? {
+            Some(current_child) => {
+                let parent_fee = self.get_tx_fee(&tx).await.map_err(|e| eyre!(e))?;
+                let target_child_fee = Self::calculate_cpfp_child_fee_for_vbytes(
+                    tx.weight(),
+                    parent_fee,
+                    current_child.vsize,
+                    fee_rate,
+                )?;
+                if current_child.modified_fee >= target_child_fee {
+                    if rebroadcast {
+                        let child = self
+                            .rpc
+                            .get_tx_of_txid(&current_child.txid)
+                            .await
+                            .wrap_err("Failed to get current CPFP child")?;
+                        self.submit_cpfp_package(try_to_send_id, &[&tx, &child])
+                            .await?;
+                    }
+                    self.db
+                        .update_effective_fee_rate(None, try_to_send_id, fee_rate)
+                        .await
+                        .wrap_err("Failed to update effective fee rate")?;
+                    return Ok(());
+                }
+
+                let incremental_fee_rate = self.incremental_relay_fee_rate().await?;
+                let child_weight = Self::estimate_cpfp_child_weight(confirmed_fee_payer_len);
+                let minimum_child_fee = Self::minimum_cpfp_replacement_fee(
+                    current_child.modified_fee,
+                    current_child.vsize,
+                    child_weight,
+                    incremental_fee_rate,
+                )?;
+                let hard_cap =
+                    FeeRate::from_sat_per_vb(self.config.tx_sender_limits.fee_rate_hard_cap)
+                        .ok_or_eyre("CPFP fee rate hard cap overflow")?;
+                let maximum_child_fee = Self::maximum_cpfp_replacement_fee(
+                    tx.weight(),
+                    parent_fee,
+                    child_weight,
+                    hard_cap,
+                    incremental_fee_rate,
+                )?;
+                if minimum_child_fee > maximum_child_fee {
+                    return Err(eyre!(
+                        "CPFP replacement requires {minimum_child_fee}, exceeding the hard-cap budget {maximum_child_fee}"
+                    )
+                    .into());
+                }
+                Some(minimum_child_fee)
+            }
+            None => None,
+        };
+
         let _ = self
             .db
             .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
@@ -674,7 +921,12 @@ impl TxSender {
             .sum::<Amount>();
 
         let package = self
-            .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
+            .create_package(
+                tx.clone(),
+                fee_rate,
+                confirmed_fee_payers,
+                minimum_child_fee,
+            )
             .await
             .wrap_err("Failed to create CPFP package");
 
@@ -693,6 +945,7 @@ impl TxSender {
                         fee_rate,
                         total_fee_payer_amount,
                         confirmed_fee_payer_len,
+                        minimum_child_fee,
                     )
                     .await?;
 
@@ -743,54 +996,10 @@ impl TxSender {
         //     .await
         //     .wrap_err("Failed to test mempool accept")?;
 
-        let submit_package_result: PackageSubmissionResult = self
-            .rpc
-            .submit_package(&package_refs, Some(Amount::from_sat(0)), None)
-            .await
-            .wrap_err("Failed to submit package")?;
-
-        tracing::debug!(
-            try_to_send_id,
-            "Submit package result: {submit_package_result:?}"
-        );
-
-        if submit_package_result.tx_results.is_empty() {
-            return Err(SendTxError::Other(eyre!(
-                "submitpackage returned no transaction results"
-            )));
-        }
-
-        let mut rejected_as_insufficient_replacement = false;
-        for (_txid, result) in submit_package_result.tx_results {
-            if let PackageTransactionResult::Failure { error, .. } = result {
-                // CPFP packages are periodically resubmitted to counter replacement cycling.
-                // An existing package can reject the resubmission as an insufficient-fee replacement.
-                if super::is_rejecting_replacement_error(&error) {
-                    tracing::debug!(
-                        try_to_send_id,
-                        "Package resubmission rejected because a replacement is already in the mempool: {error}"
-                    );
-                    rejected_as_insufficient_replacement = true;
-                    continue;
-                }
-
-                tracing::error!(
-                    try_to_send_id,
-                    "Error submitting package: {:?}, package: {:?}",
-                    error,
-                    package_refs
-                        .iter()
-                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                        .collect::<Vec<_>>()
-                );
-
-                return Err(SendTxError::Other(eyre!(
-                    "submitpackage rejected a transaction: {error}"
-                )));
-            }
-        }
-
-        if rejected_as_insufficient_replacement {
+        if !self
+            .submit_cpfp_package(try_to_send_id, &package_refs)
+            .await?
+        {
             return Ok(());
         }
 
@@ -803,5 +1012,211 @@ impl TxSender {
             .wrap_err("Failed to update effective fee rate")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::actor::Actor;
+    use crate::database::Database;
+    use crate::test::common::tx_utils::create_bumpable_tx;
+    use crate::test::common::{create_regtest_rpc, create_test_config_with_thread_name};
+
+    /// A replacement saved before a failed broadcast is either built and broadcast
+    /// again with the same txid, or superseded. Either way no outpoint is saved twice.
+    #[tokio::test]
+    async fn fee_payer_bump_recovers_from_unsent_replacement() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        config
+            .tx_sender_limits
+            .cpfp_fee_payer_bump_wait_time_seconds = 0;
+        let db = Database::new(&config).await.unwrap();
+        let network = config.protocol_paramset().network;
+        let signer = Actor::new(config.secret_key, network);
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db.clone(),
+            "tx_sender".into(),
+            config.clone(),
+        );
+
+        let parent_tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false)
+            .await
+            .unwrap();
+        let mut dbtx = db.begin_transaction().await.unwrap();
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &parent_tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        dbtx.commit().await.unwrap();
+
+        let amount = Amount::from_sat(50_000);
+        let fee_payer = rpc.send_to_address(&signer.address, amount).await.unwrap();
+        db.save_fee_payer_tx(
+            None,
+            try_to_send_id,
+            fee_payer.txid,
+            fee_payer.vout,
+            amount,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (original_id, ..) = db
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
+            .await
+            .unwrap()[0];
+
+        // A replacement that was saved but never broadcast, as after a crash.
+        let fee_rate = FeeRate::from_sat_per_vb_u32(10);
+        let unsent = rpc
+            .create_fee_bump_tx(fee_payer.txid, fee_rate)
+            .await
+            .unwrap()
+            .expect("A replacement is needed");
+        let unsent_vout = unsent
+            .output
+            .iter()
+            .position(|output| {
+                output.value == amount && output.script_pubkey == signer.address.script_pubkey()
+            })
+            .unwrap() as u32;
+        db.save_fee_payer_tx(
+            None,
+            try_to_send_id,
+            unsent.compute_txid(),
+            unsent_vout,
+            amount,
+            Some(original_id),
+        )
+        .await
+        .unwrap();
+
+        tx_sender
+            .bump_fees_of_unconfirmed_fee_payer_txs(fee_rate)
+            .await
+            .unwrap();
+
+        let fee_payers = db.get_all_unconfirmed_fee_payer_txs(None).await.unwrap();
+        let outpoints: HashSet<_> = fee_payers
+            .iter()
+            .map(|(_, _, txid, vout, _, _)| (*txid, *vout))
+            .collect();
+        assert_eq!(outpoints.len(), fee_payers.len());
+        assert!(rpc.get_mempool_entry(&fee_payer.txid).await.is_err());
+
+        let mut broadcast_replacements = Vec::new();
+        for (_, bumped_id, txid, vout, replacement_amount, replacement_of) in &fee_payers {
+            if *txid == fee_payer.txid {
+                continue;
+            }
+            assert_eq!(*bumped_id, try_to_send_id);
+            assert_eq!(*replacement_amount, amount);
+            assert_eq!(*replacement_of, Some(original_id));
+            if rpc.get_mempool_entry(txid).await.is_ok() {
+                broadcast_replacements.push((*txid, *vout));
+            }
+        }
+        assert_eq!(broadcast_replacements.len(), 1);
+        let (replacement_txid, replacement_vout) = broadcast_replacements[0];
+        let replacement_tx = rpc.get_tx_of_txid(&replacement_txid).await.unwrap();
+        assert_eq!(
+            replacement_tx.output[replacement_vout as usize].script_pubkey,
+            signer.address.script_pubkey()
+        );
+    }
+
+    #[test]
+    fn cpfp_replacement_uses_core_absolute_fee_requirement() {
+        let child_vbytes = TxSender::estimate_cpfp_child_weight(1).to_vbytes_ceil();
+        let old_fee = FeeRate::from_sat_per_kwu(625) // 2500 sat/kvB
+            .fee_vb(child_vbytes)
+            .unwrap();
+        let target_fee = FeeRate::from_sat_per_kwu(650) // 2600 sat/kvB
+            .fee_vb(child_vbytes)
+            .unwrap();
+        let minimum_replacement_fee = TxSender::minimum_cpfp_replacement_fee(
+            old_fee,
+            child_vbytes,
+            TxSender::estimate_cpfp_child_weight(1),
+            FeeRate::from_sat_per_kwu(25), // 100 sat/kvB
+        )
+        .unwrap();
+
+        assert_eq!(old_fee, Amount::from_sat(383));
+        assert_eq!(target_fee, Amount::from_sat(398));
+        assert_eq!(minimum_replacement_fee, Amount::from_sat(399));
+        assert!(target_fee < minimum_replacement_fee);
+    }
+
+    #[test]
+    fn cpfp_replacement_outbids_fee_rate_of_smaller_child() {
+        let child_weight = TxSender::estimate_cpfp_child_weight(1);
+        let child_vbytes = child_weight.to_vbytes_ceil();
+        // A 120 vB child at 20 sat/vB: its absolute fee plus incremental relay fee is
+        // below 20 sat/vB for our 153 vB child.
+        let old_fee = Amount::from_sat(2_400);
+        let old_vsize = 120;
+        let minimum_replacement_fee = TxSender::minimum_cpfp_replacement_fee(
+            old_fee,
+            old_vsize,
+            child_weight,
+            FeeRate::from_sat_per_kwu(25), // 100 sat/kvB
+        )
+        .unwrap();
+
+        assert_eq!(child_vbytes, 153);
+        assert_eq!(minimum_replacement_fee, Amount::from_sat(3_061));
+        assert!(
+            minimum_replacement_fee.to_sat() * old_vsize > old_fee.to_sat() * child_vbytes,
+            "replacement fee rate must be strictly above the old child's",
+        );
+    }
+
+    #[test]
+    fn cpfp_replacement_budget_outbids_largest_truc_child_below_hard_cap() {
+        let parent_weight = Weight::from_wu(500);
+        let child_weight = TxSender::estimate_cpfp_child_weight(1);
+        let incremental_fee_rate = FeeRate::from_sat_per_kwu(25);
+        let pinning_child_fee = TxSender::calculate_cpfp_child_fee_for_vbytes(
+            parent_weight,
+            Amount::ZERO,
+            TRUC_CHILD_MAX_VSIZE,
+            FeeRate::from_sat_per_vb(99).unwrap(),
+        )
+        .unwrap();
+        let minimum_replacement_fee = TxSender::minimum_cpfp_replacement_fee(
+            pinning_child_fee,
+            TRUC_CHILD_MAX_VSIZE,
+            child_weight,
+            incremental_fee_rate,
+        )
+        .unwrap();
+        let maximum_replacement_fee = TxSender::maximum_cpfp_replacement_fee(
+            parent_weight,
+            Amount::ZERO,
+            child_weight,
+            FeeRate::from_sat_per_vb(100).unwrap(),
+            incremental_fee_rate,
+        )
+        .unwrap();
+
+        assert!(minimum_replacement_fee <= maximum_replacement_fee);
     }
 }

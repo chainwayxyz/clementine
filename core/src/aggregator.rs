@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
-    ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
-    PUBLIC_KEY_COLLECTION_TIMEOUT, RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+    COMPATIBILITY_PARAMS_TIMEOUT, ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT,
+    OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT, RESTART_BACKGROUND_TASKS_TIMEOUT,
+    VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -311,14 +312,22 @@ impl Aggregator {
             }
 
             // if keys are not unique, return an error if so
-            let non_none_keys: Vec<_> = keys.iter().filter_map(|key| key.as_ref()).collect();
-            let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
+            let mut seen_keys = HashSet::new();
+            let duplicate_keys: HashSet<T> = keys
+                .iter()
+                .flatten()
+                .filter(|key| !seen_keys.insert(*key))
+                .cloned()
+                .collect();
 
-            if unique_keys.len() != non_none_keys.len() {
+            if !duplicate_keys.is_empty() {
                 let reason = format!("{key_type_name} keys are not unique: {keys:?}");
-                // reset all keys to None so that faulty keys are not used
+                // A duplicated key can't be attributed to the right entity, so reset every entry
+                // that has it. Other keys stay cached.
                 for key in keys.iter_mut() {
-                    *key = None;
+                    if key.as_ref().is_some_and(|key| duplicate_keys.contains(key)) {
+                        *key = None;
+                    }
                 }
                 return Err(eyre::eyre!(reason).into());
             }
@@ -947,8 +956,10 @@ impl Aggregator {
                 let operator_id_str = operator_id.to_string();
 
                 operator_futures.push(async move {
+                    let mut request = Request::new(Empty {});
+                    request.set_timeout(COMPATIBILITY_PARAMS_TIMEOUT);
                     let compatibility_params: CompatibilityParams = operator_client
-                        .get_compatibility_params(Empty {})
+                        .get_compatibility_params(request)
                         .await
                         .wrap_err(format!(
                             "{operator_id_str} compatibility params retrieval failed"
@@ -974,8 +985,10 @@ impl Aggregator {
                 let verifier_id_str = verifier_id.to_string();
 
                 verifier_futures.push(async move {
+                    let mut request = Request::new(Empty {});
+                    request.set_timeout(COMPATIBILITY_PARAMS_TIMEOUT);
                     let compatibility_params: CompatibilityParams = verifier_client
-                        .get_compatibility_params(Empty {})
+                        .get_compatibility_params(request)
                         .await
                         .wrap_err(format!(
                             "{verifier_id_str} compatibility params retrieval failed"

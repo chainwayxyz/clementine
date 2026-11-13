@@ -1,0 +1,25 @@
+[package]
+name = "header-chain-sp1"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+circuits-lib = { path = "../../circuits-lib" }
+sp1-zkvm = { version = "=6.10.0", features = ["verify"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Guest-only SP1 crypto acceleration; see docs/sp1.md.
+[patch.crates-io]
+crypto-bigint = { package = "crypto-bigint", git = "https://github.com/sp1-patches/RustCrypto-bigint", tag = "patch-0.5.5-sp1-6.10.0" }
+k256 = { package = "k256", git = "https://github.com/sp1-patches/elliptic-curves", tag = "patch-k256-13.4-sp1-6.10.0" }
+secp256k1 = { package = "secp256k1", git = "https://github.com/sp1-patches/rust-secp256k1", tag = "patch-0.29.1-sp1-6.10.0" }
+sha2 = { package = "sha2", git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha2-0.10.8-sp1-6.10.0" }
+sha3_0_10_8 = { package = "sha3", git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha3-0.10.8-sp1-6.10.0" }
+sha3_0_11_0 = { package = "sha3", git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha3-0.11.0-sp1-6.0.0" }
+substrate-bn-succinct-rs = { git = "https://github.com/sp1-patches/bn", tag = "patch-0.6.1-sp1-6.10.0" }

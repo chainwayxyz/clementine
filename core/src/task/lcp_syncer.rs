@@ -23,9 +23,13 @@ impl<H: BlockHandler> LcpSyncerTask<H> {
         paramset: &'static ProtocolParamset,
         handler: H,
     ) -> Result<Self, BridgeError> {
+        // Payouts below genesis_height cannot be proven, and deposits and withdrawals are read
+        // by contract index, so heights below it are skipped. Citrea has no light client proof
+        // for them after the SP1 migration; see docs/sp1.md#deployment.
         let next_height = db
             .get_next_finalized_block_height_for_consumer(None, &consumer_id, paramset)
-            .await?;
+            .await?
+            .max(paramset.genesis_height);
         Ok(Self(FinalizedBlockFetcherTask::new(
             db,
             consumer_id,

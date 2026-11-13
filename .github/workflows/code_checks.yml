@@ -18,8 +18,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
       - name: Install cargo-clippy
         run: rustup component add clippy
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           key: clippy
       - name: Run Cargo clippy
@@ -64,7 +64,7 @@ jobs:
           tool: cargo-udeps
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           key: udeps
 
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           key: docs
       - name: Build documentation

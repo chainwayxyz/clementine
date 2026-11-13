@@ -27,27 +27,40 @@ where
         .map_err(|e| BridgeError::EnvVarMalformed(env_var, format!("{e:?}")))
 }
 
+/// Reads and parses an optional environment variable. Returns `None` if it is not set, and
+/// [`BridgeError::EnvVarMalformed`] if it is set but does not parse.
+pub(crate) fn read_optional_env_then_parse<T: std::str::FromStr>(
+    env_var: &'static str,
+) -> Result<Option<T>, BridgeError>
+where
+    <T as FromStr>::Err: std::fmt::Debug,
+{
+    match read_string_from_env_then_parse(env_var) {
+        Ok(value) => Ok(Some(value)),
+        Err(BridgeError::EnvVarNotSet(std::env::VarError::NotPresent, _)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 impl GrpcLimits {
     pub fn from_env() -> Result<Self, BridgeError> {
         let defaults = default_grpc_limits();
         Ok(GrpcLimits {
-            max_message_size: read_string_from_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")
+            max_message_size: read_optional_env_then_parse::<usize>("GRPC_MAX_MESSAGE_SIZE")?
                 .unwrap_or(defaults.max_message_size),
-            timeout_secs: read_string_from_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")
+            timeout_secs: read_optional_env_then_parse::<u64>("GRPC_TIMEOUT_SECS")?
                 .unwrap_or(defaults.timeout_secs),
-            tcp_keepalive_secs: read_string_from_env_then_parse::<u64>("GRPC_TCP_KEEPALIVE_SECS")
+            tcp_keepalive_secs: read_optional_env_then_parse::<u64>("GRPC_TCP_KEEPALIVE_SECS")?
                 .unwrap_or(defaults.tcp_keepalive_secs),
-            req_concurrency_limit: read_string_from_env_then_parse::<usize>(
+            req_concurrency_limit: read_optional_env_then_parse::<usize>(
                 "GRPC_REQ_CONCURRENCY_LIMIT",
-            )
+            )?
             .unwrap_or(defaults.req_concurrency_limit),
-            ratelimit_req_count: read_string_from_env_then_parse::<usize>(
-                "GRPC_RATELIMIT_REQ_COUNT",
-            )
-            .unwrap_or(defaults.ratelimit_req_count),
-            ratelimit_req_interval_secs: read_string_from_env_then_parse::<u64>(
+            ratelimit_req_count: read_optional_env_then_parse::<usize>("GRPC_RATELIMIT_REQ_COUNT")?
+                .unwrap_or(defaults.ratelimit_req_count),
+            ratelimit_req_interval_secs: read_optional_env_then_parse::<u64>(
                 "GRPC_RATELIMIT_REQ_INTERVAL_SECS",
-            )
+            )?
             .unwrap_or(defaults.ratelimit_req_interval_secs),
         })
     }
@@ -57,21 +70,19 @@ impl TxSenderLimits {
     pub fn from_env() -> Result<Self, BridgeError> {
         let defaults = default_tx_sender_limits();
         Ok(TxSenderLimits {
-            fee_rate_hard_cap: read_string_from_env_then_parse::<u64>(
-                "TX_SENDER_FEE_RATE_HARD_CAP",
-            )
-            .unwrap_or(defaults.fee_rate_hard_cap),
-            mempool_fee_rate_multiplier: read_string_from_env_then_parse::<u64>(
+            fee_rate_hard_cap: read_optional_env_then_parse::<u64>("TX_SENDER_FEE_RATE_HARD_CAP")?
+                .unwrap_or(defaults.fee_rate_hard_cap),
+            mempool_fee_rate_multiplier: read_optional_env_then_parse::<u64>(
                 "TX_SENDER_MEMPOOL_FEE_RATE_MULTIPLIER",
-            )
+            )?
             .unwrap_or(defaults.mempool_fee_rate_multiplier),
-            mempool_fee_rate_offset_sat_kvb: read_string_from_env_then_parse::<u64>(
+            mempool_fee_rate_offset_sat_kvb: read_optional_env_then_parse::<u64>(
                 "TX_SENDER_MEMPOOL_FEE_RATE_OFFSET_SAT_KVB",
-            )
+            )?
             .unwrap_or(defaults.mempool_fee_rate_offset_sat_kvb),
-            cpfp_fee_payer_bump_wait_time_seconds: read_string_from_env_then_parse::<u64>(
+            cpfp_fee_payer_bump_wait_time_seconds: read_optional_env_then_parse::<u64>(
                 "TX_SENDER_CPFP_FEE_PAYER_BUMP_WAIT_TIME_SECONDS",
-            )
+            )?
             .unwrap_or(defaults.cpfp_fee_payer_bump_wait_time_seconds),
         })
     }
@@ -172,16 +183,23 @@ impl BridgeConfig {
         let aggregator_cert_path =
             read_string_from_env("AGGREGATOR_CERT_PATH").map(PathBuf::from)?;
         let client_verification =
-            read_string_from_env("CLIENT_VERIFICATION").is_ok_and(|s| s == "true" || s == "1");
+            match read_optional_env_then_parse::<String>("CLIENT_VERIFICATION")?.as_deref() {
+                None | Some("false" | "0") => false,
+                Some("true" | "1") => true,
+                Some(value) => {
+                    return Err(BridgeError::EnvVarMalformed(
+                        "CLIENT_VERIFICATION",
+                        format!("expected true, false, 1 or 0, got {value:?}"),
+                    ))
+                }
+            };
 
         let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
 
         let security_council = SecurityCouncil::from_str(&security_council_string)?;
 
-        let citrea_request_timeout = std::env::var("CITREA_REQUEST_TIMEOUT")
-            .ok()
-            .and_then(|timeout| timeout.parse::<u64>().ok())
-            .map(Duration::from_secs);
+        let citrea_request_timeout =
+            read_optional_env_then_parse::<u64>("CITREA_REQUEST_TIMEOUT")?.map(Duration::from_secs);
 
         let deposit_finality_depth = std::env::var("DEPOSIT_FINALITY_DEPTH")
             .ok()
@@ -216,9 +234,6 @@ impl BridgeConfig {
             citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
             citrea_request_timeout,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
-            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
-                "HEADER_CHAIN_PROOF_BATCH_SIZE",
-            )?,
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
@@ -242,7 +257,7 @@ impl BridgeConfig {
                     .expect("valid key")
             }),
 
-            telemetry: TelemetryConfig::from_env().ok(),
+            telemetry: TelemetryConfig::from_env()?,
             grpc: GrpcLimits::from_env()?,
             tx_sender_limits: TxSenderLimits::from_env()?,
 
@@ -441,11 +456,6 @@ mod tests {
         }
 
         std::env::set_var(
-            "HEADER_CHAIN_PROOF_BATCH_SIZE",
-            default_config.header_chain_proof_batch_size.to_string(),
-        );
-
-        std::env::set_var(
             "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             default_config.time_to_send_watchtower_challenge.to_string(),
         );
@@ -457,6 +467,44 @@ mod tests {
         let parsed = super::BridgeConfig::from_env().unwrap();
         assert_eq!(parsed.deposit_finality_depth, Some(6));
         std::env::remove_var("DEPOSIT_FINALITY_DEPTH");
+
+        std::env::set_var("TX_SENDER_FEE_RATE_HARD_CAP", "50x");
+        assert!(matches!(
+            super::BridgeConfig::from_env(),
+            Err(crate::errors::BridgeError::EnvVarMalformed(
+                "TX_SENDER_FEE_RATE_HARD_CAP",
+                _
+            ))
+        ));
+        std::env::remove_var("TX_SENDER_FEE_RATE_HARD_CAP");
+        assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
+
+        std::env::set_var("CLIENT_VERIFICATION", "yes");
+        assert!(matches!(
+            super::BridgeConfig::from_env(),
+            Err(crate::errors::BridgeError::EnvVarMalformed(
+                "CLIENT_VERIFICATION",
+                _
+            ))
+        ));
+        std::env::set_var(
+            "CLIENT_VERIFICATION",
+            default_config.client_verification.to_string(),
+        );
+
+        std::env::set_var("TELEMETRY_PORT", "abc");
+        assert!(matches!(
+            super::BridgeConfig::from_env(),
+            Err(crate::errors::BridgeError::EnvVarMalformed(
+                "TELEMETRY_PORT",
+                _
+            ))
+        ));
+        std::env::set_var(
+            "TELEMETRY_PORT",
+            default_config.telemetry.as_ref().unwrap().port.to_string(),
+        );
+        assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
 
     #[test]

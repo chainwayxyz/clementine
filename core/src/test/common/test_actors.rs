@@ -1,6 +1,6 @@
 //! Utility struct to control the actors in the test
 
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{bitvm_cache, SECP};
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
 use bitcoin::XOnlyPublicKey;
+use bridge_circuit_host::sp1::{check_programs, Backend};
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
@@ -256,6 +257,13 @@ impl<C: CitreaClientT> TestActors<C> {
     /// # Returns
     /// Returns a [`Result`](eyre::Result) containing the new [`TestActors`] instance on success, or an error if creation fails.
     pub async fn new(config: &BridgeConfig) -> eyre::Result<Self> {
+        // Fail before actors prove anything with programs that cannot verify the proofs.
+        check_programs(Backend::from_env()?)?;
+
+        // Load the BitVM cache before the actors start, as main.rs does. Generating it inside the
+        // first compatibility check exceeds that request's timeout.
+        bitvm_cache(config.protocol_paramset().bridge_program_key()?)?;
+
         let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
         let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
 

@@ -1,0 +1,21 @@
+name: Prepare SP1 Groth16 proving
+description: Download and cache proving artifacts before timed real-proof tests
+runs:
+  using: composite
+  steps:
+    # SDK 6.10.0 uses the v6.1.0 proving circuit. Keep setup downloads outside
+    # test timeouts; a cold download alone takes several minutes.
+    - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      id: artifacts
+      with:
+        path: ~/.sp1/circuits/groth16/v6.1.0
+        key: sp1-groth16-v6.1.0-${{ runner.os }}-${{ runner.arch }}
+    - name: Install the SDK's pinned Groth16 proving artifacts
+      shell: bash
+      run: cargo run --locked --profile ci-release -p bridge-circuit-host --example prepare_sp1_proving
+    # Save immediately so later test failures do not discard valid downloads.
+    - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      if: steps.artifacts.outputs.cache-hit != 'true'
+      with:
+        path: ~/.sp1/circuits/groth16/v6.1.0
+        key: ${{ steps.artifacts.outputs.cache-primary-key }}

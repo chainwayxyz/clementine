@@ -63,6 +63,13 @@ type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const MAX_RETRY_ATTEMPTS: usize = 50;
 
+/// Timeout for a single Bitcoin RPC request. Some calls legitimately take a
+/// while (e.g. mining hundreds of regtest blocks in one `generatetoaddress`
+/// call on a loaded CI machine), so keep this generous; the retry layer on
+/// top handles genuine node outages. The underlying client's built-in
+/// default (15s) is too tight and caused flaky timeouts in tests.
+const RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// `RPC_INVALID_ADDRESS_OR_KEY`. Returned by `getrawtransaction` when the transaction is in neither
 /// the mempool nor the chain.
 pub const RPC_INVALID_ADDRESS_OR_KEY: i32 = -5;
@@ -402,7 +409,7 @@ pub enum BitcoinRPCError {
 impl ExtendedBitcoinRpc {
     /// Connects to Bitcoin RPC server and checks that the node answers.
     ///
-    /// `Client::new` is lazy. The live check is `ping`, which goes through
+    /// `Client::with_timeouts` is lazy. The live check is `ping`, which goes through
     /// [`RpcApi::call`] and the same command-aware retry path as every other RPC.
     ///
     /// # Parameters
@@ -436,8 +443,8 @@ impl ExtendedBitcoinRpc {
             &url,
             &retry_config
         );
-        // Client::new only stores URL and auth; it does not open a socket.
-        let client = Client::new(&url, auth)
+        // with_timeouts only stores URL, auth, and timeouts; it does not open a socket.
+        let client = Client::with_timeouts(&url, auth, Some(RPC_REQUEST_TIMEOUT), None)
             .await
             .wrap_err("Failed to connect to Bitcoin RPC")?;
 
@@ -525,8 +532,8 @@ impl ExtendedBitcoinRpc {
     /// up there; we only load block bodies for spends that might be kickoffs.
     ///
     /// Spent-or-not comes from the syncer, not from bitcoind. If the syncer has
-    /// no spend for a kickoff UTXO, treat it as still live and reject.
-    /// A short mismatch with bitcoind is fine on mainnet.
+    /// no spend for a kickoff UTXO in a finalized block, treat it as still live
+    /// and reject. A short mismatch with bitcoind is fine on mainnet.
     ///
     /// # Returns
     ///
@@ -708,9 +715,10 @@ impl ExtendedBitcoinRpc {
     /// in-flight kickoff whose finalizer is unspent.
     ///
     /// Kickoff UTXOs of this finished round must all be spent. Spent-or-not
-    /// comes from the syncer, not from bitcoind. No spend row means the UTXO
-    /// is still live: reject. Do not add a `gettxout` check. A short mismatch
-    /// with bitcoind is fine on mainnet.
+    /// comes from the syncer, not from bitcoind. A spend counts only if its
+    /// block is finalized. No such spend means the UTXO is still live: reject.
+    /// Do not add a `gettxout` check. A short mismatch with bitcoind is fine on
+    /// mainnet.
     ///
     /// A tx that spends more than one of these UTXOs cannot be a protocol
     /// kickoff (those have a single input), so it is a burn and its block is
@@ -737,12 +745,16 @@ impl ExtendedBitcoinRpc {
             );
         }
         let mut dbtx = db.begin_transaction().await?;
-        let spends = db
+        let tip_height = db.get_max_height(Some(&mut dbtx)).await?.unwrap_or(0);
+        let mut spends = db
             .get_canonical_spending_txids(Some(&mut dbtx), &kickoff_outpoints)
             .await?;
+        // A reorg of a non-final spend revives the UTXO after deposits are signed,
+        // when the burn connectors are already spent by the next round.
+        spends.retain(|_, (_, _, height)| paramset.is_block_finalized(*height, tip_height));
 
         let mut spend_count: HashMap<Txid, usize> = HashMap::new();
-        for (spending_txid, _) in spends.values() {
+        for (spending_txid, _, _) in spends.values() {
             *spend_count.entry(*spending_txid).or_default() += 1;
         }
 
@@ -750,13 +762,13 @@ impl ExtendedBitcoinRpc {
         let mut wanted_txids = HashSet::new();
         let mut unique_blockhashes = HashSet::new();
         for (kickoff_idx, kickoff_outpoint) in kickoff_outpoints.iter().enumerate() {
-            let Some((spending_txid, blockhash)) = spends.get(kickoff_outpoint) else {
+            let Some((spending_txid, blockhash, _)) = spends.get(kickoff_outpoint) else {
                 tracing::error!(
                     ?operator_data,
                     ?round_idx,
                     kickoff_idx,
                     %kickoff_outpoint,
-                    "Passed round has an unspent kickoff UTXO; operator is not safe to include in deposits"
+                    "Passed round has a kickoff UTXO without a finalized spend; operator is not safe to include in deposits"
                 );
                 dbtx.commit().await?;
                 return Ok(false);
@@ -798,15 +810,16 @@ impl ExtendedBitcoinRpc {
             let spent_finalizers = db
                 .get_canonical_spending_txids(Some(&mut dbtx), &finalizer_outpoints)
                 .await?;
-            if let Some(finalizer) = finalizer_outpoints
-                .iter()
-                .find(|outpoint| !spent_finalizers.contains_key(outpoint))
-            {
+            if let Some(finalizer) = finalizer_outpoints.iter().find(|outpoint| {
+                !spent_finalizers
+                    .get(outpoint)
+                    .is_some_and(|(_, _, height)| paramset.is_block_finalized(*height, tip_height))
+            }) {
                 tracing::error!(
                     ?operator_data,
                     ?round_idx,
                     %finalizer,
-                    "Passed round kickoff UTXO was spent as a kickoff but the kickoff finalizer is still unspent"
+                    "Passed round kickoff UTXO was spent as a kickoff but the kickoff finalizer has no finalized spend"
                 );
                 dbtx.commit().await?;
                 return Ok(false);
@@ -1227,15 +1240,15 @@ impl ExtendedBitcoinRpc {
         Ok(txout)
     }
 
-    /// Bumps the fee of a transaction to meet or exceed a target fee rate. Does
-    /// nothing if the transaction is already confirmed. Returns the original
-    /// txid if no bump was needed.
+    /// Builds and signs a Replace-By-Fee (RBF) replacement of an unconfirmed
+    /// transaction that meets or exceeds a target fee rate. It does not
+    /// broadcast the replacement, so the caller can persist it first.
     ///
-    /// This function implements Replace-By-Fee (RBF) to increase the fee of an unconfirmed transaction.
     /// It works as follows:
     /// 1. If the transaction is already confirmed, returns Err(TransactionAlreadyInBlock)
-    /// 2. If the current fee rate is already >= the requested fee rate, returns the original txid
-    /// 3. Otherwise, increases the fee rate by adding the node's incremental fee to the current fee rate, then `bump_fee`s the transaction
+    /// 2. If the current fee rate is already >= the requested fee rate, returns `None`
+    /// 3. Otherwise, increases the fee rate by adding the node's incremental fee to the current fee rate,
+    ///    builds the replacement with `psbtbumpfee`, then signs and finalizes it with the wallet
     ///
     /// Note: This function currently only supports fee payer TXs.
     ///
@@ -1245,14 +1258,18 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: The txid of the bumped transaction (which may be the same as the input txid if no bump was needed).
+    /// - [`Option<Transaction>`]: The signed replacement, or `None` if no bump was needed.
     ///
     /// # Errors
     ///
     ///  * `TransactionAlreadyInBlock` - If the transaction is already confirmed
     /// * `BumpFeeUTXOSpent` - If the UTXO being spent by the transaction is already spent
     /// * `BumpFeeError` - For other errors with fee bumping
-    pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
+    pub async fn create_fee_bump_tx(
+        &self,
+        txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<Option<Transaction>> {
         // Check if transaction is already confirmed
         let transaction_info = self
             .get_transaction(&txid, None)
@@ -1282,9 +1299,9 @@ impl ExtendedBitcoinRpc {
             "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
         );
 
-        // If current fee rate is already sufficient, return original txid
+        // If current fee rate is already sufficient, no replacement is needed
         if current_fee_rate_sat_kwu >= fee_rate.to_sat_per_kwu() as f64 {
-            return Ok(txid);
+            return Ok(None);
         }
 
         tracing::trace!(
@@ -1311,9 +1328,9 @@ impl ExtendedBitcoinRpc {
             "Bumping fee for txid: {txid} from {current_fee_rate_sat_kwu} to {new_fee_rate} with incremental fee {incremental_fee_rate_sat_kwu} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
         );
 
-        // Call Bitcoin Core's bumpfee RPC
+        // Call Bitcoin Core's psbtbumpfee RPC
         let bump_fee_result = match self
-            .bump_fee(
+            .psbt_bump_fee(
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
@@ -1357,10 +1374,31 @@ impl ExtendedBitcoinRpc {
             },
         };
 
-        // Return the new txid
-        Ok(bump_fee_result
-            .txid
-            .ok_or_eyre("Failed to get Txid from bump_fee_result")?)
+        let psbt = bump_fee_result
+            .psbt
+            .ok_or_eyre("Failed to get PSBT from bump_fee_result")?;
+        let processed = self
+            .wallet_process_psbt(&psbt, Some(true), None, None)
+            .await
+            .wrap_err("Failed to sign bumped tx with wallet")?;
+        if !processed.complete {
+            return Err(eyre!("Wallet could not fully sign the replacement of {txid}").into());
+        }
+        let finalized = self
+            .finalize_psbt(&processed.psbt, None)
+            .await
+            .wrap_err("Failed to finalize bumped tx")?;
+        if !finalized.complete {
+            return Err(eyre!("Could not finalize the replacement of {txid}").into());
+        }
+        let bumped_tx: Transaction = bitcoin::consensus::deserialize(
+            &finalized
+                .hex
+                .ok_or_eyre("finalizepsbt returned no transaction")?,
+        )
+        .wrap_err("Failed to deserialize bumped tx")?;
+
+        Ok(Some(bumped_tx))
     }
 
     /// Creates a new instance of the [`ExtendedBitcoinRpc`] with a new client
@@ -1705,7 +1743,7 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
     use citrea_e2e::{
         bitcoin::DEFAULT_FINALITY_DEPTH,
-        config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
+        config::{BitcoinConfig, TestCaseConfig},
         framework::TestFramework,
         node::NodeKind,
         test_case::{TestCase, TestCaseRunner},
@@ -1787,7 +1825,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bump_fee_with_fee_rate() {
+    async fn create_fee_bump_tx() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
@@ -1802,7 +1840,7 @@ mod tests {
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
         rpc.mine_blocks(1).await.unwrap();
         assert!(rpc
-            .bump_fee_with_fee_rate(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
+            .create_fee_bump_tx(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
             .await
             .inspect_err(|e| {
                 match e {
@@ -1814,47 +1852,46 @@ mod tests {
 
         let current_fee_rate = FeeRate::from_sat_per_vb_u32(1);
 
-        // Trying to bump a transaction with a fee rate that is already enough
-        // should return the original txid.
+        // A fee rate that is already enough needs no replacement.
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-        let txid = rpc
-            .bump_fee_with_fee_rate(utxo.txid, current_fee_rate)
+        assert!(rpc
+            .create_fee_bump_tx(utxo.txid, current_fee_rate)
             .await
-            .unwrap();
-        assert_eq!(txid, utxo.txid);
+            .unwrap()
+            .is_none());
 
-        // A bigger fee rate should return a different txid.
-        let new_fee_rate = FeeRate::from_sat_per_vb_u32(10000);
-        let txid = rpc
-            .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
+        // A bigger fee rate returns a signed replacement that is not broadcast yet.
+        let new_fee_rate = FeeRate::from_sat_per_vb_u32(100);
+        let bumped_tx = rpc
+            .create_fee_bump_tx(utxo.txid, new_fee_rate)
             .await
-            .unwrap();
-        assert_ne!(txid, utxo.txid);
+            .unwrap()
+            .expect("A replacement is needed");
+        let bumped_txid = bumped_tx.compute_txid();
+        assert_ne!(bumped_txid, utxo.txid);
+        assert!(rpc.get_mempool_entry(&utxo.txid).await.is_ok());
+        assert!(rpc.get_mempool_entry(&bumped_txid).await.is_err());
+
+        rpc.send_raw_transaction(&bumped_tx).await.unwrap();
+        assert!(rpc.get_mempool_entry(&bumped_txid).await.is_ok());
+        assert!(rpc.get_mempool_entry(&utxo.txid).await.is_err());
     }
 
     struct ReorgChecks;
     #[async_trait]
     impl TestCase for ReorgChecks {
         fn bitcoin_config() -> BitcoinConfig {
-            BitcoinConfig {
-                extra_args: vec![
-                    "-txindex=1",
-                    "-fallbackfee=0.000001",
-                    "-rpcallowip=0.0.0.0/0",
-                    "-dustrelayfee=0",
-                ],
-                ..Default::default()
-            }
+            crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
         }
 
         fn test_config() -> TestCaseConfig {
             TestCaseConfig {
-                with_sequencer: true,
+                with_sequencer: false,
                 with_batch_prover: false,
                 n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-                docker: TestCaseDockerConfig {
+                docker: citrea_e2e::config::TestCaseDockerConfig {
                     bitcoin: true,
-                    citrea: true,
+                    citrea: false,
                 },
                 ..Default::default()
             }
@@ -1872,12 +1909,7 @@ mod tests {
                 ..REGTEST_PARAMSET
             };
             config.protocol_paramset = &PARAMSET;
-            citrea::update_config_with_citrea_e2e_values(
-                &mut config,
-                da0,
-                f.sequencer.as_ref().expect("Sequencer is present"),
-                None,
-            );
+            citrea::update_config_with_bitcoin_e2e_values(&mut config, da0);
 
             let rpc = ExtendedBitcoinRpc::connect(
                 config.bitcoin_rpc_url.clone(),
@@ -2310,12 +2342,12 @@ mod tests {
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
             let new_fee_rate = FeeRate::from_sat_per_vb_u32(10000);
 
-            let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
+            let result = rpc.create_fee_bump_tx(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());
 
-            let new_txid = result.unwrap();
+            let new_tx = result.unwrap().expect("A replacement is needed");
             // Should return a different txid since fee was actually bumped
-            assert_ne!(new_txid, utxo.txid);
+            assert_ne!(new_tx.compute_txid(), utxo.txid);
         }
     }
 
@@ -2430,6 +2462,11 @@ mod tests {
         async fn broadcast(db: &Database, rpc: &ExtendedBitcoinRpc, tx: &Transaction) {
             rpc.send_raw_transaction(tx).await.unwrap();
             mine_and_index(db, rpc).await;
+        }
+        async fn finalize_tip(db: &Database, rpc: &ExtendedBitcoinRpc, finality_depth: u32) {
+            for _ in 1..finality_depth {
+                mine_and_index(db, rpc).await;
+            }
         }
 
         let signer = Actor::new(
@@ -2564,6 +2601,7 @@ mod tests {
             .await
             .unwrap();
         mine_and_index(&db, rpc).await;
+        finalize_tip(&db, rpc, paramset.finality_depth).await;
 
         assert!(
             !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
@@ -2589,6 +2627,15 @@ mod tests {
             .unwrap();
         broadcast(&db, rpc, spend_finalizer.get_cached_tx()).await;
 
+        assert!(paramset.finality_depth > 1);
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "a finalizer spend that is not finalized yet can be reorged out and should be rejected"
+        );
+
+        finalize_tip(&db, rpc, paramset.finality_depth).await;
         assert!(
             rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
                 .await

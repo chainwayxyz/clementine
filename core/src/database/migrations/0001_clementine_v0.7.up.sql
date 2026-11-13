@@ -64,3 +64,10 @@ WHERE effective_fee_rate IS NOT NULL;
 -- conversion and stall Citrea withdrawal ingest.
 ALTER TABLE withdrawals
 ALTER COLUMN withdrawal_utxo_vout TYPE BIGINT;
+-- RISC Zero to SP1: stored header chain proofs are RISC Zero receipts, which the SP1
+-- guests cannot take as a previous proof and which do not decode as SP1 receipts. Headers
+-- are kept; the prover proves the new genesis_height again on startup and continues from
+-- there. See docs/sp1.md#deployment.
+UPDATE header_chain_proofs
+SET proof = NULL
+WHERE proof IS NOT NULL;

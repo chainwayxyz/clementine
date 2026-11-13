@@ -331,7 +331,7 @@ impl Database {
         Ok(())
     }
 
-    /// Canonical spending txid and block hash for `outpoints`.
+    /// Canonical spending txid, block hash and block height for `outpoints`.
     ///
     /// Outpoints with no canonical spend (unspent, or not yet indexed) are omitted.
     /// Does not load block bodies.
@@ -339,13 +339,13 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         outpoints: &[OutPoint],
-    ) -> Result<HashMap<OutPoint, (Txid, BlockHash)>, BridgeError> {
+    ) -> Result<HashMap<OutPoint, (Txid, BlockHash, u32)>, BridgeError> {
         if outpoints.is_empty() {
             return Ok(HashMap::new());
         }
 
         let mut query_builder = QueryBuilder::new(
-            "SELECT bspu.txid, bspu.vout, bspu.spending_txid, bs.blockhash
+            "SELECT bspu.txid, bspu.vout, bspu.spending_txid, bs.blockhash, bs.height
              FROM bitcoin_syncer_spent_utxos bspu
              INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
              WHERE bs.is_canonical = true AND (bspu.txid, bspu.vout) IN",
@@ -355,16 +355,17 @@ impl Database {
                 .push_bind(i64::from(outpoint.vout));
         });
 
-        let query = query_builder.build_query_as::<(TxidDB, i64, TxidDB, BlockHashDB)>();
-        let rows: Vec<(TxidDB, i64, TxidDB, BlockHashDB)> =
+        let query = query_builder.build_query_as::<(TxidDB, i64, TxidDB, BlockHashDB, i32)>();
+        let rows: Vec<(TxidDB, i64, TxidDB, BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         let mut spending_txids = HashMap::with_capacity(rows.len());
-        for (txid, vout, spending_txid, blockhash) in rows {
+        for (txid, vout, spending_txid, blockhash, height) in rows {
             let vout = u32::try_from(vout).wrap_err(BridgeError::IntConversionError)?;
+            let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
             spending_txids.insert(
                 OutPoint { txid: txid.0, vout },
-                (spending_txid.0, blockhash.0),
+                (spending_txid.0, blockhash.0, height),
             );
         }
         Ok(spending_txids)
@@ -1115,7 +1116,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(spending_txids.len(), 1);
-        assert_eq!(spending_txids[&spent_outpoint], (spending_txid, block_hash));
+        assert_eq!(
+            spending_txids[&spent_outpoint],
+            (spending_txid, block_hash, height)
+        );
 
         let spending_txs = db
             .get_txs_from_block_hashes(

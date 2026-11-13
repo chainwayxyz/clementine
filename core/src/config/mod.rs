@@ -11,7 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::cli;
-use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
+use crate::config::env::{read_optional_env_then_parse, read_string_from_env_then_parse};
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
@@ -20,7 +20,7 @@ use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
-use bridge_circuit_host::utils::is_dev_mode;
+use bridge_circuit_host::sp1::Backend;
 use circuits_lib::bridge_circuit::constants::is_test_vk;
 use eyre::Context;
 use protocol::ProtocolParamset;
@@ -95,8 +95,6 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
-    /// Batch size of the header chain proofs
-    pub header_chain_proof_batch_size: u32,
 
     /// Security council.
     pub security_council: SecurityCouncil,
@@ -321,14 +319,6 @@ impl BridgeConfig {
             ));
         }
 
-        if self.protocol_paramset().start_height < self.protocol_paramset().genesis_height {
-            reasons.push(format!(
-                "Start height is less than genesis height: {} < {}",
-                self.protocol_paramset().start_height,
-                self.protocol_paramset().genesis_height
-            ));
-        }
-
         if self.protocol_paramset().finality_depth < 1 {
             reasons.push(format!(
                 "Finality depth ({}) cannot be less than 1",
@@ -368,12 +358,17 @@ impl BridgeConfig {
             misconfigs.push("CLIENT_VERIFICATION=false".to_string());
         }
 
-        if is_dev_mode() {
-            misconfigs.push("Risc0 dev mode is enabled (RISC0_DEV_MODE=1)".to_string());
+        if matches!(Backend::from_env(), Ok(Backend::Mock)) {
+            misconfigs.push("SP1 mock proving is enabled (SP1_PROVER=mock)".to_string());
         }
 
         if is_test_vk() {
             misconfigs.push("use-test-vk feature is enabled".to_string());
+        }
+
+        // Debug builds commit an OP_TRUE disprove leaf, which anyone can spend.
+        if cfg!(debug_assertions) {
+            misconfigs.push("debug build (debug assertions are enabled)".to_string());
         }
 
         if !misconfigs.is_empty() {
@@ -465,7 +460,6 @@ impl Default for BridgeConfig {
             citrea_request_timeout: None,
 
             header_chain_proof_path: None,
-            header_chain_proof_batch_size: 100,
 
             operator_reimbursement_address: None,
             operator_collateral_funding_outpoint: None,
@@ -536,10 +530,14 @@ impl Default for TelemetryConfig {
 }
 
 impl TelemetryConfig {
-    pub fn from_env() -> Result<Self, BridgeError> {
-        let host = read_string_from_env("TELEMETRY_HOST")?;
+    /// Reads the telemetry config. Telemetry is off if `TELEMETRY_HOST` is not set. If it is
+    /// set, `TELEMETRY_PORT` must be set and valid.
+    pub fn from_env() -> Result<Option<Self>, BridgeError> {
+        let Some(host) = read_optional_env_then_parse::<String>("TELEMETRY_HOST")? else {
+            return Ok(None);
+        };
         let port = read_string_from_env_then_parse::<u16>("TELEMETRY_PORT")?;
-        Ok(Self { host, port })
+        Ok(Some(Self { host, port }))
     }
 }
 
@@ -615,7 +613,7 @@ mod tests {
     #[serial_test::serial]
     #[test]
     fn check_mainnet_reqs() {
-        let env_vars = vec!["RISC0_DEV_MODE"];
+        let env_vars = vec!["SP1_PROVER"];
 
         // Nothing illegal is set.
         for var in env_vars.clone() {
@@ -632,15 +630,15 @@ mod tests {
         };
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
-        assert!(checks.is_ok());
+        assert_eq!(checks.is_ok(), !cfg!(debug_assertions));
 
         // Nothing illegal is set while illegal env vars set to 0 specifically.
         for var in env_vars.clone() {
-            std::env::set_var(var, "0");
+            std::env::set_var(var, if var == "SP1_PROVER" { "cpu" } else { "0" });
         }
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
-        assert!(checks.is_ok());
+        assert_eq!(checks.is_ok(), !cfg!(debug_assertions));
 
         // Illegal configs, no illegal env vars.
         let incorrect_mainnet_config = BridgeConfig {
@@ -654,7 +652,7 @@ mod tests {
 
         // No illegal configs, illegal env vars.
         for var in env_vars.clone() {
-            std::env::set_var(var, "1");
+            std::env::set_var(var, if var == "SP1_PROVER" { "mock" } else { "1" });
         }
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
@@ -662,7 +660,7 @@ mod tests {
 
         // Illegal everything.
         for var in env_vars.clone() {
-            std::env::set_var(var, "1");
+            std::env::set_var(var, if var == "SP1_PROVER" { "mock" } else { "1" });
         }
         let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
@@ -692,9 +690,6 @@ mod tests {
         pub const BAD_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
             // Force hash mismatch
             genesis_chain_state_hash: [1u8; 32],
-            // Make start height lower than genesis height to trigger that error
-            start_height: 0,
-            genesis_height: 1,
             // Make finality depth invalid
             finality_depth: 0,
             ..REGTEST_PARAMSET
@@ -713,7 +708,6 @@ mod tests {
             err.contains("Genesis chain state hash"),
             "unexpected error: {err}"
         );
-        assert!(err.contains("Start height"), "unexpected error: {err}");
         assert!(err.contains("Finality depth"), "unexpected error: {err}");
         assert!(
             err.contains("Deposit finality depth"),

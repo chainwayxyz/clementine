@@ -7,12 +7,11 @@ use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::{CitreaClient, CitreaClientT};
-use crate::config::protocol::{ProtocolParamset, TESTNET4_TEST_PARAMSET};
+use crate::config::protocol::TESTNET4_TEST_PARAMSET;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::deposit::{BaseDepositData, DepositInfo, DepositType};
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-use crate::header_chain_prover::HeaderChainProver;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind,
@@ -22,8 +21,8 @@ use crate::rpc::clementine::{
 use crate::rpc::ecdsa_verification_sig::{OperatorWithdrawalMessage, OptimisticPayoutMessage};
 use crate::test::common::citrea::{
     get_new_withdrawal_utxo_and_register_to_citrea, register_replacement_deposit_to_citrea,
-    start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData, MockCitreaClient,
-    SECRET_KEYS,
+    set_genesis_above_lcp_start, start_citrea, update_config_with_citrea_e2e_values, CitreaE2EData,
+    MockCitreaClient, SECRET_KEYS,
 };
 use crate::test::common::clementine_utils::{
     payout_and_start_kickoff, reimburse_with_optimistic_payout,
@@ -50,10 +49,10 @@ use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, SequencerConfig, TestCaseConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
 };
@@ -67,43 +66,23 @@ use tokio::time::sleep;
 use tonic::transport::Channel;
 use tonic::Request;
 
-#[derive(PartialEq)]
-pub enum CitreaDepositAndWithdrawE2EVariant {
-    GenesisHeightZero,
-    GenesisHeightNonZero,
-}
-
-struct CitreaDepositAndWithdrawE2E {
-    variant: CitreaDepositAndWithdrawE2EVariant,
-}
+struct CitreaDepositAndWithdrawE2E;
 
 #[async_trait]
 impl TestCase for CitreaDepositAndWithdrawE2E {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::paired_citrea(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     fn sequencer_config() -> SequencerConfig {
@@ -113,16 +92,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         }
     }
 
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            enable_recovery: false,
-            ..Default::default()
-        }
-    }
-
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
-            enable_recovery: false,
             initial_da_height: 60,
             ..Default::default()
         }
@@ -148,6 +119,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 lc_prover.config.rollup.rpc.bind_port,
             )),
         );
+        set_genesis_above_lcp_start(&mut config, lc_prover).await;
 
         tracing::info!(
             "config bitcoin rpc data: url: {}, user: {:?},
@@ -174,27 +146,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .unwrap();
-
-        if self.variant == CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero {
-            let genesis_height: u32 = 10;
-
-            let genesis_chain_state_hash = HeaderChainProver::get_chain_state_from_height(
-                &rpc,
-                genesis_height as u64,
-                config.protocol_paramset().network,
-            )
-            .await
-            .unwrap()
-            .to_hash();
-
-            let paramset = ProtocolParamset {
-                genesis_height,
-                genesis_chain_state_hash,
-                ..ProtocolParamset::default()
-            };
-
-            config.protocol_paramset = Box::leak(Box::new(paramset));
-        }
 
         let mut actors = create_actors(&config).await;
 
@@ -527,24 +478,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 ///     always work if the collected signatures are correct from start)
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "Run in standalone VM in CI"]
-async fn citrea_deposit_and_withdraw_e2e_non_zero_genesis_height() -> citrea_e2e::Result<()> {
-    initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightNonZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "Ignored, currently no specific reason to test with genesis height zero"]
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    let citrea_e2e = CitreaDepositAndWithdrawE2E {
-        variant: CitreaDepositAndWithdrawE2EVariant::GenesisHeightZero,
-    };
-    TestCaseRunner::new(citrea_e2e).run().await
+    TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.

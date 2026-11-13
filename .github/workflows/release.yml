@@ -28,10 +28,8 @@ jobs:
           rustup default 1.97
 
       - uses: ./.github/actions/build-prerequisites
-      - name: Install risc0
+      - name: Install test prerequisites
         uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Project (No Features)
         run: |

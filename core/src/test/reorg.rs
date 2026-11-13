@@ -25,7 +25,7 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
+use citrea_e2e::config::BitcoinConfig;
 use citrea_e2e::node::NodeKind;
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
@@ -38,27 +38,16 @@ struct TxSenderReorgBehavior;
 #[async_trait]
 impl TestCase for TxSenderReorgBehavior {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::paired_citrea(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: false,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
@@ -276,27 +265,16 @@ struct ReorgOnDeposit;
 #[async_trait]
 impl TestCase for ReorgOnDeposit {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::paired_citrea(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: false,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {

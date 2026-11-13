@@ -1,10 +1,6 @@
-bitvm_cache.bin
-bitvm_cache_dev.bin
 
 .DS_Store
 
-risc0-guests/operator/guest/Cargo.lock
-risc0-guests/verifier/guest/Cargo.lock
 target/
 .env
 /configs
@@ -21,3 +17,5 @@ logs
 out.json*
 
 core/certs/
+bitvm_cache_sp1_*.bin
+__pycache__/

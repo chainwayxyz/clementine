@@ -508,12 +508,8 @@ mod tests {
                                 .expect("finalized_synced_height is None")
                                 > 0
                         );
-                        assert!(
-                            status
-                                .hcp_last_proven_height
-                                .expect("hcp_last_proven_height is None")
-                                > 0
-                        );
+                        // Header chain proofs are made only on demand.
+                        assert!(status.hcp_last_proven_height.is_none());
                         assert!(status.rpc_tip_height.expect("rpc_tip_height is None") > 0);
                         assert!(
                             status

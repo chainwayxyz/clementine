@@ -52,21 +52,6 @@ pub enum Command {
     Aggregator,
     /// Run the test actor (for health checks)
     TestActor,
-    /// Generate BitVM cache files
-    GenerateBitvmCache,
-}
-
-impl Command {
-    /// Get the actor type if this is an actor command, None for utility commands
-    pub fn actor(&self) -> Option<Actor> {
-        match self {
-            Command::Verifier => Some(Actor::Verifier),
-            Command::Operator => Some(Actor::Operator),
-            Command::Aggregator => Some(Actor::Aggregator),
-            Command::TestActor => Some(Actor::TestActor),
-            Command::GenerateBitvmCache => None,
-        }
-    }
 }
 
 /// Parse given iterator with our clap Args and handle help/version cases.
@@ -458,7 +443,6 @@ mod tests {
             "GENESIS_CHAIN_STATE_HASH",
             "5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216",
         );
-        env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
         env::set_var("BRIDGE_NONSTANDARD", "true");
     }
 
@@ -515,7 +499,6 @@ mod tests {
         env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
-        env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");
     }
 
     // Basic minimum toml config content

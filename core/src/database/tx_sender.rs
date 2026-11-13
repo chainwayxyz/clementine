@@ -174,6 +174,10 @@ impl Database {
 
     /// Saves a fee payer transaction to the database.
     ///
+    /// Saving an outpoint already saved for `bumped_id` marks that row as not evicted instead of
+    /// adding a second row, because duplicate rows would make the CPFP child spend the outpoint
+    /// twice.
+    ///
     /// # Arguments
     /// * `bumped_id` - The id of the bumped transaction
     /// * `fee_payer_txid` - The txid of the fee payer transaction
@@ -190,8 +194,15 @@ impl Database {
         replacement_of_id: Option<u32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
-             VALUES ($1, $2, $3, $4, $5)",
+            "WITH existing AS (
+                 UPDATE tx_sender_fee_payer_utxos
+                 SET is_evicted = false
+                 WHERE bumped_id = $1 AND fee_payer_txid = $2 AND vout = $3
+                 RETURNING id
+             )
+             INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
+             SELECT $1, $2, $3, $4, $5
+             WHERE NOT EXISTS (SELECT 1 FROM existing)",
         )
         .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped id to i32")?)
         .bind(TxidDB(fee_payer_txid))
@@ -830,28 +841,6 @@ impl Database {
             })
             .collect::<Result<Vec<_>, BridgeError>>()
     }
-
-    /// Purges debug information for a successfully sent TX
-    pub async fn purge_tx_debug_info(
-        &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
-        tx_id: u32,
-    ) -> Result<(), BridgeError> {
-        let queries = [
-            "DELETE FROM tx_sender_debug_state_changes WHERE tx_id = $1",
-            "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
-            "DELETE FROM tx_sender_debug_sending_state WHERE tx_id = $1",
-        ];
-
-        for query_str in queries {
-            let query = sqlx::query(query_str)
-                .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
-
-            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -939,6 +928,45 @@ mod tests {
         )
         .await
         .unwrap();
+
+        let fee_payers = db
+            .get_unconfirmed_fee_payer_txs(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap();
+        assert_eq!(fee_payers.len(), 1);
+        db.mark_fee_payer_utxo_as_evicted(Some(&mut dbtx), fee_payers[0].0)
+            .await
+            .unwrap();
+        assert!(db
+            .get_unconfirmed_fee_payer_txs(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // Saving the same outpoint again revives the row instead of adding a duplicate.
+        db.save_fee_payer_tx(
+            Some(&mut dbtx),
+            tx_id,
+            fee_payer_txid,
+            0,
+            Amount::from_sat(50000),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            db.get_unconfirmed_fee_payer_txs(Some(&mut dbtx), tx_id)
+                .await
+                .unwrap(),
+            fee_payers
+        );
+        assert_eq!(
+            db.get_fee_payer_utxos_for_tx(Some(&mut dbtx), tx_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         dbtx.commit().await.unwrap();
     }

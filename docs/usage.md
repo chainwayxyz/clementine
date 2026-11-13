@@ -26,16 +26,14 @@ should ideally share the same database. Typical entities are:
 Before compiling Clementine:
 
 1. Install Rust: [rustup.rs](https://rustup.rs/)
-2. Install RISC Zero 3.0.6: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+2. To rebuild the SP1 guests, install SP1 6.10.0 and Docker. See [SP1 proving](sp1.md#building).
 
    ```sh
-   curl -L https://risczero.com/install | bash
-   rzup install cargo-risczero 3.0.6
-   rzup install r0vm 3.0.6
-   rzup install rust 1.97.0
+   curl -fsSL https://sp1.succinct.xyz | bash
+   sp1up --version v6.10.0
    ```
 
-3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
+3. On macOS, install the Xcode command-line tools:
 
    ```sh
    xcode-select --install
@@ -44,7 +42,7 @@ Before compiling Clementine:
 4. If on Ubuntu, install these packages:
 
    ```sh
-   sudo apt install build-essential libssl-dev pkg-config
+   sudo apt install build-essential libssl-dev pkg-config clang cmake protobuf-compiler
    ```
 
 Before running Clementine:
@@ -72,22 +70,18 @@ Before running Clementine:
    ./scripts/generate_certs.sh
    ```
 
-4. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
-   deployment that requires it:
+4. For development tests, compile with `--features testing` and set:
 
    ```sh
-   export RISC0_DEV_MODE=1
+   export SP1_PROVER=mock
    ```
 
-5. [Optional] Download pre-generated BitVM cache. If not downloaded, it will be
-   generated automatically. The object is always `clementine/conf/bitvm_cache.bin`;
-   the network path selects the contents. `mainnet` is the production-proof cache;
-   `test-net` / `dev-net` are RISC0_DEV_MODE caches.
+   Production builds use `SP1_PROVER=cpu` or `network`. `SP1_PROVER` defaults to
+   `network`. Clementine does not start when it does not match the compiled
+   programs. See [SP1 proving](sp1.md).
 
-   ```sh
-   wget https://static.citrea.xyz/test-net/clementine/conf/bitvm_cache.bin -O bitvm_cache.bin
-   export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin
-   ```
+5. BitVM caches are generated automatically for the selected SP1 program and key.
+   `BITVM_CACHE_PATH` can override the path; incompatible caches are regenerated.
 
 6. Set `RUST_MIN_STACK` environment variable to at least `33554432`
 
@@ -293,3 +287,28 @@ tokio-console
 - In production, use properly signed certificates from a trusted CA
 - Rotate certificates regularly
 - Consider using distinct client certificates for different clients/services
+
+## Paired Citrea integration tests
+
+CI installs a native SP1 Citrea binary pinned by `scripts/citrea-e2e.json`.
+The installer verifies the archive's SHA-256 and source commit, including on
+cache hits. Debug/release integration tests, standalone e2e jobs, and coverage
+all use this binary through `CITREA_E2E_TEST_BINARY`. No Citrea Docker image or
+repository variable is required. Bitcoin still runs in Docker.
+
+To use the same binary locally on Linux x86-64:
+
+```sh
+./scripts/install-citrea-e2e.sh "$PWD/target/citrea-e2e"
+export CITREA_E2E_TEST_BINARY="$PWD/target/citrea-e2e/citrea"
+```
+
+The binary is a private release asset in this repository, so CI only needs its
+existing `GITHUB_TOKEN`. For local downloads, authenticate `gh` with access to
+Clementine. To update the dependency, run
+`./scripts/pin-citrea-e2e.sh CITREA_WORKFLOW_RUN_ID` with access to both repositories
+and commit the updated JSON lock. This copies the successful Citrea `Checks`
+workflow's `citrea-sp1-linux-amd64` artifact into a private prerelease, preserving
+its checksum and build provenance. Existing assets are never overwritten.
+
+Build the SP1 Citrea branch with `cargo build -p citrea --features testing`, then set `CITREA_E2E_TEST_BINARY` to that binary. Tests run Citrea natively and Bitcoin Core 30.4 in Docker. To use containers instead, explicitly set `CITREA_DOCKER_IMAGE` to an image built from the matching SP1 Citrea revision. Historical images are not compatible. When running a test binary downloaded from CI, also set `CITREA_E2E_GENESIS_DIR` to the absolute path of `resources/genesis/bitcoin-regtest` from the matching `citrea-e2e` dependency checkout. This overrides the build machine’s fixture path; locally built tests use their dependency checkout by default.

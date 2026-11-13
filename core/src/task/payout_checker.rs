@@ -4,7 +4,7 @@ use tonic::async_trait;
 
 use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
 
-use super::{Task, TaskVariant};
+use super::{RecoverableTask, Task, TaskVariant};
 
 pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(250)
@@ -108,5 +108,17 @@ where
         dbtx.commit().await?;
 
         Ok(true)
+    }
+}
+
+#[async_trait]
+impl<C> RecoverableTask for PayoutCheckerTask<C>
+where
+    C: CitreaClientT,
+{
+    async fn recover_from_error(&mut self, _error: &BridgeError) -> Result<(), BridgeError> {
+        // No action needed. The failed run's dbtx is rolled back and the task holds no
+        // in-memory state, so the next run retries the same payout.
+        Ok(())
     }
 }

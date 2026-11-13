@@ -13,6 +13,8 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
+use crate::common::sp1::{Proof, Receipt};
+use crate::common::verification_mode::GuestVerificationMode;
 use bitcoin::{
     consensus::Encodable,
     hashes::{sha256, Hash},
@@ -134,6 +136,22 @@ pub struct WatchTowerChallengeTxCommitment {
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct LightClientProof {
     pub lc_journal: Vec<u8>,
+    /// Whether the bridge guest verifies the proof. Citrea's mock proofs are not verified.
+    pub verification_mode: GuestVerificationMode,
+}
+
+impl LightClientProof {
+    /// Guest input for Citrea's light client receipt: a compressed proof is verified, a mock
+    /// receipt is not.
+    pub fn from_receipt(receipt: &Receipt) -> Self {
+        Self {
+            lc_journal: receipt.journal.bytes.clone(),
+            verification_mode: match receipt.inner {
+                Proof::Mock { .. } => GuestVerificationMode::SkipForTesting,
+                _ => GuestVerificationMode::Verify,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
@@ -506,64 +524,5 @@ impl DerefMut for CircuitWitness {
 impl From<Witness> for CircuitWitness {
     fn from(witness: Witness) -> Self {
         Self(witness)
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
-pub struct CircuitTxid(pub Txid);
-
-impl CircuitTxid {
-    pub fn from(tx_id: Txid) -> Self {
-        Self(tx_id)
-    }
-
-    pub fn inner(&self) -> &Txid {
-        &self.0
-    }
-}
-
-impl BorshSerialize for CircuitTxid {
-    #[inline]
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        BorshSerialize::serialize(&self.0.as_byte_array(), writer)?;
-        Ok(())
-    }
-}
-
-impl BorshDeserialize for CircuitTxid {
-    #[inline]
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let tx_data: [u8; 32] =
-            Vec::<u8>::deserialize_reader(reader)?
-                .try_into()
-                .map_err(|_| {
-                    borsh::io::Error::new(
-                        borsh::io::ErrorKind::InvalidData,
-                        "Failed to convert Vec<u8> to [u8; 32]",
-                    )
-                })?;
-
-        let tx_id = Txid::from_byte_array(tx_data);
-
-        Ok(Self(tx_id))
-    }
-}
-
-impl Deref for CircuitTxid {
-    type Target = Txid;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for CircuitTxid {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<Txid> for CircuitTxid {
-    fn from(tx_id: Txid) -> Self {
-        Self(tx_id)
     }
 }

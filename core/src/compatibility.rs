@@ -5,7 +5,7 @@ use eyre::Context;
 use semver::VersionReq;
 
 use crate::aggregator::Aggregator;
-use crate::bitvm_client::{load_or_generate_bitvm_cache, BITVM_CACHE};
+use crate::bitvm_client::bitvm_cache;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
@@ -22,7 +22,7 @@ pub struct CompatibilityParams {
     pub security_council: SecurityCouncil,
     pub citrea_chain_id: u32,
     pub clementine_version: String,
-    pub bridge_circuit_constant: [u8; 32],
+    pub bridge_program_key: [u8; 32],
     pub sha256_bitvm_cache: [u8; 32],
 }
 
@@ -50,11 +50,11 @@ impl CompatibilityParams {
                 self.citrea_chain_id, other.citrea_chain_id
             ));
         }
-        if self.bridge_circuit_constant != other.bridge_circuit_constant {
+        if self.bridge_program_key != other.bridge_program_key {
             reasons.push(format!(
-                "Bridge circuit constant mismatch: self={:?}, other={:?}",
-                hex::encode(self.bridge_circuit_constant),
-                hex::encode(other.bridge_circuit_constant)
+                "Bridge program key mismatch: self={:?}, other={:?}",
+                hex::encode(self.bridge_program_key),
+                hex::encode(other.bridge_program_key)
             ));
         }
         if self.sha256_bitvm_cache != other.sha256_bitvm_cache {
@@ -101,7 +101,7 @@ impl TryFrom<CompatibilityParams> for CompatibilityParamsRpc {
             security_council: params.security_council.to_string(),
             citrea_chain_id: params.citrea_chain_id,
             clementine_version: params.clementine_version,
-            bridge_circuit_constant: params.bridge_circuit_constant.to_vec(),
+            bridge_program_key: params.bridge_program_key.to_vec(),
             sha256_bitvm_cache: params.sha256_bitvm_cache.to_vec(),
         })
     }
@@ -120,9 +120,10 @@ impl TryFrom<CompatibilityParamsRpc> for CompatibilityParams {
                 .wrap_err("Failed to deserialize security council")?,
             citrea_chain_id: params.citrea_chain_id,
             clementine_version: params.clementine_version,
-            bridge_circuit_constant: params.bridge_circuit_constant.try_into().map_err(|_| {
-                eyre::eyre!("Failed to convert bridge circuit constant to [u8; 32]")
-            })?,
+            bridge_program_key: params
+                .bridge_program_key
+                .try_into()
+                .map_err(|_| eyre::eyre!("Failed to convert bridge program key to [u8; 32]"))?,
             sha256_bitvm_cache: params
                 .sha256_bitvm_cache
                 .try_into()
@@ -141,9 +142,8 @@ pub trait ActorWithConfig {
             security_council: config.security_council.clone(),
             citrea_chain_id: config.citrea_chain_id,
             clementine_version: env!("CARGO_PKG_VERSION").to_string(),
-            bridge_circuit_constant: *config.protocol_paramset.bridge_circuit_constant()?,
-            sha256_bitvm_cache: BITVM_CACHE
-                .get_or_try_init(load_or_generate_bitvm_cache)?
+            bridge_program_key: *config.protocol_paramset.bridge_program_key()?,
+            sha256_bitvm_cache: bitvm_cache(config.protocol_paramset.bridge_program_key()?)?
                 .sha256_bitvm_cache,
         })
     }
@@ -228,17 +228,12 @@ mod tests {
         assert_eq!(params.security_council, actor.config.security_council);
         assert_eq!(params.citrea_chain_id, actor.config.citrea_chain_id);
         assert_eq!(
-            params.bridge_circuit_constant,
-            *actor
-                .config
-                .protocol_paramset
-                .bridge_circuit_constant()
-                .unwrap()
+            params.bridge_program_key,
+            *actor.config.protocol_paramset.bridge_program_key().unwrap()
         );
         assert_eq!(
             params.sha256_bitvm_cache,
-            BITVM_CACHE
-                .get_or_try_init(load_or_generate_bitvm_cache)
+            bitvm_cache(actor.config.protocol_paramset.bridge_program_key().unwrap())
                 .unwrap()
                 .sha256_bitvm_cache
         );
@@ -287,9 +282,7 @@ mod tests {
         let actors = create_actors::<MockCitreaClient>(&config).await;
         let mut aggregator = actors.get_aggregator();
         // Load cache here to calculate sha256 of the bitvm cache for all actors before get_compatibility call to avoid timeout in debug mode
-        BITVM_CACHE
-            .get_or_try_init(load_or_generate_bitvm_cache)
-            .unwrap();
+        bitvm_cache(config.protocol_paramset.bridge_program_key().unwrap()).unwrap();
         let entity_comp_data = aggregator
             .get_compatibility_data_from_entities(Empty {})
             .await
@@ -360,7 +353,7 @@ mod tests {
     fn create_test_compatibility_params(version: &str) -> CompatibilityParams {
         let protocol_paramset = create_test_protocol_paramset();
         CompatibilityParams {
-            bridge_circuit_constant: *protocol_paramset.bridge_circuit_constant().unwrap(),
+            bridge_program_key: *protocol_paramset.bridge_program_key().unwrap(),
             sha256_bitvm_cache: [0u8; 32],
             protocol_paramset,
             security_council: create_test_security_council(),
@@ -423,15 +416,15 @@ mod tests {
     }
 
     #[test]
-    fn test_incompatible_different_bridge_circuit_constant() {
+    fn test_incompatible_different_bridge_program_key() {
         let params1 = create_test_compatibility_params("1.2.3");
         let mut params2 = create_test_compatibility_params("1.2.3");
-        params2.bridge_circuit_constant = [1u8; 32];
+        params2.bridge_program_key = [1u8; 32];
 
         let result = params1.is_compatible(&params2);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Bridge circuit constant mismatch"));
+        assert!(err_msg.contains("Bridge program key mismatch"));
     }
 
     #[test]
@@ -499,8 +492,8 @@ mod tests {
         assert!(!rpc_params.protocol_paramset.is_empty());
         assert!(!rpc_params.security_council.is_empty());
         assert_eq!(
-            rpc_params.bridge_circuit_constant,
-            params.bridge_circuit_constant.to_vec()
+            rpc_params.bridge_program_key,
+            params.bridge_program_key.to_vec()
         );
         assert_eq!(
             rpc_params.sha256_bitvm_cache,
@@ -518,10 +511,7 @@ mod tests {
         assert_eq!(params.protocol_paramset, params_back.protocol_paramset);
         assert_eq!(params.security_council, params_back.security_council);
         assert_eq!(params.citrea_chain_id, params_back.citrea_chain_id);
-        assert_eq!(
-            params.bridge_circuit_constant,
-            params_back.bridge_circuit_constant
-        );
+        assert_eq!(params.bridge_program_key, params_back.bridge_program_key);
         assert_eq!(params.sha256_bitvm_cache, params_back.sha256_bitvm_cache);
         assert_eq!(params.clementine_version, params_back.clementine_version);
     }

@@ -353,7 +353,7 @@ impl Actor {
         deposit_outpoint: OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
-        let mut pks = ClementineBitVMPublicKeys::create_replacable();
+        let mut pks = ClementineBitVMPublicKeys::create_replacable(*paramset.bridge_program_key()?);
         let pk_vec = self.derive_winternitz_pk(
             ClementineBitVMPublicKeys::get_latest_blockhash_derivation(deposit_outpoint, paramset),
         )?;

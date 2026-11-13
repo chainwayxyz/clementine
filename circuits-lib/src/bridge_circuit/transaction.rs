@@ -16,6 +16,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::common::hashes::calculate_sha256;
 
+/// Most inputs or outputs reserved before they are read. A larger count grows the vector
+/// while reading, so an invalid count fails at the end of the input.
+const MAX_PREALLOCATED_ITEMS: usize = 256;
+
 /// A wrapper around Bitcoin's `Transaction` type that provides additional and simpler functionality.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct CircuitTransaction(pub Transaction);
@@ -82,12 +86,12 @@ impl BorshDeserialize for CircuitTransaction {
         let version = Version(i32::deserialize_reader(reader)?);
         let lock_time = LockTime::from_consensus(u32::deserialize_reader(reader)?);
         let input_len = usize::deserialize_reader(reader)?;
-        let mut input = Vec::with_capacity(input_len);
+        let mut input = Vec::with_capacity(input_len.min(MAX_PREALLOCATED_ITEMS));
         for _ in 0..input_len {
             input.push(deserialize_txin(reader)?);
         }
         let output_len = usize::deserialize_reader(reader)?;
-        let mut output = Vec::with_capacity(output_len);
+        let mut output = Vec::with_capacity(output_len.min(MAX_PREALLOCATED_ITEMS));
         for _ in 0..output_len {
             output.push(deserialize_txout(reader)?);
         }
@@ -242,6 +246,11 @@ mod tests {
 
         assert_eq!(bridge_tx, deserialized);
         assert_eq!(bridge_tx.txid(), deserialized.txid());
+
+        // An input count beyond the data is an error, not an allocation of that size.
+        let mut invalid = serialized[..8].to_vec();
+        invalid.extend_from_slice(&u64::MAX.to_le_bytes());
+        assert!(borsh::from_slice::<CircuitTransaction>(&invalid).is_err());
     }
 
     #[test]

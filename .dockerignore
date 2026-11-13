@@ -4,7 +4,9 @@
 # include source files
 !/circuits-lib
 !/.cargo
-!/risc0-circuits
+!/sp1-circuits
+!/sp1-bitvm
+!/sp1-host
 !/bridge-circuit-host
 !/core
 !/scripts

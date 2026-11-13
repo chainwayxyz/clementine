@@ -17,7 +17,7 @@ use bitvm::chunk::api::Assertions;
 use circuits_lib::bridge_circuit::structs::CircuitWitness;
 use circuits_lib::bridge_circuit::structs::{CircuitTxOut, WatchtowerInput};
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use risc0_zkvm::Receipt;
+use circuits_lib::common::sp1::Receipt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -236,7 +236,9 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
+            let highest_valid_wt_index = self
+                .highest_valid_wt_index(total_works, genesis_height)
+                .unwrap();
 
             tracing::info!(
                 "Overriding blockhashes: first two valid mode with {} blocks",
@@ -259,6 +261,7 @@ impl TestParams {
         block_hashes: &[(BlockHash, impl Sized)],
         header_chain_prover: &HeaderChainProver,
         total_works: Vec<[u8; 16]>,
+        genesis_height: u32,
     ) -> eyre::Result<Receipt> {
         if self.generate_varying_total_works_insufficient_total_work {
             let (hcp, _) = header_chain_prover
@@ -268,7 +271,8 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
+            let highest_valid_wt_index =
+                self.highest_valid_wt_index(total_works, genesis_height)?;
             let target_blockhash = block_hashes.get(highest_valid_wt_index).ok_or_else(|| {
                 eyre::eyre!("Missing blockhash at index {}", highest_valid_wt_index)
             })?;
@@ -282,7 +286,13 @@ impl TestParams {
         Ok(current_hcp)
     }
 
-    fn highest_valid_wt_index(&self, total_works: Vec<[u8; 16]>) -> eyre::Result<usize> {
+    /// Index, counted from the genesis block, of the block whose regtest total work is the
+    /// second lowest watchtower total work.
+    fn highest_valid_wt_index(
+        &self,
+        total_works: Vec<[u8; 16]>,
+        genesis_height: u32,
+    ) -> eyre::Result<usize> {
         if total_works.len() < 2 {
             return Err(eyre::eyre!(
                 "Expected at least two total works for first two valid mode"
@@ -299,7 +309,7 @@ impl TestParams {
                 .expect("Expected 8 bytes for index conversion"),
         );
 
-        Ok(second_lowest_total_work_index / 2 - 1)
+        Ok(second_lowest_total_work_index / 2 - 1 - genesis_height as usize)
     }
 
     pub fn maybe_disrupt_block_hash(&self, block_hash: [u8; 32]) -> [u8; 32] {

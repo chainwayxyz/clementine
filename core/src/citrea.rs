@@ -25,17 +25,12 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, BlockHash, OutPoint, Txid, XOnlyPublicKey};
-use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::structs::StorageProof;
+use circuits_lib::common::sp1::Receipt;
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use lcp::{
-    create_light_client_circuit_input, prove_light_client_proof_from_input,
-    validate_light_client_circuit_input, validate_light_client_receipt,
-};
-use risc0_zkvm::{InnerReceipt, Receipt};
-pub use rpc_types::LightClientCircuitInputRpcResponse;
+use lcp::validate_light_client_receipt;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -108,8 +103,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// A tuple, wrapped around a [`Some`] if present:
     ///
-    /// - [`LightClientProof`]: Journal bytes from the verified receipt.
-    /// - [`Receipt`]: The verified RISC0 receipt.
+    /// - [`Receipt`]: The verified SP1 receipt.
     /// - [`u64`]: Last L2 block height from the verified journal.
     ///
     /// If not present, [`None`] is returned.
@@ -118,7 +112,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         l1_height: u64,
         l1_hash: BlockHash,
         paramset: &'static ProtocolParamset,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
+    ) -> Result<Option<(Receipt, u64)>, BridgeError>;
 
     /// Returns the L2 block height range for the given L1 block.
     ///
@@ -174,6 +168,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError>;
 
+    /// Fetches Citrea's light client proof of the payout block, verifies it and saves it for
+    /// a later assert. Fails if Citrea has not proven the block yet.
     async fn fetch_validate_and_store_lcp(
         &self,
         payout_block_height: u64,
@@ -184,7 +180,8 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError>;
 
-    async fn prove_lcp_for_assert(
+    /// Returns the verified light client proof of the payout block for an assert.
+    async fn get_lcp_for_assert(
         &self,
         payout_block_height: u64,
         payout_block_hash: BlockHash,
@@ -343,38 +340,39 @@ impl CitreaClientT for CitreaClient {
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
         paramset: &'static ProtocolParamset,
     ) -> Result<(), BridgeError> {
-        let saved_data = db
-            .get_lcp_input_for_assert(dbtx.as_deref_mut(), deposit_index)
+        let saved_receipt = db
+            .get_lcp_receipt_for_assert(dbtx.as_deref_mut(), deposit_index)
             .await?;
-        if let Some(lcp_input) = saved_data {
-            validate_light_client_circuit_input(
-                &lcp_input,
+        if let Some(receipt) = saved_receipt {
+            validate_light_client_receipt(
+                &receipt,
+                paramset.light_client_program_key()?,
                 payout_block_height,
-                payout_block_hash,
-                paramset,
+                payout_block_hash.to_byte_array(),
+                paramset.network != bitcoin::Network::Bitcoin,
             )
             .await?;
             // if already saved, do nothing
             return Ok(());
         };
 
-        let lcp_input = create_light_client_circuit_input(self, payout_block_height).await?;
-        validate_light_client_circuit_input(
-            &lcp_input,
-            payout_block_height,
-            payout_block_hash,
-            paramset,
-        )
-        .await?;
+        let (receipt, _) = self
+            .get_light_client_proof(payout_block_height, payout_block_hash, paramset)
+            .await?
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Light client proof of payout block {payout_block_height} is not available yet"
+                )
+            })?;
 
-        // save the LCP circuit input for assert
-        db.insert_lcp_input_for_assert(dbtx, deposit_index, lcp_input)
+        // save the LCP for assert
+        db.insert_lcp_receipt_for_assert(dbtx, deposit_index, receipt)
             .await?;
 
         Ok(())
     }
 
-    async fn prove_lcp_for_assert(
+    async fn get_lcp_for_assert(
         &self,
         payout_block_height: u64,
         payout_block_hash: BlockHash,
@@ -393,18 +391,10 @@ impl CitreaClientT for CitreaClient {
         )
         .await?;
 
-        let lcp_input = db
-            .get_lcp_input_for_assert(dbtx, deposit_index)
+        Ok(db
+            .get_lcp_receipt_for_assert(dbtx, deposit_index)
             .await?
-            .ok_or_else(|| eyre::eyre!("Light client circuit input not found for assert"))?;
-
-        prove_light_client_proof_from_input(
-            lcp_input,
-            payout_block_height,
-            payout_block_hash,
-            paramset,
-        )
-        .await
+            .ok_or_else(|| eyre::eyre!("Light client proof not found for assert"))?)
     }
 
     async fn new(
@@ -544,7 +534,7 @@ impl CitreaClientT for CitreaClient {
         l1_height: u64,
         l1_hash: BlockHash,
         paramset: &'static ProtocolParamset,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
+    ) -> Result<Option<(Receipt, u64)>, BridgeError> {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
@@ -557,26 +547,19 @@ impl CitreaClientT for CitreaClient {
         );
 
         let ret = if let Some(proof_result) = proof_result {
-            let decoded: InnerReceipt = bincode::deserialize(&proof_result.proof)
+            let receipt: Receipt = borsh::from_slice(&proof_result.proof)
                 .wrap_err("Failed to deserialize light client proof from citrea lcp")?;
-            let receipt = receipt_from_inner(decoded)
-                .wrap_err("Failed to create receipt from light client proof")?;
 
             let proof_output = validate_light_client_receipt(
                 &receipt,
-                paramset.get_lcp_image_id()?,
+                paramset.light_client_program_key()?,
                 l1_height,
                 l1_hash.to_byte_array(),
-                false,
-            )?;
+                paramset.network != bitcoin::Network::Bitcoin,
+            )
+            .await?;
 
-            Some((
-                LightClientProof {
-                    lc_journal: receipt.journal.bytes.clone(),
-                },
-                receipt,
-                proof_output.last_l2_height,
-            ))
+            Some((receipt, proof_output.last_l2_height))
         } else {
             None
         };
@@ -613,6 +596,10 @@ impl CitreaClientT for CitreaClient {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
+        // Citrea stores no light client proof for the height before its initial DA height, and
+        // `block_height - 1` underflows at 0. The first synced height, the larger of start and
+        // genesis height, must therefore be above Citrea's initial light client height;
+        // otherwise it never syncs.
         let proof_previous = self
             .get_light_client_proof(block_height - 1, prev_block_hash, paramset)
             .await?
@@ -621,8 +608,8 @@ impl CitreaClientT for CitreaClient {
                 block_height - 1
             ))?;
 
-        let l2_height_end: u64 = proof_current.2;
-        let l2_height_start: u64 = proof_previous.2;
+        let l2_height_end: u64 = proof_current.1;
+        let l2_height_start: u64 = proof_previous.1;
 
         Ok((l2_height_start, l2_height_end))
     }
@@ -685,14 +672,7 @@ trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<citrea_sov_rollup_interface::rpc::LightClientProofResponse>>;
-
-    /// Create read-only light client circuit input for the given L1 block height.
-    #[method(name = "createCircuitInput")]
-    async fn create_light_client_circuit_input(
-        &self,
-        l1_height: u64,
-    ) -> RpcResult<LightClientCircuitInputRpcResponse>;
+    ) -> RpcResult<Option<rpc_types::LightClientProofResponse>>;
 }
 
 #[rpc(client, namespace = "eth")]

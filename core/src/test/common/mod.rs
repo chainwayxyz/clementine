@@ -45,6 +45,7 @@ pub mod citrea;
 #[cfg(feature = "automation")]
 pub mod clementine_utils;
 mod setup_utils;
+pub mod shared_proofs;
 pub mod test_actors;
 pub mod tx_utils;
 

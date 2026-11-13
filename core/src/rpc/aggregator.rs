@@ -1332,6 +1332,10 @@ impl ClementineAggregator for AggregatorServer {
             .iter()
             .map(|key| OperatorId(*key))
             .collect::<Vec<_>>();
+        // operator config, kickoff winternitz pks and unspent kickoff sigs
+        let expected_num_params = 1
+            + self.config.get_num_kickoff_winternitz_pks()
+            + self.config.get_num_unspent_kickoff_sigs();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
             try_join_all_combine_errors(operators.iter().zip(operator_ids.iter()).map(
@@ -1347,12 +1351,22 @@ impl ClementineAggregator for AggregatorServer {
                             })
                             .map_err(BridgeError::from)?
                             .into_inner();
-                        tx.send(stream.try_collect::<Vec<_>>().await?)
-                            .map_err(|e| {
-                                BridgeError::from(eyre::eyre!(
-                                    "Failed to read operator params for {id}: {e}"
-                                ))
-                            })?;
+                        let params = stream
+                            .take(expected_num_params + 1)
+                            .try_collect::<Vec<_>>()
+                            .await?;
+                        if params.len() != expected_num_params {
+                            return Err(BridgeError::from(eyre::eyre!(
+                                "Operator {id} sent the wrong number of params: expected {expected_num_params}, read {}",
+                                params.len()
+                            ))
+                            .into());
+                        }
+                        tx.send(params).map_err(|e| {
+                            BridgeError::from(eyre::eyre!(
+                                "Failed to read operator params for {id}: {e}"
+                            ))
+                        })?;
                         Ok::<_, Status>(())
                     }
                 },

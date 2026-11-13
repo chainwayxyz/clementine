@@ -18,8 +18,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
   PARTIAL_SIG_VERIFICATION: 1
 
@@ -39,7 +39,7 @@ jobs:
       - uses: ./.github/actions/build-prerequisites
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           add-job-id-key: "false"
           key: release-check
@@ -75,26 +75,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           add-job-id-key: "false"
-          key: release-no-automation
+          key: ci-release-no-automation
 
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS --release
+        run: cargo build $CARGOFLAGS --profile ci-release
 
       - name: Run no-automation tests # only one test for now
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture
+          cargo test --profile ci-release --features testing mock_citrea_run_truthful_manual_reimbursement -- --nocapture
 
       - name: Upload test logs
         if: failure()
@@ -131,16 +129,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
+      - uses: ./.github/actions/install-citrea
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
       - name: Create test log directories
         run: mkdir -p test-logs/debug
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           add-job-id-key: "false"
           key: debug-all-features
@@ -207,19 +206,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
+      - uses: ./.github/actions/install-citrea
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           add-job-id-key: "false"
-          key: release-all-features
+          key: ci-release-all-features
 
       - name: Run unit tests
         id: unit_tests
@@ -233,7 +233,7 @@ jobs:
         run: |
           if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
             echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
-            cargo test --release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+            cargo test --profile ci-release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
           fi
 
       - name: Upload deposit state artifact
@@ -256,62 +256,41 @@ jobs:
           path: test-logs/release/
           retention-days: 7
 
-  real_risc0_watchtower_proof:
-    name: Release | Real RISC0 watchtower proof
-    runs-on: ubicloud-standard-16
+  real_sp1_watchtower_proof:
+    name: Release | Real SP1 watchtower proof
+    runs-on: ubicloud-standard-30
 
     env:
-      # Keep this synchronized with the image pinned by risc0-groth16 3.0.5.
-      RISC0_GROTH16_IMAGE: risczero/risc0-groth16-prover:v2025-04-03.1
+      SP1_PROVER: cpu
+      RUST_LOG: info
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Install RISC Zero
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --fail --location https://risczero.com/install | bash
-          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
-          export PATH="$PATH:$HOME/.risc0/bin"
-          rzup install
-          rzup install rust 1.97.0
-
       - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: real-risc0-RELEASE-${{ hashFiles('**/Cargo.lock') }}
+          add-job-id-key: "false"
+          key: real-sp1-ci-release
 
-      - name: Restore RISC Zero Groth16 prover image
-        id: cache-risc0-groth16-image
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ runner.temp }}/risc0-groth16-prover-v2025-04-03.1.tar
-          key: risc0-groth16-prover-${{ runner.os }}-${{ runner.arch }}-v2025-04-03.1
+      - uses: ./.github/actions/prepare-sp1-proving
 
-      - name: Load cached RISC Zero Groth16 prover image
-        if: steps.cache-risc0-groth16-image.outputs.cache-hit == 'true'
-        run: docker load --input "$RUNNER_TEMP/risc0-groth16-prover-v2025-04-03.1.tar"
-
-      - name: Download RISC Zero Groth16 prover image
-        if: steps.cache-risc0-groth16-image.outputs.cache-hit != 'true'
+      - name: Verify production bridge proof binding and fixed metadata
         run: |
-          set -euo pipefail
-          docker pull "$RISC0_GROTH16_IMAGE"
-          docker save \
-            --output "$RUNNER_TEMP/risc0-groth16-prover-v2025-04-03.1.tar" \
-            "$RISC0_GROTH16_IMAGE"
+          # --all-features selects the development VK and excludes the production fixture.
+          cargo test --locked -p bridge-circuit-host --profile ci-release \
+            sp1::tests::real_bridge_proof_verifies_only_with_its_program_and_public_values -- --exact
+          cargo test --locked -p bridge-circuit-host --profile ci-release bitvm_verifier::tests
 
       - name: Verify real watchtower challenge proof
         run: |
           # Production Groth16 VK is required. Do not enable use-test-vk:
-          # the guest under test is regtest-bridge-circuit-guest.bin.
+          # the guest under test is regtest-bridge-circuit.elf.
           cargo test \
             -p bridge-circuit-host \
-            --release \
-            bridge_circuit_host::tests::operator_verifies_real_risc0_watchtower_challenge \
+            --profile ci-release \
+            bridge_circuit_host::tests::operator_verifies_real_sp1_watchtower_challenge \
             -- --exact --ignored --nocapture
 
   # Matrix (Standalone) Tests --------------------------------------------------
@@ -349,9 +328,9 @@ jobs:
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "Disprove disrupted assert path"
             test_name: "disprove-corrupted-assert"
-          - test_script_name: citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
-            description_suffix: "E2E non-zero genesis height"
-            test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
+          - test_script_name: citrea_deposit_and_withdraw_e2e
+            description_suffix: "E2E deposit and withdraw"
+            test_name: "citrea-deposit-and-withdraw"
 
     services:
       postgres:
@@ -371,24 +350,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
+      - uses: ./.github/actions/install-citrea
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
       - name: Create test log directories
         run: mkdir -p test-logs/standalone
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
           add-job-id-key: "false"
-          key: release-all-features
+          key: ci-release-all-features
 
       - name: Run tests
         run: |
           ./scripts/generate_certs.sh
-          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --profile ci-release -- --ignored --nocapture
 
       - name: Upload test logs
         if: failure() || cancelled()

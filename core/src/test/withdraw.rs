@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid};
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, SequencerConfig, TestCaseConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
@@ -20,28 +20,16 @@ struct CitreaWithdrawAndGetUTXO;
 #[async_trait]
 impl TestCase for CitreaWithdrawAndGetUTXO {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::paired_citrea(TestCaseConfig {
             with_batch_prover: false,
             with_sequencer: true,
             with_full_node: true,
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     fn sequencer_config() -> SequencerConfig {
@@ -151,6 +139,5 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

@@ -2,20 +2,7 @@
 
 echo "Run this script in the root of the project"
 
-# Check if BITVM_CACHE_PATH is set, if not try to find cache file automatically
-if [ -z "$BITVM_CACHE_PATH" ]; then
-    if [ -f "./core/bitvm_cache.bin" ]; then
-        export BITVM_CACHE_PATH="./core/bitvm_cache.bin"
-        echo "Using cache file: $BITVM_CACHE_PATH"
-    elif [ -f "./bitvm_cache.bin" ]; then
-        export BITVM_CACHE_PATH="./bitvm_cache.bin"
-        echo "Using cache file: $BITVM_CACHE_PATH"
-    else
-        echo "BITVM_CACHE_PATH is not set and no cache file found in ./core/bitvm_cache.bin or ./bitvm_cache.bin"
-        echo "Please set BITVM_CACHE_PATH or ensure a cache file exists in one of the above locations."
-        exit 1
-    fi
-fi
+# Program-specific BitVM caches are generated automatically when absent.
 
 export READ_CONFIG_FROM_ENV=1
 export READ_PARAMSET_FROM_ENV=1
@@ -45,7 +32,6 @@ export DB_NAME=${DB_NAME:=clementine}
 export PROTOCOL_CONFIG_PATH=${PROTOCOL_CONFIG_PATH:="core/src/config/protocol_paramset.toml"}
 export DBG_PACKAGE_HEX=${DBG_PACKAGE_HEX:=1}
 export RUST_MIN_STACK=${RUST_MIN_STACK:=33554432}
-export RISC0_SKIP_BUILD=${RISC0_SKIP_BUILD:=1}
 export LOG_FORMAT=json
 export RUST_LOG=info
 # TLS
@@ -59,7 +45,6 @@ export CLIENT_VERIFICATION=${CLIENT_VERIFICATION:=1}
 export OPERATOR_WITHDRAWAL_FEE_SATS=${OPERATOR_WITHDRAWAL_FEE_SATS:=100000}
 
 export SECURITY_COUNCIL=${SECURITY_COUNCIL:="1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"}
-export HEADER_CHAIN_PROOF_BATCH_SIZE=100
 
 # System parameters
 export NETWORK=${NETWORK:=regtest}
@@ -90,7 +75,7 @@ export BRIDGE_NONSTANDARD=${BRIDGE_NONSTANDARD:=false}
 export TELEMETRY_HOST=0.0.0.0
 export TELEMETRY_PORT=8081
 export RUST_MIN_STACK=33554432
-export RISC0_DEV_MODE=1
+export SP1_PROVER=mock
 
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")

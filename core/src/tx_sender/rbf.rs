@@ -1,5 +1,6 @@
 use super::{log_error_for_tx, Result, SendTxError, TxMetadata, TxSender};
 use crate::builder::{self};
+use crate::extended_bitcoin_rpc::{rpc_error_code, RPC_INVALID_ADDRESS_OR_KEY};
 use crate::utils::RbfSigningInfo;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
@@ -97,6 +98,23 @@ impl TxSender {
             .map_err(|e| eyre!(e).into())
     }
 
+    /// Returns whether the node's wallet records `txid`, which `psbtbumpfee` requires.
+    ///
+    /// When a transaction's own inputs already cover the target fee, and the leftover is below
+    /// the dust threshold, Core funds it without adding a wallet input or a change output. The
+    /// wallet then never records the transaction, so it can only be replaced by funding its
+    /// template again.
+    async fn wallet_records_tx(&self, txid: &Txid) -> Result<bool> {
+        match self.rpc.get_transaction(txid, None).await {
+            Ok(_) => Ok(true),
+            // `gettransaction` reports a transaction the wallet does not track with this code.
+            Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_ADDRESS_OR_KEY) => Ok(false),
+            Err(e) => Err(eyre!(e)
+                .wrap_err(format!("Failed to look up wallet transaction {txid}"))
+                .into()),
+        }
+    }
+
     pub async fn fill_in_utxo_info(&self, psbt: &mut String) -> Result<()> {
         let mut decoded_psbt = Psbt::from_str(psbt).map_err(|e| eyre!(e))?;
         let tx = decoded_psbt.unsigned_tx.clone();
@@ -171,6 +189,7 @@ impl TxSender {
         // 1. Create a funded PSBT using the wallet
         let create_psbt_opts = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
             add_inputs: Some(true), // Let the wallet add its inputs
+            include_unsafe: Some(false),
             change_address: None,
             change_position: Some(tx.output.len() as u16), // Add change output at last index (so that SinglePlusAnyoneCanPay signatures stay valid)
             change_type: None,
@@ -239,6 +258,7 @@ impl TxSender {
                         txid: inp.previous_output.txid,
                         vout: inp.previous_output.vout,
                         sequence: Some(inp.sequence.to_consensus_u32()),
+                        weight: None,
                     })
                     .collect::<Vec<_>>(),
                 outputs,
@@ -393,19 +413,6 @@ impl TxSender {
         });
     }
 
-    /// This function verifies that the wallet has added a funding input to the
-    /// PSBT.
-    ///
-    /// This is required for a transaction to be added to the wallet.
-    pub fn verify_new_inputs(&self, psbt: &str, original_tx: &Transaction) -> bool {
-        let Ok(psbt) = Psbt::from_str(psbt) else {
-            tracing::error!("Failed to parse PSBT");
-            return false;
-        };
-
-        psbt.inputs.len() > original_tx.input.len()
-    }
-
     /// Keep original protocol outputs at their original indexes. Wallet funding
     /// or bumping may append change, but must not reorder existing outputs.
     fn reorder_psbt_outputs(&self, psbt: &mut Psbt, original_tx: &Transaction) -> Result<()> {
@@ -484,9 +491,12 @@ impl TxSender {
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
     ///     If that tx is not in the mempool or chain anymore, it is handled as the first attempt.
-    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.psbt_bump_fee`.
+    /// 2.  **Bump Existing Tx:** If `last_rbf_txid` exists, it calls `rpc.psbt_bump_fee`.
     ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
     ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
+    ///     - `psbtbumpfee` only bumps transactions that the wallet records. A transaction that
+    ///       the wallet does not record is replaced by funding the original tx again, as in the
+    ///       first attempt, at the replacement fee rate.
     ///
     /// 3.  **Send Initial RBF Tx:** If no `last_rbf_txid` exists (first attempt):
     ///     - It uses `fund_raw_transaction` RPC to let the wallet add (potentially) inputs,
@@ -506,7 +516,7 @@ impl TxSender {
         try_to_send_id: u32,
         tx: Transaction,
         tx_metadata: Option<TxMetadata>,
-        fee_rate: FeeRate,
+        mut fee_rate: FeeRate,
         rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
@@ -541,17 +551,11 @@ impl TxSender {
             }
         }
 
-        if let Some(last_rbf_txid) = last_rbf_txid {
-            tracing::debug!(
-                ?try_to_send_id,
-                "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
-            );
-
-            let effective_feerate = self
-                .calculate_bump_feerate_if_needed(&last_rbf_txid, fee_rate)
-                .await?;
-
-            let Some(effective_feerate) = effective_feerate else {
+        if let Some(txid) = last_rbf_txid {
+            let Some(replacement_fee_rate) = self
+                .calculate_bump_feerate_if_needed(&txid, fee_rate)
+                .await?
+            else {
                 tracing::debug!(
                     ?try_to_send_id,
                     "Original tx feerate already higher than target ({} sat/vB), skipping bump",
@@ -559,14 +563,35 @@ impl TxSender {
                 );
                 return Ok(());
             };
+            fee_rate = replacement_fee_rate;
+
+            // A tx that the wallet does not record can't be bumped with psbtbumpfee, so the
+            // original tx is funded again at the replacement fee rate. That needs more input
+            // value than the original tx has, so the wallet adds an input, and later bumps can
+            // use psbtbumpfee.
+            if !self.wallet_records_tx(&txid).await? {
+                tracing::debug!(
+                    ?try_to_send_id,
+                    "RBF tx {txid} is not in the wallet, funding the original tx again to replace it"
+                );
+                last_rbf_txid = None;
+            }
+        }
+
+        if let Some(last_rbf_txid) = last_rbf_txid {
+            tracing::debug!(
+                ?try_to_send_id,
+                "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
+            );
 
             let psbt_bump_opts = BumpFeeOptions {
                 conf_target: None, // Use fee_rate instead
                 fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
-                    effective_feerate.to_sat_per_vb_ceil(),
+                    fee_rate.to_sat_per_vb_ceil(),
                 ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
                 estimate_mode: None,
+                psbt_version: None,
             };
 
             let bump_result = self
@@ -642,7 +667,11 @@ impl TxSender {
                 .await
                 .wrap_err("Failed to fill SAP signatures")?;
 
+            // psbtbumpfee does not keep the original version and locktime, and the copied S+ACP
+            // signatures commit to both.
             let mut unsigned_psbt = Psbt::from_str(&bumped_psbt).map_err(|e| eyre!(e))?;
+            unsigned_psbt.unsigned_tx.version = tx.version;
+            unsigned_psbt.unsigned_tx.lock_time = tx.lock_time;
             if let Err(err) = self.reorder_psbt_outputs(&mut unsigned_psbt, &tx) {
                 let err_msg = format!("Failed to reorder bumped PSBT outputs: {err}");
                 self.handle_err(
@@ -815,13 +844,6 @@ impl TxSender {
 
                     err
                 })?;
-
-            if !self.verify_new_inputs(&create_result.psbt, &tx) {
-                tracing::debug!(
-                    ?try_to_send_id,
-                    "Transaction has not been funded and is being sent as is. This transaction will have to be manually bumped as the wallet will not add it to itself."
-                );
-            }
 
             // replace locktime and version
             let mut psbt = Psbt::from_str(&create_result.psbt).map_err(|e| eyre!(e))?;
@@ -1163,11 +1185,40 @@ pub mod tests {
             .expect("Transaction should be have debug info");
 
         // Get the actual transaction from the mempool
+        let initial_txid = tx_debug_info.txid.unwrap().txid;
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
-            tx_debug_info.txid.unwrap().txid.try_into().unwrap(),
+            initial_txid.clone().try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
+
+        // Bump the fee. The bumped tx must keep the version and locktime that the S+ACP
+        // signature commits to.
+        let higher_fee_rate = current_fee_rate.checked_mul(2).unwrap();
+        tx_sender
+            .send_rbf_tx(try_to_send_id, tx.clone(), None, higher_fee_rate, None)
+            .await
+            .expect("RBF bump should succeed");
+
+        let tx_debug_info = tx_sender
+            .client()
+            .debug_tx(try_to_send_id)
+            .await
+            .expect("Transaction should be have debug info");
+        let bumped_txid = tx_debug_info.txid.unwrap().txid;
+        assert_ne!(
+            bumped_txid, initial_txid,
+            "Transaction should have been bumped"
+        );
+
+        let bumped_tx = rpc
+            .get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+                bumped_txid.try_into().unwrap(),
+            ))
+            .await
+            .expect("Bumped transaction should be in mempool");
+        assert_eq!(bumped_tx.version, tx.version);
+        assert_eq!(bumped_tx.lock_time, tx.lock_time);
 
         Ok(())
     }
@@ -1554,6 +1605,101 @@ pub mod tests {
         assert_ne!(
             changed_txid, initial_txid,
             "Transaction should have been bumped"
+        );
+
+        Ok(())
+    }
+
+    /// A tx that pays its fee from its own inputs has no input or output of the node's wallet,
+    /// so the wallet does not record it and `psbtbumpfee` can't replace it. It must still be
+    /// replaced by funding the original tx again, and left alone while it pays the target fee
+    /// rate.
+    #[tokio::test]
+    async fn test_rbf_replaces_tx_the_wallet_does_not_record() -> Result<(), BridgeError> {
+        let mut config = create_test_config_with_thread_name().await;
+        let rpc = create_regtest_rpc(&mut config).await;
+
+        let (tx_sender, btc_sender, rpc, db, signer, network) =
+            create_tx_sender(rpc.rpc().clone()).await;
+        let pair = btc_sender.into_task().cancelable_loop();
+        pair.0.into_bg();
+
+        // Pays a 990 sat fee from its own input, about 9 sat/vB.
+        let tx = create_rbf_tx(&rpc, &signer, network, false).await?;
+        let rbf_signing_info = RbfSigningInfo {
+            vout: 0,
+            tweak_merkle_root: None,
+            annex: None,
+            additional_taproot_output_count: None,
+        };
+
+        let mut dbtx = db.begin_transaction().await?;
+        let try_to_send_id = tx_sender
+            .client()
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::RBF,
+                Some(rbf_signing_info.clone()),
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        let self_paid_txid = rpc
+            .send_raw_transaction(&tx)
+            .await
+            .expect("Self-paid tx should be accepted");
+        db.save_rbf_txid(Some(&mut dbtx), try_to_send_id, self_paid_txid)
+            .await?;
+        dbtx.commit().await?;
+        assert!(
+            !tx_sender.wallet_records_tx(&self_paid_txid).await.unwrap(),
+            "The wallet must not record a tx it has no input or output in"
+        );
+
+        for (sat_per_vb, replaced) in [(5, false), (30, true)] {
+            tx_sender
+                .send_rbf_tx(
+                    try_to_send_id,
+                    tx.clone(),
+                    None,
+                    FeeRate::from_sat_per_vb(sat_per_vb).unwrap(),
+                    Some(rbf_signing_info.clone()),
+                )
+                .await
+                .expect("RBF should succeed");
+            let last_rbf_txid = db
+                .get_last_rbf_txid(None, try_to_send_id)
+                .await?
+                .expect("Last RBF txid should exist");
+            assert_eq!(
+                last_rbf_txid != self_paid_txid,
+                replaced,
+                "Only a tx below the target fee rate must be replaced, at {sat_per_vb} sat/vB"
+            );
+        }
+
+        let replacement_txid = db
+            .get_last_rbf_txid(None, try_to_send_id)
+            .await?
+            .expect("Last RBF txid should exist");
+        let replacement = rpc
+            .get_tx_of_txid(&replacement_txid)
+            .await
+            .expect("Replacement should be in mempool");
+        assert!(
+            replacement.input.len() > tx.input.len(),
+            "The replacement must spend a wallet UTXO so later bumps can use psbtbumpfee"
+        );
+        assert!(
+            tx_sender
+                .wallet_records_tx(&replacement_txid)
+                .await
+                .unwrap(),
+            "The wallet must record the replacement"
         );
 
         Ok(())

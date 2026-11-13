@@ -659,7 +659,7 @@ mod tests {
     /// To make the test work if breaking changes are expected, run generate_deposit_state() test again
     /// (with both debug and release), it will get updated with the current values. Run following commands:
     /// debug: cargo test --all-features generate_deposit_state -- --ignored
-    /// release: cargo test --all-features --release generate_deposit_state -- --ignored
+    /// release: cargo test --all-features --profile ci-release generate_deposit_state -- --ignored
     /// If test_bridge_contract_change failed on github CI, CI also uploads the deposit state file as an artifact, so it can be downloaded
     /// and committed to the repo.
     #[cfg(feature = "automation")]

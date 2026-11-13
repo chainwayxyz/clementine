@@ -2,7 +2,9 @@
 
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::config::protocol::ProtocolParamset;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{config::BridgeConfig, errors::BridgeError};
@@ -123,12 +125,10 @@ pub async fn start_citrea(
     ))
 }
 
-/// Updates given config with the values set by the Citrea e2e.
-pub fn update_config_with_citrea_e2e_values(
+/// Points the config's Bitcoin RPC at a Citrea e2e Bitcoin node.
+pub fn update_config_with_bitcoin_e2e_values(
     config: &mut BridgeConfig,
     da: &citrea_e2e::bitcoin::BitcoinNode,
-    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
-    light_client_prover: Option<(&str, u16)>,
 ) {
     config.bitcoin_rpc_user = da.config.rpc_user.clone().into();
     config.bitcoin_rpc_password = da.config.rpc_password.clone().into();
@@ -137,6 +137,16 @@ pub fn update_config_with_citrea_e2e_values(
         da.config.rpc_port,
         NodeKind::Bitcoin // citrea-e2e internal.
     );
+}
+
+/// Updates given config with the values set by the Citrea e2e.
+pub fn update_config_with_citrea_e2e_values(
+    config: &mut BridgeConfig,
+    da: &citrea_e2e::bitcoin::BitcoinNode,
+    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    light_client_prover: Option<(&str, u16)>,
+) {
+    update_config_with_bitcoin_e2e_values(config, da);
 
     let citrea_url = format!(
         "http://{}:{}",
@@ -154,23 +164,66 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-/// Wait until the light client contract is updated to the given block height
+/// Sets the genesis to the newest finalized block, as after the SP1 migration
+/// (docs/sp1.md#deployment). It must be above the start height and the light client prover's
+/// first proof height. The blocks Citrea e2e mines at startup to fund its wallets are enough.
+pub async fn set_genesis_above_lcp_start(
+    config: &mut BridgeConfig,
+    light_client_prover: &Node<LightClientProverConfig>,
+) {
+    let lcp_start_height = light_client_prover.config.node.initial_da_height;
+    let rpc = ExtendedBitcoinRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+        None,
+    )
+    .await
+    .expect("Bitcoin RPC is reachable");
+    let paramset = config.protocol_paramset();
+    let lcp_start_height = u32::try_from(lcp_start_height).expect("LCP start height fits u32");
+    let tip_height = rpc.get_current_chain_height().await.unwrap();
+    let genesis_height = tip_height + 1 - paramset.finality_depth;
+    assert!(
+        genesis_height > paramset.start_height.max(lcp_start_height),
+        "Genesis height {genesis_height} must be above start height {} and LCP start height {lcp_start_height}",
+        paramset.start_height
+    );
+
+    let genesis_chain_state_hash = HeaderChainProver::get_chain_state_from_height(
+        &rpc,
+        genesis_height.into(),
+        paramset.network,
+    )
+    .await
+    .unwrap()
+    .to_hash();
+
+    config.protocol_paramset = Box::leak(Box::new(ProtocolParamset {
+        genesis_height,
+        genesis_chain_state_hash,
+        ..paramset.clone()
+    }));
+}
+
+/// Wait until the light client contract stores the given block height
 pub async fn wait_until_lc_contract_updated(
     client: &HttpClient,
     block_height: u64,
 ) -> Result<(), BridgeError> {
-    let mut attempts = 0;
     let max_attempts = 600;
 
-    while attempts < max_attempts {
-        let block_number = block_number(client).await?;
-        if block_number >= block_height as u32 {
-            break;
+    for _ in 0..max_attempts {
+        // `blockNumber` is the next height that the contract will write.
+        if u64::from(block_number(client).await?) > block_height {
+            return Ok(());
         }
-        attempts += 1;
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-    Ok(())
+    Err(eyre::eyre!(
+        "Light client contract did not store block height {block_height} after {max_attempts} attempts"
+    )
+    .into())
 }
 
 /// Convert scriptbuf into how it would look like as a tapscript in a witness

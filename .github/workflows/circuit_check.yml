@@ -15,89 +15,33 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  REPR_GUEST_BUILD: 1
-  BITCOIN_NETWORK: mainnet
-  RISC0_TOOLCHAIN_VERSION: v1
-
 jobs:
   circuit_check:
-    name: ${{ matrix.circuit }} Method ID Check
-    runs-on: ubicloud-standard-8
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Non-empty source_commit: rebuild that circuit from the frozen snapshot.
-          # Empty source_commit: rebuild from this PR / push commit.
-          - circuit: header-chain
-            source_commit: 5ae25cf85ae81432a82bbc2b7b6685836cad38f9
-          - circuit: work-only
-            source_commit: ""
-          - circuit: bridge-circuit
-            source_commit: ""
+    name: SP1 Guest Program Key Check
+    runs-on: ubicloud-standard-16
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Checkout frozen ${{ matrix.circuit }} source
-        if: matrix.source_commit != ''
-        uses: actions/checkout@v4
+      - name: Check SP1 crypto patches
+        run: python3 scripts/check-sp1-patches.py
+
+      - uses: ./.github/actions/install-sp1
+
+      - name: Rebuild all guests in the pinned SP1 image
+        run: python3 scripts/build_sp1_guests.py
+
+      - name: Verify committed guests and program keys are unchanged
+        run: |
+          if ! git diff --exit-code -- sp1-circuits/elfs circuits-lib/src/common/sp1_programs.rs; then
+            echo "This PR has altered the guest build output. Run scripts/build_sp1_guests.py and commit the updated artifacts."
+            exit 1
+          fi
+
+      - name: Upload rebuilt guests on mismatch
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          ref: ${{ matrix.source_commit }}
-          path: circuit-source
-
-      - name: Install risc0
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl -L https://risczero.com/install | bash
-          export PATH="$PATH:$HOME/.risc0/bin"
-          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
-          rzup install
-          rzup install rust 1.97.0
-
-      - name: Install r0vm
-        run: rzup install r0vm
-
-      - name: Compute ${{ matrix.circuit }} pre-build method ID
-        id: pre_id
-        working-directory: risc0-circuits
-        run: |
-          PRE_ID=$(r0vm --elf elfs/mainnet-${{ matrix.circuit }}-guest.bin --id | tr -d '[:space:]')
-          echo "pre_id=$PRE_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Build ${{ matrix.circuit }}
-        if: matrix.source_commit == ''
-        working-directory: risc0-circuits/${{ matrix.circuit }}
-        run: cargo build -p ${{ matrix.circuit }} --release
-
-      - name: Build ${{ matrix.circuit }} from frozen source
-        if: matrix.source_commit != ''
-        working-directory: circuit-source/risc0-circuits/${{ matrix.circuit }}
-        run: |
-          cargo build -p ${{ matrix.circuit }} --release
-          ELF="target/riscv-guest/${{ matrix.circuit }}/${{ matrix.circuit }}-guest/riscv32im-risc0-zkvm-elf/docker/${{ matrix.circuit }}-guest.bin"
-          if [ ! -f "$ELF" ]; then
-            echo "Rebuilt ${{ matrix.circuit }} ELF not found at $ELF"
-            exit 1
-          fi
-          cp "$ELF" "$GITHUB_WORKSPACE/risc0-circuits/elfs/mainnet-${{ matrix.circuit }}-guest.bin"
-
-      - name: Compute ${{ matrix.circuit }} post-build method ID
-        id: post_id
-        working-directory: risc0-circuits
-        run: |
-          POST_ID=$(r0vm --elf elfs/mainnet-${{ matrix.circuit }}-guest.bin --id | tr -d '[:space:]')
-          echo "post_id=$POST_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Verify ${{ matrix.circuit }} method ID unchanged
-        run: |
-          if [ "${{ steps.pre_id.outputs.pre_id }}" != "${{ steps.post_id.outputs.post_id }}" ]; then
-            echo "${{ matrix.circuit }} method ID has changed from ${{ steps.pre_id.outputs.pre_id }} to ${{ steps.post_id.outputs.post_id }}." \
-              "This PR has altered the circuit build output. Please rebuild the circuit and commit the updated artifacts."
-            exit 1
-          else
-            echo "${{ matrix.circuit }} method ID is unchanged: ${{ steps.pre_id.outputs.pre_id }}"
-          fi
+          name: rebuilt-sp1-guests
+          path: sp1-circuits/elfs/
+          retention-days: 7

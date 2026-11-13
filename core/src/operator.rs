@@ -1,4 +1,3 @@
-use ark_ff::PrimeField;
 use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -40,6 +39,7 @@ use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 
 use eyre::{Context, OptionExt};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -56,15 +56,9 @@ use {
     bitcoin::Witness,
     bitvm::chunk::api::generate_assertions,
     bridge_circuit_host::{
-        bridge_circuit_host::{
-            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
-            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
-            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
-        },
+        bridge_circuit_host::{create_spv, prove_bridge_circuit},
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
-    circuits_lib::bridge_circuit::structs::LightClientProof,
     std::collections::HashMap,
 };
 
@@ -196,6 +190,7 @@ where
         self.background_tasks
             .ensure_task_looping(
                 PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
+                    .into_buffered_errors(20, 3, Duration::from_secs(60))
                     .with_delay(PAYOUT_CHECKER_POLL_DELAY),
             )
             .await;
@@ -804,6 +799,7 @@ where
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(1),
                     change_type: None,
@@ -990,6 +986,8 @@ where
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<bitcoin::Txid, BridgeError> {
+        self.db.lock_current_round_index(dbtx).await?;
+
         let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
@@ -1162,6 +1160,8 @@ where
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<(), BridgeError> {
+        self.db.lock_current_round_index(dbtx).await?;
+
         // get current round index
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
 
@@ -1269,43 +1269,45 @@ where
             }
         }
 
-        // Burn unused kickoff connectors
-        let mut burn_unspent_kickoff_connectors_tx =
-            create_burn_unused_kickoff_connectors_txhandler(
-                &current_round_txhandler,
-                &unspent_kickoff_connector_indices,
-                &self.signer.address,
-                self.config.protocol_paramset(),
-            )?;
+        // Burn unused kickoff connectors. If every connector was used, there is nothing to burn.
+        if !unspent_kickoff_connector_indices.is_empty() {
+            let mut burn_unspent_kickoff_connectors_tx =
+                create_burn_unused_kickoff_connectors_txhandler(
+                    &current_round_txhandler,
+                    &unspent_kickoff_connector_indices,
+                    &self.signer.address,
+                    self.config.protocol_paramset(),
+                )?;
 
-        // sign burn unused kickoff connectors tx
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut burn_unspent_kickoff_connectors_tx,
-                &[],
-                Some(&mut tweak_cache),
-            )
-            .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
+            // sign burn unused kickoff connectors tx
+            self.signer
+                .tx_sign_and_fill_sigs(
+                    &mut burn_unspent_kickoff_connectors_tx,
+                    &[],
+                    Some(&mut tweak_cache),
+                )
+                .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
 
-        self.tx_sender
-            .insert_try_to_send(
-                dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::BurnUnusedKickoffConnectors,
-                    operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                burn_unspent_kickoff_connectors_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    dbtx,
+                    Some(TxMetadata {
+                        tx_type: TransactionType::BurnUnusedKickoffConnectors,
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
+                        round_idx: Some(current_round_index),
+                        kickoff_idx: None,
+                        deposit_outpoint: None,
+                    }),
+                    burn_unspent_kickoff_connectors_tx.get_cached_tx(),
+                    FeePayingType::CPFP,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await?;
+        }
 
         // send ready to reimburse tx
         self.tx_sender
@@ -1364,6 +1366,28 @@ where
         Ok(())
     }
 
+    /// Saves finalized headers that header sync has not saved yet, in case it is behind.
+    ///
+    /// The header chain prover reads on its own connection, so the headers are committed
+    /// independently of the state transaction that `send_asserts` holds open.
+    #[cfg(feature = "automation")]
+    async fn catch_up_assertion_headers(&self) -> Result<(), BridgeError> {
+        let rpc_current_finalized_height = self
+            .rpc
+            .get_current_chain_height()
+            .await?
+            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
+
+        self.db
+            .fetch_and_save_missing_blocks(
+                None,
+                &self.rpc,
+                self.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + 1,
+            )
+            .await
+    }
+
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
@@ -1374,7 +1398,8 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+        use bridge_circuit_host::bitvm_verifier::get_verifying_key;
+        use circuits_lib::bridge_circuit::constants::is_test_vk;
         use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
         let context = ContractContext::new_context_for_kickoff(
@@ -1454,7 +1479,7 @@ where
 
         let lcp_receipt = self
             .citrea_client
-            .prove_lcp_for_assert(
+            .get_lcp_for_assert(
                 payout_block_height as u64,
                 payout_block_hash,
                 deposit_idx as u32,
@@ -1466,9 +1491,6 @@ where
         let proof_output: LightClientCircuitOutput = borsh::from_slice(&lcp_receipt.journal.bytes)
             .wrap_err("Failed to deserialize light client circuit output")?;
         let l2_height = proof_output.last_l2_height;
-        let light_client_proof = LightClientProof {
-            lc_journal: lcp_receipt.journal.bytes.clone(),
-        };
 
         tracing::info!("Got light client proof in send_asserts");
 
@@ -1506,21 +1528,7 @@ where
             .test_params
             .maybe_disrupt_latest_block_hash_commit(latest_blockhash_last_20);
 
-        let rpc_current_finalized_height = self
-            .rpc
-            .get_current_chain_height()
-            .await?
-            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
-
-        // update headers in case header sync is behind
-        self.db
-            .fetch_and_save_missing_blocks(
-                Some(dbtx),
-                &self.rpc,
-                self.config.protocol_paramset().genesis_height,
-                rpc_current_finalized_height + 1,
-            )
-            .await?;
+        self.catch_up_assertion_headers().await?;
 
         let current_height = self
             .db
@@ -1575,6 +1583,7 @@ where
                 &block_hashes,
                 &self.header_chain_prover,
                 total_works.clone(),
+                self.config.protocol_paramset().genesis_height,
             )
             .await?;
 
@@ -1641,7 +1650,6 @@ where
             kickoff_tx.clone(),
             spv,
             current_hcp,
-            light_client_proof,
             lcp_receipt,
             storage_proof,
             self.config.protocol_paramset().network,
@@ -1650,37 +1658,7 @@ where
         )
         .wrap_err("Failed to create bridge circuit host params in send_asserts")?;
 
-        let bridge_circuit_elf = match self.config.protocol_paramset().network {
-            bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Testnet4 => {
-                if is_dev_mode() {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Signet => {
-                if is_dev_mode() {
-                    SIGNET_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    SIGNET_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Regtest => {
-                if is_dev_mode() {
-                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    REGTEST_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            _ => {
-                return Err(eyre::eyre!(
-                    "Unsupported network {:?} in send_asserts",
-                    self.config.protocol_paramset().network
-                )
-                .into())
-            }
-        };
+        let backend = self.header_chain_prover.backend();
         tracing::info!("Starting proving bridge circuit to send asserts");
 
         #[cfg(test)]
@@ -1688,15 +1666,13 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
-        })
-        .await
-        .wrap_err("Failed to join the prove_bridge_circuit task")?
-        .wrap_err("Failed to prove bridge circuit")?;
+        let (g16_proof, public_inputs) = prove_bridge_circuit(bridge_circuit_host_params, backend)
+            .await
+            .wrap_err("Failed to prove bridge circuit")?;
 
         tracing::info!("Proved bridge circuit in send_asserts");
-        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+        let public_input_scalar = public_inputs.groth16_public_input();
+        let bridge_program_key = *self.config.protocol_paramset().bridge_program_key()?;
 
         #[cfg(test)]
         let mut public_inputs = public_inputs;
@@ -1723,12 +1699,12 @@ where
         );
 
         let asserts = tokio::task::spawn_blocking(move || {
-            let vk = get_verifying_key();
+            let vk = get_verifying_key(&bridge_program_key)?;
 
             generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
                 eyre::eyre!(
                     "Failed to generate {}assertions: {}",
-                    if is_dev_mode() { "dev mode " } else { "" },
+                    if is_test_vk() { "development " } else { "" },
                     e
                 )
             })
@@ -2106,6 +2082,7 @@ where
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
+        self.db.lock_current_round_index(&mut dbtx).await?;
         // first check if the deposit is in the database
         let (deposit_id, mut deposit_data) = self
             .db
@@ -2818,5 +2795,32 @@ mod tests {
             idx += 1;
         }
         assert_eq!(idx, actual_wpks.len());
+    }
+
+    #[cfg(feature = "automation")]
+    #[tokio::test]
+    async fn assertion_header_catch_up_is_visible_to_header_chain_prover() {
+        use bitcoincore_rpc::RpcApi;
+
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
+        let finality_depth = operator.config.protocol_paramset().finality_depth;
+        let height = regtest
+            .rpc()
+            .get_current_chain_height()
+            .await
+            .unwrap()
+            .saturating_sub(finality_depth - 1);
+        let hash = regtest.rpc().get_block_hash(height.into()).await.unwrap();
+
+        // Header sync is not running, so only the catch-up can save this block's header.
+        operator.catch_up_assertion_headers().await.unwrap();
+        let (_, proven_height) = operator
+            .header_chain_prover
+            .prove_till_hash(hash)
+            .await
+            .unwrap();
+        assert_eq!(proven_height, u64::from(height));
     }
 }

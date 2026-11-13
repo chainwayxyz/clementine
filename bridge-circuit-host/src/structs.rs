@@ -1,6 +1,4 @@
 use alloy_rpc_types::EIP1186StorageProof;
-use ark_bn254::Bn254;
-use ark_ff::PrimeField;
 use bitcoin::{
     consensus::Encodable,
     hashes::{sha256, Hash},
@@ -9,9 +7,10 @@ use bitcoin::{
     Network, OutPoint, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
+use circuits_lib::common::sp1::Receipt;
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, get_first_op_return_output, journal_hash, parse_op_return_data,
+        bridge_public_values, deposit_constant, get_first_op_return_output, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -23,10 +22,8 @@ use circuits_lib::{
     header_chain::BlockHeaderCircuitOutput,
 };
 use eyre::Result;
-use risc0_zkvm::Receipt;
 use std::ops::{Deref, DerefMut};
 
-use crate::utils::get_ark_verifying_key_prod;
 use thiserror::Error;
 
 const OP_RETURN_OUTPUT: usize = 1;
@@ -40,14 +37,12 @@ const ANCHOR_OUTPUT: usize = 1;
 pub struct BridgeCircuitHostParams {
     pub kickoff_tx: CircuitTransaction,
     pub spv: SPV,
-    pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
-    pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
     pub network: CircuitNetwork,
     pub watchtower_inputs: Vec<WatchtowerInput>,
-    pub all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey>,
+    pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
     pub watchtower_challenge_connector_start_idx: u32,
     pub payout_input_index: u32,
 }
@@ -59,8 +54,6 @@ pub enum BridgeCircuitHostParamsError {
     InvalidKickoffTx,
     #[error("Invalid headerchain receipt")]
     InvalidHeaderchainReceipt,
-    #[error("Invalid light client proof")]
-    InvalidLightClientProof,
     #[error("Invalid LCP receipt")]
     InvalidLcpReceipt,
     #[error("Invalid storage proof")]
@@ -92,59 +85,6 @@ pub enum BridgeCircuitHostParamsError {
 }
 
 impl BridgeCircuitHostParams {
-    /// Creates a new instance of BridgeCircuitHostParams.
-    ///
-    /// # Arguments
-    ///
-    /// * `kickoff_tx` - The kickoff transaction
-    /// * `spv` - Simplified Payment Verification proof for the payout transaction
-    /// * `block_header_circuit_output` - Output from the header chain circuit
-    /// * `headerchain_receipt` - Receipt from the header chain proof
-    /// * `light_client_proof` - Light client proof for validation
-    /// * `lcp_receipt` - Receipt from the light client proof
-    /// * `storage_proof` - Storage proof from the blockchain (l2) state
-    /// * `network` - Bitcoin network (mainnet, testnet, etc.)
-    /// * `watchtower_inputs` - Inputs including details about watchtower challenge transactions
-    /// * `all_tweaked_watchtower_pubkeys` - All tweaked watchtower public keys
-    /// * `watchtower_challenge_connector_start_idx` - Starting index for watchtower challenge connectors on kickoff tx
-    /// * `payout_input_index` - Index of the payout input in the transaction
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        kickoff_tx: Transaction,
-        spv: SPV,
-        block_header_circuit_output: BlockHeaderCircuitOutput,
-        headerchain_receipt: Receipt,
-        light_client_proof: LightClientProof,
-        lcp_receipt: Receipt,
-        storage_proof: StorageProof,
-        network: Network,
-        watchtower_inputs: Vec<WatchtowerInput>,
-        all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
-        watchtower_challenge_connector_start_idx: u32,
-        payout_input_index: u32,
-    ) -> Self {
-        let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
-            all_tweaked_watchtower_pubkeys
-                .into_iter()
-                .map(CircuitXOnlyPublicKey::from)
-                .collect();
-
-        BridgeCircuitHostParams {
-            kickoff_tx: CircuitTransaction(kickoff_tx),
-            spv,
-            block_header_circuit_output,
-            headerchain_receipt,
-            light_client_proof,
-            lcp_receipt,
-            storage_proof,
-            network: CircuitNetwork(network),
-            watchtower_inputs,
-            all_tweaked_watchtower_pubkeys,
-            watchtower_challenge_connector_start_idx,
-            payout_input_index,
-        }
-    }
-
     /// Creates a new instance of BridgeCircuitHostParams with watchtower transactions.
     ///
     /// This method automatically derives several parameters from the provided watchtower contexts
@@ -155,7 +95,6 @@ impl BridgeCircuitHostParams {
     /// * `kickoff_tx` - The kickoff transaction
     /// * `spv` - Simplified Payment Verification proof for the payout transaction
     /// * `headerchain_receipt` - Receipt from the header chain proof
-    /// * `light_client_proof` - Light client proof for validation
     /// * `lcp_receipt` - Receipt from the light client proof
     /// * `storage_proof` - Storage proof from the blockchain (l2) state
     /// * `network` - Bitcoin network
@@ -170,7 +109,6 @@ impl BridgeCircuitHostParams {
     ///
     /// This function will return an error if:
     /// - Watchtower input generation fails
-    /// - Header chain receipt journal deserialization fails
     /// - Public key extraction from kickoff transaction fails
     /// - Storage proof deserialization fails
     /// - Payout input index calculation fails
@@ -179,7 +117,6 @@ impl BridgeCircuitHostParams {
         kickoff_tx: Transaction,
         spv: SPV,
         headerchain_receipt: Receipt,
-        light_client_proof: LightClientProof,
         lcp_receipt: Receipt,
         storage_proof: StorageProof,
         network: Network,
@@ -192,12 +129,11 @@ impl BridgeCircuitHostParams {
             watchtower_challenge_connector_start_idx,
         )?;
 
-        let block_header_circuit_output: BlockHeaderCircuitOutput =
-            borsh::from_slice(&headerchain_receipt.journal.bytes)
-                .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
-
         let all_tweaked_watchtower_pubkeys =
-            get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?;
+            get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?
+                .iter()
+                .map(XOnlyPublicKey::serialize)
+                .collect();
 
         let storage_proof_utxo: EIP1186StorageProof =
             serde_json::from_str(&storage_proof.storage_proof_utxo).map_err(|e| {
@@ -230,18 +166,10 @@ impl BridgeCircuitHostParams {
             &spv.transaction.0,
         )?;
 
-        let all_tweaked_watchtower_pubkeys: Vec<CircuitXOnlyPublicKey> =
-            all_tweaked_watchtower_pubkeys
-                .into_iter()
-                .map(CircuitXOnlyPublicKey::from)
-                .collect();
-
         Ok(BridgeCircuitHostParams {
             kickoff_tx: CircuitTransaction(kickoff_tx),
             spv,
-            block_header_circuit_output,
             headerchain_receipt,
-            light_client_proof,
             lcp_receipt,
             storage_proof,
             network: CircuitNetwork(network),
@@ -252,46 +180,23 @@ impl BridgeCircuitHostParams {
         })
     }
 
-    /// Converts the host parameters into bridge circuit input format.
-    ///
-    /// This method transforms the host parameters into the format required by the bridge circuit,
-    /// serializing public keys and organizing the data appropriately.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `BridgeCircuitInput` containing all the necessary data for circuit execution.
-    pub fn into_bridge_circuit_input(self) -> BridgeCircuitInput {
-        let BridgeCircuitHostParams {
-            kickoff_tx,
-            spv,
-            block_header_circuit_output,
-            headerchain_receipt: _,
-            light_client_proof,
-            lcp_receipt: _,
-            storage_proof,
-            network: _,
-            watchtower_inputs,
-            all_tweaked_watchtower_pubkeys,
-            watchtower_challenge_connector_start_idx,
-            payout_input_index,
-        } = self;
-
-        let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = all_tweaked_watchtower_pubkeys
-            .iter()
-            .map(|pubkey| (**pubkey).serialize())
-            .collect();
-
-        BridgeCircuitInput::new(
-            kickoff_tx.into(),
-            watchtower_inputs,
-            all_tweaked_watchtower_pubkeys,
-            block_header_circuit_output,
-            spv,
-            payout_input_index,
-            light_client_proof,
-            storage_proof,
-            watchtower_challenge_connector_start_idx,
-        )
+    /// Builds the bridge guest input. The header chain output and the light client input come
+    /// from their receipts.
+    pub fn bridge_circuit_input(&self) -> Result<BridgeCircuitInput, BridgeCircuitHostParamsError> {
+        let header_chain_output: BlockHeaderCircuitOutput =
+            borsh::from_slice(&self.headerchain_receipt.journal.bytes)
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
+        Ok(BridgeCircuitInput::new(
+            self.kickoff_tx.clone().into(),
+            self.watchtower_inputs.clone(),
+            self.all_tweaked_watchtower_pubkeys.clone(),
+            header_chain_output,
+            self.spv.clone(),
+            self.payout_input_index,
+            LightClientProof::from_receipt(&self.lcp_receipt),
+            self.storage_proof.clone(),
+            self.watchtower_challenge_connector_start_idx,
+        ))
     }
 }
 
@@ -498,80 +403,6 @@ pub struct WatchtowerContext {
     pub prevout_txs: Vec<Transaction>,
 }
 
-/// Public inputs for the succinct bridge circuit.
-///
-/// This struct contains all the public inputs that are committed after hashing to in the bridge circuit proof,
-/// including block hashes, watchtower challenges, and deposit constants.
-#[derive(Debug, Clone)]
-pub struct SuccinctBridgeCircuitPublicInputs {
-    pub bridge_circuit_input: BridgeCircuitInput,
-    pub challenge_sending_watchtowers: ChallengeSendingWatchtowers,
-    pub deposit_constant: DepositConstant,
-    pub payout_tx_block_hash: PayoutTxBlockhash,
-    pub latest_block_hash: LatestBlockhash,
-}
-
-impl SuccinctBridgeCircuitPublicInputs {
-    /// Creates new succinct bridge circuit public inputs from bridge circuit input.
-    ///
-    /// # Arguments
-    ///
-    /// * `bridge_circuit_input` - The bridge circuit input containing all necessary data
-    ///
-    /// # Returns
-    ///
-    /// Returns a new instance of `SuccinctBridgeCircuitPublicInputs`.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    /// - Block hash extraction fails
-    /// - Deposit constant calculation fails
-    /// - Watchtower challenge verification fails
-    pub fn new(
-        bridge_circuit_input: BridgeCircuitInput,
-    ) -> Result<Self, BridgeCircuitHostParamsError> {
-        let latest_block_hash: LatestBlockhash =
-            bridge_circuit_input.hcp.chain_state.best_block_hash[12..32]
-                .try_into()
-                .map_err(|_| BridgeCircuitHostParamsError::InvalidKickoffTx)?;
-
-        let payout_tx_block_hash: PayoutTxBlockhash = bridge_circuit_input
-            .payout_spv
-            .block_header
-            .compute_block_hash()[12..32]
-            .try_into()
-            .map_err(|_| BridgeCircuitHostParamsError::InvalidKickoffTx)?;
-
-        let deposit_constant = host_deposit_constant(&bridge_circuit_input)?;
-        let watchtower_challenge_set = verify_watchtower_challenges(&bridge_circuit_input);
-
-        Ok(Self {
-            bridge_circuit_input,
-            challenge_sending_watchtowers: ChallengeSendingWatchtowers(
-                watchtower_challenge_set.challenge_senders,
-            ),
-            deposit_constant,
-            payout_tx_block_hash,
-            latest_block_hash,
-        })
-    }
-
-    /// Calculates the host-side journal hash for the bridge circuit.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `blake3::Hash` representing the journal hash.
-    pub fn host_journal_hash(&self) -> blake3::Hash {
-        journal_hash(
-            self.payout_tx_block_hash,
-            self.latest_block_hash,
-            self.challenge_sending_watchtowers,
-            self.deposit_constant,
-        )
-    }
-}
-
 /// Calculates the deposit constant from bridge circuit input.
 ///
 /// # Arguments
@@ -625,132 +456,46 @@ fn host_deposit_constant(
     ))
 }
 
-/// Inputs required for BitVM2 bridge circuit verification.
-///
-/// This struct contains all the inputs needed to verify a bridge circuit proof
-/// in the BitVM2, including block hashes, watchtower data, and method IDs.
+/// Values the bridge guest commits and the operator commits for BitVM.
 #[derive(Debug, Clone, Copy)]
 pub struct BridgeCircuitBitvmInputs {
     pub payout_tx_block_hash: [u8; 20],
     pub latest_block_hash: [u8; 20],
     pub challenge_sending_watchtowers: [u8; 20],
     pub deposit_constant: [u8; 32],
-    pub combined_method_id: [u8; 32],
 }
 
 impl BridgeCircuitBitvmInputs {
-    /// Creates a new instance of BridgeCircuitBitvmInputs.
-    ///
-    /// # Arguments
-    ///
-    /// * `payout_tx_block_hash` - Hash of the block containing the payout transaction
-    /// * `latest_block_hash` - Hash of the latest block in the header chain proof provided by the operator
-    /// * `challenge_sending_watchtowers` - Hash representing watchtowers that sent challenges
-    /// * `deposit_constant` - Constant value representing the deposit
-    /// * `combined_method_id` - Combined method ID for the circuit
-    ///
-    /// # Returns
-    ///
-    /// Returns a new instance of `BridgeCircuitBitvmInputs`.
-    pub fn new(
-        payout_tx_block_hash: [u8; 20],
-        latest_block_hash: [u8; 20],
-        challenge_sending_watchtowers: [u8; 20],
-        deposit_constant: [u8; 32],
-        combined_method_id: [u8; 32],
-    ) -> Self {
-        Self {
+    /// Computes on the host the values that the bridge guest commits for `input`.
+    pub fn from_input(input: &BridgeCircuitInput) -> Result<Self, BridgeCircuitHostParamsError> {
+        let latest_block_hash = input.hcp.chain_state.best_block_hash[12..32]
+            .try_into()
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidKickoffTx)?;
+        let payout_tx_block_hash = input.payout_spv.block_header.compute_block_hash()[12..32]
+            .try_into()
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidKickoffTx)?;
+        Ok(Self {
             payout_tx_block_hash,
             latest_block_hash,
-            challenge_sending_watchtowers,
-            deposit_constant,
-            combined_method_id,
-        }
+            challenge_sending_watchtowers: verify_watchtower_challenges(input).challenge_senders,
+            deposit_constant: host_deposit_constant(input)?.0,
+        })
     }
 
-    /// Calculates the Groth16 public input for the bridge circuit.
-    ///
-    /// This method computes the public input hash used in Groth16 proof verification
-    /// by combining all the input data in a specific order.
-    ///
-    /// # Returns
-    ///
-    /// Returns a `blake3::Hash` representing the public input.
-    pub fn calculate_groth16_public_input(&self) -> blake3::Hash {
-        let concatenated_data = [
-            self.payout_tx_block_hash,
-            self.latest_block_hash,
-            self.challenge_sending_watchtowers,
-        ]
-        .concat();
-        let x = blake3::hash(&concatenated_data);
-        let hash_bytes = x.as_bytes();
-
-        let concat_journal = [self.deposit_constant, *hash_bytes].concat();
-
-        let journal_hash = blake3::hash(&concat_journal);
-
-        let hash_bytes = journal_hash.as_bytes();
-
-        let concat_input = [self.combined_method_id, *hash_bytes].concat();
-
-        blake3::hash(&concat_input)
-    }
-
-    /// Verifies a bridge circuit Groth16 proof.
-    ///
-    /// This method verifies that a given Groth16 proof is valid for this bridge circuit
-    /// by computing the expected public input and verifying the proof against it.
-    ///
-    /// # Arguments
-    ///
-    /// * `proof` - The Groth16 proof to verify
-    ///
-    /// # Returns
-    ///
-    /// Returns a `Result` containing `true` if the proof is valid, or an error if verification fails.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    /// - Proof verification fails
-    /// - Public input calculation fails
-    /// - Verifying key retrieval fails
-    pub fn verify_bridge_circuit(
-        &self,
-        proof: ark_groth16::Proof<Bn254>,
-    ) -> Result<bool, BridgeCircuitHostParamsError> {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.payout_tx_block_hash);
-        hasher.update(&self.latest_block_hash);
-        hasher.update(&self.challenge_sending_watchtowers);
-        let x = hasher.finalize();
-        let x_bytes: [u8; 32] = x.into();
-
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.deposit_constant);
-        hasher.update(&x_bytes);
-        let y = hasher.finalize();
-        let y_bytes: [u8; 32] = y.into();
-
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.combined_method_id);
-        hasher.update(&y_bytes);
-        let public_output = hasher.finalize();
-
-        let public_output_bytes: [u8; 32] = public_output.into();
-        let public_input_scalar =
-            ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
-
-        let ark_vk = get_ark_verifying_key_prod();
-        let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
-
-        ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
-            &ark_pvk,
-            &proof,
-            &[public_input_scalar],
+    /// The 64-byte `deposit_constant || X` output committed by the bridge guest.
+    pub fn public_values(&self) -> [u8; 64] {
+        bridge_public_values(
+            PayoutTxBlockhash(self.payout_tx_block_hash),
+            LatestBlockhash(self.latest_block_hash),
+            ChallengeSendingWatchtowers(self.challenge_sending_watchtowers),
+            DepositConstant(self.deposit_constant),
         )
-        .map_err(|_| BridgeCircuitHostParamsError::ProofVerificationFailed)
+    }
+
+    /// The single Groth16 public input of the bridge proof: SP1's BLAKE3 digest of the
+    /// committed 64-byte output.
+    pub fn groth16_public_input(&self) -> ark_bn254::Fr {
+        circuits_lib::common::sp1::groth16::public_input_blake3(&self.public_values())
     }
 }
 
@@ -809,56 +554,6 @@ impl DerefMut for CircuitNetwork {
 impl From<Network> for CircuitNetwork {
     fn from(network: Network) -> Self {
         Self(network)
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub struct CircuitXOnlyPublicKey(pub XOnlyPublicKey);
-
-impl CircuitXOnlyPublicKey {
-    pub fn from(pk: XOnlyPublicKey) -> Self {
-        Self(pk)
-    }
-
-    pub fn inner(&self) -> &XOnlyPublicKey {
-        &self.0
-    }
-}
-
-impl BorshSerialize for CircuitXOnlyPublicKey {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        BorshSerialize::serialize(&self.0.serialize(), writer)
-    }
-}
-
-impl BorshDeserialize for CircuitXOnlyPublicKey {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        use bitcoin::secp256k1::XOnlyPublicKey as RawXOnly;
-
-        let bytes: [u8; 32] = BorshDeserialize::deserialize_reader(reader)?;
-        let raw_key = RawXOnly::from_slice(&bytes).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid XOnlyPublicKey")
-        })?;
-        Ok(Self(raw_key))
-    }
-}
-
-impl Deref for CircuitXOnlyPublicKey {
-    type Target = XOnlyPublicKey;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for CircuitXOnlyPublicKey {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<XOnlyPublicKey> for CircuitXOnlyPublicKey {
-    fn from(pk: XOnlyPublicKey) -> Self {
-        Self(pk)
     }
 }
 

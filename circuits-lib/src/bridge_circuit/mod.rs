@@ -24,7 +24,7 @@
 //!     client proof (`lc_proof_verifier`) and verifies EVM storage proofs to confirm deposit
 //!     and withdrawal details (`verify_storage_proofs`).
 //! 7.  **Final Output Generation:** Computes a unique `deposit_constant` and a final
-//!     `journal_hash` from critical data points across the proofs. This hash is committed
+//!     `bridge_public_values` from critical data points across the proofs. These bytes are committed
 //!     to the zkVM journal, serving as the circuit's public, verifiable output.
 //!
 //! ## Key Components and Sub-modules
@@ -36,13 +36,15 @@
 //! - `transaction` & `sighash`: Provides utilities for handling Bitcoin transactions and
 //!   computing Taproot sighashes for signature verification.
 //! - `structs`: Defines the data structures used for circuit inputs and outputs.
-//! - `constants`: Contains network-specific constants like method IDs.
+//! - `constants`: Contains build constants.
 
 pub mod constants;
 pub mod groth16;
 pub mod groth16_verifier;
 pub mod lc_proof;
 pub mod merkle_tree;
+#[cfg(all(feature = "use-test-vk", not(target_os = "zkvm")))]
+pub mod sp1_test_prover;
 pub mod spv;
 pub mod storage_proof;
 pub mod structs;
@@ -51,12 +53,7 @@ pub mod transaction;
 use crate::{
     bridge_circuit::transaction::CircuitTransaction,
     common::{
-        constants::{
-            MAINNET_HEADER_CHAIN_METHOD_ID, MAX_NUMBER_OF_WATCHTOWERS,
-            REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
-            TESTNET4_HEADER_CHAIN_METHOD_ID,
-        },
-        zkvm::ZkvmGuest,
+        constants::MAX_NUMBER_OF_WATCHTOWERS, programs::CURRENT_HEADER_CHAIN, zkvm::ZkvmGuest,
     },
 };
 use bitcoin::{
@@ -85,32 +82,18 @@ use structs::{
     PayoutTxBlockhash, TotalWork, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet,
 };
 
-/// The method ID for the header chain circuit.
-pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_HEADER_CHAIN_METHOD_ID,
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
-            TESTNET4_HEADER_CHAIN_METHOD_ID
-        }
-        Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET_HEADER_CHAIN_METHOD_ID,
-        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_HEADER_CHAIN_METHOD_ID,
-        None => MAINNET_HEADER_CHAIN_METHOD_ID,
-        _ => panic!("Invalid network type"),
-    }
-};
-
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
 /// related to watchtowers' Bitcoin work, SPV, and storage proofs.
 ///
 /// # Parameters
 ///
 /// - `guest`: A reference to a zkVM guest implementing `ZkvmGuest`.
-/// - `work_only_image_id`: A 32-byte array representing the work-only image ID used in verification.
+/// - `work_only_program_key`: A 32-byte array representing the work-only program key used in verification.
 ///
 /// # Functionality
 ///
 /// 1. Reads the `BridgeCircuitInput` from the host.
-/// 2. Ensures the method ID in `hcp` (header chain proof) matches `HEADER_CHAIN_METHOD_ID`.
+/// 2. Ensures the method ID in `hcp` (header chain proof) matches `CURRENT_HEADER_CHAIN.recursion`.
 /// 3. Verifies the header chain proof (`hcp`).
 /// 4. Computes maximum total work and watchtower challenge flags using `total_work_and_watchtower_flags`.
 /// 5. Validates that the `total_work` in `hcp.chain_state` exceeds the computed `max_total_work`.
@@ -128,25 +111,25 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 ///
 /// # Panics
 ///
-/// - If the method ID in `hcp` does not match `HEADER_CHAIN_METHOD_ID`.
+/// - If the method ID in `hcp` does not match `CURRENT_HEADER_CHAIN.recursion`.
 /// - If `max_total_work` given by watchtowers is greater than or equal to `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
 /// - If the block hash of the light client proof does not match the payout transaction's block hash.
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
-pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
+pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_program_key: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
     assert_eq!(
-        HEADER_CHAIN_METHOD_ID, input.hcp.method_id,
+        CURRENT_HEADER_CHAIN.recursion, input.hcp.method_id,
         "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
-        HEADER_CHAIN_METHOD_ID, input.hcp.method_id
+        CURRENT_HEADER_CHAIN.recursion, input.hcp.method_id
     );
 
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
     let (max_total_work, challenge_sending_watchtowers) =
-        total_work_and_watchtower_flags(&input, &work_only_image_id);
+        total_work_and_watchtower_flags(&input, &work_only_program_key);
 
     let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
@@ -169,7 +152,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     }
 
     // Light client proof verification
-    let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
+    let light_client_circuit_output = lc_proof_verifier(guest, input.lcp.clone());
 
     // Make sure the L1 block hash of the LightClientCircuitOutput matches the payout tx block hash
     let lc_l1_block_hash = light_client_circuit_output.latest_da_state.block_hash;
@@ -234,23 +217,23 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let payout_tx_blockhash: PayoutTxBlockhash = spv_l1_block_hash[12..32].try_into().unwrap();
 
-    let journal_hash = journal_hash(
+    let public_values = bridge_public_values(
         payout_tx_blockhash,
         latest_blockhash,
         challenge_sending_watchtowers,
         deposit_constant,
     );
 
-    guest.commit(journal_hash.as_bytes());
+    guest.commit(&public_values);
 }
 
-/// Converts a compressed Groth16 proof into a proof structure and verifies it against a given image ID.
+/// Converts a compressed Groth16 proof into a proof structure and verifies it against a given program key.
 ///
 /// # Parameters
 ///
 /// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
 /// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
-/// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
+/// - `program_key`: A reference to a 32-byte array representing the program key used for verification.
 /// - `genesis_state_hash`: A 32-byte array representing the genesis state hash.
 ///
 /// # Returns
@@ -265,7 +248,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 fn convert_to_groth16_and_verify(
     compressed_proof: &[u8; 128],
     total_work: [u8; 16],
-    image_id: &[u8; 32],
+    program_key: &[u8; 32],
     genesis_state_hash: [u8; 32],
 ) -> bool {
     let seal = match CircuitGroth16Proof::from_compressed(compressed_proof) {
@@ -275,7 +258,7 @@ fn convert_to_groth16_and_verify(
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
 
-    groth16_proof.verify(image_id)
+    groth16_proof.verify(program_key)
 }
 
 /// Verifies watchtower challenge transactions and collects their outputs.
@@ -286,7 +269,7 @@ fn convert_to_groth16_and_verify(
 /// - The signature is valid under the Taproot sighash rules,
 /// - The public key matches the one registered for the watchtower,
 /// - And, if all checks pass, it marks the corresponding bit in a 20-byte bitmap
-///   (`challenge_sending_watchtowers`) and collects the first 3 outputs of the
+///   (`challenge_sending_watchtowers`) and collects the outputs of the
 ///   watchtower transaction into `watchtower_challenges_outputs`.
 ///
 ///   Note: This function only verifies keypath spends.
@@ -303,9 +286,10 @@ fn convert_to_groth16_and_verify(
 ///   considered when calculating the maximum work). However, it is enough to have a valid signature
 ///   to mark the watchtower as a challenge sender.
 ///
-/// # Notes
-/// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
-/// will be skipped gracefully without causing the function to panic.
+/// # Panics
+/// If any of these checks fails, if a witness or signature is malformed, or if there are more
+/// than `MAX_NUMBER_OF_WATCHTOWERS` inputs. The host must pass only well-formed challenges
+/// with valid signatures.
 pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> WatchtowerChallengeSet {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<Vec<TxOut>> = vec![];
@@ -488,7 +472,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 /// # Parameters
 ///
 /// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
-/// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
+/// - `work_only_program_key`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
@@ -514,7 +498,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 ///   verified `total_work` is selected as the maximum verified work.
 pub fn total_work_and_watchtower_flags(
     circuit_input: &BridgeCircuitInput,
-    work_only_image_id: &[u8; 32],
+    work_only_program_key: &[u8; 32],
 ) -> (TotalWork, ChallengeSendingWatchtowers) {
     let watchtower_challenge_set = verify_watchtower_challenges(circuit_input);
 
@@ -591,7 +575,7 @@ pub fn total_work_and_watchtower_flags(
         if convert_to_groth16_and_verify(
             &commitment.compressed_g16_proof,
             commitment.total_work,
-            work_only_image_id,
+            work_only_program_key,
             circuit_input.hcp.genesis_state_hash,
         ) {
             total_work_result = commitment.total_work;
@@ -662,12 +646,14 @@ pub fn deposit_constant(
     DepositConstant(Sha256::digest(&pre_deposit_constant).into())
 }
 
-pub fn journal_hash(
+/// Raw bridge output: deposit_constant || BLAKE3(payout || latest || watchtowers).
+/// SP1 hashes these 64 bytes once to obtain its Groth16 public input.
+pub fn bridge_public_values(
     payout_tx_blockhash: PayoutTxBlockhash,
     latest_blockhash: LatestBlockhash,
     challenge_sending_watchtowers: ChallengeSendingWatchtowers,
     deposit_constant: DepositConstant,
-) -> blake3::Hash {
+) -> [u8; 64] {
     let concatenated_data = [
         payout_tx_blockhash.0,
         latest_blockhash.0,
@@ -676,11 +662,10 @@ pub fn journal_hash(
     .concat();
 
     let binding = blake3::hash(&concatenated_data);
-    let hash_bytes = binding.as_bytes();
-
-    let concat_journal = [deposit_constant.0, *hash_bytes].concat();
-
-    blake3::hash(&concat_journal)
+    let mut public_values = [0; 64];
+    public_values[..32].copy_from_slice(&deposit_constant.0);
+    public_values[32..].copy_from_slice(binding.as_bytes());
+    public_values
 }
 
 /// Retrieves the first output of a transaction that is an OP_RETURN script. Used in various
@@ -947,20 +932,10 @@ mod tests {
         transaction::Version,
         Amount, ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
-    use lazy_static::lazy_static;
-    use risc0_zkvm::compute_image_id;
     use std::io::Cursor;
 
-    const REGTEST_WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../../risc0-circuits/elfs/regtest-work-only-guest.bin");
-
-    lazy_static! {
-        static ref REGTEST_WORK_ONLY_IMAGE_ID: [u8; 32] = compute_image_id(REGTEST_WORK_ONLY_ELF)
-            .expect("Elf must be valid")
-            .as_bytes()
-            .try_into()
-            .expect("Elf must be valid");
-    }
+    const REGTEST_WORK_ONLY_PROGRAM_KEY: [u8; 32] =
+        crate::common::programs::REGTEST.work_only.groth16;
 
     // Helper function to divide by 2 and return None if not divisible by 2
     fn halve_if_even(n: u32) -> Option<u32> {
@@ -1056,7 +1031,7 @@ mod tests {
         let (input, _) = total_work_and_watchtower_flags_setup();
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
 
         let mut expected_challenge_sending_watchtowers = [0; 20];
 
@@ -1090,7 +1065,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -1125,7 +1100,7 @@ mod tests {
             vec![input.watchtower_inputs[0].watchtower_challenge_utxos[0].clone()];
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
 
         assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -1151,7 +1126,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 0;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1166,7 +1141,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1179,7 +1154,7 @@ mod tests {
         input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1191,7 +1166,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 160;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1203,7 +1178,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 10;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1217,7 +1192,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1231,7 +1206,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]
@@ -1245,7 +1220,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &REGTEST_WORK_ONLY_PROGRAM_KEY);
     }
 
     #[test]

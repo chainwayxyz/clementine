@@ -43,8 +43,41 @@ mod bridge_circuit_test_data;
 #[cfg(feature = "integration-tests")]
 mod bitvm_script;
 
-pub const CITREA_E2E_DOCKER_IMAGE: &str =
-    "chainwayxyz/citrea-test:9a882137c8d316ada4106d6f395205b8b52967a3";
+/// Bitcoin Core image for e2e nodes; keep it in step with CI's `bitcoin-version`.
+pub const E2E_BITCOIN_DOCKER_IMAGE: &str = "bitcoin/bitcoin:30.4";
+
+/// Bitcoin node config for e2e tests: the index and RPC access Clementine needs, plus
+/// `extra_args`.
+pub fn e2e_bitcoin_config(extra_args: Vec<&'static str>) -> citrea_e2e::config::BitcoinConfig {
+    let mut args = vec![
+        "-txindex=1",
+        "-fallbackfee=0.000001",
+        "-rpcallowip=0.0.0.0/0",
+    ];
+    args.extend(extra_args);
+    citrea_e2e::config::BitcoinConfig {
+        extra_args: args,
+        docker_image: Some(E2E_BITCOIN_DOCKER_IMAGE.to_string()),
+        ..Default::default()
+    }
+}
+
+/// Runs an e2e test case against the paired SP1 Citrea build: the native binary in
+/// `CITREA_E2E_TEST_BINARY`, or the `CITREA_DOCKER_IMAGE` container. Bitcoin Core runs in Docker.
+pub fn paired_citrea(
+    config: citrea_e2e::config::TestCaseConfig,
+) -> citrea_e2e::config::TestCaseConfig {
+    assert!(["CITREA_E2E_TEST_BINARY", "CITREA_DOCKER_IMAGE"].iter().any(|name| std::env::var(name).is_ok_and(|value| !value.is_empty())),
+        "Set CITREA_E2E_TEST_BINARY to the paired SP1 Citrea binary or CITREA_DOCKER_IMAGE to its image");
+    citrea_e2e::config::TestCaseConfig {
+        docker: citrea_e2e::config::TestCaseDockerConfig {
+            bitcoin: true,
+            citrea: std::env::var_os("CITREA_E2E_TEST_BINARY").is_none(),
+        },
+        genesis_dir: std::env::var("CITREA_E2E_GENESIS_DIR").ok(),
+        ..config
+    }
+}
 
 use ctor::ctor;
 
@@ -53,11 +86,6 @@ use ctor::ctor;
 // Note that this is unsafe as using stdlib before `main` has no guarantees.
 // Read more: https://docs.rs/ctor/latest/ctor/attr.ctor.html
 //
-// After some investigation, the stack issue was narrowed down to `risc0-zkvm`s
-// prover. The CPU-based prover runs out of stack space in a parallelized accumulate
-// operation. FFI function is `risc0_circuit_rv32im_cpu_accum`, which is called
-// indirectly by `risc0-circuit-rv32im` in `src/prove/hal/mod.rs:205`. The stack usage
-// in the failing thread is ~384700 bytes.
 unsafe fn rust_min_stack() {
     std::env::set_var("RUST_MIN_STACK", "33554432");
 }

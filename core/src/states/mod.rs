@@ -191,9 +191,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
 
-        queue.create(&Self::queue_name()).await.wrap_err_with(|| {
-            format!("Error creating pqmq queue with name {}", Self::queue_name())
-        })?;
+        // pgmq.create runs CREATE INDEX IF NOT EXISTS even for an existing queue. That takes a
+        // SHARE lock on the queue table, which waits for any open consumer transaction.
+        let queue_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = $1)")
+                .bind(Self::queue_name())
+                .fetch_one(&db.get_pool())
+                .await
+                .wrap_err("Failed to check if the pgmq queue exists")?;
+        if !queue_exists {
+            queue.create(&Self::queue_name()).await.wrap_err_with(|| {
+                format!("Error creating pqmq queue with name {}", Self::queue_name())
+            })?;
+        }
 
         let mut mgr = Self {
             last_finalized_block: None,

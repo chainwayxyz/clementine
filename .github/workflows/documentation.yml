@@ -12,8 +12,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
 
 jobs:

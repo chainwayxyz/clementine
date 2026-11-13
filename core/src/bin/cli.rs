@@ -113,11 +113,6 @@ enum OperatorCommands {
 enum VerifierCommands {
     /// Get verifier parameters
     GetParams,
-    /// Generate nonces
-    NonceGen {
-        #[arg(long)]
-        num_nonces: u32,
-    },
     /// Get compatibility parameters
     GetCompatibilityParams,
     /// Get entity status
@@ -197,7 +192,7 @@ enum AggregatorCommands {
         #[arg(long)]
         restart_tasks: Option<bool>,
     },
-    /// Internal command to get the emergency stop encryption public key
+    /// Internal command to get the stored encrypted emergency stop txs for the given move txids
     InternalGetEmergencyStopTx {
         #[arg(long, required = true, num_args = 1.., value_delimiter = ',')]
         /// A comma-separated list of move txids
@@ -423,14 +418,6 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .expect("Failed to make a request");
             println!("Verifier params: {params:?}");
         }
-        VerifierCommands::NonceGen { num_nonces } => {
-            let params = clementine_core::rpc::clementine::NonceGenRequest { num_nonces };
-            let response = verifier
-                .nonce_gen(Request::new(params))
-                .await
-                .expect("Failed to make a request");
-            println!("Noncegen response: {response:?}");
-        }
         VerifierCommands::Vergen => {
             let params = Empty {};
             let response = verifier
@@ -622,17 +609,22 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("Emergency stop tx: {emergency_stop_tx:?}");
-            for (i, tx) in emergency_stop_tx
-                .into_inner()
-                .encrypted_emergency_stop_txs
-                .iter()
-                .enumerate()
+            let response = emergency_stop_tx.into_inner();
+            let mut returned_txids = Vec::new();
+            for (txid, tx) in response
+                .txids
+                .into_iter()
+                .zip(response.encrypted_emergency_stop_txs)
             {
-                println!(
-                    "Emergency stop tx {i} for move tx {}: {}",
-                    move_txids[i],
-                    hex::encode(tx)
-                );
+                let txid = Txid::try_from(txid).expect("Failed to parse move txid");
+                println!("Emergency stop tx for move tx {txid}: {}", hex::encode(tx));
+                returned_txids.push(txid);
+            }
+            for txid in move_txids
+                .iter()
+                .filter(|txid| !returned_txids.contains(txid))
+            {
+                println!("No emergency stop tx stored for move tx {txid}");
             }
         }
         AggregatorCommands::GetReplacementDepositAddress {

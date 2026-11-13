@@ -1,167 +1,62 @@
-use crate::docker::{stark_to_bitvm2_g16, stark_to_bitvm2_g16_dev_mode};
-use crate::structs::{
-    BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
-};
-use crate::utils::{calculate_succinct_output_prefix, is_dev_mode};
+use crate::bitvm_verifier::verify_bitvm;
+use crate::guests::NetworkGuests;
+use crate::sp1::{prove, verify, Backend, GuestInput};
+use crate::structs::{BridgeCircuitBitvmInputs, BridgeCircuitHostParams};
 use ark_bn254::Bn254;
 use bitcoin::Transaction;
 use borsh;
-use circuits_lib::bridge_circuit::constants::{
-    DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
-};
-use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
+use circuits_lib::bridge_circuit::structs::BridgeCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
+use circuits_lib::common::verification_mode::GuestVerificationMode;
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{eyre, OptionExt, Result, WrapErr};
 
-use circuits_lib::common::constants::{
-    MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
-    TESTNET4_HEADER_CHAIN_METHOD_ID,
-};
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts};
 
-pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
-
-pub const REGTEST_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/test-regtest-bridge-circuit-guest.bin");
-
-pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
-
-pub const TESTNET4_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
-
-pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
-
-pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
-
-pub const SIGNET_BRIDGE_CIRCUIT_ELF_TEST: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/test-signet-bridge-circuit-guest.bin");
-
-pub const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-
-pub const MAINNET_HEADER_CHAIN_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
-pub const TESTNET4_HEADER_CHAIN_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-pub const SIGNET_HEADER_CHAIN_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
-pub const REGTEST_HEADER_CHAIN_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
-
-pub const MAINNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
-pub const TESTNET4_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
-pub const SIGNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
-pub const REGTEST_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
-
-/// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
+/// Proves the network's bridge guest and returns a Groth16 proof for BitVM.
 ///
-/// This function first validates various conditions such as header chain output,
-/// light client proof, and SPV verification. It then constructs a succinct proof
-/// for the Bridge Circuit. Finally, it converts the succinct proof
-/// into a Groth16 proof using a Circom circuit.
+/// The host first checks the header chain proof, the light client proof and the SPV
+/// inclusion, so that invalid inputs fail before proving. With [`Backend::Mock`], the
+/// guest is executed and a development Groth16 proof is created instead. Either proof
+/// is checked against the BitVM verifying key of the bridge program.
 ///
-/// # Arguments
-///
-/// * `bridge_circuit_host_params` - The host parameters containing circuit-related inputs.
-/// * `bridge_circuit_elf` - The compiled ELF binary representing the Bridge Circuit.
-///
-/// # Returns
-///
-/// Returns a Result containing a tuple consisting of:
-/// - `ark_groth16::Proof<Bn254>`: The final Groth16 proof.
-/// - `[u8; 31]`: The Groth16 output.
-/// - `BridgeCircuitBitvmInputs`: The structured inputs for the Bridge Circuit BitVM.
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - The number of watchtowers does not match expectations.
-/// - The header chain proof output differs from the expected value.
-/// - Light client proof verification fails.
-/// - SPV verification fails.
-/// - The journal hash does not match the expected hash.
-/// - Any serialization/deserialization operation fails.
-/// - The network is unsupported.
-/// - The execution environment cannot be built.
-/// - Proof generation fails.
-/// - Receipt journal conversion fails.
-/// - Computing the image ID fails.
-/// - Converting succinct receipt fails.
-/// - Converting groth16 seal to array fails.
-///
-pub fn prove_bridge_circuit(
+/// Returns the Groth16 proof and the values the operator commits for BitVM, whose
+/// [`BridgeCircuitBitvmInputs::groth16_public_input`] is the proof's public input.
+pub async fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
-    bridge_circuit_elf: &[u8],
-) -> Result<(
-    ark_groth16::Proof<Bn254>,
-    [u8; 31],
-    BridgeCircuitBitvmInputs,
-)> {
+    backend: Backend,
+) -> Result<(ark_groth16::Proof<Bn254>, BridgeCircuitBitvmInputs)> {
+    let network = bridge_circuit_host_params.network.0;
+    eyre::ensure!(
+        network != bitcoin::Network::Bitcoin || backend != Backend::Mock,
+        "Mock SP1 proving is forbidden on mainnet"
+    );
+    let guests = NetworkGuests::for_network(network).ok_or_eyre("Unsupported network")?;
     tracing::info!("Starting bridge circuit proof generation");
-    let bridge_circuit_input = bridge_circuit_host_params
-        .clone()
-        .into_bridge_circuit_input();
-
-    let header_chain_proof_output_serialized = borsh::to_vec(&bridge_circuit_input.hcp)
-        .wrap_err("Could not serialize header chain output")?;
-
-    if bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
-        return Err(eyre!("Light client proof output mismatch"));
-    }
+    let bridge_circuit_input = bridge_circuit_host_params.bridge_circuit_input()?;
 
     tracing::debug!(target: "ci", "Watchtower challenges: {:?}",
         bridge_circuit_input.watchtower_inputs);
 
-    let lc_image_id = match bridge_circuit_host_params.network.0 {
-        bitcoin::Network::Bitcoin => MAINNET_LC_IMAGE_ID,
-        bitcoin::Network::Testnet4 => TESTNET4_LC_IMAGE_ID,
-        bitcoin::Network::Signet => DEVNET_LC_IMAGE_ID,
-        bitcoin::Network::Regtest => REGTEST_LC_IMAGE_ID,
-        _ => return Err(eyre!("Unsupported network")),
-    };
-
-    let is_regtest = bridge_circuit_host_params.network.0 == bitcoin::Network::Regtest;
-
     // Verify light client proof
-    if !is_regtest {
-        bridge_circuit_host_params
-            .lcp_receipt
-            .verify(lc_image_id)
-            .map_err(|_| eyre!("Light client proof verification failed"))?;
-    }
-
-    // Header chain verification
-    if header_chain_proof_output_serialized
-        != bridge_circuit_host_params.headerchain_receipt.journal.bytes
-    {
-        return Err(eyre!("Header chain proof output mismatch"));
-    }
-
-    let header_chain_method_id = match bridge_circuit_host_params.network.0 {
-        bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
-        bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
-        bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
-        bitcoin::Network::Regtest => REGTEST_HEADER_CHAIN_METHOD_ID,
-        _ => return Err(eyre!("Unsupported network")),
-    };
+    verify(
+        &bridge_circuit_host_params.lcp_receipt,
+        guests.light_client,
+        network != bitcoin::Network::Bitcoin,
+    )
+    .await
+    .map_err(|_| eyre!("Light client proof verification failed"))?;
 
     // Check for headerchain receipt
-    if bridge_circuit_host_params
-        .headerchain_receipt
-        .verify(header_chain_method_id)
-        .is_err()
+    if verify(
+        &bridge_circuit_host_params.headerchain_receipt,
+        guests.header_chain.key,
+        backend == Backend::Mock,
+    )
+    .await
+    .is_err()
     {
         return Err(eyre!("Header chain receipt verification failed"));
     }
@@ -202,98 +97,38 @@ pub fn prove_bridge_circuit(
         ));
     }
 
-    let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone())?;
+    let bitvm_inputs = BridgeCircuitBitvmInputs::from_input(&bridge_circuit_input)?;
 
-    let journal_hash = public_inputs.host_journal_hash();
-
-    let mut binding = ExecutorEnv::builder();
-    let env = binding
-        .write_slice(
-            &borsh::to_vec(&bridge_circuit_input)
-                .wrap_err("Failed to serialize bridge circuit input")?,
-        )
-        .add_assumption(bridge_circuit_host_params.headerchain_receipt)
-        .add_assumption(bridge_circuit_host_params.lcp_receipt)
-        .build()
-        .map_err(|e| eyre!("Failed to build execution environment: {}", e))?;
-
-    let prover = default_prover();
-
-    tracing::info!("Checks complete, proving bridge circuit to generate STARK proof");
-
-    let succinct_receipt = prover
-        .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
-        .map_err(|e| eyre!("Failed to generate bridge circuit proof: {}", e))?
-        .receipt;
-
-    tracing::info!("Bridge circuit proof (STARK) generated");
-
-    let succinct_receipt_journal: [u8; 32] = succinct_receipt
-        .clone()
-        .journal
-        .bytes
-        .try_into()
-        .map_err(|_| eyre!("Failed to convert journal bytes to array"))?;
-
-    if *journal_hash.as_bytes() != succinct_receipt_journal {
-        return Err(eyre!("Journal hash mismatch"));
-    }
-
-    let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf)
-        .map_err(|e| eyre!("Failed to compute bridge circuit image ID: {}", e))?;
-
-    let combined_method_id_constant =
-        calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
-
-    let (g16_proof, g16_output) = if is_dev_mode() {
-        stark_to_bitvm2_g16_dev_mode(succinct_receipt, &succinct_receipt_journal)?
-    } else {
-        stark_to_bitvm2_g16(
-            succinct_receipt
-                .inner
-                .succinct()
-                .wrap_err("Failed to get succinct receipt")?
-                .clone(),
-            &succinct_receipt_journal,
-        )?
-    };
-
-    tracing::info!("Bridge circuit proof (Groth16) generated");
-
-    let risc0_g16_seal_vec = g16_proof.to_vec();
-    let risc0_g16_256 = risc0_g16_seal_vec[0..256]
-        .try_into()
-        .wrap_err("Failed to convert groth16 seal to array")?;
-    let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
-    let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
-
-    tracing::debug!(
-        target: "ci",
-        "Circuit debug info:\n\
-        - Combined method ID constant: {:?}\n\
-        - Payout tx block hash: {:?}\n\
-        - Latest block hash: {:?}\n\
-        - Challenge sending watchtowers: {:?}\n\
-        - Deposit constant: {:?}",
-        combined_method_id_constant,
-        public_inputs.payout_tx_block_hash.0,
-        public_inputs.latest_block_hash.0,
-        public_inputs.challenge_sending_watchtowers.0,
-        public_inputs.deposit_constant.0
+    let input = bridge_guest_input(&bridge_circuit_input, &bridge_circuit_host_params)?;
+    let receipt = prove(&guests.bridge, input, backend).await?;
+    eyre::ensure!(
+        receipt.journal.bytes.as_slice() == bitvm_inputs.public_values().as_slice(),
+        "Bridge public values mismatch"
     );
+    let proof = receipt.groth16_proof()?;
+    verify_bitvm(
+        &guests.bridge.key.groth16,
+        &proof,
+        bitvm_inputs.groth16_public_input(),
+    )?;
 
-    Ok((
-        ark_groth16_proof,
-        g16_output,
-        BridgeCircuitBitvmInputs {
-            payout_tx_block_hash: public_inputs.payout_tx_block_hash.0,
-            latest_block_hash: public_inputs.latest_block_hash.0,
-            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers.0,
-            deposit_constant: public_inputs.deposit_constant.0,
-            combined_method_id: combined_method_id_constant,
-        },
-    ))
+    tracing::debug!(target: "ci", "Circuit debug info: {bitvm_inputs:?}");
+
+    Ok((proof, bitvm_inputs))
+}
+
+/// Bridge guest input with its header chain and light client assumptions. The guest does not
+/// verify a mock light client proof, so it gets no assumption.
+fn bridge_guest_input(
+    bridge_circuit_input: &BridgeCircuitInput,
+    params: &BridgeCircuitHostParams,
+) -> Result<GuestInput> {
+    let input =
+        GuestInput::new(bridge_circuit_input)?.with_assumption(&params.headerchain_receipt)?;
+    match bridge_circuit_input.lcp.verification_mode {
+        GuestVerificationMode::Verify => input.with_assumption(&params.lcp_receipt),
+        GuestVerificationMode::SkipForTesting => Ok(input),
+    }
 }
 
 /// Constructs an SPV (Simplified Payment Verification) proof.
@@ -394,7 +229,7 @@ pub fn create_spv(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock_zkvm::MockZkvmHost;
+    use crate::mock_zkvm::MockZkvmGuest;
     #[cfg(feature = "use-test-vk")]
     use crate::utils::total_work_from_wt_tx;
     #[cfg(not(feature = "use-test-vk"))]
@@ -408,44 +243,26 @@ mod tests {
         Network, ScriptBuf, TapSighashType, Witness,
     };
 
-    const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-    const TESTNET4_WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
-
     use borsh::BorshDeserialize;
     #[cfg(not(feature = "use-test-vk"))]
-    use circuits_lib::bridge_circuit::{constants::REGTEST_LC_IMAGE_ID, structs::CircuitWitness};
+    use circuits_lib::bridge_circuit::structs::CircuitWitness;
     #[cfg(feature = "use-test-vk")]
     use circuits_lib::bridge_circuit::{
         structs::ChallengeSendingWatchtowers, total_work_and_watchtower_flags,
     };
     #[cfg(not(feature = "use-test-vk"))]
-    use circuits_lib::common::constants::REGTEST_HEADER_CHAIN_METHOD_ID;
+    use circuits_lib::{bridge_circuit::groth16::CircuitGroth16Proof, common::sp1::Receipt};
     use circuits_lib::{
-        bridge_circuit::{
-            constants::REGTEST_WORK_ONLY_METHOD_ID,
-            groth16::CircuitGroth16Proof,
-            structs::{TotalWork, WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
-        },
-        common::zkvm::ZkvmHost,
+        bridge_circuit::structs::{TotalWork, WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
+        common::programs,
         header_chain::{
             header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
-    use risc0_zkvm::default_executor;
-    #[cfg(not(feature = "use-test-vk"))]
-    use risc0_zkvm::{Digest, FakeReceipt, InnerReceipt, Receipt, ReceiptClaim, VerifierContext};
 
     const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
     const MAINNET_HEADERS: &[u8] = include_bytes!("../bin-files/mainnet-headers.bin");
-
-    #[cfg(not(feature = "use-test-vk"))]
-    fn fake_receipt(image_id: impl Into<Digest>, journal: Vec<u8>) -> Receipt {
-        let claim = ReceiptClaim::ok(image_id, journal.clone());
-        Receipt::new(InnerReceipt::Fake(FakeReceipt::new(claim)), journal)
-    }
 
     #[cfg(not(feature = "use-test-vk"))]
     fn p2tr_data_script(data: &[u8]) -> ScriptBuf {
@@ -456,6 +273,16 @@ mod tests {
             .into_script()
     }
 
+    /// Executes the network's bridge guest with the fixture's header chain and light client
+    /// receipts.
+    async fn execute_bridge(params: &BridgeCircuitHostParams) -> Result<Vec<u8>> {
+        crate::sp1::execute_with_mock_assumptions(
+            crate::guests::REGTEST.bridge.elf,
+            bridge_guest_input(&params.bridge_circuit_input()?, params)?,
+        )
+        .await
+    }
+
     #[test]
     fn test_header_chain_circuit() {
         let headers = MAINNET_HEADERS
@@ -463,41 +290,32 @@ mod tests {
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>();
 
-        let host = MockZkvmHost::new();
-
         let input = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..50].to_vec(),
         };
-        host.write(&input);
-        header_chain_circuit(&host);
-        let proof = host.prove([0; 8].as_ref());
-
-        let output = BlockHeaderCircuitOutput::try_from_slice(&proof.journal).unwrap();
-        let new_host = MockZkvmHost::new();
+        let guest = MockZkvmGuest::new(&input);
+        header_chain_circuit(&guest);
+        let output = BlockHeaderCircuitOutput::try_from_slice(&guest.journal()).unwrap();
 
         let newinput = HeaderChainCircuitInput {
             method_id: [0; 8],
             prev_proof: HeaderChainPrevProofType::PrevProof(output),
             block_headers: headers[50..100].to_vec(),
         };
-        new_host.write(&newinput);
-        new_host.add_assumption(proof);
-
-        header_chain_circuit(&new_host);
-
-        let new_proof = new_host.prove([0; 8].as_ref());
-
-        let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
+        let new_guest = MockZkvmGuest::new(&newinput);
+        header_chain_circuit(&new_guest);
+        let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_guest.journal()).unwrap();
 
         println!("Output: {new_output:?}");
     }
 
-    /// Please use RISC0_DDEV_MODE=1 to run the following tests.
-    #[test]
+    /// Please use SP1_PROVER=mock to run the following tests.
+    #[tokio::test]
     #[allow(clippy::print_literal)]
-    fn test_varying_total_works() {
+    #[cfg(feature = "use-test-vk")]
+    async fn test_varying_total_works() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let bridge_circuit_host_params_serialized =
             include_bytes!("../bin-files/bch_params_varying_total_works.bin");
@@ -505,9 +323,7 @@ mod tests {
             borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
                 .expect("Failed to deserialize BridgeCircuitHostParams");
 
-        let bridge_circuit_inputs = bridge_circuit_host_params
-            .clone()
-            .into_bridge_circuit_input();
+        let bridge_circuit_inputs = bridge_circuit_host_params.bridge_circuit_input().unwrap();
 
         for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
             println!(
@@ -516,35 +332,19 @@ mod tests {
             );
         }
 
-        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
+        let journal = execute_bridge(&bridge_circuit_host_params).await.unwrap();
 
-        let executor = default_executor();
+        let public_values = BridgeCircuitBitvmInputs::from_input(&bridge_circuit_inputs)
+            .unwrap()
+            .public_values();
 
-        let env = ExecutorEnv::builder()
-            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
-            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
-            .add_assumption(bridge_circuit_host_params.lcp_receipt)
-            .build()
-            .expect("Failed to build execution environment");
-
-        let session_info = executor.execute(env, bridge_circuit_elf).unwrap();
-
-        let public_inputs: SuccinctBridgeCircuitPublicInputs =
-            SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_inputs.clone()).unwrap();
-
-        let journal_hash = public_inputs.host_journal_hash();
-
-        assert_eq!(
-            session_info.journal.bytes,
-            *journal_hash.as_bytes(),
-            "Journal hash mismatch"
-        );
+        assert_eq!(journal, public_values, "Bridge public values mismatch");
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(clippy::print_literal)]
-    #[should_panic(expected = "Insufficient total work")]
-    fn test_insufficient_total_work() {
+    #[cfg(feature = "use-test-vk")]
+    async fn test_insufficient_total_work() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let bridge_circuit_host_params_serialized = include_bytes!(
             "../bin-files/bch_params_varying_total_works_insufficient_total_work.bin"
@@ -553,9 +353,7 @@ mod tests {
             borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
                 .expect("Failed to deserialize BridgeCircuitHostParams");
 
-        let bridge_circuit_inputs = bridge_circuit_host_params
-            .clone()
-            .into_bridge_circuit_input();
+        let bridge_circuit_inputs = bridge_circuit_host_params.bridge_circuit_input().unwrap();
 
         for watchtower_input in &bridge_circuit_inputs.watchtower_inputs {
             println!(
@@ -564,18 +362,18 @@ mod tests {
             );
         }
 
-        let bridge_circuit_elf = REGTEST_BRIDGE_CIRCUIT_ELF_TEST;
-
-        let executor = default_executor();
-
-        let env = ExecutorEnv::builder()
-            .write_slice(&borsh::to_vec(&bridge_circuit_inputs).unwrap())
-            .add_assumption(bridge_circuit_host_params.headerchain_receipt)
-            .add_assumption(bridge_circuit_host_params.lcp_receipt)
-            .build()
-            .expect("Failed to build execution environment");
-
-        executor.execute(env, bridge_circuit_elf).unwrap();
+        let (challenge_work, _) = total_work_and_watchtower_flags(
+            &bridge_circuit_inputs,
+            &programs::REGTEST.work_only.groth16,
+        );
+        let header_work: TotalWork = bridge_circuit_inputs.hcp.chain_state.total_work[16..32]
+            .try_into()
+            .unwrap();
+        assert!(
+            header_work <= challenge_work,
+            "Fixture must have insufficient work"
+        );
+        assert!(execute_bridge(&bridge_circuit_host_params).await.is_err());
     }
 
     #[cfg(feature = "use-test-vk")]
@@ -589,9 +387,7 @@ mod tests {
             borsh::BorshDeserialize::try_from_slice(bridge_circuit_host_params_serialized)
                 .expect("Failed to deserialize BridgeCircuitHostParams");
 
-        let bridge_circuit_input = bridge_circuit_host_params
-            .clone()
-            .into_bridge_circuit_input();
+        let bridge_circuit_input = bridge_circuit_host_params.bridge_circuit_input().unwrap();
 
         let mut total_works: Vec<[u8; 16]> =
             Vec::with_capacity(bridge_circuit_input.watchtower_inputs.len());
@@ -606,8 +402,10 @@ mod tests {
             total_works.push(total_work);
         }
 
-        let (total_work, challenge_sending_wts) =
-            total_work_and_watchtower_flags(&bridge_circuit_input, &REGTEST_WORK_ONLY_METHOD_ID);
+        let (total_work, challenge_sending_wts) = total_work_and_watchtower_flags(
+            &bridge_circuit_input,
+            &programs::REGTEST.work_only.groth16,
+        );
 
         println!(
             "Total work: {total_work:?}, Challenge sending watchtowers: {challenge_sending_wts:?}"
@@ -627,17 +425,10 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore = "This test is too slow and only runs in x86_64."]
-    fn work_only_from_header_chain_test() {
-        std::env::set_var("RISC0_DEV_MODE", "1");
-        let testnet4_header_chain_method_id_from_elf: [u32; 8] =
-            compute_image_id(TESTNET4_HEADER_CHAIN_GUEST_ELF)
-                .unwrap()
-                .as_words()
-                .try_into()
-                .unwrap();
-
+    async fn work_only_from_header_chain_test() {
+        let guests = &crate::guests::TESTNET4;
         let headers = TESTNET4_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -645,24 +436,18 @@ mod tests {
 
         // Prepare the input for the circuit
         let header_chain_input = HeaderChainCircuitInput {
-            method_id: testnet4_header_chain_method_id_from_elf,
+            method_id: guests.header_chain.key.recursion,
             prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..10].to_vec(),
         };
 
-        let mut binding = ExecutorEnv::builder();
-        let env = binding.write_slice(&borsh::to_vec(&header_chain_input).unwrap());
-        let env = env.build().unwrap();
-        let prover = default_prover();
-
-        let header_chain_receipt = prover
-            .prove_with_opts(
-                env,
-                TESTNET4_HEADER_CHAIN_GUEST_ELF,
-                &ProverOpts::succinct(),
-            )
-            .unwrap()
-            .receipt;
+        let header_chain_receipt = prove(
+            &guests.header_chain,
+            GuestInput::new(&header_chain_input).unwrap(),
+            Backend::Mock,
+        )
+        .await
+        .unwrap();
 
         // Extract journal of receipt
         let header_chain_output =
@@ -674,38 +459,20 @@ mod tests {
             header_chain_circuit_output: header_chain_output.clone(),
         };
 
-        let mut binding = ExecutorEnv::builder();
-        let env = binding.write_slice(&borsh::to_vec(&work_only_input).unwrap());
-        let env = env.add_assumption(header_chain_receipt);
-        let env = env.build().unwrap();
-        let prover = default_prover();
-
-        let work_only_prove_info = prover
-            .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
-            .unwrap();
-
-        println!(
-            "Work only prove info . receipt: {:?}",
-            work_only_prove_info.receipt
-        );
-        println!(
-            "Work only prove info . session stats: {:?}",
-            work_only_prove_info.stats
-        );
-
-        let groth16_seal = &work_only_prove_info.receipt.inner.groth16().unwrap().seal;
-        let seal: [u8; 256] = groth16_seal[0..256].try_into().unwrap();
-
-        // Extract journal of receipt
         let work_only_output = WorkOnlyCircuitOutput::try_from_slice(
-            &work_only_prove_info.receipt.journal.bytes.clone(),
+            &crate::sp1::execute_with_mock_assumptions(
+                guests.work_only.elf,
+                GuestInput::new(&work_only_input)
+                    .unwrap()
+                    .with_assumption(&header_chain_receipt)
+                    .unwrap(),
+            )
+            .await
+            .unwrap(),
         )
         .unwrap();
 
         println!("Output: {work_only_output:?}");
-
-        let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
-        println!("Circuit G16 proof: {circuit_g16_proof:?}");
     }
 
     /// Operator work used after a real watchtower Groth16 is produced. Must stay strictly
@@ -718,14 +485,14 @@ mod tests {
         work
     };
 
-    /// Packs a watchtower Groth16 commit into a signed challenge and runs the production
-    /// operator guest. Operator HCP/LCP stay fake; only the watchtower commit is the variable.
+    /// Packs a watchtower Groth16 commit into a signed challenge and executes the production
+    /// operator guest. Operator HCP/LCP stay mock; only the watchtower commit is the variable.
     #[cfg(not(feature = "use-test-vk"))]
-    fn run_operator_bridge_circuit_with_watchtower_commit(
+    async fn run_operator_bridge_circuit_with_watchtower_commit(
         compressed_g16_proof: [u8; 128],
         watchtower_work: [u8; 16],
         genesis_state_hash: [u8; 32],
-    ) -> Result<Receipt, String> {
+    ) -> Result<Vec<u8>> {
         assert!(
             watchtower_work > OPERATOR_WORK_BELOW_WATCHTOWER,
             "watchtower work must exceed the lowered operator work"
@@ -750,7 +517,8 @@ mod tests {
         let secret_key = SecretKey::from_slice(&[42; 32]).unwrap();
         let keypair = Keypair::from_secret_key(&secp, &secret_key);
         let (watchtower_pubkey, _) = keypair.x_only_public_key();
-        bridge_params.all_tweaked_watchtower_pubkeys[watchtower_idx] = watchtower_pubkey.into();
+        bridge_params.all_tweaked_watchtower_pubkeys[watchtower_idx] =
+            watchtower_pubkey.serialize();
 
         let challenge_connector_vout = bridge_params.watchtower_inputs[0]
             .watchtower_challenge_tx
@@ -800,58 +568,67 @@ mod tests {
         bridge_params.watchtower_inputs[0].watchtower_challenge_witness =
             CircuitWitness::from(Witness::from_slice(&[signature.as_ref()]));
 
-        // Operator HCP/LCP stay fake. Lower operator work so only a verifying
+        // Operator HCP/LCP stay mock. Lower operator work so only a verifying
         // watchtower Groth16 can fail the guest.
-        bridge_params.block_header_circuit_output.genesis_state_hash = genesis_state_hash;
-        bridge_params
-            .block_header_circuit_output
-            .chain_state
-            .total_work[16..]
-            .copy_from_slice(&OPERATOR_WORK_BELOW_WATCHTOWER);
-        let operator_hcp_journal =
-            borsh::to_vec(&bridge_params.block_header_circuit_output).unwrap();
-        bridge_params.headerchain_receipt =
-            fake_receipt(REGTEST_HEADER_CHAIN_METHOD_ID, operator_hcp_journal);
-        bridge_params.lcp_receipt = fake_receipt(
-            REGTEST_LC_IMAGE_ID,
-            bridge_params.light_client_proof.lc_journal.clone(),
+        let mut operator_hcp = bridge_params.bridge_circuit_input().unwrap().hcp;
+        operator_hcp.genesis_state_hash = genesis_state_hash;
+        operator_hcp.chain_state.total_work[16..].copy_from_slice(&OPERATOR_WORK_BELOW_WATCHTOWER);
+        bridge_params.headerchain_receipt = Receipt::mock(
+            programs::REGTEST.header_chain.recursion,
+            borsh::to_vec(&operator_hcp).unwrap(),
+        );
+        bridge_params.lcp_receipt = Receipt::mock(
+            programs::REGTEST.light_client.recursion,
+            bridge_params.lcp_receipt.journal.bytes.clone(),
         );
 
-        let bridge_input = bridge_params.clone().into_bridge_circuit_input();
-        let bridge_env = ExecutorEnv::builder()
-            .write_slice(&borsh::to_vec(&bridge_input).unwrap())
-            .add_assumption(bridge_params.headerchain_receipt)
-            .add_assumption(bridge_params.lcp_receipt)
-            .build()
-            .unwrap();
-
-        default_prover()
-            .prove_with_opts(
-                bridge_env,
-                REGTEST_BRIDGE_CIRCUIT_ELF,
-                &ProverOpts::succinct().with_dev_mode(true),
-            )
-            .map(|prove_info| prove_info.receipt)
-            .map_err(|err| format!("{err:?}"))
+        execute_bridge(&bridge_params).await
     }
 
+    /// The production regtest bridge guest accepts mock header chain and light client proofs
+    /// in mock execution, and ignores an invalid watchtower proof.
+    #[cfg(not(feature = "use-test-vk"))]
+    #[tokio::test]
+    async fn production_bridge_guest_runs_with_mock_header_chain_and_light_client_proofs() {
+        let params: BridgeCircuitHostParams = borsh::from_slice(include_bytes!(
+            "../bin-files/bch_params_varying_total_works.bin"
+        ))
+        .unwrap();
+        let mut watchtower_work = [0u8; 16];
+        watchtower_work[15] = 2;
+        run_operator_bridge_circuit_with_watchtower_commit(
+            [0; 128],
+            watchtower_work,
+            params
+                .bridge_circuit_input()
+                .unwrap()
+                .hcp
+                .genesis_state_hash,
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Proves a real watchtower challenge and checks that the production regtest bridge guest
+    /// accepts it with the accelerated in-guest Groth16 verifier.
     #[cfg(feature = "use-test-vk")]
-    #[test]
-    #[ignore = "requires x86_64, Docker, and real RISC0 proving; run by the dedicated CI job"]
-    fn operator_verifies_real_risc0_watchtower_challenge() {
+    #[tokio::test]
+    #[ignore = "requires a real SP1 prover; run by the dedicated CI job"]
+    async fn operator_verifies_real_sp1_watchtower_challenge() {
         panic!("this test requires the production Groth16 VK; do not enable use-test-vk");
     }
 
     #[cfg(not(feature = "use-test-vk"))]
-    #[test]
-    #[ignore = "requires x86_64, Docker, and real RISC0 proving; run by the dedicated CI job"]
-    fn operator_verifies_real_risc0_watchtower_challenge() {
-        let verifier_context = VerifierContext::default().with_dev_mode(false);
-        let header_chain_image_id = compute_image_id(REGTEST_HEADER_CHAIN_ELF).unwrap();
-        assert_eq!(
-            header_chain_image_id.as_words(),
-            &REGTEST_HEADER_CHAIN_METHOD_ID
-        );
+    #[tokio::test]
+    #[ignore = "requires a real SP1 prover; run by the dedicated CI job"]
+    async fn operator_verifies_real_sp1_watchtower_challenge() {
+        use circuits_lib::bridge_circuit::groth16_verifier::CircuitGroth16WithTotalWork;
+
+        let backend = Backend::from_env()
+            .and_then(crate::sp1::check_programs)
+            .unwrap();
+        let guests = &crate::guests::REGTEST;
+        let work_only_key = guests.work_only.key;
 
         // One regtest header is enough to produce non-zero, honestly accumulated work while
         // keeping the real header-chain proof small enough for a CPU-only test server.
@@ -859,36 +636,19 @@ mod tests {
         let genesis_header =
             CircuitBlockHeader::from(bitcoin::constants::genesis_block(Network::Regtest).header);
         let header_chain_input = HeaderChainCircuitInput {
-            method_id: REGTEST_HEADER_CHAIN_METHOD_ID,
+            method_id: guests.header_chain.key.recursion,
             prev_proof: HeaderChainPrevProofType::GenesisBlock(genesis_state.clone()),
             block_headers: vec![genesis_header],
         };
-
-        let header_chain_env = ExecutorEnv::builder()
-            .write_slice(&borsh::to_vec(&header_chain_input).unwrap())
-            .build()
-            .unwrap();
-        eprintln!("proving one-header watchtower HCP with RISC0");
-        let header_chain_proving_started = std::time::Instant::now();
-        let header_chain_receipt = default_prover()
-            .prove_with_opts(
-                header_chain_env,
-                REGTEST_HEADER_CHAIN_ELF,
-                &ProverOpts::default().with_dev_mode(false),
-            )
-            .unwrap()
-            .receipt;
-        eprintln!(
-            "one-header watchtower HCP proved in {:?}",
-            header_chain_proving_started.elapsed()
-        );
-
-        assert!(
-            !matches!(header_chain_receipt.inner, InnerReceipt::Fake(_)),
-            "the watchtower header-chain receipt must be a real RISC0 proof"
-        );
-        header_chain_receipt
-            .verify_with_context(&verifier_context, header_chain_image_id)
+        let header_chain_receipt = prove(
+            &guests.header_chain,
+            GuestInput::new(&header_chain_input).unwrap(),
+            backend,
+        )
+        .await
+        .unwrap();
+        verify(&header_chain_receipt, guests.header_chain.key, false)
+            .await
             .unwrap();
 
         let header_chain_output =
@@ -901,52 +661,43 @@ mod tests {
         let work_only_input = WorkOnlyCircuitInput {
             header_chain_circuit_output: header_chain_output,
         };
-        let work_only_env = ExecutorEnv::builder()
-            .write_slice(&borsh::to_vec(&work_only_input).unwrap())
-            .add_assumption(header_chain_receipt)
-            .build()
-            .unwrap();
-        eprintln!("converting watchtower HCP to a RISC0 Groth16 receipt");
-        let groth16_proving_started = std::time::Instant::now();
-        let work_only_receipt = default_prover()
-            .prove_with_opts(
-                work_only_env,
-                REGTEST_WORK_ONLY_ELF,
-                &ProverOpts::groth16().with_dev_mode(false),
-            )
-            .unwrap()
-            .receipt;
-        eprintln!(
-            "watchtower Groth16 receipt generated in {:?}",
-            groth16_proving_started.elapsed()
-        );
-
-        assert!(
-            matches!(work_only_receipt.inner, InnerReceipt::Groth16(_)),
-            "the watchtower challenge must contain a real RISC0 Groth16 proof"
-        );
-        let work_only_image_id = compute_image_id(REGTEST_WORK_ONLY_ELF).unwrap();
-        assert_eq!(work_only_image_id.as_bytes(), &REGTEST_WORK_ONLY_METHOD_ID);
-        work_only_receipt
-            .verify_with_context(&verifier_context, work_only_image_id)
+        let work_only_receipt = prove(
+            &guests.work_only,
+            GuestInput::new(&work_only_input)
+                .unwrap()
+                .with_assumption(&header_chain_receipt)
+                .unwrap(),
+            backend,
+        )
+        .await
+        .unwrap();
+        verify(&work_only_receipt, work_only_key, false)
+            .await
             .unwrap();
 
         let work_only_output =
             WorkOnlyCircuitOutput::try_from_slice(&work_only_receipt.journal.bytes).unwrap();
         assert_ne!(work_only_output.work_u128, [0; 16]);
 
-        let groth16_seal: [u8; 256] = work_only_receipt
-            .inner
-            .groth16()
-            .unwrap()
-            .seal
-            .as_slice()
-            .try_into()
-            .unwrap();
-        let compressed_proof = CircuitGroth16Proof::from_seal(&groth16_seal)
-            .to_compressed()
-            .unwrap();
+        let groth16_proof = CircuitGroth16Proof::from(work_only_receipt.groth16_proof().unwrap());
+        // The watchtower check and Bitcoin's folded key must agree on the real proof.
+        let key = crate::bitvm_verifier::program_verifying_key(&work_only_key.groth16).unwrap();
+        assert!(ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
+            &ark_groth16::prepare_verifying_key(&key),
+            &groth16_proof.into(),
+            &[circuits_lib::common::sp1::groth16::public_input(
+                &work_only_receipt.journal.bytes
+            )],
+        )
+        .unwrap());
+        assert!(CircuitGroth16WithTotalWork::new(
+            groth16_proof,
+            work_only_output.work_u128,
+            work_only_output.genesis_state_hash
+        )
+        .verify(&work_only_key.groth16));
 
+        let compressed_proof = groth16_proof.to_compressed().unwrap();
         let expected_insufficient_work = format!(
             "Insufficient total work: Total Work {:?} - Max Total Work: {:?}",
             TotalWork(OPERATOR_WORK_BELOW_WATCHTOWER),
@@ -957,7 +708,9 @@ mod tests {
             work_only_output.work_u128,
             work_only_output.genesis_state_hash,
         )
-        .expect_err("a verifying watchtower Groth16 must fail the operator work comparison");
+        .await
+        .expect_err("a verifying watchtower Groth16 must fail the operator work comparison")
+        .to_string();
         assert!(
             real_proof_err.contains(&expected_insufficient_work),
             "expected `{expected_insufficient_work}` in guest error, got `{real_proof_err}`"
@@ -970,28 +723,30 @@ mod tests {
             work_only_output.work_u128,
             work_only_output.genesis_state_hash,
         )
+        .await
         .expect("a 1-byte-tampered Groth16 must be ignored so the operator's tiny work still wins");
     }
 
-    #[test]
-    fn test_bridge_circuit_with_annex() {
+    #[tokio::test]
+    #[cfg(feature = "use-test-vk")]
+    async fn test_bridge_circuit_with_annex() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_annex.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
-        let (proof, public_output, bitvm_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
-                .unwrap();
+        let (proof, bitvm_inputs) = prove_bridge_circuit(bridge_circuit_host_params, Backend::Mock)
+            .await
+            .unwrap();
         println!("Proof: {proof:?}");
-        println!("Public Output: {public_output:?}");
         println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "Invalid witness length, expected 1 element")]
-    fn test_bridge_circuit_with_large_input() {
+    #[cfg(feature = "use-test-vk")]
+    async fn test_bridge_circuit_with_large_input() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex.bin");
@@ -1006,40 +761,40 @@ mod tests {
                 .watchtower_challenge_witness
                 .push(large_data);
         }
-        let (_, _, _) =
-            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
-                .unwrap();
+        let (_, _) = prove_bridge_circuit(bridge_circuit_host_params, Backend::Mock)
+            .await
+            .unwrap();
     }
 
-    #[test]
-    fn test_bridge_circuit_with_large_output() {
+    #[tokio::test]
+    #[cfg(feature = "use-test-vk")]
+    async fn test_bridge_circuit_with_large_output() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
-        let (proof, public_output, bitvm_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
-                .unwrap();
+        let (proof, bitvm_inputs) = prove_bridge_circuit(bridge_circuit_host_params, Backend::Mock)
+            .await
+            .unwrap();
         println!("Proof: {proof:?}");
-        println!("Public Output: {public_output:?}");
         println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 
-    #[test]
-    fn test_bridge_circuit_with_large_input_and_output() {
+    #[tokio::test]
+    #[cfg(feature = "use-test-vk")]
+    async fn test_bridge_circuit_with_large_input_and_output() {
         eprintln!("\x1b[31mPlease update test data if the elf files are changed. Run the tests on bridge_circuit_test_data.rs to update the test data.\x1b[0m");
         let input_bytes: &[u8] =
             include_bytes!("../bin-files/bch_params_challenge_tx_with_large_annex_and_output.bin");
         let bridge_circuit_host_params: BridgeCircuitHostParams = borsh::from_slice(input_bytes)
             .expect("Failed to deserialize BridgeCircuitHostParams from file");
 
-        let (proof, public_output, bitvm_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF_TEST)
-                .unwrap();
+        let (proof, bitvm_inputs) = prove_bridge_circuit(bridge_circuit_host_params, Backend::Mock)
+            .await
+            .unwrap();
         println!("Proof: {proof:?}");
-        println!("Public Output: {public_output:?}");
         println!("BitVM Inputs: {bitvm_inputs:?}");
     }
 }

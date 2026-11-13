@@ -1,0 +1,23 @@
+name: Install paired SP1 Citrea
+description: Download and verify the pinned native Citrea binary for paired tests
+
+inputs:
+  github_token:
+    description: Token with read access to this repository's release assets
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Cache native Citrea archive
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/citrea-sp1/citrea-sp1-linux-amd64.tar.gz
+        key: citrea-sp1-linux-amd64-${{ hashFiles('scripts/citrea-e2e.json') }}
+    - name: Install native Citrea
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        ./scripts/install-citrea-e2e.sh "$RUNNER_TEMP/citrea-sp1"
+        echo "CITREA_E2E_TEST_BINARY=$RUNNER_TEMP/citrea-sp1/citrea" >> "$GITHUB_ENV"

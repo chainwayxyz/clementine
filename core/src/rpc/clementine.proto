@@ -317,8 +317,12 @@ message CompatibilityParamsRPC {
   string security_council = 2;
   uint32 citrea_chain_id = 3;
   string clementine_version = 4;
-  bytes bridge_circuit_constant = 5;
+  // RISC Zero bridge circuit constant.
+  reserved 5;
+  reserved "bridge_circuit_constant";
   bytes sha256_bitvm_cache = 6;
+  // SP1 program key (`vk.bytes32()`) of the bridge guest.
+  bytes bridge_program_key = 7;
 }
 
 message EntityDataWithId {
@@ -772,9 +776,10 @@ service ClementineAggregator {
   // If restart_tasks is true, it will restart the tasks on the entities if they are stopped.
   rpc GetEntityStatuses(GetEntityStatusesRequest) returns (EntityStatuses) {}
 
-  // Creates an emergency stop tx that won't be broadcasted.
-  // Tx will have around 3 sats/vbyte fee.
-  // Set add_anchor to true to add an anchor output for cpfp..
+  // Returns the stored encrypted emergency stop txs for the given move txids.
+  // txids[i] of the response is the move txid of encrypted_emergency_stop_txs[i].
+  // The order can differ from the request, and move txids without a stored
+  // emergency stop tx are not in the response.
   rpc InternalGetEmergencyStopTx(GetEmergencyStopTxRequest) returns (GetEmergencyStopTxResponse) {}
 
   rpc Vergen(Empty) returns (VergenResponse) {}

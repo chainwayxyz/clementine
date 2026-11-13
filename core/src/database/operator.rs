@@ -4,14 +4,12 @@
 
 use super::{
     wrapper::{
-        AddressDB, DepositParamsDB, LightClientCircuitInputDB, OutPointDB, SignaturesDB, TxidDB,
-        XOnlyPublicKeyDB,
+        AddressDB, DepositParamsDB, OutPointDB, ReceiptDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
 };
 use crate::{
     builder::transaction::create_move_to_vault_txhandler,
-    citrea::LightClientCircuitInputRpcResponse,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
     operator::RoundIndex,
@@ -25,6 +23,7 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use circuits_lib::common::sp1::Receipt;
 use eyre::{eyre, Context};
 use std::str::FromStr;
 
@@ -690,37 +689,37 @@ impl Database {
         Ok(exists)
     }
 
-    /// Retrieves the light client circuit input for a deposit to be proved while sending an assert.
-    pub(crate) async fn get_lcp_input_for_assert(
+    /// Retrieves the light client proof saved for a deposit, used while sending an assert.
+    pub(crate) async fn get_lcp_receipt_for_assert(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
-    ) -> Result<Option<LightClientCircuitInputRpcResponse>, BridgeError> {
-        let query = sqlx::query_as::<_, (LightClientCircuitInputDB,)>(
-            "SELECT lcp_input FROM lcp_input_for_asserts WHERE deposit_id = $1;",
+    ) -> Result<Option<Receipt>, BridgeError> {
+        let query = sqlx::query_as::<_, (ReceiptDB,)>(
+            "SELECT lcp_receipt FROM lcp_receipts_for_asserts WHERE deposit_id = $1;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(result.map(|(lcp_input,)| lcp_input.0))
+        Ok(result.map(|(lcp_receipt,)| lcp_receipt.0))
     }
 
-    /// Saves the light client circuit input for a deposit.
-    /// It is proved later when the assert proof is actually created.
-    pub(crate) async fn insert_lcp_input_for_assert(
+    /// Saves the light client proof of a deposit's payout block.
+    /// It is used later if the operator has to send asserts.
+    pub(crate) async fn insert_lcp_receipt_for_assert(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
-        lcp_input: LightClientCircuitInputRpcResponse,
+        lcp_receipt: Receipt,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO lcp_input_for_asserts (deposit_id, lcp_input)
+            "INSERT INTO lcp_receipts_for_asserts (deposit_id, lcp_receipt)
              VALUES ($1, $2)
              ON CONFLICT (deposit_id) DO NOTHING;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
-        .bind(LightClientCircuitInputDB(lcp_input));
+        .bind(ReceiptDB(lcp_receipt));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -1014,6 +1013,18 @@ impl Database {
         Ok(RoundIndex::from_index(
             usize::try_from(result.0).wrap_err(BridgeError::IntConversionError)?,
         ))
+    }
+
+    /// Locks the current round index row until `tx` ends. Hold it before reading or writing
+    /// round state or kickoff connector reservations, so these operations run one at a time.
+    pub async fn lock_current_round_index(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("SELECT round_idx FROM current_round_index WHERE id = 1 FOR UPDATE")
+            .fetch_one(&mut **tx)
+            .await?;
+        Ok(())
     }
 
     pub async fn update_current_round_index(

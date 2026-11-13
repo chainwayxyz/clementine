@@ -210,42 +210,58 @@ impl TxSender {
         // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
         // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
         // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
-        let child_tx_weight = match fee_paying_type {
-            // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
-            // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
-            // Simplified calculation used here needs verification.
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
+        let total_weight = match fee_paying_type {
+            FeePayingType::CPFP => {
+                return Self::calculate_cpfp_child_fee_for_vbytes(
+                    parent_tx_weight,
+                    parent_tx_fee,
+                    Self::estimate_cpfp_child_weight(num_fee_payer_utxos).to_vbytes_ceil(),
+                    fee_rate,
+                );
+            }
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
-            FeePayingType::NoFunding => Weight::from_wu_usize(0),
-        };
-
-        // Core package feerate calculation is fee / (vsize(parent) + vsize(child)), with
-        // vsize = ceil(weight/4) per tx. Round each tx to vbytes before summing.
-        let total_weight = match fee_paying_type {
-            FeePayingType::CPFP => Weight::from_vb_unchecked(
-                child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
-            ),
-            FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::RBF => {
+                Weight::from_wu_usize(230 * num_fee_payer_utxos + 172) + parent_tx_weight
+            }
             FeePayingType::NoFunding => parent_tx_weight,
         };
 
-        let required_fee = fee_rate
+        fee_rate
             .checked_mul_by_weight(total_weight)
             .ok_or_eyre("Fee calculation overflow")
-            .map_err(SendTxError::from)?;
+            .map_err(SendTxError::from)
+    }
 
-        if fee_paying_type != FeePayingType::CPFP {
-            return Ok(required_fee);
-        }
+    /// Estimates the weight of a CPFP child: N fee payer inputs, 1 anchor input, 1 change output
+    /// and base overhead. Approx WU: (230 * num_fee_payer_utxos) + 207 + 172.
+    fn estimate_cpfp_child_weight(num_fee_payer_utxos: usize) -> Weight {
+        Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172)
+    }
 
-        let child_target_fee = fee_rate
-            .checked_mul_by_weight(Weight::from_vb_unchecked(child_tx_weight.to_vbytes_ceil()))
+    /// Calculates the child fee that brings a parent-child package to `fee_rate`, for a child
+    /// of `child_vbytes`. The child also pays at least `fee_rate` for its own size.
+    fn calculate_cpfp_child_fee_for_vbytes(
+        parent_tx_weight: Weight,
+        parent_tx_fee: Amount,
+        child_vbytes: u64,
+        fee_rate: FeeRate,
+    ) -> Result<Amount> {
+        // Core package feerate calculation is fee / (vsize(parent) + vsize(child)), with
+        // vsize = ceil(weight/4) per tx. Round each tx to vbytes before summing.
+        let package_fee = parent_tx_weight
+            .to_vbytes_ceil()
+            .checked_add(child_vbytes)
+            .and_then(|package_vbytes| fee_rate.fee_vb(package_vbytes))
             .ok_or_eyre("Fee calculation overflow")
             .map_err(SendTxError::from)?;
-        let package_deficit = required_fee
+        let child_target_fee = fee_rate
+            .fee_vb(child_vbytes)
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+        let package_deficit = package_fee
             .checked_sub(parent_tx_fee)
             .unwrap_or(Amount::ZERO);
 
@@ -372,7 +388,10 @@ impl TxSender {
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
-                FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
+                FeePayingType::CPFP => {
+                    self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate, is_tip_height_increased)
+                        .await
+                }
                 FeePayingType::RBF => {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
                         .await

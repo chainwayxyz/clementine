@@ -24,7 +24,7 @@ If a Challenger finds an error with the output of the Operator's off-chain execu
 ## TL;DR
 * **Header Chain Proof (HCP) Verification:**
     * Verifies that the HCP's `method_id` is correct.
-    * Verifies the HCP's Groth16 proof using the `zkvm_guest`.
+    * Verifies the HCP, a compressed SP1 proof, by calling `guest.verify` with the header chain program key (`CURRENT_HEADER_CHAIN.recursion`).
 
 * **Watchtower Challenge Processing:**
     * Verifies the Schnorr signature on each Watchtower's challenge transaction and if verification is successful, sets the corresponding bit.
@@ -37,7 +37,8 @@ If a Challenger finds an error with the output of the Operator's off-chain execu
     * Verifies the inclusion of the block header in the (Merkle Mountain Range) MMR of the canonical chain.
 
 * **Light Client Proof (LCP) Verification:**
-    * Verifies the `LightClientProof` by calling `env::verify` with the correct `LC_IMAGE_ID`.
+    * Verifies the `LightClientProof`, a compressed SP1 proof, by calling `guest.verify` with the light client program key (`CURRENT_LIGHT_CLIENT.recursion`). On networks other than mainnet, the host can mark a mock proof with `GuestVerificationMode::SkipForTesting`, and the guest then does not verify it.
+    * Checks that the method ID in the LCP output matches the light client program key (`CURRENT_LIGHT_CLIENT.groth16`).
     * Performs a check to ensure the L1 block hash from the LCP output matches the payout transaction's block hash.
 
 * **EVM Storage Proof Verification:**
@@ -56,7 +57,7 @@ The bridge circuit in Clementine serves as a critical component that enables sec
 
 At a high level, the circuit performs several key verifications:
 
-* **Header Chain Verification**: In the circuit, the Operator verifies their own Header Chain Proof (HCP).
+* **Header Chain Verification**: In the circuit, the Operator verifies their own Header Chain Proof (HCP), which is a compressed SP1 proof.
 
 * **Watchtower Challenge Processing**: In the circuit, the Operator processes and validates challenges from watchtowers, who monitor operator behavior and provide their own Work Only Proof (WOP) as a Groth16 proof.
     This verification is done as follows:
@@ -66,37 +67,16 @@ At a high level, the circuit performs several key verifications:
 
 * **Simple Payment Verification (SPV)**: In the circuit, the Operator verifies the Simplified Payment Verification (SPV) proof of their payout (fronting the withdrawal) transaction.
 
-* **Light Client Proof (LCP) Verification**: In the circuit, the Operator verifies the Light Client Proof (LCP) (which is a Groth16 proof). This proof comes from a recursive Risc0 circuit that verifies the previous LCP each time, and verifies the Batch Proofs for Citrea, and then generates the new Light Client Proof. This recursion happens per Bitcoin block. Therefore, there exists an LCP for the Bitcoin block that includes the payout transaction of the Operator. The Operator uses the state root from the LCP output to verify the storage proof of their payout transaction data for the specific deposit that corresponds to that withdrawal operation on the Bridge Contract.
+* **Light Client Proof (LCP) Verification**: In the circuit, the Operator verifies the Light Client Proof (LCP) (which is a compressed SP1 proof). This proof comes from a recursive SP1 circuit that verifies the previous LCP each time, and verifies the Batch Proofs for Citrea, and then generates the new Light Client Proof. This recursion happens per Bitcoin block. Therefore, there exists an LCP for the Bitcoin block that includes the payout transaction of the Operator. The Operator uses the state root from the LCP output to verify the storage proof of their payout transaction data for the specific deposit that corresponds to that withdrawal operation on the Bridge Contract.
 
 After all of the verification steps above, the specific constants from the setup are calculated, and with withdrawal specific data, the output data is generated and committed.
 
 ---
 
-### Key Files (RISC Zero Implementation)
+### SP1 implementation
 
-* **`risc0-circuits/bridge-circuit/guest/src/main.rs`**
-    * This is the entry point for the **RISC Zero guest application**.
-    * It initializes the `Risc0Guest` environment and makes the crucial call to `circuits_lib::bridge_circuit::bridge_circuit`, passing the `zkvm_guest` and the `WORK_ONLY_IMAGE_ID` as parameters.
-    * **`WORK_ONLY_IMAGE_ID: [u8; 32]`**: This is a static constant that dynamically resolves to the expected method ID (image ID) of the "Work-Only" circuit. Its value is determined at compile time based on the `BITCOIN_NETWORK` environment variable (e.g., `mainnet`, `testnet4`, `signet`, `regtest`), ensuring the Bridge Circuit verifies proofs from the correct "Work-Only" circuit version for the specified network.
+The guest entry point is `sp1-circuits/bridge-circuit/src/main.rs`; its dependencies are pinned in that package's `Cargo.toml` and `Cargo.lock`. The shared logic lives in `circuits-lib`.
 
-* **`risc0-circuits/bridge-circuit/guest/Cargo.toml`**
-    * The package manifest for the guest-side code.
-    * It defines the `bridge-circuit-guest` package and its dependencies, notably linking to `circuits-lib` which contains the core circuit logic.
-    * It also includes a `use-test-vk` feature, which can be enabled to use a test verification key.
+`scripts/build_sp1_guests.py` builds header-chain, work-only, and bridge guests in dependency order for each Bitcoin network. It records the ELF checksum and SP1 program commitment in `sp1-circuits/elfs/manifest.json`, and generates the commitments in `circuits-lib/src/common/sp1_programs.rs`.
 
-* **`risc0-circuits/bridge-circuit/src/lib.rs`**
-    * This file includes the `methods.rs` generated by the build script, which contains information about the guest methods (ELF image and method ID) that the host can use to prove the guest's execution. Because we use hard-coded method IDs and ELFs that are relocated by build.rs, we rely on those instead.
-
-* **`risc0-circuits/bridge-circuit/build.rs`**
-    * This is the **build script** for the host-side. It is responsible for:
-        * Compiling the `bridge-circuit-guest` code into a RISC Zero ELF binary.
-        * Computing the unique **method ID** for the compiled guest program.
-        * Handling environment variables (like `BITCOIN_NETWORK` and `REPR_GUEST_BUILD`) to configure the build process, including optional Docker usage for guest builds.
-        * Copying the generated ELF binary to a designated `elfs` folder. The destination filename incorporates a `test-` prefix if the `use-test-vk` feature is enabled.
-
-* **`risc0-circuits/bridge-circuit/Cargo.toml`**
-    * The package manifest for the host-side crate.
-    * It defines the `bridge-circuit` package and its build-time dependencies, including `risc0-build` for the RISC Zero toolchain integration and `risc0-binfmt`.
-    * It also defines the `use-test-vk` feature, which can influence the build process as seen in `build.rs`.
-
----
+See [SP1 proving and BitVM verification](sp1.md) for the proof format, development mode, and verification key specialization.

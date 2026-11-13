@@ -15,9 +15,11 @@ use bitvm::chunk::api::{
     NUM_U256,
 };
 
+use ark_serialize::CanonicalSerialize;
 use bitvm::signatures::{Wots, Wots20};
 use borsh::{BorshDeserialize, BorshSerialize};
-use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+use bridge_circuit_host::bitvm_verifier::get_verifying_key;
+use circuits_lib::bridge_circuit::constants::is_test_vk;
 use eyre::Context;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -55,9 +57,28 @@ lazy_static::lazy_static! {
 /// Global BitVM cache wrapped in a OnceLock.
 ///
 /// # Usage
-/// Use with `BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)` to get the cache or optionally load it.
+/// Use [`bitvm_cache`] to get the cache or optionally load it.
 /// The cache will be initialized from a file, and if that fails, the fresh data will be generated.
 pub static BITVM_CACHE: OnceCell<BitvmCacheWithMetadata> = OnceCell::new();
+
+/// The BitVM cache of the bridge program, loaded on first use. The scripts depend on the
+/// program, which is folded into the BitVM verifying key; a process uses one bridge program.
+pub fn bitvm_cache(program: &[u8; 32]) -> Result<&'static BitvmCacheWithMetadata, BridgeError> {
+    let cache = BITVM_CACHE.get_or_try_init(|| load_or_generate_bitvm_cache(program))?;
+    if cache.bitvm_cache.program != *program {
+        return Err(eyre::eyre!("BitVM cache was loaded for another bridge program").into());
+    }
+    Ok(cache)
+}
+
+/// SHA-256 of the BitVM verifying key of `program`, which binds a cache file to its key.
+fn verification_key_hash(program: &[u8; 32]) -> Result<[u8; 32], BridgeError> {
+    let mut bytes = vec![];
+    get_verifying_key(program)?
+        .serialize_uncompressed(&mut bytes)
+        .wrap_err("Failed to serialize BitVM verifying key")?;
+    Ok(Sha256::digest(bytes).into())
+}
 
 pub struct BitvmCacheWithMetadata {
     pub bitvm_cache: BitvmCache,
@@ -65,26 +86,29 @@ pub struct BitvmCacheWithMetadata {
     disprove_replacements_by_script: Vec<Vec<DisproveScriptReplacement>>,
 }
 
-/// Returns the BitVM cache file path from `BITVM_CACHE_PATH` env var or a default based on RISC0 dev/prod mode.
-fn get_cache_path() -> String {
+/// Returns the BitVM cache file path from `BITVM_CACHE_PATH` env var or a default based on
+/// the bridge program and the development or production verifying key.
+fn get_cache_path(program: &[u8; 32]) -> String {
     std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| {
-        if is_dev_mode() {
-            "bitvm_cache_dev.bin".to_string()
-        } else {
-            "bitvm_cache.bin".to_string()
-        }
+        format!(
+            "bitvm_cache_sp1_{}_{}.bin",
+            hex::encode(program),
+            if is_test_vk() { "dev" } else { "prod" }
+        )
     })
 }
 
-pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeError> {
+pub fn load_or_generate_bitvm_cache(
+    program: &[u8; 32],
+) -> Result<BitvmCacheWithMetadata, BridgeError> {
     let start = Instant::now();
 
-    let cache_path = get_cache_path();
+    let cache_path = get_cache_path(program);
 
     let bitvm_cache = {
         tracing::debug!("Attempting to load BitVM cache from file: {}", cache_path);
 
-        match BitvmCache::load_from_file(&cache_path) {
+        match BitvmCache::load_from_file(&cache_path, program) {
             Ok(cache) => {
                 tracing::debug!("Loaded BitVM cache from file");
 
@@ -93,7 +117,7 @@ pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeEr
             Err(_) => {
                 tracing::info!("No BitVM cache found, generating fresh data");
 
-                let fresh_data = generate_fresh_data();
+                let fresh_data = generate_fresh_data(program)?;
 
                 if let Err(e) = fresh_data.save_to_file(&cache_path) {
                     tracing::error!(
@@ -128,6 +152,8 @@ pub fn load_or_generate_bitvm_cache() -> Result<BitvmCacheWithMetadata, BridgeEr
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct BitvmCache {
+    pub program: [u8; 32],
+    pub verifying_key_hash: [u8; 32],
     pub disprove_scripts: Vec<Vec<u8>>,
     pub replacement_places: Box<ClementineBitVMReplacementData>,
 }
@@ -145,7 +171,7 @@ impl BitvmCache {
         })
     }
 
-    fn load_from_file(path: &str) -> Result<Self, BridgeError> {
+    fn load_from_file(path: &str, program: &[u8; 32]) -> Result<Self, BridgeError> {
         let bytes = fs::read(path).map_err(|e| {
             tracing::error!("Failed to read BitVM cache: {}", e);
             BridgeError::ConfigError("No BitVM cache found".to_string())
@@ -153,10 +179,18 @@ impl BitvmCache {
 
         tracing::info!("Loaded BitVM cache from file, read {} bytes", bytes.len());
 
-        Self::try_from_slice(&bytes).map_err(|e| {
+        let cache = Self::try_from_slice(&bytes).map_err(|e| {
             tracing::error!("Failed to deserialize BitVM cache: {}", e);
             BridgeError::ConfigError("Failed to deserialize BitVM cache".to_string())
-        })
+        })?;
+
+        if cache.program != *program || cache.verifying_key_hash != verification_key_hash(program)?
+        {
+            return Err(BridgeError::ConfigError(
+                "BitVM cache belongs to another bridge program or verifying key".to_string(),
+            ));
+        }
+        Ok(cache)
     }
 
     fn calculate_sha256(&self) -> Result<[u8; 32], BridgeError> {
@@ -169,10 +203,10 @@ impl BitvmCache {
     }
 }
 
-fn generate_fresh_data() -> BitvmCache {
-    let vk = get_verifying_key();
+fn generate_fresh_data(program: &[u8; 32]) -> Result<BitvmCache, BridgeError> {
+    let vk = get_verifying_key(program)?;
 
-    let dummy_pks = ClementineBitVMPublicKeys::create_replacable();
+    let dummy_pks = ClementineBitVMPublicKeys::create_replacable(*program);
 
     let partial_scripts = api_generate_partial_script(&vk);
 
@@ -247,15 +281,19 @@ fn generate_fresh_data() -> BitvmCache {
         }
     }
 
-    BitvmCache {
+    Ok(BitvmCache {
+        program: *program,
+        verifying_key_hash: verification_key_hash(program)?,
         disprove_scripts: scripts,
         replacement_places: Box::new(replacement_places),
-    }
+    })
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct ClementineBitVMPublicKeys {
-    pub combined_method_id_constant: [u8; 32],
+    /// SP1 program key of the bridge guest, from trusted protocol configuration. It is folded
+    /// into the BitVM verifying key.
+    pub bridge_program_key: [u8; 32],
     pub deposit_constant: [u8; 32],
     pub payout_tx_blockhash_pk: <Wots20 as Wots>::PublicKey,
     pub latest_blockhash_pk: <Wots20 as Wots>::PublicKey,
@@ -322,8 +360,7 @@ impl ClementineBitVMPublicKeys {
             .expect("Should be able to convert to array")
     }
 
-    pub fn create_replacable() -> Self {
-        let combined_method_id_constant = [255u8; 32];
+    pub fn create_replacable(bridge_program_key: [u8; 32]) -> Self {
         let deposit_constant = [255u8; 32];
         let payout_tx_blockhash_pk = Self::get_replacable_wpks(0, 0);
         let latest_blockhash_pk = Self::get_replacable_wpks(1, 0);
@@ -333,7 +370,7 @@ impl ClementineBitVMPublicKeys {
         let bitvm_part_3 = Self::get_multiple_replacable_wpks(5);
         let bitvm_pks = (bitvm_part_1, bitvm_part_2, bitvm_part_3);
         Self {
-            combined_method_id_constant,
+            bridge_program_key,
             deposit_constant,
             payout_tx_blockhash_pk,
             latest_blockhash_pk,
@@ -342,9 +379,11 @@ impl ClementineBitVMPublicKeys {
         }
     }
 
-    pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
-        // These are dummy since they are coming from another source
-        let combined_method_id_constant = [255u8; 32];
+    pub fn from_flattened_vec(
+        flattened_wpks: &[Vec<[u8; 20]>],
+        bridge_program_key: [u8; 32],
+    ) -> Self {
+        // This is dummy since it is coming from another source
         let deposit_constant = [255u8; 32];
 
         // Use the first element for payout_tx_blockhash_pk
@@ -369,7 +408,7 @@ impl ClementineBitVMPublicKeys {
         );
 
         Self {
-            combined_method_id_constant,
+            bridge_program_key,
             deposit_constant,
             payout_tx_blockhash_pk,
             latest_blockhash_pk,
@@ -660,7 +699,7 @@ impl ClementineBitVMPublicKeys {
             return Ok(TapNodeHash::from_script(&script, LeafVersion::TapScript).to_byte_array());
         }
 
-        let cache = BITVM_CACHE.get_or_try_init(load_or_generate_bitvm_cache)?;
+        let cache = bitvm_cache(&self.bridge_program_key)?;
         let estimated_operations =
             calculate_replacement_operations(&cache.bitvm_cache.replacement_places);
         if estimated_operations > MAX_SCRIPT_REPLACEMENT_OPERATIONS {
@@ -798,9 +837,7 @@ pub fn replace_disprove_scripts(
     let start = Instant::now();
     tracing::info!("Starting script replacement");
 
-    let cache = &BITVM_CACHE
-        .get_or_try_init(load_or_generate_bitvm_cache)?
-        .bitvm_cache;
+    let cache = &bitvm_cache(&pks.bridge_program_key)?.bitvm_cache;
     let replacement_places = &cache.replacement_places;
 
     // Calculate estimated operations to prevent DoS attacks
@@ -938,9 +975,10 @@ mod tests {
 
     #[test]
     fn test_to_flattened_vec() {
-        let bitvm_pks = ClementineBitVMPublicKeys::create_replacable();
+        let bitvm_pks = ClementineBitVMPublicKeys::create_replacable([7; 32]);
         let flattened_vec = bitvm_pks.to_flattened_vec();
-        let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
+        let from_vec_to_array =
+            ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec, [7; 32]);
         assert_eq!(bitvm_pks, from_vec_to_array);
     }
 
@@ -958,15 +996,40 @@ mod tests {
             .generate_bitvm_pks_for_deposit(deposit_outpoint, config.protocol_paramset())
             .unwrap();
 
+        let bridge_program_key = *config.protocol_paramset().bridge_program_key().unwrap();
+        assert_eq!(bitvm_pks.bridge_program_key, bridge_program_key);
         let flattened_vec = bitvm_pks.to_flattened_vec();
-        let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
+        let from_vec_to_array =
+            ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec, bridge_program_key);
         assert_eq!(bitvm_pks, from_vec_to_array);
+    }
+
+    #[test]
+    fn bitvm_cache_file_is_bound_to_program_and_verifying_key() {
+        let program = [1u8; 32];
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.path().to_str().unwrap();
+        let mut cache = BitvmCache {
+            program,
+            verifying_key_hash: verification_key_hash(&program).unwrap(),
+            disprove_scripts: vec![vec![0x51]],
+            replacement_places: Box::default(),
+        };
+        cache.save_to_file(path).unwrap();
+        assert!(BitvmCache::load_from_file(path, &program).is_ok());
+        assert!(BitvmCache::load_from_file(path, &[2u8; 32]).is_err());
+        cache.verifying_key_hash[0] ^= 1;
+        cache.save_to_file(path).unwrap();
+        assert!(BitvmCache::load_from_file(path, &program).is_err());
     }
 
     #[tokio::test]
     #[ignore = "This test is too slow to run on every commit"]
     async fn test_generate_fresh_data() {
-        let bitvm_cache = generate_fresh_data();
+        let program = crate::config::protocol::REGTEST_PARAMSET
+            .bridge_program_key()
+            .unwrap();
+        let bitvm_cache = generate_fresh_data(program).unwrap();
         bitvm_cache
             .save_to_file("bitvm_cache_new.bin")
             .expect("Failed to save BitVM cache");
@@ -978,9 +1041,11 @@ mod tests {
             // only run this test in release mode
             return;
         }
-        let bitvm_cache = BitvmCache::load_from_file(&get_cache_path()).unwrap();
-        let sha256_bitvm_cache = bitvm_cache.calculate_sha256().unwrap();
-        let generated_data = generate_fresh_data();
+        let program = crate::config::protocol::REGTEST_PARAMSET
+            .bridge_program_key()
+            .unwrap();
+        let sha256_bitvm_cache = bitvm_cache(program).unwrap().sha256_bitvm_cache;
+        let generated_data = generate_fresh_data(program).unwrap();
         let fresh_data_sha256 = generated_data.calculate_sha256().unwrap();
         assert_eq!(sha256_bitvm_cache, fresh_data_sha256);
     }

@@ -1,0 +1,30 @@
+name: Cargo cache
+description: Restore and save the Cargo cache with Swatinem/rust-cache
+
+inputs:
+  key:
+    description: Additional cache key, added next to the job ID
+    default: ""
+  add-job-id-key:
+    description: Whether the job-based cache key includes the job ID
+    default: "true"
+  cache-on-failure:
+    description: Save the cache even if the job fails
+    default: "false"
+
+runs:
+  using: composite
+
+  steps:
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      id: cache
+      with:
+        key: ${{ inputs.key }}
+        add-job-id-key: ${{ inputs.add-job-id-key }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}
+
+    # After a partial cache match, cached SP1 runner build output can point to a binary that rust-cache deleted from ~/.cargo/registry/src.
+    - name: Rebuild SP1 runner binary
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: rm -rf target/*/{build,.fingerprint}/sp1-core-executor-runner-* target/llvm-cov-target/*/{build,.fingerprint}/sp1-core-executor-runner-*

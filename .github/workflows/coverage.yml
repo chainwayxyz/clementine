@@ -12,8 +12,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
 
   CARGOFLAGS: --workspace --all-targets
@@ -44,22 +44,23 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
+      - uses: ./.github/actions/install-citrea
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
       - uses: taiki-e/install-action@60c08ce81d769135aafd96f96efc85993d9cb8e4 # cargo-llvm-cov
 
       - name: Create test log directories
         run: mkdir -p test-logs/coverage
 
       - name: Restore Cargo cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: ./.github/actions/cargo-cache
         with:
-          key: coverage-release
+          key: coverage-ci-release
 
       - name: Run coverage
-        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --output-path lcov.info -- --test-threads 6
+        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --profile ci-release --lcov --locked --output-path lcov.info -- --test-threads 6
 
       - name: Upload coverage
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0

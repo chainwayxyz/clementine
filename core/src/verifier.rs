@@ -64,9 +64,6 @@ use bitcoin::taproot::{self, TaprootBuilder};
 use bitcoin::{Address, Amount, ScriptBuf, Txid, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitcoincore_rpc::RpcApi;
-use bitvm::clementine::additional_disprove::{
-    replace_placeholders_in_script, validate_assertions_for_additional_script,
-};
 use bitvm::signatures::winternitz;
 #[cfg(feature = "automation")]
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
@@ -78,6 +75,9 @@ use circuits_lib::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::ffi::MUSIG_SECNONCE_LEN;
 use secp256k1::musig::{AggregatedNonce, PartialSignature, PublicNonce, SecretNonce};
+use sp1_bitvm::additional_disprove::{
+    replace_placeholders_in_script, validate_assertions_for_additional_script,
+};
 #[cfg(feature = "automation")]
 use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1640,7 +1640,10 @@ where
             &operator_auth_sig,
         )?;
 
-        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(
+            &winternitz_keys,
+            *self.config.protocol_paramset().bridge_program_key()?,
+        );
 
         let assert_tx_addrs = bitvm_pks
             .get_assert_taproot_leaf_hashes(operator_data.xonly_pk)
@@ -1871,21 +1874,7 @@ where
             .prove_work_only(current_tip_hcp.0)
             .await?;
 
-        let g16: [u8; 256] = work_only_proof
-            .inner
-            .groth16()
-            .wrap_err("Work only receipt is not groth16")?
-            .seal
-            .to_owned()
-            .try_into()
-            .map_err(|e: Vec<u8>| {
-                eyre::eyre!(
-                    "Invalid g16 proof length, expected 256 bytes, got {}",
-                    e.len()
-                )
-            })?;
-
-        let g16_proof = CircuitGroth16Proof::from_seal(&g16);
+        let g16_proof = CircuitGroth16Proof::from(work_only_proof.groth16_proof()?);
         let mut commit_data: Vec<u8> = g16_proof
             .to_compressed()
             .wrap_err("Couldn't compress g16 proof")?
@@ -2204,7 +2193,7 @@ where
         txhandlers: &BTreeMap<TransactionType, TxHandler>,
         db_cache: &mut ReimburseDbCache<'_, '_>,
     ) -> Result<Option<bitcoin::Witness>, BridgeError> {
-        use bitvm::clementine::additional_disprove::debug_assertions_for_additional_script;
+        use sp1_bitvm::additional_disprove::debug_assertions_for_additional_script;
 
         let nofn_key = deposit_data.get_nofn_xonly_pk().inspect_err(|e| {
             tracing::error!("Error getting nofn xonly pk: {:?}", e);
@@ -2556,7 +2545,7 @@ where
         db_cache: &mut ReimburseDbCache<'_, '_>,
     ) -> Result<Option<(usize, Vec<Vec<u8>>)>, BridgeError> {
         use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-        use bridge_circuit_host::utils::get_verifying_key;
+        use bridge_circuit_host::bitvm_verifier::get_verifying_key;
 
         let bitvm_pks = db_cache.get_operator_bitvm_keys().await?.clone();
 
@@ -2687,7 +2676,7 @@ where
 
         tracing::info!("Boxes created");
 
-        let vk = get_verifying_key();
+        let vk = get_verifying_key(&bitvm_pks.bridge_program_key)?;
 
         tracing::debug!(
             "Signed asserts:\n{:?}\n{:?}\n{:?}",
@@ -2879,10 +2868,6 @@ where
             self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            while (self.header_chain_prover.prove_if_ready().await?).is_some() {
-                // Continue until prove_if_ready returns None
-                // If it doesn't return None, it means next batch_size amount of blocks were proven
-            }
             StateManager::<Self>::dispatch_lcp_processed(&self.db, dbtx, block_height).await?;
         }
 

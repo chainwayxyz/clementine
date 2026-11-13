@@ -17,10 +17,10 @@ use crate::{
 use async_trait::async_trait;
 use bitcoin::OutPoint;
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, SequencerConfig, TestCaseConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
@@ -38,33 +38,23 @@ struct DisproveTest {
 #[async_trait]
 impl TestCase for DisproveTest {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-limitancestorsize=1010",
-                "-limitdescendantsize=1010",
-                "-acceptnonstdtxn=1",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec![
+            "-limitancestorsize=1010",
+            "-limitdescendantsize=1010",
+            "-acceptnonstdtxn=1",
+            "-dustrelayfee=0",
+        ])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::paired_citrea(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     fn sequencer_config() -> SequencerConfig {
@@ -74,16 +64,8 @@ impl TestCase for DisproveTest {
         }
     }
 
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            enable_recovery: false,
-            ..Default::default()
-        }
-    }
-
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
-            enable_recovery: false,
             initial_da_height: 60,
             ..Default::default()
         }
@@ -120,6 +102,7 @@ impl TestCase for DisproveTest {
                 lc_prover.config.rollup.rpc.bind_port,
             )),
         );
+        citrea::set_genesis_above_lcp_start(&mut config, lc_prover).await;
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -271,7 +254,6 @@ impl TestCase for DisproveTest {
 async fn disprove_script_test_healthy() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::HealthyState,
     };
@@ -299,7 +281,6 @@ async fn disprove_script_test_healthy() -> Result<()> {
 async fn disprove_script_test_corrupted_assert() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::CorruptedAssert,
     };
