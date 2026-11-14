@@ -20,8 +20,8 @@
     "sp1_version": "6.10.0"
   },
   "regtest-bridge-circuit": {
-    "program_key": "00ac4a5ef75a86bf2cf473a5bd75546308dfa50b8329b901f31ea531bbe676ec",
-    "sha256": "77debc4e9eaff9114148c338a164c0c37af4953c1218b1328309a62ec3f44b13",
+    "program_key": "00cb2be44c4356116cc4abd5914682d8cf8415d9e0fbf0a8d7c367f8b37b8ea1",
+    "sha256": "c305044e93f94ee8d8eb4f8493433b7b7fc0abc7963f588a3d9ef642b59ff62b",
     "sp1_version": "6.10.0"
   },
   "regtest-header-chain": {
@@ -30,8 +30,8 @@
     "sp1_version": "6.10.0"
   },
   "regtest-light-client": {
-    "program_key": "00887cd2119d7272fd19c3e77dc0a4df3fcec3a38d9205e3c116eff339f7d9d0",
-    "sha256": "916575884a5ba91a1436346f0c64062b08f34d925db7fb1e465f6f00244a430b",
+    "program_key": "006ad3bd37c1963303f299609090520b08ccff0aed677d688a8c74f05403d6e2",
+    "sha256": "601077e2dee75f9590b9ba5cc451c380acaba0abb3b2a2ca55d032ec5c2a294f",
     "sp1_version": "6.10.0"
   },
   "regtest-work-only": {
@@ -40,8 +40,8 @@
     "sp1_version": "6.10.0"
   },
   "signet-bridge-circuit": {
-    "program_key": "0060db0554cf65d50552c07ee7ba393f9b894eb403a117760678879eca7aafd9",
-    "sha256": "91bf5aab813fcfa8b70c2fe346a76ab7f2304cf0c31fadf46f759367747e0c3e",
+    "program_key": "002ad4b167e01ddc595049e29d4028e7a64d1b25d29bafe900faf4a4b979d2b1",
+    "sha256": "0cd51abbe1fbee1b9dcffa0ae7b1ac5198c89fe453e2fedac3369439f9e7221a",
     "sp1_version": "6.10.0"
   },
   "signet-header-chain": {
@@ -50,8 +50,8 @@
     "sp1_version": "6.10.0"
   },
   "signet-light-client": {
-    "program_key": "00b5c8be43c8328e74a70d1ebb606504d4a6b5e66ab7e6b498c7d963612b4792",
-    "sha256": "70f132f67d2a38a286dd0d177821e593d91d301ee8ff1275a2d1ed74f12ee856",
+    "program_key": "00c4f867d1b30a3479cf10920884fd81019b59a0708c63f6b199c0f1e29be9da",
+    "sha256": "8f98b48354dc69608fee7f50af334ebb4d2e694f6ec4649e824f1f8a825fe464",
     "sp1_version": "6.10.0"
   },
   "signet-work-only": {
@@ -60,13 +60,13 @@
     "sp1_version": "6.10.0"
   },
   "test-regtest-bridge-circuit": {
-    "program_key": "00086f82558b5afe4d6beb6dbe2eb60506b582e8d7df4f6e78744336196a4a91",
-    "sha256": "8d90fd616b2f9f5082ea3e08f3b31e04086924c7cd551a92f032678ab39e4135",
+    "program_key": "006a120a1c8ee2c9752ac1d4ccce749d11eddeda1f7c182e6d67fd1587b82e77",
+    "sha256": "b9e912e4f107883325470d240676ca0a3fe577ff4c11d9591fcda452f3d82eab",
     "sp1_version": "6.10.0"
   },
   "test-signet-bridge-circuit": {
-    "program_key": "00e59f6c261cf1821f6e137abcef3a3da5fa28c8cf7224bcac19eb899f55883a",
-    "sha256": "a4a9c7e7e4318823999753253a92e9b3a9919fb72b12edd40dc50de320883295",
+    "program_key": "00346db601a9c37f84651033fe6d2ce00ddca7f324039e45c8089f29b483f92c",
+    "sha256": "7274f5cfd4decd15bafd59e240f0b24182e8308b8a4358c450c751d09c845c3a",
     "sp1_version": "6.10.0"
   },
   "test-testnet4-bridge-circuit": {
