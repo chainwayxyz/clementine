@@ -1,12 +1,12 @@
 {
   "mainnet-bridge-circuit": {
-    "program_key": "0040f92c844897d3901a25ca7ece12bb0d7ce744c2caab6b6da9df895bb417eb",
-    "sha256": "d0dc33105e6ba46d82e220a793d6b5c73ceac9356c0a5685a73e71fc3af0c1ec",
+    "program_key": "0047929041764cdaa0486b91d0a1cb311695844ac0a3eebf407a22b6daf60812",
+    "sha256": "64373466a3c463f07318becdc824eadcb84e70ae14dd15ac60d020dc131be4f5",
     "sp1_version": "6.10.0"
   },
   "mainnet-header-chain": {
-    "program_key": "000fe9493c19351b6c18f3f93142d06ed2cab617403faa0e7ef0d61f9deacc12",
-    "sha256": "d8471ed04672f2e184114ac912b445f0d486554119c568926ae43b68993c1596",
+    "program_key": "00d71d5746f312471e4e970f7add8671d1071f5fef2070ca219d60a3f30311e7",
+    "sha256": "a083530a395ec154df11cf4490ad52c555c0ff8ea2ed48993ed9bc6f26adbb8d",
     "sp1_version": "6.10.0"
   },
   "mainnet-light-client": {
@@ -15,18 +15,18 @@
     "sp1_version": "6.10.0"
   },
   "mainnet-work-only": {
-    "program_key": "00ce35273c6df21a2be424b03325733814f46d0b933b8687b1628772a1fc12b4",
-    "sha256": "986f9224b0c2941a306beb6a1af0410f5c057ef3f9526469d4e57c07d37fe132",
+    "program_key": "00cd6fe2a2602c467bc69c34bc95194b0bc366ffa023be26b83290de76d7f594",
+    "sha256": "16824ba37613c0420cad059babbd90a8d3243815ae2e16ec41e1477c4c47be85",
     "sp1_version": "6.10.0"
   },
   "regtest-bridge-circuit": {
-    "program_key": "0001b48a55b55718704cc7a8e79a6f11737bc8987cb1dfc2f495c23ce369c792",
-    "sha256": "4005c194075082ca7dc8d923a1b3968c0c6f87c0b594a5e091abbe07e2628e4b",
+    "program_key": "00ac4a5ef75a86bf2cf473a5bd75546308dfa50b8329b901f31ea531bbe676ec",
+    "sha256": "77debc4e9eaff9114148c338a164c0c37af4953c1218b1328309a62ec3f44b13",
     "sp1_version": "6.10.0"
   },
   "regtest-header-chain": {
-    "program_key": "0015f73cd0cb34f7deca2bccc3c1bba4a8e0a0dfa68ccec58b03a36c7d32f2b5",
-    "sha256": "8d83be1c823270103d2c481e935d4fe99b33ebf806b27264a8cd3c23cc9813fd",
+    "program_key": "00cee7334b57b8a65d925b307d59f48854dd83714604513936a2fc3308449b8f",
+    "sha256": "387a66e9663ad577f1c74a72744d1eaeb9de5066df97c08d3ea0e04b17beac98",
     "sp1_version": "6.10.0"
   },
   "regtest-light-client": {
@@ -35,18 +35,18 @@
     "sp1_version": "6.10.0"
   },
   "regtest-work-only": {
-    "program_key": "00447345daafdfc59eef2890a0f68b08e68aed5dd687831417cba68c0cc216e8",
-    "sha256": "bc7a46b604e1598f30a36a38672b916a030015d9d19a75ee873d649c50360476",
+    "program_key": "00e93fef817af3dae453adc4933d6ab31236e1edf0e71f469f42edf05c73ca9e",
+    "sha256": "4a84a1957333e421271f296831bff73ce64578866af5bf51e8da1ed44e5d0f12",
     "sp1_version": "6.10.0"
   },
   "signet-bridge-circuit": {
-    "program_key": "00efdb023bbb725f8abc3380d690a8467cd359897ab6f81314f86192a13eb79b",
-    "sha256": "7c85b0da5e53db1518b1d16e888c8408bfc721f594b22d819b2d1e294c31d5c9",
+    "program_key": "0060db0554cf65d50552c07ee7ba393f9b894eb403a117760678879eca7aafd9",
+    "sha256": "91bf5aab813fcfa8b70c2fe346a76ab7f2304cf0c31fadf46f759367747e0c3e",
     "sp1_version": "6.10.0"
   },
   "signet-header-chain": {
-    "program_key": "00746ed3bc1bc5d9d7a778712571d056330245b13e8f14db892e3b2b9802275a",
-    "sha256": "905b52f627622ac2733f2b493c0a9f7a6499f2a8d005a442081982b432b9960c",
+    "program_key": "00a38fb3f48816964cc06740c9e6cc3266e49b9693aaeafbbb42a6c01ba3a963",
+    "sha256": "8d37a5f22cf97629ce8fe344ed2943d2c88f36dfc98b1769eaf6e347738f6243",
     "sp1_version": "6.10.0"
   },
   "signet-light-client": {
@@ -55,33 +55,33 @@
     "sp1_version": "6.10.0"
   },
   "signet-work-only": {
-    "program_key": "00ba6be9134335a2fec4020f45200faed80e073d448f68e3d25d30437c3b7ecc",
-    "sha256": "c11e05e490a808dd63b8a52c37712f2a64ada70110e8dbf7337578f29d526835",
+    "program_key": "0020ffc658d539f1ec155de7c7e4e1751da8d14187279b789600b1fa5adfdfbb",
+    "sha256": "7278bf18362f64a5414db737a3195da465ce218ea3f93da2349f1b660168edf3",
     "sp1_version": "6.10.0"
   },
   "test-regtest-bridge-circuit": {
-    "program_key": "00b40ce0b28534592ef09be3c1170d755e58e7a117b55c2e49533cf78157c4da",
-    "sha256": "ecac515072b65c20863051c01ddcd782c00373f0c5cb82ae174ef3d608c7af39",
+    "program_key": "00086f82558b5afe4d6beb6dbe2eb60506b582e8d7df4f6e78744336196a4a91",
+    "sha256": "8d90fd616b2f9f5082ea3e08f3b31e04086924c7cd551a92f032678ab39e4135",
     "sp1_version": "6.10.0"
   },
   "test-signet-bridge-circuit": {
-    "program_key": "00b5b34096b5d990006298219301b31c5a6c0dbfd2e2ac440e9cd6b49b609348",
-    "sha256": "3763cd6526108a8c542dbc4f21d7c9fd1ac2cf5c95af8b19122467c99cdca97c",
+    "program_key": "00e59f6c261cf1821f6e137abcef3a3da5fa28c8cf7224bcac19eb899f55883a",
+    "sha256": "a4a9c7e7e4318823999753253a92e9b3a9919fb72b12edd40dc50de320883295",
     "sp1_version": "6.10.0"
   },
   "test-testnet4-bridge-circuit": {
-    "program_key": "00486c9fcb592304e534ac811d7b0b821c903f3b0b34cc5f99eb875c47bc176d",
-    "sha256": "f2d38aad3b632f0cf58de151204ed58c0841ff89ce2a02eb2d5ff854e9d44783",
+    "program_key": "00d2b24a24fc988bf90552e577793265dc4b7ce04b24094c1dd1c71557c213d4",
+    "sha256": "b53f9ab72445e882d63e9f63baf9a37a9c598d5e8a363df1ff74ae94b2f173cb",
     "sp1_version": "6.10.0"
   },
   "testnet4-bridge-circuit": {
-    "program_key": "0065da00b7deac284b2aac7fd48f797381f9bbeacf00e606c5e09b2f64805b3f",
-    "sha256": "0e088b1eb810b8385c805974f3419cd3021bc75ae69c4c3896be8f522eb05acb",
+    "program_key": "00711c432bf7afa7fc5777fd676b06d43c96e028b8461287b0773eb37da7605c",
+    "sha256": "58260540e482ccceaccd03a5c5250c20ad2ff9439c0726b6c48d58a315a5a515",
     "sp1_version": "6.10.0"
   },
   "testnet4-header-chain": {
-    "program_key": "004faf50d2d6c108649c293c5609b7e26fdbc8e24fd9eadf67d3848f9f4a3749",
-    "sha256": "ac4232c6a1005a9573919c7f6ccf8a9e957699e57952b5fb533262b738b82dbd",
+    "program_key": "003c2a8443df65c13af865cc6cbfa8162fae65c0e52293bddc9c27d113b9be92",
+    "sha256": "4e05fe4a40c283ed19c5132a300677d6f3105f53f49ff26ca2c23d9123f88783",
     "sp1_version": "6.10.0"
   },
   "testnet4-light-client": {
@@ -90,8 +90,8 @@
     "sp1_version": "6.10.0"
   },
   "testnet4-work-only": {
-    "program_key": "00f3bdeb4af4b318f2c6e5003bf62932e11c6a1e821dd5b89bf1e59343451592",
-    "sha256": "0f4205279efca2d29f5df3d1dd73da24dc1ea178216e12e9710e3a0034995461",
+    "program_key": "004a826c83785e4cdf80be007fb2d150f7a58508b9f57a61c07a392ecbaa6d5f",
+    "sha256": "1bf4747166077c977baf206216d8f543cbab9aab173f64194867f1f839a17c4e",
     "sp1_version": "6.10.0"
   }
 }

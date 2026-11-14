@@ -107,6 +107,11 @@ regenerates the key table. `--citrea` records the program keys of Citrea's light
 `regtest-light-client.elf`). Commit the manifest, the key table and the ELFs together. The
 Circuit Check workflow rebuilds all guests and fails if they differ.
 
+Guest builds disable `SimplifyComparisonIntegral` to work around
+[rust-lang/rust#158206](https://github.com/rust-lang/rust/issues/158206) in the pinned Succinct
+compiler. Remove the workaround once the pinned toolchain includes the Rust 1.96.1 fix.
+The flag covers rebuilt guest crates and dependencies, but not the toolchain's prebuilt standard library.
+
 The guest workspaces patch crypto crates with SP1's precompile patches; for example, Groth16
 verification uses the patched BN254 crate. `scripts/check-sp1-patches.py` fails if a supported
 crypto dependency loses its patch.

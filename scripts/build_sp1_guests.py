@@ -56,6 +56,9 @@ def build(guest: str, network: str, development: bool) -> Path:
         # `cargo prove build --docker` does not forward environment variables. The guests read
         # the network with `option_env!("BITCOIN_NETWORK")` at compile time.
         f"--rustflags=-Zunstable-options,--env-set,BITCOIN_NETWORK={network}",
+        # The pinned Succinct compiler still has rust-lang/rust#158206 (fixed in Rust 1.96.1).
+        # Disable the pass for guest crates and dependencies; std is prebuilt by the toolchain.
+        "--rustflags=-Zmir-enable-passes=-SimplifyComparisonIntegral",
     ]
     if development:
         command += ["--features", "testing"]
