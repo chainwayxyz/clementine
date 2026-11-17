@@ -334,6 +334,11 @@ impl BridgeConfig {
             }
         }
 
+        // With SP1's `profiling` feature, this makes SP1 write a Gecko profile of guest execution.
+        if std::env::var_os("TRACE_FILE").is_some() {
+            reasons.push("TRACE_FILE is set, which enables SP1's instruction profiler".to_string());
+        }
+
         if !reasons.is_empty() {
             return Err(BridgeError::ConfigError(format!(
                 "Invalid configuration due to: {}",

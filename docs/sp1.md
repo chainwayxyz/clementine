@@ -89,6 +89,28 @@ checks the returned public values against local execution. There are no Clementi
 cycle/gas environment settings. Remove this compatibility path when the SDK and network
 agree on BLAKE3 digests.
 
+### Guest execution
+
+Every backend executes the guest locally: `cpu` while proving, `network` in SDK simulation or
+the BLAKE3 preflight, and `mock` instead of proving. On x86_64, SP1 6.10 uses its native
+executor by default. It compiles the guest to machine code, runs it in a child process and
+keeps guest memory and execution traces in `/dev/shm`. Docker and Podman give containers a
+64 MiB `/dev/shm` by default. There, executing the bridge guest with one full Groth16
+watchtower check crashes with SIGBUS.
+
+Each container platform configures the `/dev/shm` size in its own way, so the native executor
+would require platform-specific deployment configuration. To let the Clementine image run without
+it, Clementine enables the `sp1-sdk` feature `profiling` only to select SP1's portable executor
+instead. It is a Rust interpreter that runs in Clementine's process and does not use
+`/dev/shm`. The executor is not part of proof verification. Other effects of the feature:
+
+- Guest memory is now part of Clementine's own process memory. Both executors stop the guest
+  at `MEMORY_LIMIT` (24 GiB by default), but they measure different things. The native
+  executor measures the memory of its child process. The portable executor counts only the
+  memory that the guest itself uses.
+- `TRACE_FILE` makes SP1 write a Gecko profile of guest execution, so Clementine does not
+  start when it is set.
+
 ## Building
 
 Install `cargo-prove` 6.10.0 and Docker, then run:

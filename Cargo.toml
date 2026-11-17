@@ -19,7 +19,9 @@ repository = "https://github.com/chainwayxyz/clementine"
 
 [workspace.dependencies]
 sp1-verifier = { version = "=6.10.0", default-features = false }
-sp1-sdk = { version = "=6.10.0", default-features = false, features = ["network"] }
+# `profiling` is enabled only to select SP1's portable executor, which does not need a large
+# /dev/shm. See "Guest execution" in docs/sp1.md.
+sp1-sdk = { version = "=6.10.0", default-features = false, features = ["network", "profiling"] }
 sp1-zkvm = { version = "=6.10.0", features = ["verify"] }
 color-eyre = "0.6.5"
 ctor = "0.4.2"
