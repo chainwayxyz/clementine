@@ -15,14 +15,14 @@ use crate::test::common::citrea::MockCitreaClient;
 use crate::test::common::tx_utils::create_bumpable_tx;
 use crate::test::common::{
     citrea, create_actors, create_test_config_with_thread_name, get_deposit_address,
-    mine_once_after_in_mempool,
+    mark_citrea_e2e_test_started, mine_once_after_in_mempool, run_citrea_e2e_with_retry,
 };
 use crate::tx_sender::TxSender;
 use crate::utils::FeePayingType;
 use crate::{rpc, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::Txid;
+use bitcoin::{Amount, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::BitcoinConfig;
@@ -444,4 +444,93 @@ impl TestCase for ReorgOnDeposit {
 #[tokio::test]
 async fn reorg_on_deposit() -> Result<()> {
     TestCaseRunner::new(ReorgOnDeposit).run().await
+}
+
+struct ReorgChecks;
+#[async_trait]
+impl TestCase for ReorgChecks {
+    fn bitcoin_config() -> BitcoinConfig {
+        crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
+    }
+
+    fn test_config() -> TestCaseConfig {
+        TestCaseConfig {
+            with_sequencer: false,
+            with_batch_prover: false,
+            n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
+            docker: citrea_e2e::config::TestCaseDockerConfig {
+                bitcoin: true,
+                citrea: false,
+            },
+            ..Default::default()
+        }
+    }
+
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        mark_citrea_e2e_test_started();
+        let (da0, da1) = (
+            f.bitcoin_nodes.get(0).unwrap(),
+            f.bitcoin_nodes.get(1).unwrap(),
+        );
+
+        let mut config = create_test_config_with_thread_name().await;
+        const PARAMSET: ProtocolParamset = ProtocolParamset {
+            finality_depth: DEFAULT_FINALITY_DEPTH as u32,
+            ..REGTEST_PARAMSET
+        };
+        config.protocol_paramset = &PARAMSET;
+        citrea::update_config_with_bitcoin_e2e_values(&mut config, da0);
+
+        let rpc = ExtendedBitcoinRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Reorg starts here.
+        f.bitcoin_nodes.disconnect_nodes().await?;
+
+        let before_reorg_tip_height = rpc.get_block_count().await?;
+        let before_reorg_tip_hash = rpc.get_block_hash(before_reorg_tip_height).await?;
+
+        let address = Actor::new(config.secret_key, config.protocol_paramset.network).address;
+        let tx = rpc
+            .send_to_address(&address, Amount::from_sat(10000))
+            .await?;
+
+        assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
+        rpc.mine_blocks(1).await?;
+        assert!(rpc.is_tx_on_chain(&tx.txid).await?);
+
+        // Make the second branch longer and perform a reorg.
+        let reorg_depth = 4;
+        da1.generate(reorg_depth).await.unwrap();
+        f.bitcoin_nodes.connect_nodes().await?;
+        f.bitcoin_nodes.wait_for_sync(None).await?;
+
+        // Check that reorg happened.
+        let current_tip_height = rpc.get_block_count().await?;
+        assert_eq!(
+            before_reorg_tip_height + reorg_depth,
+            current_tip_height,
+            "Re-org did not occur"
+        );
+        let current_tip_hash = rpc.get_block_hash(current_tip_height).await?;
+        assert_ne!(
+            before_reorg_tip_hash, current_tip_hash,
+            "Re-org did not occur"
+        );
+
+        assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
+
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn reorg_checks() -> Result<()> {
+    run_citrea_e2e_with_retry(|| TestCaseRunner::new(ReorgChecks).run()).await
 }

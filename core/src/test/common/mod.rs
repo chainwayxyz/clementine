@@ -34,9 +34,11 @@ use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use eyre::Context;
 pub use setup_utils::*;
+use std::future::Future;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use test_actors::TestActors;
 use tonic::Request;
@@ -53,6 +55,49 @@ pub mod tx_utils;
 use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
+
+const CITREA_E2E_PRE_RUN_ATTEMPTS: usize = 10;
+
+tokio::task_local! {
+    static CITREA_E2E_TEST_STARTED: Arc<AtomicBool>;
+}
+
+/// Retries a Citrea E2E test when framework preparation fails before test execution.
+pub async fn run_citrea_e2e_with_retry<F, Fut>(mut run: F) -> citrea_e2e::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = citrea_e2e::Result<()>>,
+{
+    for attempt in 1..=CITREA_E2E_PRE_RUN_ATTEMPTS {
+        let test_started = Arc::new(AtomicBool::new(false));
+        let result = CITREA_E2E_TEST_STARTED
+            .scope(test_started.clone(), run())
+            .await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err)
+                if attempt < CITREA_E2E_PRE_RUN_ATTEMPTS
+                    && !test_started.load(Ordering::Relaxed) =>
+            {
+                tracing::warn!(
+                    attempt,
+                    max_attempts = CITREA_E2E_PRE_RUN_ATTEMPTS,
+                    error = %err,
+                    "Retrying Citrea E2E test after framework preparation failure"
+                );
+                tokio::time::sleep(Duration::from_secs(2 * attempt as u64)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    unreachable!("terminal retry attempts return their error")
+}
+
+/// Marks that Citrea E2E framework preparation has completed and test execution has begun.
+pub fn mark_citrea_e2e_test_started() {
+    CITREA_E2E_TEST_STARTED.with(|started| started.store(true, Ordering::Relaxed));
+}
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
