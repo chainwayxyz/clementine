@@ -51,6 +51,7 @@ impl TestCase for CitreaLcpProverE2E {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         let lc_prover = f
             .light_client_prover
             .as_ref()
@@ -152,5 +153,6 @@ async fn poll_lcp(
 async fn citrea_lcp_prover_returns_expected_method_id() -> citrea_e2e::Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    TestCaseRunner::new(CitreaLcpProverE2E).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| TestCaseRunner::new(CitreaLcpProverE2E).run())
+        .await
 }

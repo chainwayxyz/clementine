@@ -25,6 +25,7 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+#[derive(Clone, Copy)]
 pub enum TestVariant {
     CorruptedLatestBlockHash,
     CorruptedPayoutTxBlockHash,
@@ -33,6 +34,7 @@ pub enum TestVariant {
     CorruptedPublicInput,
 }
 
+#[derive(Clone, Copy)]
 struct AdditionalDisproveTest {
     variant: TestVariant,
 }
@@ -69,6 +71,7 @@ impl TestCase for AdditionalDisproveTest {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         tracing::info!("Starting Citrea");
         let (sequencer, full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
@@ -214,7 +217,10 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
@@ -239,7 +245,10 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPayoutTxBlockHash,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
@@ -264,7 +273,10 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedChallengeSendingWatchtowers,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
@@ -289,7 +301,10 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::OperatorForgotWatchtowerChallenge,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the public input is intentionally corrupted.
@@ -316,5 +331,8 @@ async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> 
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPublicInput,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }

@@ -100,6 +100,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         tracing::info!("Starting Citrea");
 
         let (sequencer, full_node, lc_prover, batch_prover, bitcoin_nodes) =
@@ -480,7 +481,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 #[ignore = "Run in standalone VM in CI"]
 async fn citrea_deposit_and_withdraw_e2e() -> citrea_e2e::Result<()> {
     initialize_logger(None).expect("Failed to initialize logger");
-    TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run()
+    })
+    .await
 }
 
 /// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.

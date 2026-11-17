@@ -26,11 +26,13 @@ use citrea_e2e::{
     Result,
 };
 
+#[derive(Clone, Copy)]
 pub enum DisproveTestVariant {
     HealthyState,
     CorruptedAssert,
 }
 
+#[derive(Clone, Copy)]
 struct DisproveTest {
     variant: DisproveTestVariant,
 }
@@ -72,6 +74,7 @@ impl TestCase for DisproveTest {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         tracing::info!("Starting Citrea");
         let (sequencer, full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
@@ -257,7 +260,10 @@ async fn disprove_script_test_healthy() -> Result<()> {
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::HealthyState,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism in the presence of a corrupted assert commitment.
@@ -284,5 +290,8 @@ async fn disprove_script_test_corrupted_assert() -> Result<()> {
     let additional_disprove_test = DisproveTest {
         variant: DisproveTestVariant::CorruptedAssert,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }

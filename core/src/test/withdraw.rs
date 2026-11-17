@@ -40,6 +40,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
@@ -139,5 +140,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run()
+    })
+    .await
 }

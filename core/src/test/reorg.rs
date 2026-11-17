@@ -51,6 +51,7 @@ impl TestCase for TxSenderReorgBehavior {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        mark_citrea_e2e_test_started();
         let (da0, da1) = (
             f.bitcoin_nodes.get(0).unwrap(),
             f.bitcoin_nodes.get(1).unwrap(),
@@ -258,7 +259,7 @@ impl TestCase for TxSenderReorgBehavior {
 
 #[tokio::test]
 async fn reorg_on_cpfp_tx() -> Result<()> {
-    TestCaseRunner::new(TxSenderReorgBehavior).run().await
+    run_citrea_e2e_with_retry(|| TestCaseRunner::new(TxSenderReorgBehavior).run()).await
 }
 
 struct ReorgOnDeposit;
@@ -278,6 +279,7 @@ impl TestCase for ReorgOnDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        mark_citrea_e2e_test_started();
         let (da0, da1) = (
             f.bitcoin_nodes.get(0).unwrap(),
             f.bitcoin_nodes.get(1).unwrap(),
@@ -443,7 +445,7 @@ impl TestCase for ReorgOnDeposit {
 
 #[tokio::test]
 async fn reorg_on_deposit() -> Result<()> {
-    TestCaseRunner::new(ReorgOnDeposit).run().await
+    run_citrea_e2e_with_retry(|| TestCaseRunner::new(ReorgOnDeposit).run()).await
 }
 
 struct ReorgChecks;

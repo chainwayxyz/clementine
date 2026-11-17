@@ -107,13 +107,27 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
             false, // no need to wait after test
         );
     }
+
+    if !bitcoin_rpc_debug {
+        // Per-node credentials make a test fail to authenticate instead of silently using another
+        // test's node that took the same port.
+        let node_id: String = data_dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect();
+        config.bitcoin_rpc_user = format!("user{node_id}").into();
+        config.bitcoin_rpc_password = format!("pass{node_id}").into();
+    }
+
     // Bitcoin node configuration
     // Construct args for bitcoind
     let mut args = vec![
         "-regtest".to_string(),
         format!("-datadir={}", data_dir.display()),
         "-listen=0".to_string(),
-        format!("-rpcport={}", rpc_port),
         format!("-rpcuser={}", config.bitcoin_rpc_user.expose_secret()),
         format!(
             "-rpcpassword={}",
@@ -123,6 +137,8 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-txindex=1".to_string(),
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
+        // Without -rpcbind, bitcoind also binds ::1 and keeps running if only 127.0.0.1 is taken.
+        "-rpcbind=127.0.0.1".to_string(),
         "-maxtxfee=5".to_string(),
     ];
 
@@ -145,43 +161,41 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .to_str()
         .expect("Failed to convert log file path to string");
 
-    // Start bitcoind process with log redirection
-    let process = std::process::Command::new("bitcoind")
-        .args(&args)
-        .arg(format!("-debuglogfile={log_file_path}"))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("Failed to start bitcoind");
-
     if bitcoin_rpc_debug {
         tracing::warn!("Bitcoind logs are available at {}", log_file_path);
     }
 
-    // Create RPC client
-    let rpc_url = format!("http://127.0.0.1:{rpc_port}");
+    // `get_available_port` releases the port before bitcoind binds it, so another process can take
+    // it. Retry on a fresh port when bitcoind exits or its RPC does not come up.
+    const START_ATTEMPTS: usize = 5;
+    let mut rpc_port = rpc_port;
+    let mut attempt = 1;
+    let (process, client) = loop {
+        // Start bitcoind process with log redirection
+        let mut process = std::process::Command::new("bitcoind")
+            .args(&args)
+            .arg(format!("-rpcport={rpc_port}"))
+            .arg(format!("-debuglogfile={log_file_path}"))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("Failed to start bitcoind");
 
-    // Wait for node to be ready
-    let mut attempts = 0;
-    let retry_count = 30;
-    let client = loop {
-        match ExtendedBitcoinRpc::connect(
-            rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-            None,
-        )
-        .await
-        {
-            Ok(client) => break client,
-            Err(_) => {
-                attempts += 1;
-                if attempts >= retry_count {
-                    panic!("Bitcoin node failed to start in {retry_count} seconds");
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
+        if let Some(client) = wait_for_bitcoind_rpc(&mut process, config).await {
+            break (process, client);
         }
+        let _ = process.kill();
+        let _ = process.wait();
+        if bitcoin_rpc_debug || attempt >= START_ATTEMPTS {
+            panic!(
+                "Bitcoin node failed to start after {attempt} attempts, logs: {}",
+                log_file.display()
+            );
+        }
+        tracing::warn!(attempt, rpc_port, "Bitcoin node failed to start, retrying");
+        attempt += 1;
+        rpc_port = get_available_port();
+        config.bitcoin_rpc_url = format!("http://127.0.0.1:{rpc_port}");
     };
 
     // Get and print bitcoind version
@@ -211,6 +225,31 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     }
 
     WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
+}
+
+/// Polls the RPC of a started bitcoind up to 30 times, 1 second apart. Returns `None` if bitcoind
+/// exits or its RPC does not respond.
+async fn wait_for_bitcoind_rpc(
+    process: &mut std::process::Child,
+    config: &BridgeConfig,
+) -> Option<ExtendedBitcoinRpc> {
+    for _ in 0..30 {
+        if !matches!(process.try_wait(), Ok(None)) {
+            return None;
+        }
+        if let Ok(client) = ExtendedBitcoinRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+            None,
+        )
+        .await
+        {
+            return Some(client);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    None
 }
 
 /// Creates a temporary database for testing, using current thread's name as the
