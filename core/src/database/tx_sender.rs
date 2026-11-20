@@ -969,6 +969,30 @@ mod tests {
         );
 
         dbtx.commit().await.unwrap();
+
+        // Another bumped_id cannot alias the same fee payer outpoint.
+        let other_tx_id = db
+            .save_tx(
+                None,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::hash(&[2u8; 32]),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(db
+            .save_fee_payer_tx(
+                None,
+                other_tx_id,
+                fee_payer_txid,
+                0,
+                Amount::from_sat(50000),
+                None,
+            )
+            .await
+            .is_err());
     }
 
     #[tokio::test]

@@ -185,6 +185,8 @@ create table if not exists tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
 );
+CREATE UNIQUE INDEX IF NOT EXISTS tx_sender_fee_payer_utxos_outpoint_idx
+    ON tx_sender_fee_payer_utxos (fee_payer_txid, vout);
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
