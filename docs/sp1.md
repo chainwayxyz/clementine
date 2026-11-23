@@ -179,5 +179,5 @@ Nothing it skips is needed:
   update by deposit index, so the replacement of each deposit after the upgrade overwrites
   any missed value.
 
-CI integration tests use the native SP1 Citrea binary pinned in `scripts/citrea-e2e.json`;
-see [paired testing](usage.md#paired-citrea-integration-tests).
+Citrea e2e tests run the Docker image pinned by `CITREA_E2E_DOCKER_IMAGE` in
+`core/src/test/mod.rs`.

@@ -43,6 +43,10 @@ mod bridge_circuit_test_data;
 #[cfg(feature = "integration-tests")]
 mod bitvm_script;
 
+/// Citrea image for e2e tests.
+pub const CITREA_E2E_DOCKER_IMAGE: &str =
+    "chainwayxyz/citrea-test:0c2e39c32cd91726f3ef30b7f79df66cb620dbf7";
+
 /// Bitcoin Core image for e2e nodes; keep it in step with CI's `bitcoin-version`.
 pub const E2E_BITCOIN_DOCKER_IMAGE: &str = "bitcoin/bitcoin:30.4";
 
@@ -62,19 +66,15 @@ pub fn e2e_bitcoin_config(extra_args: Vec<&'static str>) -> citrea_e2e::config::
     }
 }
 
-/// Runs an e2e test case against the paired SP1 Citrea build: the native binary in
-/// `CITREA_E2E_TEST_BINARY`, or the `CITREA_DOCKER_IMAGE` container. Bitcoin Core runs in Docker.
-pub fn paired_citrea(
+/// Runs an e2e test case with Citrea and Bitcoin Core in Docker.
+pub fn e2e_citrea_config(
     config: citrea_e2e::config::TestCaseConfig,
 ) -> citrea_e2e::config::TestCaseConfig {
-    assert!(["CITREA_E2E_TEST_BINARY", "CITREA_DOCKER_IMAGE"].iter().any(|name| std::env::var(name).is_ok_and(|value| !value.is_empty())),
-        "Set CITREA_E2E_TEST_BINARY to the paired SP1 Citrea binary or CITREA_DOCKER_IMAGE to its image");
     citrea_e2e::config::TestCaseConfig {
         docker: citrea_e2e::config::TestCaseDockerConfig {
             bitcoin: true,
-            citrea: std::env::var_os("CITREA_E2E_TEST_BINARY").is_none(),
+            citrea: true,
         },
-        genesis_dir: std::env::var("CITREA_E2E_GENESIS_DIR").ok(),
         ..config
     }
 }
@@ -82,10 +82,14 @@ pub fn paired_citrea(
 use ctor::ctor;
 
 #[ctor]
-// Increases stack to 32MB for tests, since tests fail with stack overflow otherwise.
+// Increases stack to 32MB for tests, since tests fail with stack overflow otherwise,
+// and defaults `CITREA_DOCKER_IMAGE` to the pinned Citrea test image.
 // Note that this is unsafe as using stdlib before `main` has no guarantees.
 // Read more: https://docs.rs/ctor/latest/ctor/attr.ctor.html
 //
-unsafe fn rust_min_stack() {
+unsafe fn test_env() {
     std::env::set_var("RUST_MIN_STACK", "33554432");
+    if !std::env::var("CITREA_DOCKER_IMAGE").is_ok_and(|value| !value.is_empty()) {
+        std::env::set_var("CITREA_DOCKER_IMAGE", CITREA_E2E_DOCKER_IMAGE);
+    }
 }

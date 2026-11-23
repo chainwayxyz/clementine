@@ -29,7 +29,7 @@ impl TestCase for CitreaLcpProverE2E {
     }
 
     fn test_config() -> TestCaseConfig {
-        crate::test::paired_citrea(TestCaseConfig {
+        crate::test::e2e_citrea_config(TestCaseConfig {
             with_sequencer: false,
             with_batch_prover: false,
             with_light_client_prover: true,

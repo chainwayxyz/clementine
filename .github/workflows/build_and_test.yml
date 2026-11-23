@@ -129,9 +129,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/install-citrea
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
@@ -206,9 +203,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/install-citrea
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 
@@ -350,9 +344,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: ./.github/actions/install-citrea
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
 

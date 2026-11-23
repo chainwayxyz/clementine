@@ -49,7 +49,7 @@ impl TestCase for DisproveTest {
     }
 
     fn test_config() -> TestCaseConfig {
-        crate::test::paired_citrea(TestCaseConfig {
+        crate::test::e2e_citrea_config(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
             with_light_client_prover: true,

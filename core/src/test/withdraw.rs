@@ -24,7 +24,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
     }
 
     fn test_config() -> TestCaseConfig {
-        crate::test::paired_citrea(TestCaseConfig {
+        crate::test::e2e_citrea_config(TestCaseConfig {
             with_batch_prover: false,
             with_sequencer: true,
             with_full_node: true,
