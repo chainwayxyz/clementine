@@ -1,7 +1,7 @@
 {
   "mainnet-bridge-circuit": {
-    "program_key": "0047929041764cdaa0486b91d0a1cb311695844ac0a3eebf407a22b6daf60812",
-    "sha256": "64373466a3c463f07318becdc824eadcb84e70ae14dd15ac60d020dc131be4f5",
+    "program_key": "00bd302a721e12c1884e9777fbba251de0b71bf4779f76d5bd63975e048bd2b7",
+    "sha256": "73bf29cb421e9e66bb9c4f896e2e014f57dad26619ed614bf828a6456bb8ab4a",
     "sp1_version": "6.10.0"
   },
   "mainnet-header-chain": {
@@ -10,8 +10,8 @@
     "sp1_version": "6.10.0"
   },
   "mainnet-light-client": {
-    "program_key": "00331c8fff8a2871a588a57aa1c66c723a9eb3e3cd930ae8c6599124f326475a",
-    "sha256": "ca67cc0d3245f1ad460b5f03b6cc87b79cf51da88402783a4b66cdfd3e5c23ed",
+    "program_key": "00eaa67d5c5f212b46e9695a248c8cd6ac0d7329a00420dc452bf971cfd7ff93",
+    "sha256": "64346d7baf1653d4beee2690ebd712cf7662178a6114c3e55f3414aa2e34bd91",
     "sp1_version": "6.10.0"
   },
   "mainnet-work-only": {
