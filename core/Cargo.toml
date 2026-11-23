@@ -5,17 +5,19 @@ authors = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
-rust-version = "1.88.0"
+rust-version = "1.97.0"
 
 [features]
 automation = []
+testing = ["bridge-circuit-host/use-test-vk", "circuits-lib/use-test-vk"]
 integration-tests = ["automation"]
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-prost-build = "0.14.9"
 vergen-git2 = { workspace = true }
 
 [dependencies]
+sp1-bitvm = { path = "../sp1-bitvm" }
 metrics = { workspace = true }
 metrics-derive = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
@@ -27,7 +29,6 @@ hex = { workspace = true, features = ["serde"] }
 hex-literal = { workspace = true }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { workspace = true, features = ["prove"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -43,6 +44,7 @@ toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 borsh = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 prost = { workspace = true }
 tokio-stream = { workspace = true }
 async-stream = { workspace = true }
@@ -64,7 +66,10 @@ ark-serialize = { workspace = true }
 statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
-citrea-sov-rollup-interface = { workspace = true, features = ["native"] }
+citrea-sov-rollup-interface = { workspace = true }
+# sov-rollup-interface's `native` feature pulls alloy-primitives 0.8 without `std`,
+# and alloy-primitives 0.8.26 does not compile without `std`.
+alloy-primitives-v08 = { package = "alloy-primitives", version = "0.8.26", features = ["std"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib", features = ["test-utils"] }
@@ -96,10 +101,14 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 rand = { workspace = true }
 url = { version = "2.5.4" }
 jsonrpc-async = { version = "2.0.2" }
-wiremock = "0.5"
+wiremock = "0.6.5"
 
+[package.metadata.cargo-udeps.ignore]
+normal = ["alloy-primitives-v08"]
+
+# Intended for node operators (aggregator/operator/verifier), not end users.
 [[bin]]
-name = "clementine-cli"
+name = "clementine-node-cli"
 path = "src/bin/cli.rs"
 
 

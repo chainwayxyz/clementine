@@ -22,8 +22,7 @@ use crate::deposit::{BaseDepositData, DepositInfo, DepositType, ReplacementDepos
 use crate::errors::BridgeError;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::rpc::clementine::{
-    entity_status_with_id, Deposit, Empty, EntityStatuses, GetEntityStatusesRequest,
-    SendMoveTxRequest,
+    entity_status_with_id, Deposit, Empty, EntityType, GetEntityStatusesRequest, SendMoveTxRequest,
 };
 use crate::utils::FeePayingType;
 use crate::EVMAddress;
@@ -35,9 +34,11 @@ use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use eyre::Context;
 pub use setup_utils::*;
+use std::future::Future;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use test_actors::TestActors;
 use tonic::Request;
@@ -46,6 +47,7 @@ pub mod citrea;
 #[cfg(feature = "automation")]
 pub mod clementine_utils;
 mod setup_utils;
+pub mod shared_proofs;
 pub mod test_actors;
 pub mod tx_utils;
 
@@ -53,6 +55,49 @@ pub mod tx_utils;
 use crate::test::common::tx_utils::wait_for_fee_payer_utxos_to_be_in_mempool;
 #[cfg(feature = "automation")]
 use tx_utils::create_tx_sender;
+
+const CITREA_E2E_PRE_RUN_ATTEMPTS: usize = 10;
+
+tokio::task_local! {
+    static CITREA_E2E_TEST_STARTED: Arc<AtomicBool>;
+}
+
+/// Retries a Citrea E2E test when framework preparation fails before test execution.
+pub async fn run_citrea_e2e_with_retry<F, Fut>(mut run: F) -> citrea_e2e::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = citrea_e2e::Result<()>>,
+{
+    for attempt in 1..=CITREA_E2E_PRE_RUN_ATTEMPTS {
+        let test_started = Arc::new(AtomicBool::new(false));
+        let result = CITREA_E2E_TEST_STARTED
+            .scope(test_started.clone(), run())
+            .await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err)
+                if attempt < CITREA_E2E_PRE_RUN_ATTEMPTS
+                    && !test_started.load(Ordering::Relaxed) =>
+            {
+                tracing::warn!(
+                    attempt,
+                    max_attempts = CITREA_E2E_PRE_RUN_ATTEMPTS,
+                    error = %err,
+                    "Retrying Citrea E2E test after framework preparation failure"
+                );
+                tokio::time::sleep(Duration::from_secs(2 * attempt as u64)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    unreachable!("terminal retry attempts return their error")
+}
+
+/// Marks that Citrea E2E framework preparation has completed and test execution has begun.
+pub fn mark_citrea_e2e_test_started() {
+    CITREA_E2E_TEST_STARTED.with(|started| started.store(true, Ordering::Relaxed));
+}
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
@@ -137,69 +182,76 @@ pub async fn poll_get<T>(
     }
 }
 
-/// Get the minimum next state manager height from all the state managers
-/// If automation is off for any entity, their state manager is assumed to be synced
-/// (by setting their next height to u32::MAX).
-pub async fn get_next_sync_heights(entity_statuses: EntityStatuses) -> eyre::Result<Vec<u32>> {
-    entity_statuses
-        .entity_statuses
-        .into_iter()
-        .map(|entity| {
-            if let Some(entity_status_with_id::StatusResult::Status(status)) = entity.status_result
-            {
-                if status.automation {
-                    Ok(status.state_manager_next_height.unwrap_or(0))
-                } else {
-                    // assume synced if automation is off
-                    Ok(u32::MAX)
-                }
-            } else {
-                Err(eyre::eyre!(
-                    "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
-                    entity.entity_id,
-                    entity.status_result
-                ))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-/// Calls get_entity_statuses and returns the minimum next state manager height
-pub async fn get_min_next_state_manager_height<C: CitreaClientT>(
+/// Checks if all Clementine nodes are synced to the latest finalized block.
+///
+/// State managers must be past the latest finalized height when they are running.
+/// LCP syncers must have processed that height. `lcp_synced_height` is a last
+/// processed height, so this compares `lcp_synced_height + 1` with the finalized
+/// tip. Entities that do not run an LCP syncer omit `lcp_synced_height` and are
+/// skipped for that check. A verifier with a missing LCP cursor is not synced.
+pub async fn are_all_nodes_synced<C: CitreaClientT>(
+    rpc: &ExtendedBitcoinRpc,
     actors: &TestActors<C>,
-) -> eyre::Result<u32> {
+) -> eyre::Result<bool> {
     let mut aggregator = actors.get_aggregator();
-    let l1_sync_status = aggregator
+    let entity_statuses = aggregator
         .get_entity_statuses(Request::new(GetEntityStatusesRequest {
             restart_tasks: false,
         }))
         .await?
         .into_inner();
-    let min_next_sync_height = get_next_sync_heights(l1_sync_status)
-        .await?
-        .into_iter()
-        .min()
-        .ok_or_else(|| eyre::eyre!("No entities found"))?;
-    Ok(min_next_sync_height)
-}
 
-/// Checks if all the state managers are synced to the latest finalized block
-pub async fn are_all_state_managers_synced<C: CitreaClientT>(
-    rpc: &ExtendedBitcoinRpc,
-    actors: &TestActors<C>,
-) -> eyre::Result<bool> {
-    let min_next_sync_height = get_min_next_state_manager_height(actors).await?;
     let current_chain_height = rpc.get_current_chain_height().await?;
     let finality_depth = actors.aggregator.config.protocol_paramset().finality_depth;
-    // get the current finalized chain height
     let current_finalized_chain_height = current_chain_height.saturating_sub(finality_depth - 1);
-    // assume synced if state manager is not running
-    let state_manager_running = actors
-        .aggregator
-        .config
-        .test_params
-        .should_run_state_manager;
-    Ok(!state_manager_running || min_next_sync_height > current_finalized_chain_height)
+
+    let should_check_state_manager = cfg!(feature = "automation")
+        && actors
+            .aggregator
+            .config
+            .test_params
+            .should_run_state_manager;
+
+    let mut lcp_synced = true;
+    let mut state_manager_synced = true;
+
+    for entity in &entity_statuses.entity_statuses {
+        let Some(entity_status_with_id::StatusResult::Status(status)) = &entity.status_result
+        else {
+            return Err(eyre::eyre!(
+                "Couldn't retrieve sync status from entity {:?}, status result: {:?}",
+                entity.entity_id,
+                entity.status_result
+            ));
+        };
+
+        // LCP syncer runs even without automation, but only on verifiers.
+        let is_verifier = entity
+            .entity_id
+            .as_ref()
+            .is_some_and(|id| id.kind == EntityType::Verifier as i32);
+        if is_verifier {
+            match status.lcp_synced_height {
+                Some(lcp_height) => {
+                    if lcp_height.saturating_add(1) <= current_finalized_chain_height {
+                        lcp_synced = false;
+                    }
+                }
+                None => {
+                    lcp_synced = false;
+                }
+            }
+        }
+
+        if status.automation && should_check_state_manager {
+            let state_manager_next_height = status.state_manager_next_height.unwrap_or(0);
+            if state_manager_next_height <= current_finalized_chain_height {
+                state_manager_synced = false;
+            }
+        }
+    }
+
+    Ok(lcp_synced && state_manager_synced)
 }
 
 /// Wait for a transaction to be in the mempool and than mines a block to make

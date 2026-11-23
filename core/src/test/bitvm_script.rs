@@ -1,14 +1,13 @@
 mod tests {
+    use ark_ff::{BigInteger, PrimeField};
     use bitcoin::hashes::hash160;
     use bitcoin::hashes::Hash;
     use bitvm::signatures::signing_winternitz::WINTERNITZ_MESSAGE_VERIFIER;
-    use bitvm::{
-        clementine::additional_disprove::{
-            create_additional_replacable_disprove_script, validate_assertions_for_additional_script,
-        },
-        signatures::winternitz::{generate_public_key, Parameters},
-    };
+    use bitvm::signatures::winternitz::{generate_public_key, Parameters};
     use bridge_circuit_host::structs::BridgeCircuitBitvmInputs;
+    use sp1_bitvm::additional_disprove::{
+        create_additional_replacable_disprove_script, validate_assertions_for_additional_script,
+    };
 
     pub const BRIDGE_CIRCUIT_BITVM_TEST_INPUTS: BridgeCircuitBitvmInputs =
         BridgeCircuitBitvmInputs {
@@ -27,16 +26,19 @@ mod tests {
                 33, 89, 238, 181, 40, 137, 174, 16, 33, 60, 154, 141, 145, 173, 28, 218, 8, 235,
                 65, 88, 190, 165, 233, 68, 142, 1, 26, 31, 141, 101, 180, 40,
             ],
-            combined_method_id: [
-                161, 224, 123, 224, 161, 79, 5, 157, 211, 176, 198, 123, 128, 173, 148, 114, 197,
-                152, 64, 188, 185, 37, 45, 158, 225, 162, 241, 192, 225, 240, 16, 113,
-            ],
         };
 
-    pub const TEST_GROTH16_PUBLIC_INPUT: [u8; 32] = [
-        0, 203, 5, 31, 138, 117, 119, 62, 52, 255, 223, 38, 213, 32, 143, 9, 191, 212, 207, 152,
-        21, 182, 225, 177, 179, 58, 105, 29, 64, 114, 229, 184,
-    ];
+    /// The bridge proof's public input for the test inputs, in the nibble order of BitVM's
+    /// Groth16 public input commitment.
+    fn test_groth16_public_input() -> Vec<u8> {
+        BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            .groth16_public_input()
+            .into_bigint()
+            .to_bytes_be()
+            .into_iter()
+            .map(|byte| byte.rotate_left(4))
+            .collect()
+    }
 
     type BitvmTestEnv = (
         Vec<u8>,
@@ -79,7 +81,6 @@ mod tests {
         }
 
         let script = create_additional_replacable_disprove_script(
-            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.deposit_constant,
             groth16_public_input_pk,
             payout_tx_block_hash_pk,
@@ -119,7 +120,7 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            TEST_GROTH16_PUBLIC_INPUT.as_ref(),
+            &test_groth16_public_input(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
@@ -176,7 +177,7 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            TEST_GROTH16_PUBLIC_INPUT.as_ref(),
+            &test_groth16_public_input(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
@@ -237,7 +238,7 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT,
+            &test_groth16_public_input(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
@@ -296,7 +297,7 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT,
+            &test_groth16_public_input(),
         );
 
         let mut payout_tx_block_hash = BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
@@ -416,7 +417,7 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT,
+            &test_groth16_public_input(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(

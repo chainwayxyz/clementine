@@ -2,14 +2,14 @@
 resolver = "2"
 members = [
   "core",
+  "sp1-bitvm",
+  "sp1-host",
   "circuits-lib",
-  # "risc0-circuits/bridge-circuit",
-  # "risc0-circuits/work-only",
   "bridge-circuit-host",
-] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+]
 
 [workspace.package]
-version = "0.6.6"
+version = "0.7.0"
 edition = "2021"
 license = "GPL-3.0"
 authors = ["Chainway Labs <info@chainway.xyz>"]
@@ -18,11 +18,16 @@ publish = false
 repository = "https://github.com/chainwayxyz/clementine"
 
 [workspace.dependencies]
+sp1-verifier = { version = "=6.10.0", default-features = false }
+# `profiling` is enabled only to select SP1's portable executor, which does not need a large
+# /dev/shm. See "Guest execution" in docs/sp1.md.
+sp1-sdk = { version = "=6.10.0", default-features = false, features = ["network", "profiling"] }
+sp1-zkvm = { version = "=6.10.0", features = ["verify"] }
 color-eyre = "0.6.5"
 ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
-serde = { version = "=1.0.218", default-features = false, features = ["derive"] }
+serde = { version = "1.0.226", default-features = false, features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0.64"
 metrics = { version = "0.23.0" }
@@ -37,17 +42,17 @@ async-trait = "0.1.83"
 clap = "4.5.20"
 toml = "0.8.19"
 sqlx = { version = "0.8.3", default-features = false }
-serial_test = "3.2.0"
+serial_test = "3.5.0"
 tempfile = "3.8"
 eyre = { version = "0.6.12" }
 tokio-retry = { version = "0.3" }
-alloy = { version = "0.11.1", features = ["full"] }
+alloy = { version = "2.5.0", features = ["full"] }
 statig = { version = "0.3.0", features = ["async", "serde"] }
 pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.9.0"
 secrecy = { version = "0.10.0", features = ["serde"] }
-reqwest = { version = "0.12.12", features = ["rustls-tls", "json", "http2"], default-features = false }
+reqwest = { version = "0.13.5", features = ["rustls", "json", "http2", "form"], default-features = false }
 semver = "1.0"
 
 # for emergency stop encryption
@@ -56,7 +61,7 @@ chacha20poly1305 = { version = "0.10", features = ["stream"] }
 
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "10ff3e2e8ca6cad1457ce5ae74602520da465c54" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "fe92b4e0f23d01317b3600d02f4ff704c1dec410" }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.3-rc.5", package = "sov-rollup-interface" }
 
@@ -72,8 +77,9 @@ secp256k1 = { version = "0.31.0", features = [
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", rev="01b4cb66cbf5b525079cabe006f9f99627da97cd" }
 
 # async + gRPC
-tonic = { version = "0.12.3", features = ["tls"] }
-prost = "0.13.3"
+tonic = { version = "0.14.9", features = ["tls-ring"] }
+tonic-prost = "0.14.9"
+prost = "0.14.4"
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-stream = { version = "0.1.16", features = ["sync"] }
 futures = "0.3.31"
@@ -82,7 +88,7 @@ futures-util = "0.3.31"
 futures-core = "0.3.31"
 http = "^1"
 hyper = "^1"
-tower = "^0.4"
+tower = { version = "0.4", features = ["buffer", "limit"] }
 hyper-util = { version = "0.1" }
 
 # Circuits
@@ -91,8 +97,6 @@ hkdf = { version = "0.12.4", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.4" }
-risc0-build = "3.0.3"
-risc0-zkvm = "3.0.3"
 once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
@@ -108,10 +112,6 @@ ark-bn254 = { version = "0.5.0", features = [
 ], default-features = false }
 
 # Bridge Circuit Host
-risc0-circuit-recursion = "4.0.2"
-risc0-zkp = "3.0.2"
-risc0-groth16 = "3.0.2"
-risc0-binfmt = { version = "3.0.2" }
 
 ark-ff = "0.5.0"
 ark-ec = "0.5.0"
@@ -119,11 +119,11 @@ ark-std = "0.5.0"
 ark-crypto-primitives = "0.5.0"
 ark-relations = "0.5.0"
 
-alloy-rpc-types = "0.11.1"
-alloy-primitives = "0.8.25"
-alloy-rpc-types-eth = "0.11.1"
-alloy-rpc-client = "0.11.1"
-alloy-sol-types = { version = "0.8.25", default-features = false, features = ["json"] }
+alloy-rpc-types = "2.5.0"
+alloy-primitives = "1.7.3"
+alloy-rpc-types-eth = "2.5.0"
+alloy-rpc-client = "2.5.0"
+alloy-sol-types = { version = "1.7.3", default-features = false, features = ["json"] }
 
 
 rand = "0.8"
@@ -135,7 +135,7 @@ rustls = "0.23.27"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"
-vergen-git2 = { version = "1.0.0", features = [
+vergen-git2 = { version = "10.0.3", features = [
   "build",
   "cargo",
   "rustc",
@@ -143,7 +143,7 @@ vergen-git2 = { version = "1.0.0", features = [
 ] }
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "5da45109a2de352472a6056ef90a517b66bc106f" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "6f70f267a3c598bd1f32c6a156991762c36e7685" }
 secp256k1 = { git = "https://github.com/rust-bitcoin/rust-secp256k1", rev = "4d36fefdddb118425bb9bcf611bb6e4dff306cfc" }
 
 [profile.dev.package.backtrace]
@@ -153,3 +153,61 @@ opt-level = 3
 lto = true
 strip = true
 codegen-units = 1
+
+# Release-mode tests: same optimizations and code paths, without the slow fat-LTO link.
+[profile.ci-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+
+# SP1 execution and key derivation must be optimized even in development.
+
+[profile.dev.package.sp1-sdk]
+opt-level = 3
+
+[profile.dev.package.sp1-prover]
+opt-level = 3
+
+[profile.dev.package.sp1-core-executor]
+opt-level = 3
+
+[profile.dev.package.sp1-core-machine]
+opt-level = 3
+
+[profile.dev.package.sp1-hypercube]
+opt-level = 3
+
+[profile.dev.package.sp1-primitives]
+opt-level = 3
+
+[profile.dev.package.sp1-recursion-executor]
+opt-level = 3
+
+[profile.dev.package.p3-baby-bear]
+opt-level = 3
+
+[profile.dev.package.p3-poseidon2]
+opt-level = 3
+
+[profile.dev.package.p3-field]
+opt-level = 3
+
+[profile.dev.package.p3-matrix]
+opt-level = 3
+
+[profile.dev.package.p3-merkle-tree]
+opt-level = 3
+
+# BitVM script generation and execution otherwise dominate development e2e tests.
+
+[profile.dev.package.bitvm]
+opt-level = 3
+
+[profile.dev.package.bitcoin-scriptexec]
+opt-level = 3
+
+[profile.dev.package.bitcoin-script-stack]
+opt-level = 3
+
+[profile.dev.package.sp1-bitvm]
+opt-level = 3

@@ -8,49 +8,49 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  actions: read
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
   PARTIAL_SIG_VERIFICATION: 1
 
-  BITVM_CACHE_PATH: bitvm_cache_dev.bin
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_ALL_FEATURES: --workspace --all-targets --all-features
 
 jobs:
-  # Build ----------------------------------------------------------------------
-  release_build_all_features:
-    name: Release | All features | Compile
+  # Compile check --------------------------------------------------------------
+  release_check:
+    name: Release | All features | Check
     runs-on: ubicloud-standard-16
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
 
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: release-check
 
-      - name: Compile in release mode
-        run: cargo build $CARGOFLAGS_ALL_FEATURES --release
+      - name: Check release compilation
+        run: cargo check $CARGOFLAGS_ALL_FEATURES --release
 
   release_build:
     name: Release | No features | Compile and Test
-    permissions:
-      contents: read
     runs-on: ubicloud-standard-4
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-no-automation-test.log
@@ -72,31 +72,31 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
+        with:
+          add-job-id-key: "false"
+          key: ci-release-no-automation
+
       - name: Compile in release mode
-        run: cargo build $CARGOFLAGS --release
+        run: cargo build $CARGOFLAGS --profile ci-release
 
       - name: Run no-automation tests # only one test for now
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test --release mock_citrea_run_truthful_manual_reimbursement -- --nocapture
+          cargo test --profile ci-release --features testing mock_citrea_run_truthful_manual_reimbursement -- --nocapture
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-no-automation-test-logs
           path: test-logs/release/
@@ -106,6 +106,7 @@ jobs:
   debug_build_test_all_features:
     name: Debug | All features | Test
     runs-on: ubicloud-standard-16
+    timeout-minutes: 60
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/debug/debug-all-features-test.log
@@ -127,24 +128,18 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/debug
 
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: ${{ runner.os }}-cargo-DEBUG-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: debug-all-features
 
       - name: Run unit tests
         id: unit_tests
@@ -163,7 +158,7 @@ jobs:
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deposit-state-debug
           path: core/src/test/data/deposit_state_debug.bincode
@@ -175,7 +170,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: debug-test-logs
           path: test-logs/debug/
@@ -184,8 +179,8 @@ jobs:
   release_build_test_all_features:
     name: Release | All features | Test
     runs-on: ubicloud-standard-16
+    timeout-minutes: 90
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/release/release-all-features-test.log
@@ -207,43 +202,37 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/release
 
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: ci-release-all-features
 
       - name: Run unit tests
         id: unit_tests
         run: |
           set -o pipefail
           ./scripts/generate_certs.sh
-          cargo test_unit --release 2>&1 | tee unit_test_output.log
+          cargo test_unit_release 2>&1 | tee unit_test_output.log
 
       - name: Check for specific test failure and run generate_deposit_state
         if: failure()
         run: |
           if grep -q "test builder::sighash::tests::test_bridge_contract_change ... FAILED" unit_test_output.log; then
             echo "Found test_bridge_contract_change failure, running generate_deposit_state test"
-            cargo test --release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
+            cargo test --profile ci-release generate_deposit_state $CARGOFLAGS_ALL_FEATURES -- --ignored
           fi
 
       - name: Upload deposit state artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deposit-state-release
           path: core/src/test/data/deposit_state_release.bincode
@@ -255,18 +244,55 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-test-logs
           path: test-logs/release/
           retention-days: 7
 
+  real_sp1_watchtower_proof:
+    name: Release | Real SP1 watchtower proof
+    runs-on: ubicloud-standard-30
+
+    env:
+      SP1_PROVER: cpu
+      RUST_LOG: info
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/build-prerequisites
+
+      - name: Save/restore build artifacts
+        uses: ./.github/actions/cargo-cache
+        with:
+          add-job-id-key: "false"
+          key: real-sp1-ci-release
+
+      - uses: ./.github/actions/prepare-sp1-proving
+
+      - name: Verify production bridge proof binding and fixed metadata
+        run: |
+          # --all-features selects the development VK and excludes the production fixture.
+          cargo test --locked -p bridge-circuit-host --profile ci-release \
+            sp1::tests::real_bridge_proof_verifies_only_with_its_program_and_public_values -- --exact
+          cargo test --locked -p bridge-circuit-host --profile ci-release bitvm_verifier::tests
+
+      - name: Verify real watchtower challenge proof
+        run: |
+          # Production Groth16 VK is required. Do not enable use-test-vk:
+          # the guest under test is regtest-bridge-circuit.elf.
+          cargo test \
+            -p bridge-circuit-host \
+            --profile ci-release \
+            bridge_circuit_host::tests::operator_verifies_real_sp1_watchtower_challenge \
+            -- --exact --ignored --nocapture
+
   # Matrix (Standalone) Tests --------------------------------------------------
   standalone_tests:
     name: Release | All features | Test ${{ matrix.description_suffix }}
     runs-on: ubicloud-standard-8
+    timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
-    needs: release_build_all_features
 
     env:
       INFO_LOG_FILE: ${{ github.workspace }}/test-logs/standalone/standalone-${{ matrix.test_name }}-test.log
@@ -296,9 +322,9 @@ jobs:
           - test_script_name: bitvm_disprove_scripts::disprove_script_test_corrupted_assert
             description_suffix: "Disprove disrupted assert path"
             test_name: "disprove-corrupted-assert"
-          - test_script_name: citrea_deposit_and_withdraw_e2e_non_zero_genesis_height
-            description_suffix: "E2E non-zero genesis height"
-            test_name: "citrea-deposit-and-withdraw-non-zero-genesis-height"
+          - test_script_name: citrea_deposit_and_withdraw_e2e
+            description_suffix: "E2E deposit and withdraw"
+            test_name: "citrea-deposit-and-withdraw"
 
     services:
       postgres:
@@ -317,33 +343,27 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create test log directories
         run: mkdir -p test-logs/standalone
 
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          add-job-id-key: "false"
+          key: ci-release-all-features
 
       - name: Run tests
         run: |
           ./scripts/generate_certs.sh
-          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --release -- --ignored --nocapture
+          cargo test ${{ matrix.test_script_name }} $CARGOFLAGS_ALL_FEATURES --profile ci-release -- --ignored --nocapture
 
       - name: Upload test logs
         if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: standalone-test-logs-${{ matrix.test_name }}
           path: test-logs/standalone/

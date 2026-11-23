@@ -6,9 +6,13 @@ use crate::{
     bitcoin_syncer::BitcoinSyncerEvent, config::protocol::ProtocolParamset, errors::BridgeError,
     execute_query_with_tx,
 };
-use bitcoin::{BlockHash, OutPoint, Txid};
+use bitcoin::{consensus::deserialize, BlockHash, OutPoint, Transaction, Txid};
 use eyre::Context;
-use std::ops::DerefMut;
+use sqlx::QueryBuilder;
+use std::{
+    collections::{HashMap, HashSet},
+    ops::DerefMut,
+};
 
 impl Database {
     /// # Returns
@@ -202,11 +206,14 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
+        // `is_canonical = true` keeps this to blocks that are actually transitioning. Without it a
+        // later, deeper reorg re-returns every block already marked non-canonical by an earlier one,
+        // and each becomes another ReorgedBlock event for consumers that already handled it.
         let query = sqlx::query_as(
             "WITH deleted AS (
                 UPDATE bitcoin_syncer
                 SET is_canonical = false
-                WHERE height > $1
+                WHERE height > $1 AND is_canonical = true
                 RETURNING id
             ) SELECT id FROM deleted ORDER BY id DESC",
         )
@@ -270,6 +277,39 @@ impl Database {
         Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
+    /// Gets the block height for txids that exist in canonical blocks.
+    pub async fn get_canonical_block_heights_for_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txids: &[Txid],
+    ) -> Result<Vec<(Txid, u32)>, BridgeError> {
+        if txids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let txid_params: Vec<TxidDB> = txids.iter().map(|txid| TxidDB(*txid)).collect();
+        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+            "SELECT bst.txid, bs.height
+             FROM bitcoin_syncer_txs bst
+             INNER JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+             WHERE bst.txid = ANY($1) AND bs.is_canonical = true",
+        )
+        .bind(&txid_params);
+
+        let results: Vec<(TxidDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .into_iter()
+            .map(|(txid, height)| {
+                Ok((
+                    txid.0,
+                    u32::try_from(height).wrap_err(BridgeError::IntConversionError)?,
+                ))
+            })
+            .collect()
+    }
+
     /// Inserts a spent utxo into the database, with the block id that contains it, the spending txid and the vout
     pub async fn insert_spent_utxo(
         &self,
@@ -289,6 +329,100 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
         Ok(())
+    }
+
+    /// Canonical spending txid, block hash and block height for `outpoints`.
+    ///
+    /// Outpoints with no canonical spend (unspent, or not yet indexed) are omitted.
+    /// Does not load block bodies.
+    pub async fn get_canonical_spending_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        outpoints: &[OutPoint],
+    ) -> Result<HashMap<OutPoint, (Txid, BlockHash, u32)>, BridgeError> {
+        if outpoints.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut query_builder = QueryBuilder::new(
+            "SELECT bspu.txid, bspu.vout, bspu.spending_txid, bs.blockhash, bs.height
+             FROM bitcoin_syncer_spent_utxos bspu
+             INNER JOIN bitcoin_syncer bs ON bspu.block_id = bs.id
+             WHERE bs.is_canonical = true AND (bspu.txid, bspu.vout) IN",
+        );
+        query_builder.push_tuples(outpoints.iter().copied(), |mut b, outpoint| {
+            b.push_bind(TxidDB(outpoint.txid))
+                .push_bind(i64::from(outpoint.vout));
+        });
+
+        let query = query_builder.build_query_as::<(TxidDB, i64, TxidDB, BlockHashDB, i32)>();
+        let rows: Vec<(TxidDB, i64, TxidDB, BlockHashDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        let mut spending_txids = HashMap::with_capacity(rows.len());
+        for (txid, vout, spending_txid, blockhash, height) in rows {
+            let vout = u32::try_from(vout).wrap_err(BridgeError::IntConversionError)?;
+            let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
+            spending_txids.insert(
+                OutPoint { txid: txid.0, vout },
+                (spending_txid.0, blockhash.0, height),
+            );
+        }
+        Ok(spending_txids)
+    }
+
+    /// Loads `wanted_txids` from stored blocks identified by `block_hashes`.
+    ///
+    /// Each unique block is fetched once via `bitcoin_blocks.block_hash`.
+    /// Transactions not in `wanted_txids` are discarded.
+    pub async fn get_txs_from_block_hashes(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hashes: impl IntoIterator<Item = BlockHash>,
+        wanted_txids: &HashSet<Txid>,
+    ) -> Result<HashMap<Txid, Transaction>, BridgeError> {
+        if wanted_txids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let block_hashes: HashSet<BlockHash> = block_hashes.into_iter().collect();
+        if block_hashes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut query_builder = QueryBuilder::new(
+            "SELECT block_hash, block_data FROM bitcoin_blocks WHERE block_hash IN (",
+        );
+        let mut separated = query_builder.separated(", ");
+        for hash in &block_hashes {
+            separated.push_bind(BlockHashDB(*hash));
+        }
+        query_builder.push(")");
+
+        let query = query_builder.build_query_as::<(BlockHashDB, Vec<u8>)>();
+        let rows: Vec<(BlockHashDB, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        let mut found_hashes = HashSet::with_capacity(rows.len());
+        let mut txs = HashMap::new();
+        for (hash, block_bytes) in rows {
+            found_hashes.insert(hash.0);
+            let block: bitcoin::Block = deserialize(&block_bytes)
+                .wrap_err("Failed to deserialize bitcoin block while fetching spending txs")?;
+            for block_tx in block.txdata {
+                let txid = block_tx.compute_txid();
+                if wanted_txids.contains(&txid) {
+                    txs.insert(txid, block_tx);
+                }
+            }
+        }
+        if found_hashes.len() != block_hashes.len() {
+            let missing: Vec<_> = block_hashes.difference(&found_hashes).copied().collect();
+            return Err(eyre::eyre!(
+                "Requested block hashes missing from bitcoin_blocks: {missing:?}"
+            )
+            .into());
+        }
+        Ok(txs)
     }
 
     /// For a given outpoint, gets the block height of the canonical block that spent it.
@@ -553,10 +687,9 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::Database;
-    use crate::test::common::*;
-    use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, CompactTarget};
+    use crate::{database::Database, test::common::*};
+    use bitcoin::{hashes::Hash, BlockHash, CompactTarget, OutPoint, Txid};
+    use std::collections::HashSet;
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -915,16 +1048,41 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
-        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
+        let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
+        let vout = 0;
+        let spent_outpoint = OutPoint {
+            txid,
+            vout: vout as u32,
+        };
+        let spending_tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn {
+                previous_output: spent_outpoint,
+                script_sig: Default::default(),
+                sequence: bitcoin::Sequence::MAX,
+                witness: Default::default(),
+            }],
+            output: vec![],
+        };
+        let spending_txid = spending_tx.compute_txid();
+        let block = bitcoin::Block {
+            header: bitcoin::block::Header {
+                version: bitcoin::block::Version::TWO,
+                prev_blockhash: prev_block_hash,
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: CompactTarget::from_consensus(0),
+                nonce: 0,
+            },
+            txdata: vec![spending_tx.clone()],
+        };
+        let block_hash = block.block_hash();
         let block_id = db
             .insert_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
             .await
             .unwrap();
-
-        let spending_txid = Txid::from_raw_hash(Hash::from_byte_array([0x2; 32]));
-        let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
-        let vout = 0;
         db.insert_txid_to_block(&mut dbtx, block_id, &spending_txid)
             .await
             .unwrap();
@@ -947,13 +1105,32 @@ mod tests {
             .unwrap();
         assert_eq!(spent_utxos.len(), 1);
         assert_eq!(spent_utxos[0].0, block_id as i64);
+        assert_eq!(spent_utxos[0].1, spent_outpoint);
+
+        db.upsert_full_block(Some(&mut dbtx), &block, height)
+            .await
+            .unwrap();
+
+        let spending_txids = db
+            .get_canonical_spending_txids(Some(&mut dbtx), &[spent_outpoint])
+            .await
+            .unwrap();
+        assert_eq!(spending_txids.len(), 1);
         assert_eq!(
-            spent_utxos[0].1,
-            bitcoin::OutPoint {
-                txid,
-                vout: vout as u32,
-            }
+            spending_txids[&spent_outpoint],
+            (spending_txid, block_hash, height)
         );
+
+        let spending_txs = db
+            .get_txs_from_block_hashes(
+                Some(&mut dbtx),
+                [block_hash],
+                &HashSet::from([spending_txid]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(spending_txs.len(), 1);
+        assert_eq!(spending_txs[&spending_txid].compute_txid(), spending_txid);
 
         dbtx.commit().await.unwrap();
     }

@@ -29,6 +29,8 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::RpcApi;
 use eyre::OptionExt;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 
 #[cfg(test)]
 use std::env;
@@ -38,6 +40,9 @@ mod cpfp;
 mod nonstandard;
 mod rbf;
 mod task;
+
+#[cfg(test)]
+mod replacement_cycling_tests;
 
 pub use client::TxSenderClient;
 pub use task::TxSenderTask;
@@ -60,6 +65,16 @@ macro_rules! log_error_for_tx {
 // Exports to this module.
 use log_error_for_tx;
 
+/// Whether Bitcoin Core rejected a transaction because an equal or better replacement is already
+/// in the mempool. The transaction is already where it needs to be, so this is not a failure.
+///
+/// Matched by message because `submitpackage` reports per-transaction failures as a string only.
+/// The two parts are matched separately because Core joins the reject reason and the debug message,
+/// and the reason gains a suffix under sibling eviction.
+fn is_rejecting_replacement_error(error: &str) -> bool {
+    error.contains("insufficient fee") && error.contains("rejecting replacement")
+}
+
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
@@ -76,6 +91,8 @@ pub struct TxSender {
     pub config: BridgeConfig,
     cached_spendinfo: TaprootSpendInfo,
     http_client: reqwest::Client,
+    /// CPFP change script, lazily initialized once and reused for all CPFP child txs.
+    cpfp_change_script_pubkey: Arc<OnceCell<bitcoin::ScriptBuf>>,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -130,6 +147,7 @@ impl TxSender {
             btc_syncer_consumer_id,
             config: config.clone(),
             http_client: reqwest::Client::new(),
+            cpfp_change_script_pubkey: Arc::new(OnceCell::new()),
         }
     }
 
@@ -160,6 +178,7 @@ impl TxSender {
     ///
     /// # Arguments
     /// * `parent_tx_weight` - The weight of the main transaction being bumped.
+    /// * `parent_tx_fee` - The fee already paid by the parent transaction.
     /// * `num_fee_payer_utxos` - The number of fee payer UTXOs used (relevant for child tx size in CPFP).
     /// * `fee_rate` - The target fee rate (sat/kwu or similar).
     /// * `fee_paying_type` - The strategy being used (CPFP or RBF).
@@ -167,8 +186,8 @@ impl TxSender {
     /// # Calculation Logic
     /// *   **CPFP:** Calculates the weight of the hypothetical child transaction based on the
     ///     number of fee payer inputs and standard P2TR output sizes. It then calculates the
-    ///     fee based on the *combined virtual size* (vbytes) of the parent and child transactions,
-    ///     as miners evaluate the package deal.
+    ///     target fee based on the *combined virtual size* (vbytes) of the parent and child
+    ///     transactions, then subtracts the parent fee because miners evaluate the package deal.
     /// *   **RBF:** Calculates the weight of the replacement transaction itself (assuming inputs
     ///     and potentially outputs change slightly). The fee is calculated based on the weight
     ///     of this single replacement transaction.
@@ -176,11 +195,12 @@ impl TxSender {
     /// Reference for weight estimates: <https://bitcoin.stackexchange.com/a/116959>
     fn calculate_required_fee(
         parent_tx_weight: Weight,
+        parent_tx_fee: Amount,
         num_fee_payer_utxos: usize,
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
-        tracing::info!(
+        tracing::debug!(
             "Calculating required fee for {} fee payer utxos",
             num_fee_payer_utxos
         );
@@ -190,33 +210,62 @@ impl TxSender {
         // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
         // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
         // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
-        let child_tx_weight = match fee_paying_type {
-            // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
-            // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
-            // Simplified calculation used here needs verification.
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
+        let total_weight = match fee_paying_type {
+            FeePayingType::CPFP => {
+                return Self::calculate_cpfp_child_fee_for_vbytes(
+                    parent_tx_weight,
+                    parent_tx_fee,
+                    Self::estimate_cpfp_child_weight(num_fee_payer_utxos).to_vbytes_ceil(),
+                    fee_rate,
+                );
+            }
             // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
             // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
             // Simplified calculation used here needs verification.
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
-            FeePayingType::NoFunding => Weight::from_wu_usize(0),
-        };
-
-        // Calculate total weight for fee calculation.
-        // For CPFP, miners consider the effective fee rate over the combined *vbytes* of parent + child.
-        // For RBF, miners consider the fee rate of the single replacement transaction's weight.
-        let total_weight = match fee_paying_type {
-            FeePayingType::CPFP => Weight::from_vb_unchecked(
-                child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
-            ),
-            FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
+            // Should likely just be the RBF tx weight? Check RBF rules.
+            FeePayingType::RBF => {
+                Weight::from_wu_usize(230 * num_fee_payer_utxos + 172) + parent_tx_weight
+            }
             FeePayingType::NoFunding => parent_tx_weight,
         };
 
         fee_rate
             .checked_mul_by_weight(total_weight)
             .ok_or_eyre("Fee calculation overflow")
-            .map_err(Into::into)
+            .map_err(SendTxError::from)
+    }
+
+    /// Estimates the weight of a CPFP child: N fee payer inputs, 1 anchor input, 1 change output
+    /// and base overhead. Approx WU: (230 * num_fee_payer_utxos) + 207 + 172.
+    fn estimate_cpfp_child_weight(num_fee_payer_utxos: usize) -> Weight {
+        Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172)
+    }
+
+    /// Calculates the child fee that brings a parent-child package to `fee_rate`, for a child
+    /// of `child_vbytes`. The child also pays at least `fee_rate` for its own size.
+    fn calculate_cpfp_child_fee_for_vbytes(
+        parent_tx_weight: Weight,
+        parent_tx_fee: Amount,
+        child_vbytes: u64,
+        fee_rate: FeeRate,
+    ) -> Result<Amount> {
+        // Core package feerate calculation is fee / (vsize(parent) + vsize(child)), with
+        // vsize = ceil(weight/4) per tx. Round each tx to vbytes before summing.
+        let package_fee = parent_tx_weight
+            .to_vbytes_ceil()
+            .checked_add(child_vbytes)
+            .and_then(|package_vbytes| fee_rate.fee_vb(package_vbytes))
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+        let child_target_fee = fee_rate
+            .fee_vb(child_vbytes)
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(SendTxError::from)?;
+        let package_deficit = package_fee
+            .checked_sub(parent_tx_fee)
+            .unwrap_or(Amount::ZERO);
+
+        Ok(std::cmp::max(package_deficit, child_target_fee))
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
@@ -236,13 +285,6 @@ impl TxSender {
         } else {
             Err(eyre::eyre!("P2A anchor output not found in transaction").into())
         }
-    }
-
-    /// Submit package returns the effective fee rate in btc/kvb.
-    /// This function converts the btc/kvb to a fee rate in sat/vb.
-    #[allow(dead_code)]
-    fn btc_per_kvb_to_fee_rate(btc_per_kvb: f64) -> FeeRate {
-        FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
     /// Fetches transactions that are eligible to be sent or bumped from
@@ -271,7 +313,8 @@ impl TxSender {
         current_tip_height: u32,
         is_tip_height_increased: bool,
     ) -> Result<()> {
-        // get_sendable_txs doesn't return txs that we already sent in the past with >= fee rate to the current fee rate
+        // get_sendable_txs doesn't return non-CPFP txs that we already sent in the past
+        // with >= fee rate to the current fee rate.
         // but if we have a new block height, but the tx is still not confirmed, we want to send it again anyway in case
         // some error occurred on our bitcoin rpc/our tx got evicted from mempool somehow (for ex: if a fee payer of cpfp tx was reorged,
         // cpfp tx will get evicted as v3 cpfp cannot have unconfirmed ancestors)
@@ -345,7 +388,10 @@ impl TxSender {
                 {
                     self.send_testnet4_nonstandard_tx(&tx, id).await
                 }
-                FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
+                FeePayingType::CPFP => {
+                    self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate, is_tip_height_increased)
+                        .await
+                }
                 FeePayingType::RBF => {
                     self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate, rbf_signing_info)
                         .await
@@ -404,16 +450,13 @@ impl TxSender {
                     .await;
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to send no funding tx with try_to_send_id: {try_to_send_id:?} and metadata: {tx_metadata:?}"
-                );
-                let err_msg = format!("send_raw_transaction error for no funding tx: {e}");
-                log_error_for_tx!(self.db, try_to_send_id, err_msg);
                 let _ = self
                     .db
                     .update_tx_debug_sending_state(try_to_send_id, "no_funding_send_failed", true)
                     .await;
-                return Err(SendTxError::Other(eyre::eyre!(e)));
+                return Err(SendTxError::Other(eyre::eyre!(
+                    "send_raw_transaction error for no funding tx: {e}"
+                )));
             }
         };
 
@@ -448,7 +491,7 @@ mod tests {
     use wiremock::matchers::{body_partial_json, method, path};
     use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
-    pub(super) async fn create_tx_sender(
+    pub(crate) async fn create_tx_sender(
         rpc: ExtendedBitcoinRpc,
     ) -> (
         TxSender,
@@ -657,6 +700,7 @@ mod tests {
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
+            Amount::ZERO,
             1,
             fee_rate,
             FeePayingType::CPFP,
@@ -1135,48 +1179,57 @@ mod tests {
 
     #[tokio::test]
     async fn test_rpc_retry_after_failures() {
-        struct RpcSeqResponder {
-            n: Arc<AtomicUsize>,
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        fn http_json(body: &str) -> Vec<u8> {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .into_bytes()
         }
-        impl Respond for RpcSeqResponder {
-            fn respond(&self, _req: &Request) -> ResponseTemplate {
-                let i = self.n.fetch_add(1, Ordering::SeqCst);
-                match i {
-                    0 => ResponseTemplate::new(500).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 1"}
-                    })),
-                    1 => ResponseTemplate::new(500).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"error":{"code":-1,"message":"Connection error 2"}
-                    })),
-                    _ => ResponseTemplate::new(200).set_body_json(json!({
-                        "jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}
-                    })),
+
+        // Wiremock cannot simulate a mid-body drop. It always knows the real
+        // body length, so hyper 0.14 either panics on a Content-Length mismatch
+        // (debug) or writes Content-Length: 512 and then only the short body
+        // (release), leaving the client waiting for the rest. A raw listener
+        // sends the short body and closes.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_addr = listener.local_addr().unwrap();
+        let estimate_tries = Arc::new(AtomicUsize::new(0));
+        let _rpc_server = tokio::spawn({
+            let estimate_tries = estimate_tries.clone();
+            async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let mut request = [0; 2048];
+                    let Ok(n) = stream.read(&mut request).await else {
+                        continue;
+                    };
+                    let request = String::from_utf8_lossy(&request[..n]);
+                    let response = if request.contains("estimatesmartfee") {
+                        match estimate_tries.fetch_add(1, Ordering::SeqCst) {
+                            0 | 1 => {
+                                let body = r#"{"jsonrpc":"2.0","id":1,"result":{"fee"#;
+                                format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 512\r\nConnection: close\r\n\r\n{body}"
+                                )
+                                .into_bytes()
+                            }
+                            _ => http_json(
+                                r#"{"jsonrpc":"2.0","id":1,"result":{"feerate":0.00003,"blocks":1}}"#,
+                            ),
+                        }
+                    } else {
+                        http_json(r#"{"jsonrpc":"2.0","id":1,"result":null}"#)
+                    };
+                    let _ = stream.write_all(&response).await;
                 }
             }
-        }
-
-        let mock_rpc_server = MockServer::start().await;
-        let counter = Arc::new(AtomicUsize::new(0));
-
-        Mock::given(method("POST"))
-            .and(path("/"))
-            .and(body_partial_json(json!({
-                "method": "estimatesmartfee"
-            })))
-            .respond_with(RpcSeqResponder { n: counter.clone() })
-            .mount(&mock_rpc_server)
-            .await;
-
-        Mock::given(method("POST"))
-            .and(path("/"))
-            .and(body_partial_json(json!({"method": "ping"})))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": null
-            })))
-            .mount(&mock_rpc_server)
-            .await;
+        });
 
         let mock_mempool_server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1186,7 +1239,7 @@ mod tests {
             .await;
 
         let mock_rpc = ExtendedBitcoinRpc::connect(
-            mock_rpc_server.uri(),
+            format!("http://{rpc_addr}"),
             secrecy::SecretString::new("test_user".into()),
             secrecy::SecretString::new("test_password".into()),
             None,

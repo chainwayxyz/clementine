@@ -1,0 +1,17 @@
+[package]
+name = "sp1-bitvm"
+version.workspace = true
+edition.workspace = true
+license = "MIT"
+
+[dependencies]
+bitvm.workspace = true
+bitcoin.workspace = true
+bitcoin-script.workspace = true
+
+[dev-dependencies]
+circuits-lib = { path = "../circuits-lib" }
+sp1-verifier.workspace = true
+hex.workspace = true
+rand = "0.8"
+rand_chacha = "0.3"

@@ -371,12 +371,18 @@ impl TxSenderClient {
     /// * `id` - The ID of the transaction to debug
     ///
     /// # Returns
-    /// A comprehensive debug info structure with all available information about the transaction
+    /// A comprehensive debug info structure with all available information about the transaction.
+    /// The raw transaction is returned without witnesses.
     pub async fn debug_tx(&self, id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
         use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
 
-        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) =
+        let (tx_metadata, mut tx, fee_paying_type, seen_block_id, _) =
             self.db.get_try_to_send_tx(None, id).await.map_to_eyre()?;
+        // Witnesses of unsent txs can hold secrets, like challenge ack preimages, and
+        // DebugTx can be called by other actors, like the aggregator.
+        for input in &mut tx.input {
+            input.witness.clear();
+        }
 
         let submission_errors = self
             .db

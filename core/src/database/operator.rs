@@ -4,14 +4,12 @@
 
 use super::{
     wrapper::{
-        AddressDB, DepositParamsDB, LightClientCircuitInputDB, OutPointDB, SignaturesDB, TxidDB,
-        XOnlyPublicKeyDB,
+        AddressDB, DepositParamsDB, OutPointDB, ReceiptDB, SignaturesDB, TxidDB, XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
 };
 use crate::{
     builder::transaction::create_move_to_vault_txhandler,
-    citrea::LightClientCircuitInputRpcResponse,
     config::protocol::ProtocolParamset,
     deposit::{DepositData, KickoffData, OperatorData},
     operator::RoundIndex,
@@ -25,6 +23,7 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use circuits_lib::common::sp1::Receipt;
 use eyre::{eyre, Context};
 use std::str::FromStr;
 
@@ -369,10 +368,15 @@ impl Database {
             .get_cached_tx()
             .compute_txid();
 
+        // `get_deposit_id` allocates rows that carry only the outpoint, so a placeholder may already
+        // exist with NULL params. Fill it in rather than treating it as an existing deposit, which
+        // would otherwise leave the deposit permanently unstorable.
         let query = sqlx::query_as::<_, (i32,)>(
             "INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
                 VALUES ($1, $2, $3)
-                ON CONFLICT (deposit_outpoint) DO NOTHING
+                ON CONFLICT (deposit_outpoint) DO UPDATE
+                    SET deposit_params = $2, move_to_vault_txid = $3
+                    WHERE deposits.deposit_params IS NULL
                 RETURNING deposit_id",
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
@@ -387,17 +391,29 @@ impl Database {
             return Ok(u32::try_from(deposit_id).wrap_err("Failed to convert deposit id to u32")?);
         }
 
-        // If no rows were returned, data already exists - check if it matches
-        let existing_query = sqlx::query_as::<_, (i32, DepositParamsDB, TxidDB)>(
+        // If no rows were returned, populated data already exists - check if it matches
+        let existing_query = sqlx::query_as::<_, (i32, Option<DepositParamsDB>, Option<TxidDB>)>(
             "SELECT deposit_id, deposit_params, move_to_vault_txid FROM deposits WHERE deposit_outpoint = $1"
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()));
 
         let (existing_deposit_id, existing_deposit_params, existing_move_txid): (
             i32,
-            DepositParamsDB,
-            TxidDB,
+            Option<DepositParamsDB>,
+            Option<TxidDB>,
         ) = execute_query_with_tx!(self.connection, tx, existing_query, fetch_one)?;
+
+        // The upsert above fills placeholder rows, so NULLs here mean a concurrent writer left the
+        // row half-populated. Report that rather than failing with an opaque decode error.
+        let (Some(existing_deposit_params), Some(existing_move_txid)) =
+            (existing_deposit_params, existing_move_txid)
+        else {
+            return Err(eyre::eyre!(
+                "Deposit row for outpoint {} exists without params, cannot verify it",
+                deposit_data.get_deposit_outpoint()
+            )
+            .into());
+        };
 
         let existing_deposit_data: DepositData = existing_deposit_params
             .0
@@ -588,6 +604,34 @@ impl Database {
         Ok(result.0 .0)
     }
 
+    pub async fn get_kickoff_txid_from_deposit_and_kickoff_data(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_outpoint: OutPoint,
+        kickoff_data: &KickoffData,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT ds.kickoff_txid FROM deposit_signatures ds
+             INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+             WHERE d.deposit_outpoint = $1
+             AND ds.operator_xonly_pk = $2
+             AND ds.round_idx = $3
+             AND ds.kickoff_idx = $4",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(XOnlyPublicKeyDB(kickoff_data.operator_xonly_pk))
+        .bind(kickoff_data.round_idx.to_index() as i32)
+        .bind(kickoff_data.kickoff_idx as i32);
+
+        let result: Result<(TxidDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+        match result {
+            Ok((txid,)) => Ok(Some(txid.0)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Retrieves the deposit signatures for a single operator for a single reimburse
     /// process (single kickoff utxo).
     /// The signatures are tagged so that each signature can be matched with the correct
@@ -623,37 +667,59 @@ impl Database {
         }
     }
 
-    /// Retrieves the light client circuit input for a deposit to be proved while sending an assert.
-    pub(crate) async fn get_lcp_input_for_assert(
+    /// Returns whether any deposit signatures of the given operator are saved for the deposit.
+    pub async fn has_deposit_signatures(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_outpoint: OutPoint,
+        operator_xonly_pk: XOnlyPublicKey,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (bool,)>(
+            "SELECT EXISTS (
+                SELECT 1 FROM deposit_signatures ds
+                INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+                WHERE d.deposit_outpoint = $1
+                AND ds.operator_xonly_pk = $2
+            );",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk));
+
+        let (exists,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(exists)
+    }
+
+    /// Retrieves the light client proof saved for a deposit, used while sending an assert.
+    pub(crate) async fn get_lcp_receipt_for_assert(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
-    ) -> Result<Option<LightClientCircuitInputRpcResponse>, BridgeError> {
-        let query = sqlx::query_as::<_, (LightClientCircuitInputDB,)>(
-            "SELECT lcp_input FROM lcp_input_for_asserts WHERE deposit_id = $1;",
+    ) -> Result<Option<Receipt>, BridgeError> {
+        let query = sqlx::query_as::<_, (ReceiptDB,)>(
+            "SELECT lcp_receipt FROM lcp_receipts_for_asserts WHERE deposit_id = $1;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(result.map(|(lcp_input,)| lcp_input.0))
+        Ok(result.map(|(lcp_receipt,)| lcp_receipt.0))
     }
 
-    /// Saves the light client circuit input for a deposit.
-    /// It is proved later when the assert proof is actually created.
-    pub(crate) async fn insert_lcp_input_for_assert(
+    /// Saves the light client proof of a deposit's payout block.
+    /// It is used later if the operator has to send asserts.
+    pub(crate) async fn insert_lcp_receipt_for_assert(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
-        lcp_input: LightClientCircuitInputRpcResponse,
+        lcp_receipt: Receipt,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO lcp_input_for_asserts (deposit_id, lcp_input)
+            "INSERT INTO lcp_receipts_for_asserts (deposit_id, lcp_receipt)
              VALUES ($1, $2)
              ON CONFLICT (deposit_id) DO NOTHING;",
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
-        .bind(LightClientCircuitInputDB(lcp_input));
+        .bind(ReceiptDB(lcp_receipt));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -851,6 +917,9 @@ impl Database {
         ))
     }
 
+    /// Reserved kickoff txid for this connector.
+    /// `None` means there is no kickoff to wait for (never reserved, or txid was cleared).
+    /// A cleared row still exists, so the connector is not assigned again.
     pub async fn get_kickoff_txid_for_used_kickoff_connector(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -869,6 +938,23 @@ impl Database {
             Some((txid,)) => Ok(txid.map(|txid| txid.0)),
             None => Ok(None),
         }
+    }
+
+    /// Clears the kickoff txid of a used kickoff connector. The connector stays reserved, so it is
+    /// not handed out again, but nothing waits for its kickoff to appear on chain anymore.
+    pub async fn clear_kickoff_txid_for_used_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE used_kickoff_connectors SET kickoff_txid = NULL WHERE kickoff_txid = $1;",
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
     }
 
     pub async fn get_unused_and_signed_kickoff_connector(
@@ -927,6 +1013,18 @@ impl Database {
         Ok(RoundIndex::from_index(
             usize::try_from(result.0).wrap_err(BridgeError::IntConversionError)?,
         ))
+    }
+
+    /// Locks the current round index row until `tx` ends. Hold it before reading or writing
+    /// round state or kickoff connector reservations, so these operations run one at a time.
+    pub async fn lock_current_round_index(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("SELECT round_idx FROM current_round_index WHERE id = 1 FOR UPDATE")
+            .fetch_one(&mut **tx)
+            .await?;
+        Ok(())
     }
 
     pub async fn update_current_round_index(
@@ -1543,6 +1641,19 @@ mod tests {
             .await
             .unwrap();
         assert!(non_existent.is_none());
+
+        assert!(database
+            .has_deposit_signatures(None, deposit_outpoint, operator_xonly_pk)
+            .await
+            .unwrap());
+        assert!(!database
+            .has_deposit_signatures(None, deposit_outpoint, unset_operator_xonly_pk)
+            .await
+            .unwrap());
+        assert!(!database
+            .has_deposit_signatures(None, OutPoint::null(), operator_xonly_pk)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

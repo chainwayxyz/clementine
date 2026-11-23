@@ -12,6 +12,9 @@ BITCOIN_RPC_USER="admin"
 BITCOIN_RPC_PASSWORD="admin"
 FEE_RATE="10.0" # sat/vB
 FEE_PAYER_AMOUNT="1"
+# Required by aggregator get-deposit-address / new-deposit after CLI identity args became mandatory.
+EVM_ADDRESS="0x0101010101010101010101010101010101010101"
+RECOVERY_TAPROOT_ADDRESS="bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss"
 export RUSTFLAGS="-Awarnings"
 
 # Check if jq is installed
@@ -26,10 +29,12 @@ if ! command -v jq &> /dev/null; then
 fi
 
 echo "🧱 Step 1: Setup Aggregator"
-cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator setup
+cargo run --bin clementine-node-cli -- --node-url $AGGREGATOR_URL aggregator setup
 
 echo "📬 Step 2: Get Deposit Address"
-DEPOSIT_ADDRESS=$(cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator get-deposit-address | grep -o 'bcrt1[a-zA-Z0-9]*')
+DEPOSIT_ADDRESS=$(cargo run --bin clementine-node-cli -- --node-url $AGGREGATOR_URL aggregator get-deposit-address \
+  --evm-address $EVM_ADDRESS \
+  --recovery-taproot-address $RECOVERY_TAPROOT_ADDRESS | grep -o 'bcrt1[a-zA-Z0-9]*')
 echo "Deposit address: $DEPOSIT_ADDRESS"
 
 echo "🪙 Step 3: Send Deposit"
@@ -45,9 +50,11 @@ echo "VOUT: $VOUT_INDEX"
 
 STEP_START=$(date +%s)
 echo "📥 Step 4.5: Registering deposit on aggregator..."
-MOVE_TX_RAW=$(cargo run --bin clementine-cli -- --node-url $AGGREGATOR_URL aggregator new-deposit \
+MOVE_TX_RAW=$(cargo run --bin clementine-node-cli -- --node-url $AGGREGATOR_URL aggregator new-deposit \
   --deposit-outpoint-txid $DEPOSIT_TXID \
-  --deposit-outpoint-vout $VOUT_INDEX | awk '/Please send manually:/ { print $NF }')
+  --deposit-outpoint-vout $VOUT_INDEX \
+  --evm-address $EVM_ADDRESS \
+  --recovery-taproot-address $RECOVERY_TAPROOT_ADDRESS | awk '/Please send manually:/ { print $NF }')
 STEP_END=$(date +%s)
 
 if [ -z "$MOVE_TX_RAW" ]; then
@@ -58,7 +65,7 @@ echo "Move TX raw: $MOVE_TX_RAW"
 echo "⏱️  Step 4.5 took $((STEP_END - STEP_START)) seconds"
 
 echo "🧾 Step 5: Create Move-to-Vault TX (CPFP step 1)"
-FEE_PAYER_ADDRESS=$(cargo run --bin clementine-cli -- --node-url $BITCOIN_RPC_URL bitcoin send-tx-with-cpfp \
+FEE_PAYER_ADDRESS=$(cargo run --bin clementine-node-cli -- --node-url $BITCOIN_RPC_URL bitcoin send-tx-with-cpfp \
   --bitcoin-rpc-user $BITCOIN_RPC_USER \
   --bitcoin-rpc-password $BITCOIN_RPC_PASSWORD \
   --raw-tx $MOVE_TX_RAW | grep -o 'bcrt1[a-zA-Z0-9]*')
@@ -69,7 +76,7 @@ $BQR_ALIAS sendtoaddress $FEE_PAYER_ADDRESS $FEE_PAYER_AMOUNT
 $BQR_ALIAS -generate 1
 
 echo "🧾 Step 7: Finalize CPFP Move TX"
-MOVE_TX_DETAILS=$(cargo run --bin clementine-cli -- --node-url $BITCOIN_RPC_URL bitcoin send-tx-with-cpfp \
+MOVE_TX_DETAILS=$(cargo run --bin clementine-node-cli -- --node-url $BITCOIN_RPC_URL bitcoin send-tx-with-cpfp \
   --bitcoin-rpc-user $BITCOIN_RPC_USER \
   --bitcoin-rpc-password $BITCOIN_RPC_PASSWORD \
   --fee-payer-address $FEE_PAYER_ADDRESS \

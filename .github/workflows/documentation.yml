@@ -12,8 +12,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
 
 jobs:
@@ -24,7 +24,8 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/build-prerequisites
       - name: Clean documentation directory
         run: cargo clean --doc
       - name: Build documentation
@@ -34,11 +35,11 @@ jobs:
           echo '<meta http-equiv="refresh" content="0;url=clementine_core/index.html">' > target/doc/index.html
           touch target/doc/.nojekyll
       - name: Upload as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Documentation
           path: ./target/doc
       - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@v4
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
         with:
           folder: target/doc

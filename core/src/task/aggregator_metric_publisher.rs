@@ -77,7 +77,7 @@ impl Task for AggregatorMetricPublisher {
         if cfg!(test) {
             return Ok(false);
         }
-        tracing::info!("Publishing metrics for aggregator");
+        tracing::debug!("Publishing metrics for aggregator");
 
         let entity_statuses = self
             .aggregator
@@ -87,7 +87,7 @@ impl Task for AggregatorMetricPublisher {
                 tracing::error!("Error getting entities status: {:?}", e);
             })?;
 
-        tracing::info!("Entities status: {:?}", entity_statuses);
+        tracing::debug!("Entities status: {:?}", entity_statuses);
 
         // Process each entity status
         for entity_status_with_id in entity_statuses {
@@ -142,6 +142,9 @@ impl Task for AggregatorMetricPublisher {
                     }
                     if let Some(fee_rate) = status.btc_fee_rate_sat_vb {
                         metrics.bitcoin_fee_rate_sat_vb.set(fee_rate as f64);
+                    }
+                    if let Some(height) = status.lcp_synced_height {
+                        metrics.lcp_synced_height.set(height as f64);
                     }
                 }
                 Some(crate::rpc::clementine::entity_status_with_id::StatusResult::Err(error)) => {

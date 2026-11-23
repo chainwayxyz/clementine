@@ -41,12 +41,12 @@ use bitcoin::hashes::Hash;
 use bitcoin::key::Secp256k1;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{OutPoint, XOnlyPublicKey};
-use bitvm::clementine::additional_disprove::{
-    create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
-};
 use circuits_lib::bridge_circuit::deposit_constant;
 use eyre::Context;
 use eyre::OptionExt;
+use sp1_bitvm::additional_disprove::{
+    create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -207,11 +207,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
         context: &ContractContext,
         dbtx: Option<DatabaseTransaction<'a, 'b>>,
     ) -> Self {
-        if context.deposit_data.is_some() {
-            let deposit_data = context
-                .deposit_data
-                .as_ref()
-                .expect("checked in if statement");
+        if let Some(deposit_data) = context.deposit_data.as_ref() {
             Self::new_for_deposit(
                 db,
                 context.operator_xonly_pk,
@@ -318,6 +314,7 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
                         *deposit_outpoint,
                     )
                     .await?,
+                *self.paramset.bridge_program_key()?,
             ));
             Ok(self.operator_bitvm_keys.as_ref().expect("Inserted before"))
         } else {
@@ -332,13 +329,11 @@ impl<'a, 'b> ReimburseDbCache<'a, 'b> {
             return Ok(script);
         }
 
-        let bridge_circuit_constant = *self.paramset.bridge_circuit_constant()?;
         let challenge_ack_hashes = self.get_challenge_ack_hashes().await?.to_vec();
 
         let bitvm_keys = self.get_operator_bitvm_keys().await?;
 
         let script = create_additional_replacable_disprove_script_with_dummy(
-            bridge_circuit_constant,
             bitvm_keys.bitvm_pks.0[0].to_vec(),
             bitvm_keys.latest_blockhash_pk.to_vec(),
             bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),

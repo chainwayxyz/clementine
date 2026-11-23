@@ -17,14 +17,15 @@ use crate::{
 use async_trait::async_trait;
 use bitcoin::OutPoint;
 use bitcoincore_rpc::RpcApi;
-use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
+use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, SequencerConfig, TestCaseConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+#[derive(Clone, Copy)]
 pub enum TestVariant {
     CorruptedLatestBlockHash,
     CorruptedPayoutTxBlockHash,
@@ -33,6 +34,7 @@ pub enum TestVariant {
     CorruptedPublicInput,
 }
 
+#[derive(Clone, Copy)]
 struct AdditionalDisproveTest {
     variant: TestVariant,
 }
@@ -40,30 +42,18 @@ struct AdditionalDisproveTest {
 #[async_trait]
 impl TestCase for AdditionalDisproveTest {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::e2e_citrea_config(TestCaseConfig {
             with_sequencer: true,
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     fn sequencer_config() -> SequencerConfig {
@@ -73,22 +63,15 @@ impl TestCase for AdditionalDisproveTest {
         }
     }
 
-    fn batch_prover_config() -> BatchProverConfig {
-        BatchProverConfig {
-            enable_recovery: false,
-            ..Default::default()
-        }
-    }
-
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
-            enable_recovery: false,
             initial_da_height: 60,
             ..Default::default()
         }
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         tracing::info!("Starting Citrea");
         let (sequencer, full_node, lc_prover, batch_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
@@ -117,6 +100,7 @@ impl TestCase for AdditionalDisproveTest {
             }
             TestVariant::CorruptedPublicInput => {
                 config.test_params.corrupted_public_input = true;
+                config.test_params.non_canonical_assert_digits = true;
             }
         }
 
@@ -129,6 +113,7 @@ impl TestCase for AdditionalDisproveTest {
                 lc_prover.config.rollup.rpc.bind_port,
             )),
         );
+        citrea::set_genesis_above_lcp_start(&mut config, lc_prover).await;
 
         let rpc = ExtendedBitcoinRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -229,11 +214,13 @@ impl TestCase for AdditionalDisproveTest {
 async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedLatestBlockHash,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the payout transaction's block hash commitment is intentionally corrupted.
@@ -255,11 +242,13 @@ async fn additional_disprove_script_test_disrupted_latest_block_hash() -> Result
 async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPayoutTxBlockHash,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the commitment for challenges sent by watchtowers is intentionally corrupted.
@@ -281,11 +270,13 @@ async fn additional_disprove_script_test_disrupted_payout_tx_block_hash() -> Res
 async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedChallengeSendingWatchtowers,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when an operator "forgets" to include a watchtower challenge.
@@ -307,11 +298,13 @@ async fn additional_disprove_script_test_disrupt_chal_sending_wts() -> Result<()
 async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::OperatorForgotWatchtowerChallenge,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }
 
 /// Tests the disprove mechanism when the public input is intentionally corrupted.
@@ -319,10 +312,12 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
 /// # Arrange
 /// * Sets up full Citrea infrastructure including sequencer, batch prover, light client prover, and DA node.
 /// * Sets `corrupted_public_input = true` to simulate a corrupted public input scenario.
+/// * Sets `non_canonical_assert_digits = true`, so the first assert has non-minimal and
+///   out-of-range digits and is non-standard.
 ///
 /// # Act
 /// * Performs deposit and withdrawal operations between Bitcoin and Citrea.
-/// * Processes payout and kickoff transactions.
+/// * Processes payout and kickoff transactions, and mines the non-standard assert directly.
 /// * Waits for the disprove transaction to be triggered due to the corrupted public input.
 ///
 /// # Assert
@@ -333,9 +328,11 @@ async fn additional_disprove_script_test_operator_forgot_wt_challenge() -> Resul
 async fn additional_disprove_script_test_corrupted_public_input() -> Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
     let additional_disprove_test = AdditionalDisproveTest {
         variant: TestVariant::CorruptedPublicInput,
     };
-    TestCaseRunner::new(additional_disprove_test).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| {
+        TestCaseRunner::new(additional_disprove_test).run()
+    })
+    .await
 }

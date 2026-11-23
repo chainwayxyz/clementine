@@ -16,7 +16,7 @@ use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, Signed, TransactionType, TxHandler,
 };
-use crate::compatibility::ActorWithConfig;
+use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::config::BridgeConfig;
 use crate::constants::{
     DEPOSIT_FINALIZATION_TIMEOUT, DEPOSIT_FINALIZE_STREAM_CREATION_TIMEOUT,
@@ -34,8 +34,8 @@ use crate::rpc::clementine::{
 };
 use crate::rpc::parser;
 use crate::utils::{
-    flatten_join_named_results, get_vergen_response, timed_request, timed_try_join_all,
-    try_join_all_combine_errors, ScriptBufExt,
+    ensure_deposit_finality, flatten_join_named_results, get_vergen_response, timed_request,
+    timed_try_join_all, try_join_all_combine_errors, ScriptBufExt,
 };
 use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
@@ -998,7 +998,7 @@ impl ClementineAggregator for AggregatorServer {
         &self,
         request: Request<GetEntityStatusesRequest>,
     ) -> Result<Response<EntityStatuses>, Status> {
-        tracing::info!("Get entity statuses rpc called");
+        tracing::debug!("Get entity statuses rpc called");
         let request = request.into_inner();
         let restart_tasks = request.restart_tasks;
 
@@ -1332,6 +1332,10 @@ impl ClementineAggregator for AggregatorServer {
             .iter()
             .map(|key| OperatorId(*key))
             .collect::<Vec<_>>();
+        // operator config, kickoff winternitz pks and unspent kickoff sigs
+        let expected_num_params = 1
+            + self.config.get_num_kickoff_winternitz_pks()
+            + self.config.get_num_unspent_kickoff_sigs();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
             tracing::info!(clients = operators.len(), "Collecting operator details...");
             try_join_all_combine_errors(operators.iter().zip(operator_ids.iter()).map(
@@ -1347,12 +1351,22 @@ impl ClementineAggregator for AggregatorServer {
                             })
                             .map_err(BridgeError::from)?
                             .into_inner();
-                        tx.send(stream.try_collect::<Vec<_>>().await?)
-                            .map_err(|e| {
-                                BridgeError::from(eyre::eyre!(
-                                    "Failed to read operator params for {id}: {e}"
-                                ))
-                            })?;
+                        let params = stream
+                            .take(expected_num_params + 1)
+                            .try_collect::<Vec<_>>()
+                            .await?;
+                        if params.len() != expected_num_params {
+                            return Err(BridgeError::from(eyre::eyre!(
+                                "Operator {id} sent the wrong number of params: expected {expected_num_params}, read {}",
+                                params.len()
+                            ))
+                            .into());
+                        }
+                        tx.send(params).map_err(|e| {
+                            BridgeError::from(eyre::eyre!(
+                                "Failed to read operator params for {id}: {e}"
+                            ))
+                        })?;
                         Ok::<_, Status>(())
                     }
                 },
@@ -1460,6 +1474,13 @@ impl ClementineAggregator for AggregatorServer {
                 "Parsed new deposit rpc params, deposit info: {:?}",
                 deposit_info
             );
+
+            ensure_deposit_finality(
+                &self.rpc,
+                &self.config,
+                deposit_info.deposit_outpoint.txid,
+            )
+            .await?;
 
             let deposit_data = DepositData {
                 deposit: deposit_info.clone(),
@@ -1718,7 +1739,7 @@ impl ClementineAggregator for AggregatorServer {
             debug_assert_eq!(task_names.len(), task_outputs.len());
 
             flatten_join_named_results(
-                task_names.into_iter().zip(task_outputs.into_iter()),
+                task_names.into_iter().zip(task_outputs),
             )?;
             tracing::info!("All deposit_sign related tasks completed for deposit {:?}, now sending operator signatures to verifiers for verification", deposit_info);
 
@@ -1733,7 +1754,7 @@ impl ClementineAggregator for AggregatorServer {
                     let send_operator_sigs: Vec<_> = deposit_finalize_sender
                         .iter()
                         .zip(verifiers_ids.iter())
-                        .zip(deposit_finalize_futures.into_iter())
+                        .zip(deposit_finalize_futures)
                         .map(|((tx, id), dep_fin_fut)| async {
                             for one_op_sigs in all_op_sigs.iter() {
                                 for sig in one_op_sigs.iter() {
@@ -1821,9 +1842,6 @@ impl ClementineAggregator for AggregatorServer {
             ))?,
             request.operator_xonly_pks,
         );
-        // check compatibility with operators only
-        self.check_compatibility_with_actors(CompatibilityCheckScope::OperatorsOnly)
-            .await?;
 
         let withdraw_params = withdraw_params_with_sig
             .clone()
@@ -1856,21 +1874,27 @@ impl ClementineAggregator for AggregatorServer {
 
         // check if all given operator xonly pubkeys are a valid operator xonly pubkey, to warn the caller if
         // something is wrong with the given operator xonly pubkeys
-        let current_operator_xonly_pks = self.fetch_operator_keys().await?;
-        let invalid_operator_xonly_pks = operator_xonly_pks_from_rpc
+        let current_operator_xonly_pks = self.fetch_available_operator_keys().await;
+        let unknown_operator_xonly_pks = operator_xonly_pks_from_rpc
             .iter()
-            .filter(|xonly_pk| !current_operator_xonly_pks.contains(xonly_pk))
+            .filter(|xonly_pk| !current_operator_xonly_pks.contains(&Some(**xonly_pk)))
+            .copied()
             .collect::<Vec<_>>();
-        if !invalid_operator_xonly_pks.is_empty() {
+        // An unknown key can belong to an operator whose key was not collected yet.
+        if !unknown_operator_xonly_pks.is_empty()
+            && current_operator_xonly_pks.iter().all(Option::is_some)
+        {
             return Err(Status::invalid_argument(format!(
-                "Given xonly public key doesn't belong to any current operator: invalid keys: {invalid_operator_xonly_pks:?}, current operators: {current_operator_xonly_pks:?}"
+                "Given xonly public key doesn't belong to any current operator: invalid keys: {unknown_operator_xonly_pks:?}, current operators: {:?}",
+                current_operator_xonly_pks.iter().flatten().collect::<Vec<_>>()
             )));
         }
 
         let operators = self
             .get_operator_clients()
             .iter()
-            .zip(current_operator_xonly_pks.into_iter());
+            .zip(current_operator_xonly_pks.iter())
+            .filter_map(|(operator, xonly_pk)| xonly_pk.map(|xonly_pk| (operator, xonly_pk)));
         let withdraw_futures = operators
             .filter(|(_, xonly_pk)| {
                 // check if operator_xonly_pks is empty or contains the operator's xonly public key
@@ -1880,9 +1904,30 @@ impl ClementineAggregator for AggregatorServer {
             .map(|(operator, operator_xonly_pk)| {
                 let mut operator = operator.clone();
                 let params = withdraw_params_with_sig.clone();
-                let mut request = Request::new(params);
-                request.set_timeout(WITHDRAWAL_TIMEOUT);
-                async move { (operator.withdraw(request).await, operator_xonly_pk) }
+                async move {
+                    // Checked per operator, so an unreachable or incompatible operator only
+                    // fails its own withdrawal.
+                    let response = async {
+                        let mut request = Request::new(Empty {});
+                        request.set_timeout(WITHDRAWAL_TIMEOUT);
+                        let compatibility_params: CompatibilityParams = operator
+                            .get_compatibility_params(request)
+                            .await?
+                            .into_inner()
+                            .try_into()
+                            .map_to_status()?;
+                        self.aggregator.is_compatible(vec![(
+                            OperatorId(operator_xonly_pk).to_string(),
+                            compatibility_params,
+                        )])?;
+
+                        let mut request = Request::new(params);
+                        request.set_timeout(WITHDRAWAL_TIMEOUT);
+                        operator.withdraw(request).await
+                    }
+                    .await;
+                    (response, operator_xonly_pk)
+                }
             });
 
         // collect responses from operators and return them as a vector of strings
@@ -1896,22 +1941,50 @@ impl ClementineAggregator for AggregatorServer {
                 .collect::<Vec<_>>(),
             responses,
         );
+        let mut withdraw_responses: Vec<OperatorWithrawalResponse> = responses
+            .into_iter()
+            .map(|(res, xonly_pk)| match res {
+                Ok(withdraw_response) => OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::RawTx(
+                        withdraw_response.into_inner(),
+                    )),
+                },
+                Err(e) => OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::Error(e.to_string())),
+                },
+            })
+            .collect();
+
+        // add errors for operators that could not be reached to collect their keys
+        if operator_xonly_pks_from_rpc.is_empty() {
+            withdraw_responses.extend(
+                current_operator_xonly_pks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, xonly_pk)| xonly_pk.is_none())
+                    .map(|(idx, _)| OperatorWithrawalResponse {
+                        operator_xonly_pk: None,
+                        response: Some(operator_withrawal_response::Response::Error(format!(
+                            "Key of operator at index {idx} in config (0-based) was not able to be collected"
+                        ))),
+                    }),
+            );
+        } else {
+            withdraw_responses.extend(unknown_operator_xonly_pks.into_iter().map(|xonly_pk| {
+                OperatorWithrawalResponse {
+                    operator_xonly_pk: Some(xonly_pk.into()),
+                    response: Some(operator_withrawal_response::Response::Error(
+                        "Operator key was not able to be collected, the operator may be unreachable"
+                            .to_string(),
+                    )),
+                }
+            }));
+        }
+
         Ok(Response::new(AggregatorWithdrawResponse {
-            withdraw_responses: responses
-                .into_iter()
-                .map(|(res, xonly_pk)| match res {
-                    Ok(withdraw_response) => OperatorWithrawalResponse {
-                        operator_xonly_pk: Some(xonly_pk.into()),
-                        response: Some(operator_withrawal_response::Response::RawTx(
-                            withdraw_response.into_inner(),
-                        )),
-                    },
-                    Err(e) => OperatorWithrawalResponse {
-                        operator_xonly_pk: Some(xonly_pk.into()),
-                        response: Some(operator_withrawal_response::Response::Error(e.to_string())),
-                    },
-                })
-                .collect(),
+            withdraw_responses,
         }))
     }
 
@@ -2019,6 +2092,25 @@ impl ClementineAggregator for AggregatorServer {
                     "Transaction is not a movetx, input or output lengths are not correct",
                 ));
             }
+            if !movetx.input[0].script_sig.is_empty() {
+                return Err(Status::invalid_argument(
+                    "Native P2TR scriptSig must be empty",
+                ));
+            }
+            if movetx.input[0].previous_output != deposit_outpoint {
+                return Err(Status::invalid_argument(
+                    "Transaction input does not match deposit outpoint",
+                ));
+            }
+            let deposit_tx = self
+                .rpc
+                .get_tx_of_txid(&deposit_outpoint.txid)
+                .await
+                .map_to_status()?;
+            let deposit_txout = deposit_tx
+                .output
+                .get(deposit_outpoint.vout as usize)
+                .ok_or(Status::invalid_argument("Deposit output does not exist"))?;
             // check output values
             // movetx always has 0 sat anchor output
             if !(movetx.output[0].value == self.config.protocol_paramset().bridge_amount
@@ -2041,6 +2133,38 @@ impl ClementineAggregator for AggregatorServer {
                         ))
                     },
                 )?;
+
+            let witness = &movetx.input[0].witness;
+            if witness.len() != 3 {
+                return Err(Status::invalid_argument("Invalid movetx witness"));
+            }
+            let signature = bitcoin::taproot::Signature::from_slice(&witness[0])
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            let script = bitcoin::Script::from_bytes(&witness[1]);
+            let control_block = bitcoin::taproot::ControlBlock::decode(&witness[2])
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            let deposit_xonly_pk = deposit_txout
+                .script_pubkey
+                .try_get_taproot_pk()
+                .map_err(|_| Status::invalid_argument("Invalid deposit output"))?;
+            if !control_block.verify_taproot_commitment(&SECP, deposit_xonly_pk, script) {
+                return Err(Status::invalid_argument("Invalid movetx witness"));
+            }
+            let sighash = bitcoin::sighash::SighashCache::new(&movetx)
+                .taproot_script_spend_signature_hash(
+                    0,
+                    &bitcoin::sighash::Prevouts::All(std::slice::from_ref(deposit_txout)),
+                    bitcoin::TapLeafHash::from_script(script, control_block.leaf_version),
+                    signature.sighash_type,
+                )
+                .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+            SECP.verify_schnorr(
+                &signature.signature,
+                &Message::from_digest(sighash.to_byte_array()),
+                &nofn_xonly_pk,
+            )
+            .map_err(|_| Status::invalid_argument("Invalid movetx witness"))?;
+
             let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
             let security_council_script = Arc::new(Multisig::from_security_council(
                 self.config.security_council.clone(),
@@ -2234,6 +2358,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name().await;
+        config.deposit_finality_depth = Some(6);
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let actors = create_actors::<MockCitreaClient>(&config).await;
@@ -2268,7 +2393,6 @@ mod tests {
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
-        rpc.mine_blocks(18).await.unwrap();
 
         let deposit_info = DepositInfo {
             deposit_outpoint,
@@ -2277,6 +2401,17 @@ mod tests {
                 recovery_taproot_address: signer.address.as_unchecked().clone(),
             }),
         };
+
+        let err = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info.clone()))
+            .await
+            .expect_err("unconfirmed deposit must be rejected when deposit_finality_depth is set");
+        assert!(
+            err.message().contains("deposit_finality_depth"),
+            "expected InvalidDeposit from finality check, got: {err}"
+        );
+
+        rpc.mine_blocks(18).await.unwrap();
 
         // Generate and broadcast the move-to-vault transaction
         let start_time = std::time::Instant::now();

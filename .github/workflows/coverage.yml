@@ -2,14 +2,18 @@ name: Run Coverage
 
 on: [workflow_dispatch]
 
+permissions:
+  actions: read
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ (github.ref != 'refs/heads/main') }}
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RISC0_DEV_MODE: 1
+  RUST_LOG: warn
+  SP1_PROVER: mock
   RUST_MIN_STACK: 33554432
 
   CARGOFLAGS: --workspace --all-targets
@@ -39,31 +43,24 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-        with:
-          comment_on_pr: false
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@60c08ce81d769135aafd96f96efc85993d9cb8e4 # cargo-llvm-cov
 
       - name: Create test log directories
         run: mkdir -p test-logs/coverage
 
-      - name: Save/restore build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
         with:
-          shared-key: ${{ runner.os }}-cargo-RELEASE-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          key: coverage-ci-release
 
       - name: Run coverage
-        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --release --lcov --locked --output-path lcov.info -- --test-threads 6
+        run: cargo llvm-cov $CARGOFLAGS_ALL_FEATURES --profile ci-release --lcov --locked --output-path lcov.info -- --test-threads 6
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
         with:
           fail_ci_if_error: true # optional (default = false)
           files: ./lcov.info
@@ -71,7 +68,7 @@ jobs:
 
       - name: Upload test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-test-logs
           path: test-logs/coverage/

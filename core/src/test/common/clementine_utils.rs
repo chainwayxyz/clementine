@@ -17,6 +17,7 @@ use crate::test::common::tx_utils::get_txid_where_utxo_is_spent_while_waiting_fo
 use crate::test::sign::sign_withdrawal_verification_signature;
 use crate::utils::FeePayingType;
 use bitcoin::{taproot, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 
 use super::test_actors::TestActors;
@@ -290,6 +291,24 @@ pub async fn disprove_tests_common_setup(
         .await
         .unwrap();
 
+    if e2e.config.test_params.non_canonical_assert_digits {
+        let assert_txs = operator0
+            .internal_create_assert_commitment_txs(base_tx_req)
+            .await
+            .unwrap()
+            .into_inner();
+        let first_assert: Transaction = bitcoin::consensus::deserialize(
+            &assert_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::MiniAssert(0).into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
+        mine_queued_tx_directly(e2e, &actors, &op0_db, first_assert.compute_txid()).await;
+    }
+
     // wait until all asserts are mined
     for i in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
         ensure_outpoint_spent_while_waiting_for_state_mngr_sync(
@@ -306,4 +325,43 @@ pub async fn disprove_tests_common_setup(
     }
 
     (actors, kickoff_txid, kickoff_tx)
+}
+
+/// Waits until the operator queues `txid` in its tx sender, then mines it with `generateblock`.
+///
+/// This is for transactions that the mempool rejects, for example because of non-minimal
+/// script numbers. The block is mined while the nodes are connected, so test reorgs keep it.
+async fn mine_queued_tx_directly(
+    e2e: &CitreaE2EData<'_>,
+    actors: &TestActors<CitreaClient>,
+    operator_db: &Database,
+    txid: Txid,
+) {
+    for _ in 0..1000 {
+        if let Some(id) = operator_db
+            .check_if_tx_exists_on_txsender(None, txid)
+            .await
+            .unwrap()
+        {
+            let (_, tx, ..) = operator_db.get_try_to_send_tx(None, id).await.unwrap();
+            let address = e2e.rpc.get_new_wallet_address().await.unwrap();
+            e2e.rpc
+                .call::<serde_json::Value>(
+                    "generateblock",
+                    &[
+                        address.to_string().into(),
+                        vec![bitcoin::consensus::encode::serialize_hex(&tx)].into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            e2e.bitcoin_nodes.wait_for_sync(None).await.unwrap();
+            return;
+        }
+        e2e.rpc
+            .mine_blocks_while_synced(1, actors, Some(e2e))
+            .await
+            .unwrap();
+    }
+    panic!("Operator did not queue tx {txid}");
 }

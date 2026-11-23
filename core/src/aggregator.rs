@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use crate::compatibility::{ActorWithConfig, CompatibilityParams};
 use crate::constants::{
-    ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT, OPERATOR_GET_KEYS_TIMEOUT,
-    PUBLIC_KEY_COLLECTION_TIMEOUT, RESTART_BACKGROUND_TASKS_TIMEOUT, VERIFIER_SEND_KEYS_TIMEOUT,
+    COMPATIBILITY_PARAMS_TIMEOUT, ENTITY_COMP_DATA_POLL_TIMEOUT, ENTITY_STATUS_POLL_TIMEOUT,
+    OPERATOR_GET_KEYS_TIMEOUT, PUBLIC_KEY_COLLECTION_TIMEOUT, RESTART_BACKGROUND_TASKS_TIMEOUT,
+    VERIFIER_SEND_KEYS_TIMEOUT,
 };
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -311,14 +312,22 @@ impl Aggregator {
             }
 
             // if keys are not unique, return an error if so
-            let non_none_keys: Vec<_> = keys.iter().filter_map(|key| key.as_ref()).collect();
-            let unique_keys: HashSet<_> = non_none_keys.iter().cloned().collect();
+            let mut seen_keys = HashSet::new();
+            let duplicate_keys: HashSet<T> = keys
+                .iter()
+                .flatten()
+                .filter(|key| !seen_keys.insert(*key))
+                .cloned()
+                .collect();
 
-            if unique_keys.len() != non_none_keys.len() {
+            if !duplicate_keys.is_empty() {
                 let reason = format!("{key_type_name} keys are not unique: {keys:?}");
-                // reset all keys to None so that faulty keys are not used
+                // A duplicated key can't be attributed to the right entity, so reset every entry
+                // that has it. Other keys stay cached.
                 for key in keys.iter_mut() {
-                    *key = None;
+                    if key.as_ref().is_some_and(|key| duplicate_keys.contains(key)) {
+                        *key = None;
+                    }
                 }
                 return Err(eyre::eyre!(reason).into());
             }
@@ -383,6 +392,13 @@ impl Aggregator {
         .await
     }
 
+    /// Tries to collect missing operator keys and returns the key of each operator in config order.
+    /// Unlike `fetch_operator_keys`, it does not fail if some operators can't be reached.
+    pub(crate) async fn fetch_available_operator_keys(&self) -> Vec<Option<XOnlyPublicKey>> {
+        let _ = self.fetch_operator_keys().await;
+        self.operator_keys.read().await.clone()
+    }
+
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
         &self.operator_clients
     }
@@ -425,7 +441,7 @@ impl Aggregator {
             Some(operators.ids()),
             operator_clients
                 .into_iter()
-                .zip(operator_xonly_pks.into_iter())
+                .zip(operator_xonly_pks)
                 .enumerate()
                 .map(move |(_idx, (mut operator_client, operator_xonly_pk))| {
                     let deposit_params = deposit.clone();
@@ -610,10 +626,9 @@ impl Aggregator {
     /// Returns (operator_keys, verifier_keys) without failing if some entities are unreachable.
     async fn fetch_all_entity_keys(&self) -> (Vec<Option<XOnlyPublicKey>>, Vec<Option<PublicKey>>) {
         // Try to reach all operators and verifiers to collect keys, but do not return err if some can't be reached
-        let _ = self.fetch_operator_keys().await;
+        let operator_keys = self.fetch_available_operator_keys().await;
         let _ = self.fetch_verifier_keys().await;
 
-        let operator_keys = self.operator_keys.read().await.clone();
         let verifier_keys = self.verifier_keys.read().await.clone();
 
         (operator_keys, verifier_keys)
@@ -649,7 +664,8 @@ impl Aggregator {
     }
 
     /// Retrieves the status of all entities (operators and verifiers) and restarts background tasks if needed.
-    /// Returns a vector of EntityStatusWithId. Only returns an error if restarting tasks fails when requested.
+    /// Returns a vector of EntityStatusWithId. Errors from restarting tasks are only logged, so they
+    /// don't prevent the statuses from being returned.
     pub async fn get_entity_statuses(
         &self,
         restart_tasks: bool,
@@ -742,7 +758,7 @@ impl Aggregator {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
                         client
-                            .restart_background_tasks(Request::new(Empty {}))
+                            .restart_background_tasks(request)
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
@@ -762,7 +778,7 @@ impl Aggregator {
                         let mut request = Request::new(Empty {});
                         request.set_timeout(RESTART_BACKGROUND_TASKS_TIMEOUT);
                         client
-                            .restart_background_tasks(Request::new(Empty {}))
+                            .restart_background_tasks(request)
                             .await
                             .wrap_err_with(|| {
                                 Status::internal(format!(
@@ -777,10 +793,7 @@ impl Aggregator {
                 futures::future::join_all(verifier_tasks)
             );
             // Log any errors from restart_background_tasks rpc call
-            for result in operator_results
-                .into_iter()
-                .chain(verifier_results.into_iter())
-            {
+            for result in operator_results.into_iter().chain(verifier_results) {
                 if let Err(e) = result {
                     tracing::error!("{e:?}");
                 }
@@ -943,8 +956,10 @@ impl Aggregator {
                 let operator_id_str = operator_id.to_string();
 
                 operator_futures.push(async move {
+                    let mut request = Request::new(Empty {});
+                    request.set_timeout(COMPATIBILITY_PARAMS_TIMEOUT);
                     let compatibility_params: CompatibilityParams = operator_client
-                        .get_compatibility_params(Empty {})
+                        .get_compatibility_params(request)
                         .await
                         .wrap_err(format!(
                             "{operator_id_str} compatibility params retrieval failed"
@@ -970,8 +985,10 @@ impl Aggregator {
                 let verifier_id_str = verifier_id.to_string();
 
                 verifier_futures.push(async move {
+                    let mut request = Request::new(Empty {});
+                    request.set_timeout(COMPATIBILITY_PARAMS_TIMEOUT);
                     let compatibility_params: CompatibilityParams = verifier_client
-                        .get_compatibility_params(Empty {})
+                        .get_compatibility_params(request)
                         .await
                         .wrap_err(format!(
                             "{verifier_id_str} compatibility params retrieval failed"

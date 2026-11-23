@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 
-use crate::common::{get_network, zkvm::ZkvmGuest};
+use crate::common::{zkvm::ZkvmGuest, BuildNetwork, BUILD_NETWORK};
 
 pub mod mmr_guest;
 pub mod mmr_native;
@@ -114,29 +114,23 @@ pub struct NetworkConstants {
     pub max_target_bytes: [u8; 32],
 }
 
-pub const NETWORK_TYPE: &str = get_network();
-
-// Const evaluation of network type from environment
-const IS_REGTEST: bool = matches!(NETWORK_TYPE.as_bytes(), b"regtest");
-const IS_TESTNET4: bool = matches!(NETWORK_TYPE.as_bytes(), b"testnet4");
+const IS_REGTEST: bool = matches!(BUILD_NETWORK, BuildNetwork::Regtest);
+const IS_TESTNET4: bool = matches!(BUILD_NETWORK, BuildNetwork::Testnet4);
 const MINIMUM_WORK_TESTNET: U256 =
     U256::from_be_hex("0000000000000000000000000000000000000000000000000000000100010001");
 
 /// Network constants for the Bitcoin network configuration.
 ///
-/// Determines the maximum target and difficulty bits based on the `BITCOIN_NETWORK`
-/// environment variable. Supports mainnet, testnet4, signet, and regtest networks.
+/// Determines the maximum target and difficulty bits for [`BUILD_NETWORK`].
 ///
 /// ## Network-Specific Values
 ///
 /// - **Mainnet/Testnet4**: `max_bits = 0x1D00FFFF` (standard Bitcoin difficulty)
 /// - **Signet**: `max_bits = 0x1E0377AE` (custom signet difficulty)
 /// - **Regtest**: `max_bits = 0x207FFFFF` (minimal difficulty for testing)
-///
-/// Defaults to mainnet configuration if no environment variable is set.
 pub const NETWORK_CONSTANTS: NetworkConstants = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(n) if matches!(n.as_bytes(), b"signet") => NetworkConstants {
+    match BUILD_NETWORK {
+        BuildNetwork::Signet => NetworkConstants {
             max_bits: 0x1E0377AE,
             max_target: U256::from_be_hex(
                 "00000377AE000000000000000000000000000000000000000000000000000000",
@@ -146,7 +140,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
                 0, 0, 0, 0, 0, 0,
             ],
         },
-        Some(n) if matches!(n.as_bytes(), b"regtest") => NetworkConstants {
+        BuildNetwork::Regtest => NetworkConstants {
             max_bits: 0x207FFFFF,
             max_target: U256::from_be_hex(
                 "7FFFFF0000000000000000000000000000000000000000000000000000000000",
@@ -156,7 +150,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
                 0, 0, 0, 0, 0, 0,
             ],
         },
-        Some(n) if matches!(n.as_bytes(), b"testnet4") => NetworkConstants {
+        BuildNetwork::Mainnet | BuildNetwork::Testnet4 => NetworkConstants {
             max_bits: 0x1D00FFFF,
             max_target: U256::from_be_hex(
                 "00000000FFFF0000000000000000000000000000000000000000000000000000",
@@ -166,28 +160,6 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
                 0, 0, 0, 0, 0, 0,
             ],
         },
-        Some(n) if matches!(n.as_bytes(), b"mainnet") => NetworkConstants {
-            max_bits: 0x1D00FFFF,
-            max_target: U256::from_be_hex(
-                "00000000FFFF0000000000000000000000000000000000000000000000000000",
-            ),
-            max_target_bytes: [
-                0, 0, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0,
-            ],
-        },
-        // Default to mainnet for None
-        None => NetworkConstants {
-            max_bits: 0x1D00FFFF,
-            max_target: U256::from_be_hex(
-                "00000000FFFF0000000000000000000000000000000000000000000000000000",
-            ),
-            max_target_bytes: [
-                0, 0, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0,
-            ],
-        },
-        _ => panic!("Unsupported network"),
     }
 };
 
@@ -198,9 +170,9 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
 /// - **Custom signet**: Uses 10-second block time, so 60 * 24 * 14 = 20,160 seconds
 ///
 /// See: <https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag>
-const EXPECTED_EPOCH_TIMESPAN: u32 = match option_env!("BITCOIN_NETWORK") {
-    Some(n) if matches!(n.as_bytes(), b"signet") => 60 * 24 * 14,
-    _ => 60 * 60 * 24 * 14,
+const EXPECTED_EPOCH_TIMESPAN: u32 = match BUILD_NETWORK {
+    BuildNetwork::Signet => 60 * 24 * 14,
+    BuildNetwork::Mainnet | BuildNetwork::Testnet4 | BuildNetwork::Regtest => 60 * 60 * 24 * 14,
 };
 
 /// Number of blocks in a difficulty adjustment epoch.
@@ -422,9 +394,9 @@ impl ChainState {
             self.block_height = self.block_height.wrapping_add(1);
 
             let (target_to_use, expected_bits, work_to_add) = if IS_TESTNET4 {
-                if block_header.time > last_block_time + 1200 {
+                if u64::from(block_header.time) > u64::from(last_block_time) + 1200 {
                     // If the block is an epoch block, then it still has to have the real target.
-                    if self.block_height % BLOCKS_PER_EPOCH == 0 {
+                    if self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                         (
                             current_target_bytes,
                             self.current_target_bits,
@@ -478,15 +450,19 @@ impl ChainState {
 
             check_hash_valid(&new_block_hash, &target_to_use);
 
-            if !validate_timestamp(block_header.time, self.prev_11_timestamps) {
-                panic!("Timestamp is not valid, it must be greater than the median of the last 11 timestamps");
+            if !validate_timestamp(
+                block_header.time,
+                self.prev_11_timestamps,
+                self.block_height,
+            ) {
+                panic!("Timestamp violates median-time-past or the Testnet4 epoch timewarp guard");
             }
 
             self.block_hashes_mmr.append(new_block_hash);
             self.best_block_hash = new_block_hash;
             current_work = current_work.wrapping_add(&work_to_add);
 
-            if !IS_REGTEST && self.block_height % BLOCKS_PER_EPOCH == 0 {
+            if !IS_REGTEST && self.block_height.is_multiple_of(BLOCKS_PER_EPOCH) {
                 self.epoch_start_time = block_header.time;
             }
 
@@ -497,12 +473,15 @@ impl ChainState {
             }
 
             if !IS_REGTEST && self.block_height % BLOCKS_PER_EPOCH == BLOCKS_PER_EPOCH - 1 {
-                current_target_bytes = calculate_new_difficulty(
+                let new_target = calculate_new_difficulty(
                     self.epoch_start_time,
                     block_header.time,
                     self.current_target_bits,
                 );
-                self.current_target_bits = target_to_bits(&current_target_bytes);
+                self.current_target_bits = target_to_bits(&new_target);
+                // Bitcoin checks proof of work and counts work against the compact bits, which
+                // round the retarget result down.
+                current_target_bytes = bits_to_target(self.current_target_bits);
             }
         }
 
@@ -510,7 +489,7 @@ impl ChainState {
     }
 }
 
-/// Calculates the median of 11 timestamps.
+/// Calculates the median of the available previous timestamps.
 ///
 /// Used for Bitcoin's median time past (MTP) rule, which requires that a block's
 /// timestamp must be greater than the median of the previous 11 blocks' timestamps.
@@ -518,18 +497,19 @@ impl ChainState {
 ///
 /// ## Parameters
 ///
-/// * `arr` - Array of exactly 11 timestamps as u32 values
+/// * `arr` - Timestamp history, with available entries first near genesis
+/// * `count` - Number of available entries (1..=11)
 ///
 /// ## Returns
 ///
-/// * `u32` - The median timestamp (6th element when sorted)
-fn median(arr: [u32; 11]) -> u32 {
+/// * `u32` - The middle available timestamp after sorting
+fn median(arr: [u32; 11], count: usize) -> u32 {
     let mut sorted_arr = arr;
-    sorted_arr.sort_unstable();
-    sorted_arr[5]
+    sorted_arr[..count].sort_unstable();
+    sorted_arr[count / 2]
 }
 
-/// Validates a block timestamp against the median time past rule.
+/// Validates a block timestamp against median time past and the Testnet4 epoch guard.
 ///
 /// Implements Bitcoin's median time past (MTP) validation which requires that
 /// each block's timestamp must be strictly greater than the median of the
@@ -539,12 +519,22 @@ fn median(arr: [u32; 11]) -> u32 {
 ///
 /// * `block_time` - The timestamp of the block being validated
 /// * `prev_11_timestamps` - Array of the previous 11 block timestamps
+/// * `height` - Height of the block being validated; determines available history
 ///
 /// ## Returns
 ///
 /// * `bool` - `true` if the timestamp is valid (greater than median), `false` otherwise
-fn validate_timestamp(block_time: u32, prev_11_timestamps: [u32; 11]) -> bool {
-    let median_time = median(prev_11_timestamps);
+fn validate_timestamp(block_time: u32, prev_11_timestamps: [u32; 11], height: u32) -> bool {
+    if height == 0 {
+        return true;
+    }
+    if IS_TESTNET4
+        && height.is_multiple_of(BLOCKS_PER_EPOCH)
+        && i64::from(block_time) < i64::from(prev_11_timestamps[(height - 1) as usize % 11]) - 600
+    {
+        return false;
+    }
+    let median_time = median(prev_11_timestamps, height.min(11) as usize);
     block_time > median_time
 }
 
@@ -574,7 +564,11 @@ pub fn bits_to_target(bits: u32) -> [u8; 32] {
     // Mantissa is signed in Bitcoin core, if the sign bit is set, the target is set to 0.
     // https://github.com/bitcoin/bitcoin/blob/ee42d59d4de970769ebabf77b89ff4269498f61e/src/arith_uint256.cpp#L175
     // https://github.com/rust-bitcoin/rust-bitcoin/blob/eb17995e49b68831114cbc8bda14cbe72811c4b7/bitcoin/src/pow.rs#L171
-    if mantissa > 0x7F_FFFF {
+    if mantissa > 0x7F_FFFF
+        || size > 34
+        || (mantissa > 0xff && size > 33)
+        || (mantissa > 0xffff && size > 32)
+    {
         return [0; 32];
     }
 
@@ -603,10 +597,10 @@ fn target_to_bits(target: &[u8; 32]) -> u32 {
     let target_bits = target_u256.bits();
     let size = (263 - target_bits) / 8;
     let mut compact_target = [0u8; 4];
-    compact_target[0] = 33 - size as u8;
-    compact_target[1] = target[size - 1_usize];
-    compact_target[2] = target[size];
-    compact_target[3] = target[size + 1_usize];
+    compact_target[0] = if target_bits == 0 { 0 } else { 33 - size as u8 };
+    compact_target[1] = if size == 0 { 0 } else { target[size - 1] };
+    compact_target[2] = if size < 32 { target[size] } else { 0 };
+    compact_target[3] = if size < 31 { target[size + 1] } else { 0 };
     u32::from_be_bytes(compact_target)
 }
 
@@ -637,12 +631,8 @@ fn calculate_new_difficulty(
     last_timestamp: u32,
     current_target: u32,
 ) -> [u8; 32] {
-    let mut actual_timespan = last_timestamp - epoch_start_time;
-    if actual_timespan < EXPECTED_EPOCH_TIMESPAN / 4 {
-        actual_timespan = EXPECTED_EPOCH_TIMESPAN / 4;
-    } else if actual_timespan > EXPECTED_EPOCH_TIMESPAN * 4 {
-        actual_timespan = EXPECTED_EPOCH_TIMESPAN * 4;
-    }
+    let actual_timespan = (last_timestamp.saturating_sub(epoch_start_time))
+        .clamp(EXPECTED_EPOCH_TIMESPAN / 4, EXPECTED_EPOCH_TIMESPAN * 4);
 
     let current_target_bytes = bits_to_target(current_target);
     let mut new_target = U256::from_be_bytes(current_target_bytes)
@@ -673,6 +663,7 @@ fn calculate_new_difficulty(
 ///
 /// Panics with "Hash is not valid" if the hash exceeds the target.
 fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
+    assert_ne!(*target_bytes, [0; 32], "Target must be nonzero");
     for i in 0..32 {
         match hash[31 - i].cmp(&target_bytes[i]) {
             Ordering::Less => return,
@@ -704,15 +695,10 @@ fn check_hash_valid(hash: &[u8; 32], target_bytes: &[u8; 32]) {
 ///
 /// * `U256` - The amount of work represented by this target
 fn calculate_work(target: &[u8; 32]) -> U256 {
-    // We should never have a target/work of zero so this doesn't matter
-    // that much but we define the inverse of 0 as max.
+    // Bitcoin Core's GetBlockProof assigns no work to an invalid zero target.
     let target = U256::from_be_slice(target);
     if target == U256::ZERO {
-        return U256::MAX;
-    }
-    // We define the inverse of 1 as max.
-    if target == U256::ONE {
-        return U256::MAX;
+        return U256::ZERO;
     }
     // We define the inverse of max as 1.
     if target == U256::MAX {
@@ -762,6 +748,94 @@ mod tests {
     use data::{BLOCK_HEADERS, DIFFICULTY_ADJUSTMENTS};
 
     #[test]
+    fn test_testnet4_min_difficulty_timestamp_overflow() {
+        if !IS_TESTNET4 {
+            return;
+        }
+        let mut state = ChainState::new();
+        state.block_height = 2016;
+        state.current_target_bits = 0x1c123456;
+        state.prev_11_timestamps = [u32::MAX - 600; 11];
+        let header = CircuitBlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            time: u32::MAX,
+            bits: NETWORK_CONSTANTS.max_bits,
+            nonce: 0,
+        };
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.apply_block_headers(vec![header]);
+        }))
+        .unwrap_err();
+        let message = error.downcast_ref::<String>().expect("assertion message");
+        assert!(
+            message.contains("Bits for the block header must match"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn test_compact_target_boundaries() {
+        // Core SetCompact/GetCompact: small values, sign bit, overflow limits.
+        for (bits, value) in [
+            (0, 0u64),
+            (0x01010000, 1),
+            (0x02008000, 128),
+            (0x03008000, 32768),
+            (0x03010000, 65536),
+        ] {
+            let target = U256::from(value).to_be_bytes();
+            assert_eq!(bits_to_target(bits), target);
+            assert_eq!(target_to_bits(&target), bits);
+        }
+        for bits in [0x1d80ffff, 0x23000001, 0x22000100, 0x21010000, 0xff123456] {
+            assert_eq!(bits_to_target(bits), [0; 32]);
+        }
+        assert_eq!(
+            bits_to_target(0x220000ff),
+            (U256::from(255u64) << 248).to_be_bytes()
+        );
+        assert_eq!(
+            bits_to_target(0x2100ffff),
+            (U256::from(65535u64) << 240).to_be_bytes()
+        );
+    }
+
+    #[test]
+    fn test_retarget_signed_time_and_clamps() {
+        let bits = 0x1c123456;
+        let expected = U256::from_be_bytes(bits_to_target(bits))
+            .wrapping_div(&U256::from(4u64))
+            .to_be_bytes();
+        for (first, last) in [(2_000_000, 1_000_000), (u32::MAX, 0), (1, 1)] {
+            assert_eq!(calculate_new_difficulty(first, last, bits), expected);
+        }
+    }
+
+    #[test]
+    fn test_early_median_time_past() {
+        let mut times = [0; 11];
+        times[0] = 100;
+        assert!(validate_timestamp(0, times, 0));
+        assert!(!validate_timestamp(100, times, 1));
+        assert!(validate_timestamp(101, times, 1));
+        times[1] = 200;
+        assert!(!validate_timestamp(200, times, 2));
+        assert!(validate_timestamp(201, times, 2));
+    }
+
+    #[test]
+    fn test_epoch_timewarp_boundary() {
+        let mut times = [1; 11];
+        times[2015 % 11] = 10_000;
+        assert_eq!(validate_timestamp(9399, times, 2016), !IS_TESTNET4);
+        assert!(validate_timestamp(9400, times, 2016));
+        assert!(validate_timestamp(9401, times, 2016));
+        assert!(validate_timestamp(9399, times, 2017));
+    }
+
+    #[test]
     fn test_block_hash_calculation() {
         let merkle_root = hex!("3ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a");
         let expected_block_hash =
@@ -797,7 +871,7 @@ mod tests {
     #[test]
     fn test_median() {
         let arr = [3, 7, 2, 10, 1, 5, 9, 4, 8, 6, 11];
-        assert_eq!(median(arr), 6);
+        assert_eq!(median(arr, 11), 6);
     }
 
     #[test]
@@ -816,6 +890,7 @@ mod tests {
         assert!(!validate_timestamp(
             block_headers[1].time,
             first_11_timestamps.try_into().unwrap(),
+            11,
         ));
     }
 
@@ -834,6 +909,7 @@ mod tests {
         assert!(validate_timestamp(
             block_headers[11].time,
             first_11_timestamps.clone().try_into().unwrap(),
+            11,
         ));
     }
 
@@ -992,10 +1068,10 @@ mod tests {
     fn test_calculate_work() {
         let mut target: [u8; 32] = [0u8; 32];
         let work = calculate_work(&target);
-        assert_eq!(work, U256::MAX);
+        assert_eq!(work, U256::ZERO);
         target[31] = 1;
         let work = calculate_work(&target);
-        assert_eq!(work, U256::MAX);
+        assert_eq!(work, U256::ONE << 255);
         let target: [u8; 32] = [0xFF; 32];
         let work = calculate_work(&target);
         assert_eq!(work, U256::ONE);

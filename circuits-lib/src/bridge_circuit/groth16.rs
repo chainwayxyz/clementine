@@ -1,7 +1,7 @@
 //! # Groth16 Proof Struct
 //! This module defines the `CircuitGroth16Proof` struct, which represents a Groth16 proof
-//! for the bridge circuit. It includes methods for creating a proof from a given Risc0 seal
-//! and converting it to a compressed format. The proof consists of three components: `a`,
+//! for the bridge circuit. It includes methods for converting it to and from a compressed
+//! format. The proof consists of three components: `a`,
 //! `b`, and `c`, which are points on the elliptic curve used in the Groth16 protocol.
 //! ## Key Components
 //! - **G1 and G2 Points:** The proof consists of points `a` and `c` in G1, and point `b` in G2.
@@ -11,7 +11,7 @@
 //!   for use in verification.
 
 use ark_bn254::Bn254;
-use ark_ff::{Field, PrimeField};
+use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::Proof;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 type G1 = ark_bn254::G1Affine;
@@ -30,33 +30,23 @@ impl CircuitGroth16Proof {
         CircuitGroth16Proof { a, b, c }
     }
 
-    /// Creates a new CircuitGroth16Proof from the given risc0 seal, which
-    /// itself is a 256-byte array.
-    pub fn from_seal(seal: &[u8; 256]) -> CircuitGroth16Proof {
-        let a = G1::new(
-            ark_bn254::Fq::from_be_bytes_mod_order(&seal[0..32]),
-            ark_bn254::Fq::from_be_bytes_mod_order(&seal[32..64]),
-        );
-
-        let b = G2::new(
-            ark_bn254::Fq2::from_base_prime_field_elems([
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
-            ])
-            .unwrap(),
-            ark_bn254::Fq2::from_base_prime_field_elems([
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
-            ])
-            .unwrap(),
-        );
-
-        let c = G1::new(
-            ark_bn254::Fq::from_be_bytes_mod_order(&seal[192..224]),
-            ark_bn254::Fq::from_be_bytes_mod_order(&seal[224..256]),
-        );
-
-        CircuitGroth16Proof::new(a, b, c)
+    /// Gnark's uncompressed encoding; G2 stores each imaginary component first.
+    pub fn to_gnark_bytes(&self) -> [u8; 256] {
+        let mut bytes = [0; 256];
+        let coordinates = [
+            self.a.x,
+            self.a.y,
+            self.b.x.c1,
+            self.b.x.c0,
+            self.b.y.c1,
+            self.b.y.c0,
+            self.c.x,
+            self.c.y,
+        ];
+        for (chunk, coordinate) in bytes.chunks_exact_mut(32).zip(coordinates) {
+            chunk.copy_from_slice(&coordinate.into_bigint().to_bytes_be());
+        }
+        bytes
     }
 
     pub fn from_compressed(
@@ -105,6 +95,12 @@ impl CircuitGroth16Proof {
     }
 }
 
+impl From<Proof<Bn254>> for CircuitGroth16Proof {
+    fn from(proof: Proof<Bn254>) -> Self {
+        CircuitGroth16Proof::new(proof.a, proof.b, proof.c)
+    }
+}
+
 impl From<CircuitGroth16Proof> for Proof<Bn254> {
     fn from(g16_seal: CircuitGroth16Proof) -> Self {
         Proof::<Bn254> {
@@ -141,6 +137,15 @@ mod tests {
         assert_eq!(proof.a(), &a);
         assert_eq!(proof.b(), &b);
         assert_eq!(proof.c(), &c);
+    }
+
+    #[test]
+    fn gnark_encoding_matches_sp1_decoder() {
+        let proof = CircuitGroth16Proof::new(random_g1(), random_g2(), random_g1());
+        let decoded = sp1_verifier::load_ark_proof_from_bytes(&proof.to_gnark_bytes()).unwrap();
+        assert_eq!(proof.a, decoded.a);
+        assert_eq!(proof.b, decoded.b);
+        assert_eq!(proof.c, decoded.c);
     }
 
     #[test]

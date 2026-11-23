@@ -26,16 +26,14 @@ should ideally share the same database. Typical entities are:
 Before compiling Clementine:
 
 1. Install Rust: [rustup.rs](https://rustup.rs/)
-2. Install RiscZero (2.1.0): [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+2. To rebuild the SP1 guests, install SP1 6.10.0 and Docker. See [SP1 proving](sp1.md#building).
 
    ```sh
-   curl -L https://risczero.com/install | bash
-   rzup install cargo-risczero 2.1.0 # Or v2.1.0
-   rzup install r0vm 2.1.0
-   rzup install rust 1.88.0
+   curl -fsSL https://sp1.succinct.xyz | bash
+   sp1up --version v6.10.0
    ```
 
-3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
+3. On macOS, install the Xcode command-line tools:
 
    ```sh
    xcode-select --install
@@ -44,7 +42,7 @@ Before compiling Clementine:
 4. If on Ubuntu, install these packages:
 
    ```sh
-   sudo apt install build-essential libssl-dev pkg-config
+   sudo apt install build-essential libssl-dev pkg-config clang cmake protobuf-compiler
    ```
 
 Before running Clementine:
@@ -63,13 +61,7 @@ Before running Clementine:
    bash -c "exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
    ```
 
-3. Install RISC Zero toolchain:
-
-   ```sh
-   cargo install cargo-risczero
-   ```
-
-4. [Optional] TLS certificates required to start and connect to a Clementine
+3. [Optional] TLS certificates required to start and connect to a Clementine
    server. For tests, these are automatically generated, if not present. Please
    check [RPC Authentication](#rpc-authentication) and [Security Considerations](#security-considerations)
    sections when generating certificates for a deployment.
@@ -78,24 +70,20 @@ Before running Clementine:
    ./scripts/generate_certs.sh
    ```
 
-5. Set `RISC0_DEV_MODE` environment variable if tests are going to be run or
-   deployment that requires it:
+4. For development tests, compile with `--features testing` and set:
 
    ```sh
-   export RISC0_DEV_MODE=1
+   export SP1_PROVER=mock
    ```
 
-6. [Optional] Download pre-generated BitVM cache. If not downloaded, it will be
-   generated automatically.
+   Production builds use `SP1_PROVER=cpu` or `network`. `SP1_PROVER` defaults to
+   `network`. Clementine does not start when it does not match the compiled
+   programs. See [SP1 proving](sp1.md).
 
-   ```sh
-   wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O bitvm_cache.bin
-   wget https://static.testnet.citrea.xyz/common/bitvm_cache_dev.bin -O bitvm_cache_dev.bin
-   export BITVM_CACHE_PATH=/path/to/bitvm_cache.bin # If RISC0_DEV_MODE is not set
-   export BITVM_CACHE_PATH=/path/to/bitvm_cache_dev.bin # If RISC0_DEV_MODE is set
-   ```
+5. BitVM caches are generated automatically for the selected SP1 program and key.
+   `BITVM_CACHE_PATH` can override the path; incompatible caches are regenerated.
 
-7. Set `RUST_MIN_STACK` environment variable to at least `33554432`
+6. Set `RUST_MIN_STACK` environment variable to at least `33554432`
 
    ```sh
    # On Unix-like systems:
@@ -251,18 +239,6 @@ locally built with:
 
 ```bash
 docker build -f scripts/docker/Dockerfile -t clementine:latest .
-```
-
-Also, there are multiple Docker compose files located at [scripts/docker/](../scripts/docker/)
-which can be used to start Bitcoin, PostgreSQL, Citrea and Clementine. Config
-files for these compose files can be found at [scripts/docker/configs/](../scripts/docker/configs/).
-They are configured for a typical deployment and needs modification before deployment.
-**Please note that**, apart from regtest, new wallet that is created won't have
-any funds and users are responsible for configuring their own address.
-
-```sh
-docker compose -f scripts/docker/docker-compose.verifier.testnet4.yml up
-docker compose -f scripts/docker/docker-compose.full.regtest.yml up
 ```
 
 ## Running Tests

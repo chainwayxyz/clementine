@@ -1,0 +1,18 @@
+name: Install SP1
+description: Install a checksum-pinned cargo-prove 6.10.0, which builds guests in the pinned SP1 Docker image
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-prove v6.10.0
+      shell: bash
+      env:
+        URL: https://github.com/succinctlabs/sp1/releases/download/v6.10.0/cargo_prove_v6.10.0_linux_amd64.tar.gz
+        SHA256: 10394a834a0ab325b3736a74d0b7087274f2c6a66e2b38f96ecf3e9ecdf9e7b5
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/sp1"
+        mkdir -p "$dir"
+        curl -fsSL -o "$dir/cargo-prove.tar.gz" "$URL"
+        echo "$SHA256  $dir/cargo-prove.tar.gz" | sha256sum -c -
+        tar -xzf "$dir/cargo-prove.tar.gz" -C "$dir"
+        echo "$dir" >> "$GITHUB_PATH"

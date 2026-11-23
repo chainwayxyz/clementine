@@ -4,67 +4,68 @@ name: Clementine Test Services
 description: "Start services required for testing Clementine"
 
 inputs:
-  github_token:
-    description: "GitHub token for authentication"
-    required: true
+  bitvm-cache-key:
+    description: >-
+      BitVM cache key prefix. A cache hit is never saved again, so jobs that generate
+      different BitVM caches (development or production key) need different prefixes.
+    default: sp1-bitvm
+  bitcoin-version:
+    description: Bitcoin Core version to install; keep it in step with E2E_BITCOIN_DOCKER_IMAGE
+    default: "30.4"
+  bitcoin-sha256:
+    description: >-
+      SHA-256 of the x86_64 Linux archive, from bitcoincore.org's SHA256SUMS checked against the
+      builder signatures in SHA256SUMS.asc
+    default: 051a18c595d9a27df23cb7187ff9fb343e90943cb142af751e12787806500c3d
 
 runs:
   using: "composite"
 
   steps:
-    - name: Cache bitvm cache files
-      uses: actions/cache@v4
-      id: cache-bitvm
+    - name: Cache program-specific SP1 BitVM scripts
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
-        path: |
-          core/bitvm_cache.bin
-          core/bitvm_cache_dev.bin
-        key: bitvm-cache-23-10-2025
+        path: '**/bitvm_cache_sp1_*.bin'
+        key: ${{ inputs.bitvm-cache-key }}-${{ hashFiles('sp1-circuits/elfs/manifest.json', 'sp1-bitvm/**') }}
 
-    - name: Download bitvm cache bin
-      if: steps.cache-bitvm.outputs.cache-hit != 'true'
-      shell: bash
-      run: wget https://static.citrea.xyz/test-net/clementine/conf/bitvm_cache.bin -O core/bitvm_cache.bin
-
-    - name: Download bitvm cache dev bin
-      if: steps.cache-bitvm.outputs.cache-hit != 'true'
-      shell: bash
-      run: wget https://static.citrea.xyz/dev-net/clementine/conf/bitvm_cache_dev.bin -O core/bitvm_cache_dev.bin
-
-    - name: Cache Bitcoin binaries
-      uses: actions/cache@v4
-      id: cache-bitcoin
+    - name: Cache Bitcoin Core
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
-        path: |
-          bitcoin-29.0-x86_64-linux-gnu.tar.gz
-          bitcoin-29.0/
-        key: bitcoin-29.0-x86_64-linux-gnu
+        path: bitcoin-${{ inputs.bitcoin-version }}-x86_64-linux-gnu.tar.gz
+        key: bitcoin-${{ inputs.bitcoin-version }}-x86_64-linux-gnu-${{ inputs.bitcoin-sha256 }}
 
-    - name: Download Bitcoin
-      if: steps.cache-bitcoin.outputs.cache-hit != 'true'
-      shell: bash
-      run: wget https://bitcoincore.org/bin/bitcoin-core-29.0/bitcoin-29.0-x86_64-linux-gnu.tar.gz
-
-    - name: Unpack Bitcoin
-      if: steps.cache-bitcoin.outputs.cache-hit != 'true'
-      shell: bash
-      run: tar -xzvf bitcoin-29.0-x86_64-linux-gnu.tar.gz
-
-    - name: Set executable permissions
-      shell: bash
-      run: chmod +x bitcoin-29.0/bin/*
-
-    - name: Add bitcoin to path
-      shell: bash
-      run: echo "$PWD/bitcoin-29.0/bin" >> $GITHUB_PATH
-
-    - name: Install risc0
+    - name: Verify, unpack, and add Bitcoin Core to PATH
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
+        BITCOIN_VERSION: ${{ inputs.bitcoin-version }}
+        BITCOIN_SHA256: ${{ inputs.bitcoin-sha256 }}
       run: |
-        curl -L https://risczero.com/install | bash
-        echo "$HOME/.risc0/bin" >> $GITHUB_PATH
-        export PATH="$PATH:$HOME/.risc0/bin"
-        rzup install
-        rzup install rust 1.88.0
+        set -euo pipefail
+
+        readonly archive="bitcoin-$BITCOIN_VERSION-x86_64-linux-gnu.tar.gz"
+        readonly url="https://bitcoincore.org/bin/bitcoin-core-$BITCOIN_VERSION/$archive"
+
+        verify_archive() {
+          test -f "$archive" && printf '%s  %s\n' "$BITCOIN_SHA256" "$archive" | sha256sum --check --status
+        }
+
+        if ! verify_archive; then
+          rm -f "$archive"
+          curl --fail --location --silent --show-error \
+            --connect-timeout 30 \
+            --max-time 600 \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            --output "$archive" \
+            "$url"
+        fi
+
+        if ! verify_archive; then
+          echo "Bitcoin Core archive does not match SHA-256 $BITCOIN_SHA256" >&2
+          exit 1
+        fi
+
+        rm -rf "bitcoin-$BITCOIN_VERSION"
+        tar -xzf "$archive"
+        echo "$PWD/bitcoin-$BITCOIN_VERSION/bin" >> "$GITHUB_PATH"

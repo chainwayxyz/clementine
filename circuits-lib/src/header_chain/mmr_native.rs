@@ -93,7 +93,7 @@ impl MMRNative {
         while !(current_index == self.nodes[current_level].len() as u32 - 1
             && self.nodes[current_level].len() % 2 == 1)
         {
-            let sibling_index = if current_index % 2 == 0 {
+            let sibling_index = if current_index.is_multiple_of(2) {
                 current_index + 1
             } else {
                 current_index - 1

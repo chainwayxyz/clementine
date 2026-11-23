@@ -14,7 +14,7 @@ jobs:
     runs-on: ubicloud-standard-30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Dependencies
         run: |
@@ -24,13 +24,12 @@ jobs:
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          rustup install 1.88.0
-          rustup default 1.88.0
+          rustup install 1.97
+          rustup default 1.97
 
-      - name: Install risc0
+      - uses: ./.github/actions/build-prerequisites
+      - name: Install test prerequisites
         uses: ./.github/actions/test-prerequisites
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Project (No Features)
         run: |
@@ -39,7 +38,8 @@ jobs:
       - name: Copy No Features Binaries
         run: |
           cp target/release/clementine-core target/release/clementine-core-no-automation
-          cp target/release/clementine-cli target/release/clementine-cli-no-automation
+          # Asset name is still clementine-cli-*. Update clementine-deployer before changing this upload name.
+          cp target/release/clementine-node-cli target/release/clementine-cli-no-automation
 
       - name: Build Project (with automation)
         run: |
@@ -48,28 +48,29 @@ jobs:
       - name: Copy Automation Feature Binaries
         run: |
           cp target/release/clementine-core target/release/clementine-core-with-automation
-          cp target/release/clementine-cli target/release/clementine-cli-with-automation
+          # Asset name is still clementine-cli-*. Update clementine-deployer before changing this upload name.
+          cp target/release/clementine-node-cli target/release/clementine-cli-with-automation
 
       - name: Upload clementine no-automation linux-amd64 Binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
           path: target/release/clementine-core-no-automation
 
       - name: Upload clementine with-automation linux-amd64 Binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
           path: target/release/clementine-core-with-automation
 
       - name: Upload clementine-cli no-automation linux-amd64 Binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
           path: target/release/clementine-cli-no-automation
 
       - name: Upload clementine-cli with-automation linux-amd64 Binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
           path: target/release/clementine-cli-with-automation
@@ -79,7 +80,7 @@ jobs:
     runs-on: ubicloud-standard-2
     steps:
       - name: Download no-automation linux-amd64 Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
           path: release
@@ -89,7 +90,7 @@ jobs:
           mv release/clementine-core-no-automation release/clementine-core-${{ github.ref_name }}-no-automation-linux-amd64
 
       - name: Download with-automation linux-amd64 Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
           path: release
@@ -99,7 +100,7 @@ jobs:
           mv release/clementine-core-with-automation release/clementine-core-${{ github.ref_name }}-with-automation-linux-amd64
 
       - name: Download clementine-cli no-automation linux-amd64 Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
           path: release
@@ -109,7 +110,7 @@ jobs:
           mv release/clementine-cli-no-automation release/clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
 
       - name: Download clementine-cli with-automation linux-amd64 Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
           path: release
@@ -119,7 +120,7 @@ jobs:
           mv release/clementine-cli-with-automation release/clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           draft: ${{ contains(github.ref, 'tmp') }}
           files: |
@@ -137,23 +138,23 @@ jobs:
             - clementine-cli-${{ github.ref_name }}-no-automation-linux-amd64
             - clementine-cli-${{ github.ref_name }}-with-automation-linux-amd64
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Docker Setup Buildx
-        uses: docker/setup-buildx-action@v3.2.0
+        uses: docker/setup-buildx-action@2b51285047da1547ffb1b2203d8be4c0af6b1f20 # v3.2.0
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build and push
-        uses: docker/build-push-action@v5.3.0
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
         with:
           context: .
           file: ./scripts/docker/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:${{ github.ref_name }}
       - name: Build and push
-        uses: docker/build-push-action@v5.3.0
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
         with:
           context: .
           file: ./scripts/docker/Dockerfile.automation

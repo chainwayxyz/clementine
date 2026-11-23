@@ -99,10 +99,8 @@ impl BackgroundTaskManager {
     }
 
     /// Checks if a task is running by checking the task registry
-    async fn is_task_running(&self, variant: TaskVariant) -> bool {
-        self.task_registry
-            .read()
-            .await
+    fn is_task_running(task_registry: &TaskRegistry, variant: TaskVariant) -> bool {
+        task_registry
             .get(&variant)
             .map(|(status, _, _)| status == &TaskStatus::Running)
             .unwrap_or(false)
@@ -148,8 +146,12 @@ impl BackgroundTaskManager {
 
         let variant = S::VARIANT;
 
+        // The write lock is held from the check to the insert, so concurrent calls can't both
+        // start the task.
+        let mut task_registry = self.task_registry.write().await;
+
         // do not start the same task if it is already running
-        if self.is_task_running(variant).await {
+        if Self::is_task_running(&task_registry, variant) {
             tracing::debug!("Task {:?} is already running, skipping", variant);
             return;
         }
@@ -160,16 +162,18 @@ impl BackgroundTaskManager {
         let join_handle = task.into_bg();
         let abort_handle = join_handle.abort_handle();
 
-        self.task_registry.write().await.insert(
+        task_registry.insert(
             variant,
             (TaskStatus::Running, abort_handle, Some(cancel_tx)),
         );
+        drop(task_registry);
 
         self.monitor_spawned_task(join_handle, variant);
     }
 
     async fn ensure_monitor_running(&self) {
-        if !self.is_task_running(TaskVariant::TaskStatusMonitor).await {
+        let mut task_registry = self.task_registry.write().await;
+        if !Self::is_task_running(&task_registry, TaskVariant::TaskStatusMonitor) {
             let task = TaskStatusMonitorTask::new(self.task_registry.clone())
                 .with_delay(TASK_STATUS_MONITOR_POLL_DELAY);
 
@@ -178,10 +182,11 @@ impl BackgroundTaskManager {
             let bg_task = task.into_bg();
             let abort_handle = bg_task.abort_handle();
 
-            self.task_registry.write().await.insert(
+            task_registry.insert(
                 variant,
                 (TaskStatus::Running, abort_handle, Some(cancel_tx)),
             );
+            drop(task_registry);
 
             self.monitor_spawned_task(bg_task, variant);
         }
@@ -190,7 +195,7 @@ impl BackgroundTaskManager {
     /// Sends cancel signals to all tasks that have a cancel_tx
     async fn send_cancel_signals(&self) {
         let mut task_registry = self.task_registry.write().await;
-        for (_, (_, _, cancel_tx)) in task_registry.iter_mut() {
+        for (_, _, cancel_tx) in task_registry.values_mut() {
             let oneshot_tx = cancel_tx.take();
             if let Some(oneshot_tx) = oneshot_tx {
                 // send can fail, but if it fails the task is dropped.
@@ -205,7 +210,7 @@ impl BackgroundTaskManager {
 
         // only one thread must have &mut self, so lock should be able to be acquired
         if let Ok(task_registry) = self.task_registry.try_read() {
-            for (_, (_, abort_handle, _)) in task_registry.iter() {
+            for (_, abort_handle, _) in task_registry.values() {
                 abort_handle.abort();
             }
         }
@@ -226,7 +231,7 @@ impl BackgroundTaskManager {
             let mut all_finished = true;
             let task_registry = self.task_registry.read().await;
 
-            for (_, (_, abort_handle, _)) in task_registry.iter() {
+            for (_, abort_handle, _) in task_registry.values() {
                 if !abort_handle.is_finished() {
                     all_finished = false;
                     break;

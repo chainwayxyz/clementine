@@ -17,9 +17,9 @@
 //!
 //! For this reason, Clementine Core provides a single main binary,
 //! `clementine-core`, which acts as a server starter for every actor. There is
-//! also a helper binary, `clementine-core-cli`, which is a command-line
-//! interface for communicating with these servers. It is located in
-//! `bin/cli.rs`.
+//! also a helper binary, `clementine-node-cli`, which is a command-line
+//! interface for node operators (not end users) to communicate with these
+//! servers. It is located in `bin/cli.rs`.
 //!
 //! The [`crate::cli`] module provides the command-line interface for Clementine.
 //! It is used in every binary.

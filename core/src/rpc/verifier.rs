@@ -21,7 +21,7 @@ use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature as EcdsaSignature;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use eyre::Context as _;
@@ -107,7 +107,7 @@ where
 
         let verification_signature = verification_signature_str
             .map(|sig| {
-                PrimitiveSignature::from_str(&sig).map_err(|e| {
+                EcdsaSignature::from_str(&sig).map_err(|e| {
                     Status::invalid_argument(format!("Invalid verification signature: {e}"))
                 })
             })
@@ -656,14 +656,7 @@ where
             .await?;
         if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(
-                    &mut dbtx,
-                    Witness::new(),
-                    deposit_data,
-                    kickoff_id,
-                    false,
-                    txid,
-                )
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));

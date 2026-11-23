@@ -11,7 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::cli;
-use crate::config::env::{read_string_from_env, read_string_from_env_then_parse};
+use crate::config::env::{read_optional_env_then_parse, read_string_from_env_then_parse};
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::deposit::SecurityCouncil;
 use crate::errors::BridgeError;
@@ -20,7 +20,7 @@ use crate::header_chain_prover::HeaderChainProver;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::{Address, Amount, Network, OutPoint, XOnlyPublicKey};
-use bridge_circuit_host::utils::is_dev_mode;
+use bridge_circuit_host::sp1::Backend;
 use circuits_lib::bridge_circuit::constants::is_test_vk;
 use eyre::Context;
 use protocol::ProtocolParamset;
@@ -56,6 +56,11 @@ pub struct BridgeConfig {
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Operator's fee for withdrawal, in satoshis.
+    ///
+    /// This is the minimum reward the operator accepts for a withdrawal. The
+    /// operator pays the payout tx fee from its own wallet and the
+    /// profitability check does not subtract it, so this value must be
+    /// substantially higher than any realistic payout tx fee.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
@@ -90,8 +95,6 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
-    /// Batch size of the header chain proofs
-    pub header_chain_proof_batch_size: u32,
 
     /// Security council.
     pub security_council: SecurityCouncil,
@@ -156,6 +159,17 @@ pub struct BridgeConfig {
 
     /// Time to wait after a kickoff to send a watchtower challenge
     pub time_to_send_watchtower_challenge: u16,
+
+    /// Bitcoin confirmations required before signing a new deposit.
+    ///
+    /// This is a total confirmation count (chain tip has 1), not an extra
+    /// amount on top of the verifier's "must be in a block" check.
+    ///
+    /// If unset, aggregator and operator skip this check; the verifier still
+    /// requires the deposit to be in a block. If set, the deposit transaction
+    /// must have at least this many confirmations.
+    #[serde(default)]
+    pub deposit_finality_depth: Option<u32>,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -223,6 +237,31 @@ impl BridgeConfig {
         self.protocol_paramset
     }
 
+    /// Rejects a deposit that does not yet have `deposit_finality_depth`
+    /// confirmations. If the config var is unset, this is a no-op.
+    ///
+    /// Callers fetch the confirmation count (via Bitcoin RPC or an already
+    /// loaded tx info) and pass it in.
+    pub fn ensure_deposit_confirmations(
+        &self,
+        deposit_txid: bitcoin::Txid,
+        confirmations: u32,
+    ) -> Result<(), BridgeError> {
+        let Some(required_depth) = self.deposit_finality_depth else {
+            return Ok(());
+        };
+
+        if confirmations < required_depth {
+            let reason = format!(
+                "Deposit {deposit_txid} has {confirmations} confirmation(s), deposit_finality_depth requires {required_depth}"
+            );
+            tracing::error!("{reason}");
+            return Err(BridgeError::InvalidDeposit(reason));
+        }
+
+        Ok(())
+    }
+
     /// Read contents of a TOML file and generate a `BridgeConfig`.
     pub fn try_parse_file(path: PathBuf) -> Result<Self, BridgeError> {
         let mut contents = String::new();
@@ -280,19 +319,24 @@ impl BridgeConfig {
             ));
         }
 
-        if self.protocol_paramset().start_height < self.protocol_paramset().genesis_height {
-            reasons.push(format!(
-                "Start height is less than genesis height: {} < {}",
-                self.protocol_paramset().start_height,
-                self.protocol_paramset().genesis_height
-            ));
-        }
-
         if self.protocol_paramset().finality_depth < 1 {
             reasons.push(format!(
                 "Finality depth ({}) cannot be less than 1",
                 self.protocol_paramset().finality_depth
             ));
+        }
+
+        if let Some(depth) = self.deposit_finality_depth {
+            if depth < 1 {
+                reasons.push(format!(
+                    "Deposit finality depth ({depth}) cannot be less than 1"
+                ));
+            }
+        }
+
+        // With SP1's `profiling` feature, this makes SP1 write a Gecko profile of guest execution.
+        if std::env::var_os("TRACE_FILE").is_some() {
+            reasons.push("TRACE_FILE is set, which enables SP1's instruction profiler".to_string());
         }
 
         if !reasons.is_empty() {
@@ -319,25 +363,17 @@ impl BridgeConfig {
             misconfigs.push("CLIENT_VERIFICATION=false".to_string());
         }
 
-        /// Checks if an env var is set to a non 0 value.
-        fn check_env_var(env_var: &str, misconfigs: &mut Vec<String>) {
-            if let Ok(var) = std::env::var(env_var) {
-                if var == "0" || var.eq_ignore_ascii_case("false") {
-                    return;
-                }
-
-                misconfigs.push(format!("{env_var}={var}"));
-            }
-        }
-
-        check_env_var("DISABLE_NOFN_CHECK", &mut misconfigs);
-
-        if is_dev_mode() {
-            misconfigs.push("Risc0 dev mode is enabled (RISC0_DEV_MODE=1)".to_string());
+        if matches!(Backend::from_env(), Ok(Backend::Mock)) {
+            misconfigs.push("SP1 mock proving is enabled (SP1_PROVER=mock)".to_string());
         }
 
         if is_test_vk() {
             misconfigs.push("use-test-vk feature is enabled".to_string());
+        }
+
+        // Debug builds commit an OP_TRUE disprove leaf, which anyone can spend.
+        if cfg!(debug_assertions) {
+            misconfigs.push("debug build (debug assertions are enabled)".to_string());
         }
 
         if !misconfigs.is_empty() {
@@ -389,7 +425,8 @@ impl PartialEq for BridgeConfig {
             && self.client_verification == other.client_verification
             && self.aggregator_cert_path == other.aggregator_cert_path
             && self.test_params == other.test_params
-            && self.grpc == other.grpc;
+            && self.grpc == other.grpc
+            && self.deposit_finality_depth == other.deposit_finality_depth;
 
         all_eq
     }
@@ -428,7 +465,6 @@ impl Default for BridgeConfig {
             citrea_request_timeout: None,
 
             header_chain_proof_path: None,
-            header_chain_proof_batch_size: 100,
 
             operator_reimbursement_address: None,
             operator_collateral_funding_outpoint: None,
@@ -471,6 +507,7 @@ impl Default for BridgeConfig {
             telemetry: Some(TelemetryConfig::default()),
 
             time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
+            deposit_finality_depth: None,
 
             #[cfg(test)]
             test_params: test::TestParams::default(),
@@ -498,10 +535,14 @@ impl Default for TelemetryConfig {
 }
 
 impl TelemetryConfig {
-    pub fn from_env() -> Result<Self, BridgeError> {
-        let host = read_string_from_env("TELEMETRY_HOST")?;
+    /// Reads the telemetry config. Telemetry is off if `TELEMETRY_HOST` is not set. If it is
+    /// set, `TELEMETRY_PORT` must be set and valid.
+    pub fn from_env() -> Result<Option<Self>, BridgeError> {
+        let Some(host) = read_optional_env_then_parse::<String>("TELEMETRY_HOST")? else {
+            return Ok(None);
+        };
         let port = read_string_from_env_then_parse::<u16>("TELEMETRY_PORT")?;
-        Ok(Self { host, port })
+        Ok(Some(Self { host, port }))
     }
 }
 
@@ -577,7 +618,7 @@ mod tests {
     #[serial_test::serial]
     #[test]
     fn check_mainnet_reqs() {
-        let env_vars = vec!["DISABLE_NOFN_CHECK", "RISC0_DEV_MODE"];
+        let env_vars = vec!["SP1_PROVER"];
 
         // Nothing illegal is set.
         for var in env_vars.clone() {
@@ -594,15 +635,15 @@ mod tests {
         };
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
-        assert!(checks.is_ok());
+        assert_eq!(checks.is_ok(), !cfg!(debug_assertions));
 
         // Nothing illegal is set while illegal env vars set to 0 specifically.
         for var in env_vars.clone() {
-            std::env::set_var(var, "0");
+            std::env::set_var(var, if var == "SP1_PROVER" { "cpu" } else { "0" });
         }
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
-        assert!(checks.is_ok());
+        assert_eq!(checks.is_ok(), !cfg!(debug_assertions));
 
         // Illegal configs, no illegal env vars.
         let incorrect_mainnet_config = BridgeConfig {
@@ -616,7 +657,7 @@ mod tests {
 
         // No illegal configs, illegal env vars.
         for var in env_vars.clone() {
-            std::env::set_var(var, "1");
+            std::env::set_var(var, if var == "SP1_PROVER" { "mock" } else { "1" });
         }
         let checks = mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
@@ -624,7 +665,7 @@ mod tests {
 
         // Illegal everything.
         for var in env_vars.clone() {
-            std::env::set_var(var, "1");
+            std::env::set_var(var, if var == "SP1_PROVER" { "mock" } else { "1" });
         }
         let checks = incorrect_mainnet_config.check_mainnet_requirements(cli::Actor::Operator);
         println!("checks: {checks:?}");
@@ -654,9 +695,6 @@ mod tests {
         pub const BAD_PARAMSET: crate::config::ProtocolParamset = crate::config::ProtocolParamset {
             // Force hash mismatch
             genesis_chain_state_hash: [1u8; 32],
-            // Make start height lower than genesis height to trigger that error
-            start_height: 0,
-            genesis_height: 1,
             // Make finality depth invalid
             finality_depth: 0,
             ..REGTEST_PARAMSET
@@ -666,6 +704,7 @@ mod tests {
         // Use regtest node but set wrong/invalid paramset values to trigger multiple errors
         let _regtest = create_regtest_rpc(&mut config).await;
         config.protocol_paramset = &BAD_PARAMSET;
+        config.deposit_finality_depth = Some(0);
 
         let res = config.check_general_requirements().await;
         assert!(res.is_err());
@@ -674,7 +713,35 @@ mod tests {
             err.contains("Genesis chain state hash"),
             "unexpected error: {err}"
         );
-        assert!(err.contains("Start height"), "unexpected error: {err}");
         assert!(err.contains("Finality depth"), "unexpected error: {err}");
+        assert!(
+            err.contains("Deposit finality depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn deposit_finality_depth_is_optional() {
+        let content = include_str!("../test/data/bridge_config.toml");
+        let config = BridgeConfig::try_parse_from(content.to_string()).unwrap();
+        assert_eq!(config.deposit_finality_depth, None);
+
+        let with_depth = format!("deposit_finality_depth = 6\n{content}");
+        let config = BridgeConfig::try_parse_from(with_depth).unwrap();
+        assert_eq!(config.deposit_finality_depth, Some(6));
+    }
+
+    #[test]
+    fn deposit_finality_depth_rejects_young_deposits() {
+        let mut config = BridgeConfig::default();
+        let txid = Txid::all_zeros();
+        assert!(config.ensure_deposit_confirmations(txid, 0).is_ok());
+        assert!(config.ensure_deposit_confirmations(txid, 1).is_ok());
+
+        config.deposit_finality_depth = Some(6);
+        assert!(config.ensure_deposit_confirmations(txid, 0).is_err());
+        assert!(config.ensure_deposit_confirmations(txid, 5).is_err());
+        assert!(config.ensure_deposit_confirmations(txid, 6).is_ok());
+        assert!(config.ensure_deposit_confirmations(txid, 7).is_ok());
     }
 }

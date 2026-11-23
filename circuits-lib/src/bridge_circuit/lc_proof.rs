@@ -2,30 +2,9 @@
 //! This module implements the light client proof verifier for the bridge circuit.
 //! It includes functions to verify light client proofs and extracting the light client circuit output.
 
-use super::{
-    constants::{
-        DEVNET_LC_IMAGE_ID, MAINNET_LC_IMAGE_ID, REGTEST_LC_IMAGE_ID, TESTNET4_LC_IMAGE_ID,
-    },
-    structs::LightClientProof,
-};
+use super::structs::LightClientProof;
+use crate::common::{programs::CURRENT_LIGHT_CLIENT, zkvm::ZkvmGuest};
 use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
-use risc0_zkvm::guest::env;
-
-pub const LC_IMAGE_ID: [u8; 32] = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_LC_IMAGE_ID,
-        Some(network) if matches!(network.as_bytes(), b"signet") => DEVNET_LC_IMAGE_ID,
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4_LC_IMAGE_ID,
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_LC_IMAGE_ID,
-        None => MAINNET_LC_IMAGE_ID,
-        _ => panic!("Unsupported BITCOIN_NETWORK environment variable"),
-    }
-};
-
-#[inline]
-fn is_regtest() -> bool {
-    option_env!("BITCOIN_NETWORK") == Some("regtest")
-}
 
 /// Deserializes the light client circuit output from journal bytes.
 fn deserialize_circuit_output(journal: &[u8]) -> LightClientCircuitOutput {
@@ -33,78 +12,62 @@ fn deserialize_circuit_output(journal: &[u8]) -> LightClientCircuitOutput {
 }
 
 /// Verifies the light client proof and returns the light client circuit output.
-pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCircuitOutput {
-    if !is_regtest() {
-        env::verify(LC_IMAGE_ID, &light_client_proof.lc_journal)
-            .expect("Failed to verify light client proof");
-    }
-
+///
+/// Citrea's light client proof is a compressed SP1 proof, verified with native recursion, or
+/// a mock receipt off mainnet, which is not verified.
+pub fn lc_proof_verifier(
+    guest: &impl ZkvmGuest,
+    light_client_proof: LightClientProof,
+) -> LightClientCircuitOutput {
     let light_client_circuit_output = deserialize_circuit_output(&light_client_proof.lc_journal);
 
-    if !is_regtest() {
-        assert!(
-            check_method_id(&light_client_circuit_output, LC_IMAGE_ID),
-            "Light client proof method ID does not match the expected LC image ID"
-        );
+    if light_client_proof.verification_mode.should_verify() {
+        guest.verify(CURRENT_LIGHT_CLIENT.recursion, &light_client_circuit_output);
     }
 
+    assert_eq!(
+        light_client_circuit_output.light_client_proof_method_id, CURRENT_LIGHT_CLIENT.recursion,
+        "Light client proof method ID does not match the expected light client program key"
+    );
+
     light_client_circuit_output
-}
-
-pub fn check_method_id(
-    light_client_circuit_output: &LightClientCircuitOutput,
-    lc_image_id_circuit: [u8; 32],
-) -> bool {
-    let light_client_method_id_bytes: [u8; 32] = light_client_circuit_output
-        .light_client_proof_method_id
-        .iter()
-        .flat_map(|&x| x.to_le_bytes())
-        .collect::<Vec<u8>>()
-        .try_into()
-        .expect("Conversion from [u32; 8] to [u8; 32] cannot fail");
-
-    light_client_method_id_bytes == lc_image_id_circuit
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::*;
-    use risc0_zkvm::Receipt;
+    use crate::common::{
+        programs::REGTEST, sp1::Receipt, verification_mode::GuestVerificationMode,
+    };
 
     #[test]
     fn test_lc_proof_verifier() {
         let lcp_receipt_bytes = include_bytes!("../../test_data/lcp_receipt.bin");
         let lcp_receipt: Receipt = borsh::from_slice(lcp_receipt_bytes).unwrap();
 
-        let light_client_proof: LightClientProof = LightClientProof {
-            lc_journal: lcp_receipt.journal.bytes.to_vec(),
-        };
+        let light_client_proof = LightClientProof::from_receipt(&lcp_receipt);
 
         let light_client_circuit_output: LightClientCircuitOutput =
             borsh::from_slice(light_client_proof.lc_journal.as_slice())
                 .expect("Failed to deserialize light client circuit output");
 
-        assert!(
-            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
-            "Light client proof method ID does not match the expected LC image ID"
+        assert_eq!(
+            light_client_circuit_output.light_client_proof_method_id,
+            REGTEST.light_client.recursion
         );
 
         println!("LCP Receipt: {:?}", lcp_receipt.clone());
 
-        lcp_receipt.verify(REGTEST_LC_IMAGE_ID).unwrap();
+        assert_eq!(
+            light_client_proof.verification_mode,
+            GuestVerificationMode::SkipForTesting
+        );
 
-        let light_client_proof: LightClientProof = LightClientProof {
-            lc_journal: lcp_receipt.journal.bytes.to_vec(),
-        };
-
-        let light_client_circuit_output: LightClientCircuitOutput =
-            borsh::from_slice(light_client_proof.lc_journal.as_slice())
-                .expect("Failed to deserialize light client circuit output");
-
-        assert!(
-            check_method_id(&light_client_circuit_output, REGTEST_LC_IMAGE_ID),
-            "Light client proof method ID does not match the expected LC image ID"
+        // The guest verifies the proof of the re-encoded output, which must be the journal.
+        assert_eq!(
+            borsh::to_vec(&light_client_circuit_output).unwrap(),
+            light_client_proof.lc_journal
         );
 
         let expected_state_root =

@@ -138,7 +138,7 @@ impl BitcoinMerkleTree {
         let mut index = idx;
         let mut level: u32 = 0;
         while level < self.depth {
-            if index % 2 == 0 {
+            if index.is_multiple_of(2) {
                 preimage[..32].copy_from_slice(&combined_hash);
                 preimage[32..].copy_from_slice(&merkle_proof[level as usize]);
                 combined_hash = calculate_double_sha256(&preimage);

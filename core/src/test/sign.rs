@@ -5,7 +5,7 @@ use crate::{
         ecdsa_verification_sig::{WithdrawalMessage, CLEMENTINE_EIP712_DOMAIN},
     },
 };
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature;
 use alloy_sol_types::SolStruct;
 
 /// Signs the optimistic payout verification signature for a given withdrawal params
@@ -13,7 +13,7 @@ use alloy_sol_types::SolStruct;
 pub fn sign_withdrawal_verification_signature<M: WithdrawalMessage + SolStruct>(
     config: &BridgeConfig,
     withdrawal_params: WithdrawParams,
-) -> PrimitiveSignature {
+) -> Signature {
     let signing_key = config
         .test_params
         .aggregator_verification_secret_key
@@ -36,5 +36,5 @@ pub fn sign_withdrawal_verification_signature<M: WithdrawalMessage + SolStruct>(
         .sign_prehash_recoverable(eip712_hash.as_slice())
         .unwrap();
 
-    PrimitiveSignature::from(signature)
+    Signature::from(signature)
 }

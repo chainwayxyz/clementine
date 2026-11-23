@@ -1,0 +1,105 @@
+# Manual only (Actions → Real proving → Run workflow): proofs are paid requests on
+# Succinct's prover network. `main` has a workflow at this path, so another branch can run
+# its own version with `gh workflow run real_proving.yml --ref <branch>`.
+
+name: Real proving
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+# Queue a second run instead of cancelling one that has already paid for proofs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: warn,sp1_sdk=info
+  RUST_MIN_STACK: 33554432
+  PARTIAL_SIG_VERIFICATION: 1
+  SP1_PROVER: network
+
+jobs:
+  real_proving_e2e:
+    name: Real proof | Disprove e2e tests
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 240
+
+    env:
+      INFO_LOG_FILE: ${{ github.workspace }}/test-logs/real-proving/real-proving-test.log
+      # Production programs: integration-tests without testing, which enables use-test-vk.
+      CARGO_TEST: cargo test --locked --profile ci-release -p clementine-core --lib --features integration-tests
+      # The healthy and corrupted assert tests.
+      E2E_FILTER: test::bitvm_disprove_scripts::disprove_script_test_
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+        with:
+          bitvm-cache-key: sp1-bitvm-prod
+
+      - name: Create test log directory
+        run: mkdir -p test-logs/real-proving
+
+      - name: Restore Cargo cache
+        uses: ./.github/actions/cargo-cache
+        with:
+          add-job-id-key: "false"
+          key: real-proving
+          cache-on-failure: "true"
+
+      - name: Compile tests
+        run: $CARGO_TEST --no-run
+
+      - name: Check network prover key
+        env:
+          NETWORK_PRIVATE_KEY: ${{ secrets.NETWORK_PRIVATE_KEY }}
+        run: |
+          if [ -z "$NETWORK_PRIVATE_KEY" ]; then
+            echo "The NETWORK_PRIVATE_KEY secret is not set" >&2
+            exit 1
+          fi
+
+      - name: Generate certificates
+        run: ./scripts/generate_certs.sh
+
+      # Test helpers wait for proofs without a time limit.
+      - name: Run real-proving e2e tests
+        timeout-minutes: 180
+        env:
+          NETWORK_PRIVATE_KEY: ${{ secrets.NETWORK_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test "$($CARGO_TEST "$E2E_FILTER" -- --ignored --list | grep -cF "$E2E_FILTER")" -eq 2
+          # The tests run in parallel.
+          $CARGO_TEST "$E2E_FILTER" -- --ignored --nocapture \
+            2>&1 | tee test-logs/real-proving/test-output.log
+
+      - name: Upload test logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: real-proving-test-logs
+          path: test-logs/real-proving/
+          retention-days: 7

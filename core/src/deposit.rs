@@ -282,6 +282,12 @@ impl std::str::FromStr for SecurityCouncil {
             return Err(eyre::eyre!("No public keys provided"));
         }
 
+        // A zero threshold makes the multisig script satisfiable with no signatures at all, which
+        // would leave the security council leaf of every deposit address spendable by anyone.
+        if threshold == 0 {
+            return Err(eyre::eyre!("Threshold cannot be zero"));
+        }
+
         if threshold > pks.len() as u32 {
             return Err(eyre::eyre!(
                 "Threshold cannot be greater than number of public keys"

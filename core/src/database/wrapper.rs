@@ -2,7 +2,6 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use crate::citrea::LightClientCircuitInputRpcResponse;
 use crate::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
@@ -75,6 +74,7 @@ macro_rules! impl_text_wrapper_custom {
 
     // true case - with serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, true) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -83,6 +83,7 @@ macro_rules! impl_text_wrapper_custom {
 
     // false case - without serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, false) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -104,6 +105,7 @@ macro_rules! impl_text_wrapper_custom {
 /// - SQLx Decode trait for converting from database format
 macro_rules! impl_bytea_wrapper_custom {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
@@ -135,6 +137,7 @@ macro_rules! impl_bytea_wrapper_custom {
 /// Same as `impl_bytea_wrapper_custom` but with an encode function that returns a Result
 macro_rules! impl_bytea_wrapper_custom_with_error {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
+        #[allow(dead_code)]
         #[derive(sqlx::FromRow, Debug, Clone)]
         pub struct $wrapper(pub $inner);
 
@@ -245,12 +248,12 @@ impl_bytea_wrapper_custom!(
 );
 
 impl_bytea_wrapper_custom_with_error!(
-    LightClientCircuitInputDB,
-    LightClientCircuitInputRpcResponse,
-    |input: &LightClientCircuitInputRpcResponse| -> Result<Vec<u8>, BoxDynError> {
-        borsh::to_vec(input).map_err(Into::into)
+    ReceiptDB,
+    circuits_lib::common::sp1::Receipt,
+    |receipt: &circuits_lib::common::sp1::Receipt| -> Result<Vec<u8>, BoxDynError> {
+        borsh::to_vec(receipt).map_err(Into::into)
     },
-    |x: &[u8]| -> Result<LightClientCircuitInputRpcResponse, BoxDynError> {
+    |x: &[u8]| -> Result<circuits_lib::common::sp1::Receipt, BoxDynError> {
         borsh::from_slice(x).map_err(Into::into)
     }
 );
@@ -281,6 +284,12 @@ impl_bytea_wrapper_custom!(
     |txid: &Txid| *txid, // Txid is Copy, which requires this hack
     |x: &[u8]| -> Result<Txid, BoxDynError> { Ok(Txid::from_slice(x)?) }
 );
+
+impl sqlx::postgres::PgHasArrayType for TxidDB {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_bytea")
+    }
+}
 
 impl_bytea_wrapper_custom!(
     MessageDB,
@@ -332,6 +341,7 @@ impl_text_wrapper_custom!(
     }
 );
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UtxoDB {
     pub outpoint_db: OutPointDB,

@@ -12,7 +12,7 @@ use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, DutyResult, StateContext},
+    context::{Duty, StateContext},
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
@@ -28,14 +28,21 @@ pub enum RoundEvent {
         kickoff_outpoint: OutPoint,
     },
     /// Event that is dispatched when the next ready to reimburse tx is mined.
-    ReadyToReimburseSent { round_idx: RoundIndex },
+    ReadyToReimburseSent {
+        round_idx: RoundIndex,
+    },
     /// Event that is dispatched when the next round tx is mined.
-    RoundSent { round_idx: RoundIndex },
+    RoundSent {
+        round_idx: RoundIndex,
+    },
     /// This event is sent if operators collateral was spent in any way other than default behaviour (default is round -> ready to reimburse -> round -> ready to reimburse -> ...)
     /// It means operator stopped participating in the protocol and can no longer participate in clementine bridge protocol.
     OperatorExit,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset to false
     SavedToDb,
+    SetChallenged {
+        round_idx: RoundIndex,
+    },
 }
 
 /// State machine for the round state.
@@ -46,9 +53,9 @@ pub enum RoundEvent {
 ///     - `operator_exit`: The operator exit state, when the operator exited the protocol (collateral spent in a non-bridge tx).
 ///
 /// It has following events:
-/// - `KickoffUtxoUsed`: The kickoff utxo is used in a round tx. The state machine stores this utxo as used, and additionally calls the owner to check if this kickoff utxo was used in a kickoff tx (If so, that will result in creation of a kickoff state machine).
+/// - `KickoffUtxoUsed`: A kickoff connector of the current round is spent. Handled in both `round_tx` and `ready_to_reimburse` (kickoff connectors are independent of the ready-to-reimburse tx). The owner checks if the spend is a kickoff tx and may create a kickoff state machine. In `round_tx` the spend is also recorded in `used_kickoffs` for unspent-connector slashing.
 /// - `ReadyToReimburseSent`: The ready to reimburse tx is sent. The state machine transitions to the ready to reimburse state. Additionally, if there are unused kickoff utxos, this information is passed to the owner which can then create a "Unspent Kickoff Connector" tx.
-/// - `RoundSent`: The round tx is sent. The state machine transitions to the round tx state.
+/// - `RoundSent`: The round tx is sent. The state machine transitions to the round tx state. Matchers for the previous round's kickoff connectors are dropped here: reimbursement for that round is already possible from the new round, and those connectors are no longer tracked.
 /// - `OperatorExit`: The operator exited the protocol. The state machine transitions to the operator exit state. In this state, all tracking of the operator is stopped as operator is no longer participating in the protocol.
 /// - `SavedToDb`: The state machine has been saved to the database and the dirty flag should be reset to false.
 ///
@@ -64,7 +71,19 @@ pub struct RoundStateMachine<T: Owner> {
     /// dirty flag is set if any matcher matches the current block.
     /// the flag is set to true in on_transition and on_dispatch
     /// the flag is set to false after the state machine is saved to db and the event SavedToDb is dispatched
+    ///
+    /// Not serialized: snapshots are written while the flag is still true and cleared only
+    /// afterwards, so persisting it stored a value that always claimed unsaved changes.
+    #[serde(skip)]
     pub(crate) dirty: bool,
+    /// Rounds that already had a challenge sent. One challenge slashes every
+    /// kickoff in that round. Kept across LCP delay, including after
+    /// `ready_to_reimburse` and later rounds.
+    ///
+    /// `serde(default)` ignores the old `challenged_before` field. There were
+    /// no live challenges during this upgrade.
+    #[serde(default)]
+    pub(crate) challenged_rounds: HashSet<RoundIndex>,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -91,6 +110,7 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             dirty: true,
+            challenged_rounds: HashSet::new(),
             phantom: std::marker::PhantomData,
         }
     }
@@ -129,6 +149,40 @@ impl<T: Owner> RoundStateMachine<T> {
             .await;
     }
 
+    /// Asks the owner whether a spent kickoff connector is an actual kickoff tx.
+    /// Malice checking waits for `LcpProcessed`; this only dispatches `CheckIfKickoff`.
+    async fn handle_kickoff_utxo_used(
+        &self,
+        context: &mut StateContext<T>,
+        kickoff_outpoint: &OutPoint,
+        method: &'static str,
+    ) {
+        let txid = context
+            .cache
+            .get_txid_of_utxo(kickoff_outpoint)
+            .expect("UTXO should be in block");
+        let err_meta = self.round_meta(method);
+
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .dispatch_duty(Duty::CheckIfKickoff {
+                            txid,
+                            block_height: context.cache.block_height,
+                            witness: context
+                                .cache
+                                .get_witness_of_utxo(kickoff_outpoint)
+                                .expect("UTXO should be in block"),
+                        })
+                        .await?;
+                    Ok::<(), BridgeError>(())
+                }
+                .wrap_err(err_meta)
+            })
+            .await;
+    }
+
     #[action]
     pub(crate) fn on_dispatch(
         &mut self,
@@ -158,9 +212,13 @@ impl<T: Owner> RoundStateMachine<T> {
         match event {
             // If the initial collateral is spent, we can transition to the first round tx.
             RoundEvent::RoundSent { round_idx } => {
-                Transition(State::round_tx(*round_idx, HashSet::new(), false))
+                Transition(State::round_tx(*round_idx, HashSet::new()))
             }
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {
                 self.unhandled_event(context, event).await;
@@ -175,6 +233,10 @@ impl<T: Owner> RoundStateMachine<T> {
     #[action]
     #[allow(unused_variables)]
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {
@@ -229,7 +291,6 @@ impl<T: Owner> RoundStateMachine<T> {
         event: &RoundEvent,
         round_idx: &mut RoundIndex,
         used_kickoffs: &mut HashSet<usize>,
-        challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
@@ -243,33 +304,12 @@ impl<T: Owner> RoundStateMachine<T> {
                 kickoff_outpoint,
             } => {
                 used_kickoffs.insert(*kickoff_idx);
-                let txid = context
-                    .cache
-                    .get_txid_of_utxo(kickoff_outpoint)
-                    .expect("UTXO should be in block");
-
-                context
-                    .capture_error(async |context| {
-                        {
-                            let duty_result = context
-                                .dispatch_duty(Duty::CheckIfKickoff {
-                                    txid,
-                                    block_height: context.cache.block_height,
-                                    witness: context
-                                        .cache
-                                        .get_witness_of_utxo(kickoff_outpoint)
-                                        .expect("UTXO should be in block"),
-                                    challenged_before: *challenged_before,
-                                })
-                                .await?;
-                            if let DutyResult::CheckIfKickoff { challenged } = duty_result {
-                                *challenged_before |= challenged;
-                            }
-                            Ok::<(), BridgeError>(())
-                        }
-                        .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))
-                    })
-                    .await;
+                self.handle_kickoff_utxo_used(
+                    context,
+                    kickoff_outpoint,
+                    "round_tx kickoff_utxo_used",
+                )
+                .await;
                 Handled
             }
             // If the ready to reimburse tx is mined, we transition to the ready to reimburse state.
@@ -277,6 +317,10 @@ impl<T: Owner> RoundStateMachine<T> {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {
                 self.unhandled_event(context, event).await;
@@ -294,6 +338,10 @@ impl<T: Owner> RoundStateMachine<T> {
     ) -> Response<State> {
         match event {
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled
@@ -308,7 +356,11 @@ impl<T: Owner> RoundStateMachine<T> {
     /// kickoff is useless as reimburse connector utxo of that kickoff is in the next round,
     /// which cannot be created anymore as the collateral is spent. So we do not want to challenge it, etc.
     #[action]
-    pub(crate) async fn on_operator_exit_entry(&mut self) {
+    pub(crate) async fn on_operator_exit_entry(&mut self, context: &mut StateContext<T>) {
+        if context.is_restoring() {
+            return;
+        }
+
         self.matchers = HashMap::new();
         tracing::warn!(?self.operator_data, "Operator exited the protocol.");
     }
@@ -341,21 +393,18 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     /// Entry action for the round tx state.
-    /// This method adds the matchers for the round tx and the ready to reimburse tx.
-    /// It adds the matchers for the kickoff utxos in the round tx.
-    /// It also adds the matchers for the operator exit.
+    /// Rebuilds matchers for this round (ready-to-reimburse, operator exit, and this
+    /// round's kickoff connectors). Previous round kickoff matchers are dropped.
     #[action]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut RoundIndex,
-        challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) {
-        // ensure challenged_before starts at false for each round
-        // In a single round, a challenge is enough to slash all of the operators current kickoffs in the same round.
-        // This way, if the operator posts 50 different kickoffs, we only need one challenge.
-        // If that challenge is successful, operator will not be able to get reimbursement from all kickoffs.
-        *challenged_before = false;
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {
@@ -440,8 +489,23 @@ impl<T: Owner> RoundStateMachine<T> {
             // If the next round tx is mined, we transition to the round tx state.
             RoundEvent::RoundSent {
                 round_idx: next_round_idx,
-            } => Transition(State::round_tx(*next_round_idx, HashSet::new(), false)),
+            } => Transition(State::round_tx(*next_round_idx, HashSet::new())),
+            RoundEvent::KickoffUtxoUsed {
+                kickoff_outpoint, ..
+            } => {
+                self.handle_kickoff_utxo_used(
+                    context,
+                    kickoff_outpoint,
+                    "ready_to_reimburse kickoff_utxo_used",
+                )
+                .await;
+                Handled
+            }
             RoundEvent::SavedToDb => Handled,
+            RoundEvent::SetChallenged { round_idx } => {
+                self.challenged_rounds.insert(*round_idx);
+                Handled
+            }
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {
                 self.unhandled_event(context, event).await;
@@ -452,16 +516,24 @@ impl<T: Owner> RoundStateMachine<T> {
 
     /// Entry action for the ready to reimburse state.
     /// This method adds the matchers for the next round tx and the operator exit.
+    /// Kickoff connector matchers from the current round are kept: those utxos are
+    /// not spent by ReadyToReimburse and can still be used as kickoffs until the
+    /// next round tx is mined (`on_round_tx_entry` rebuilds the matcher set).
     #[action]
     pub(crate) async fn on_ready_to_reimburse_entry(
         &mut self,
         context: &mut StateContext<T>,
         round_idx: &mut RoundIndex,
     ) {
+        if context.is_restoring() {
+            return;
+        }
+
         context
             .capture_error(async |context| {
                 {
-                    self.matchers = HashMap::new();
+                    self.matchers
+                        .retain(|_, event| matches!(event, RoundEvent::KickoffUtxoUsed { .. }));
                     // get next rounds Round tx
                     let next_round_context = ContractContext::new_context_for_round(
                         self.operator_data.xonly_pk,

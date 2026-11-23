@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
 use bitcoin::Witness;
-use eyre::OptionExt;
+use eyre::{Context, OptionExt};
 use pgmq::PGMQueueExt;
-use statig::awaitable::IntoStateMachineExt;
+use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt};
 use tokio::sync::Mutex;
 
 use crate::{
     database::{Database, DatabaseTransaction},
     deposit::{DepositData, KickoffData, OperatorData},
     errors::BridgeError,
+    states::{
+        context::{DutyResult, StateContext},
+        round::RoundEvent,
+    },
 };
 
 use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
@@ -38,6 +42,8 @@ pub enum SystemEvent {
         deposit_data: DepositData,
         payout_blockhash: Witness,
     },
+    /// The LCP for this Bitcoin block height was persisted.
+    LcpProcessed { height: u32 },
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -55,6 +61,23 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
             .map_err(|e| eyre::eyre!("Error sending NewOperator event: {:?}", e))?;
+        Ok(())
+    }
+
+    pub async fn dispatch_lcp_processed(
+        db: &Database,
+        tx: DatabaseTransaction<'_, '_>,
+        height: u32,
+    ) -> Result<(), eyre::Report> {
+        let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
+        queue
+            .send_with_cxn(
+                &Self::queue_name(),
+                &SystemEvent::LcpProcessed { height },
+                &mut **tx,
+            )
+            .await
+            .wrap_err("Error sending LcpProcessed event")?;
         Ok(())
     }
 
@@ -92,7 +115,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         match event {
             // Received when a block is finalized in Bitcoin
             SystemEvent::NewFinalizedBlock {
-                block_id,
+                block_id: _,
                 block,
                 height,
             } => {
@@ -101,20 +124,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 }
 
                 let mut context = self.new_context(dbtx.clone(), &block, height)?;
-
-                // Handle the finalized block on the owner (verifier or operator)
-                {
-                    let mut guard = dbtx.lock().await;
-                    self.owner
-                        .handle_finalized_block(
-                            &mut guard,
-                            block_id,
-                            height,
-                            context.cache.clone(),
-                            None,
-                        )
-                        .await?;
-                }
 
                 self.process_block_parallel(&mut context).await?;
 
@@ -169,6 +178,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 deposit_data,
                 payout_blockhash,
             } => {
+                if !self.owner.is_kickoff_relevant_for_owner(&kickoff_data) {
+                    return Ok(());
+                }
+
                 // Initialize context using the block just before the kickoff height
                 // so subsequent processing can begin from kickoff_height
                 let prev_height = kickoff_height.saturating_sub(1);
@@ -195,8 +208,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let kickoff_machine = KickoffStateMachine::new(
                     kickoff_data,
                     kickoff_height,
-                    deposit_data,
-                    payout_blockhash,
+                    deposit_data.clone(),
+                    payout_blockhash.clone(),
                 )
                 .uninitialized_state_machine()
                 .init_with_context(&mut context)
@@ -217,6 +230,54 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                 )
                 .await?;
+
+                if self
+                    .last_processed_lcp
+                    .is_some_and(|height| height >= kickoff_height)
+                {
+                    self.check_if_kickoff_malicious(
+                        &payout_blockhash,
+                        &kickoff_data,
+                        &deposit_data,
+                        &mut context,
+                    )
+                    .await?;
+                }
+            }
+            SystemEvent::LcpProcessed { height } => {
+                let prev = self.last_processed_lcp;
+                let kickoffs: Vec<_> = self
+                    .kickoff_machines
+                    .iter()
+                    .filter(|machine| {
+                        prev.is_none_or(|prev| prev < machine.kickoff_height)
+                            && machine.kickoff_height <= height
+                    })
+                    .map(|machine| {
+                        (
+                            machine.payout_blockhash.clone(),
+                            machine.kickoff_data,
+                            machine.deposit_data.clone(),
+                        )
+                    })
+                    .collect();
+
+                let mut context = self.new_context_with_block_cache(
+                    dbtx.clone(),
+                    self.last_finalized_block.clone().ok_or_eyre(
+                        "Last finalized block not found, should always be Some after initialization",
+                    )?,
+                )?;
+                for (witness, kickoff_data, deposit_data) in kickoffs {
+                    self.check_if_kickoff_malicious(
+                        &witness,
+                        &kickoff_data,
+                        &deposit_data,
+                        &mut context,
+                    )
+                    .await?;
+                }
+                self.last_processed_lcp = Some(height);
             }
         };
 
@@ -230,6 +291,68 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Save the state machines to the database with the current block height
         // So that in case of a node restart the state machines can be restored
         self.save_state_to_db(&mut context).await?;
+
+        Ok(())
+    }
+
+    fn get_round_machine(
+        &mut self,
+        operator_xonly_pk: &bitcoin::XOnlyPublicKey,
+    ) -> Option<&mut InitializedStateMachine<RoundStateMachine<T>>> {
+        self.round_machines
+            .iter_mut()
+            .find(|machine| &machine.operator_data.xonly_pk == operator_xonly_pk)
+    }
+
+    async fn check_if_kickoff_malicious(
+        &mut self,
+        payout_blockhash: &Witness,
+        kickoff_data: &KickoffData,
+        deposit_data: &DepositData,
+        context: &mut StateContext<T>,
+    ) -> Result<(), BridgeError> {
+        let challenged_before = self
+            .get_round_machine(&kickoff_data.operator_xonly_pk)
+            .ok_or_else(|| {
+                eyre::eyre!(
+                    "Round machine not found for operator {} while checking kickoff",
+                    kickoff_data.operator_xonly_pk
+                )
+            })?
+            .challenged_rounds
+            .contains(&kickoff_data.round_idx);
+
+        let result = context
+            .dispatch_duty(super::Duty::CheckIfKickoffMalicious {
+                kickoff_witness: payout_blockhash.clone(),
+                deposit_data: deposit_data.clone(),
+                kickoff_data: *kickoff_data,
+                challenged_before,
+            })
+            .await
+            .wrap_err("Error while checking if kickoff is malicious")?;
+
+        match result {
+            DutyResult::CheckIfKickoffMalicious { challenged } => {
+                if challenged && !challenged_before {
+                    self.get_round_machine(&kickoff_data.operator_xonly_pk)
+                        .ok_or_eyre("Round machine disappeared while checking kickoff")?
+                        .handle_with_context(
+                            &RoundEvent::SetChallenged {
+                                round_idx: kickoff_data.round_idx,
+                            },
+                            context,
+                        )
+                        .await;
+                }
+            }
+            other => {
+                return Err(eyre::eyre!(
+                    "Expected CheckIfKickoffMalicious duty result, got {other:?}"
+                )
+                .into());
+            }
+        }
 
         Ok(())
     }

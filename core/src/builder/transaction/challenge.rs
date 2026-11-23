@@ -314,21 +314,27 @@ pub fn create_disprove_txhandler(
 ///
 /// This transaction is used to reimburse an operator for a valid challenge, intended to cover their costs for sending asserts transactions,
 /// and potentially cover their opportunity cost as their reimbursements are delayed due to the challenge. This cost of a challenge is also
-/// used to disincentivize sending challenges for kickoffs that are correct. In case the challenge is correct and operator is proved to be
-/// malicious, the challenge cost will be reimbursed using the operator's collateral that's locked in Citrea.
+/// used to disincentivize sending challenges for kickoffs that are correct.
+///
+/// By design, the protocol does not reimburse the challenger for the challenge amount or the fees of the txs it sends, even if the
+/// challenge is correct and the operator is proved to be malicious.
+///
+/// It is also accepted that the operator can retrieve its collateral before it is disproven. Without the collateral, the operator
+/// cannot create new rounds, so it cannot send new kickoffs. This keeps the property that a malicious operator needs to be
+/// challenged only once.
 ///
 /// # Inputs
 /// 1. KickoffTx: Challenge utxo
 ///
 /// # Outputs
 /// 1. Operator reimbursement output
-/// 2. OP_RETURN output (containing EVM address of the challenger, for reimbursement if the challenge is correct)
+/// 2. OP_RETURN output (containing EVM address of the challenger)
 ///
 /// # Arguments
 ///
 /// * `kickoff_txhandler` - The kickoff transaction handler that the challenge belongs to.
 /// * `operator_reimbursement_address` - The address to reimburse the operator to cover their costs.
-/// * `challenger_evm_address` - The EVM address of the challenger, for reimbursement if the challenge is correct.
+/// * `challenger_evm_address` - The EVM address of the challenger.
 /// * `paramset` - Protocol parameter set.
 ///
 /// # Returns

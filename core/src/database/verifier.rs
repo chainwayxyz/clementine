@@ -120,10 +120,7 @@ impl Database {
         )
         .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
         .bind(TxidDB(withdrawal_utxo.txid))
-        .bind(
-            i32::try_from(withdrawal_utxo.vout)
-                .wrap_err("Failed to convert withdrawal utxo vout to i32")?,
-        )
+        .bind(i64::from(withdrawal_utxo.vout))
         .bind(
             i32::try_from(withdrawal_batch_proof_bitcoin_block_height)
                 .wrap_err("Failed to convert withdrawal batch proof bitcoin block height to i32")?,
@@ -140,7 +137,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
     ) -> Result<OutPoint, BridgeError> {
-        let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
+        let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i64>)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
              WHERE w.idx = $1",
@@ -231,7 +228,7 @@ impl Database {
         );
 
         query_builder.push_values(
-            converted_values.into_iter(),
+            converted_values,
             |mut b, (idx, txid, operator_xonly_pk, block_hash)| {
                 b.push_bind(idx)
                     .push_bind(txid)
@@ -354,6 +351,22 @@ impl Database {
             "UPDATE withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
         )
         .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
+        .bind(TxidDB(kickoff_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    /// Clears the kickoff assignment and marks kickoff processing as pending so the payout checker
+    /// assigns a new connector. The existing payout is unchanged; no new payout is sent.
+    pub async fn unmark_payout_handled(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE withdrawals SET is_payout_handled = FALSE, kickoff_txid = NULL WHERE kickoff_txid = $1",
+        )
         .bind(TxidDB(kickoff_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -517,5 +530,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(all_txs.len(), 2);
+    }
+
+    /// Bridge.withdraw stores an arbitrary 4-byte outputId. Values above i32::MAX
+    /// must round-trip through withdrawals.withdrawal_utxo_vout.
+    #[tokio::test]
+    async fn withdrawal_utxo_vout_accepts_full_u32_range() {
+        let config = create_test_config_with_thread_name().await;
+        let db = Database::new(&config).await.unwrap();
+
+        let index = 0x3F;
+        let txid = Txid::from_byte_array([0x65; 32]);
+        let utxo = bitcoin::OutPoint {
+            txid: bitcoin::Txid::from_byte_array([0x65; 32]),
+            vout: u32::MAX,
+        };
+
+        db.upsert_move_to_vault_txid_from_citrea_deposit(None, index, &txid)
+            .await
+            .unwrap();
+        db.update_withdrawal_utxo_from_citrea_withdrawal(None, index, utxo, 1)
+            .await
+            .unwrap();
+
+        let withdrawal_utxo = db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, index)
+            .await
+            .unwrap();
+        assert_eq!(withdrawal_utxo, utxo);
     }
 }

@@ -54,7 +54,27 @@ pub enum Duty {
         txid: Txid,
         block_height: u32,
         witness: Witness,
+    },
+    /// Check a detected kickoff after its LCP has been processed.
+    CheckIfKickoffMalicious {
+        kickoff_witness: Witness,
+        deposit_data: DepositData,
+        kickoff_data: KickoffData,
         challenged_before: bool,
+    },
+    /// This duty is sent when a new kickoff state machine starts.
+    /// It notifies the owner to add necessary transactions for the kickoff to the tx sender.
+    /// For verifiers it doesn't do anything as they don't need to add any transactions unless the kickoff is challenged.
+    /// For operators, this queues transactions like ChallengeTimeout.
+    AddNecessaryTxsForKickoff {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+    },
+    /// This duty is sent after a kickoff is detected to be challenged.
+    /// It includes the kickoff data so that the owner can add the relevant txs to the tx sender.
+    AddRelevantTxsToTxSenderIfChallenged {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
     },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
@@ -77,8 +97,8 @@ pub enum Duty {
         latest_blockhash: Witness,
     },
     /// This duty is only sent if a kickoff was challenged.
-    /// This duty is sent after all asserts and latest blockhash commit are finalized on chain, and all watchtower challenge
-    /// utxos are spent.
+    /// This duty is sent after all asserts and latest blockhash commit are finalized on chain, and every
+    /// watchtower ack UTXO is spent (OperatorChallengeAck or WatchtowerChallengeTimeout).
     /// It denotes to the owner that it is time to send a disprove to the corresponding kickoff.
     /// It includes the operator asserts, operator acks and the payout blockhash so that they can be used in the disprove tx if the proof
     /// is invalid.
@@ -106,7 +126,7 @@ pub enum DutyResult {
     /// Duty was handled, no return value is necessary
     Handled,
     /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
-    CheckIfKickoff { challenged: bool },
+    CheckIfKickoffMalicious { challenged: bool },
 }
 
 /// Owner trait with async handling and tx handler creation
@@ -127,15 +147,9 @@ pub trait Owner: Clone + NamedEntity {
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 
-    /// Handle a new finalized block
-    async fn handle_finalized_block(
-        &self,
-        dbtx: DatabaseTransaction<'_, '_>,
-        block_id: u32,
-        block_height: u32,
-        block_cache: Arc<block_cache::BlockCache>,
-        _light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError>;
+    fn is_kickoff_relevant_for_owner(&self, _kickoff_data: &KickoffData) -> bool {
+        true
+    }
 }
 
 /// Context for the state machine
@@ -149,6 +163,12 @@ pub struct StateContext<T: Owner> {
     pub errors: Vec<Arc<eyre::Report>>,
     pub config: BridgeConfig,
     pub owner_type: String,
+    /// True while persisted machines are being materialized from the database.
+    ///
+    /// Statig replays state-entry callbacks on `init_with_context`, but the serialized snapshot
+    /// already contains those effects. Entry actions must not mutate persisted state or dispatch
+    /// duties while this is set.
+    restoring: bool,
     pub shared_dbtx: Arc<Mutex<sqlx::Transaction<'static, sqlx::Postgres>>>,
 }
 
@@ -171,7 +191,18 @@ impl<T: Owner> StateContext<T> {
             errors: Vec::new(),
             config,
             owner_type,
+            restoring: false,
         }
+    }
+
+    /// Marks the context as reinitializing state machines from persisted snapshots.
+    pub(crate) fn set_restoring(&mut self) {
+        self.restoring = true;
+    }
+
+    /// Returns whether state entry actions are running while restoring persisted state.
+    pub(crate) fn is_restoring(&self) -> bool {
+        self.restoring
     }
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {

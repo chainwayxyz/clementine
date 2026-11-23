@@ -8,7 +8,7 @@
 //! The address is then compared to the address in the config.
 //!
 
-use alloy::primitives::PrimitiveSignature;
+use alloy::primitives::Signature;
 use alloy::sol_types::Eip712Domain;
 use bitcoin::hashes::Hash;
 use bitcoin::{taproot, OutPoint};
@@ -112,7 +112,7 @@ pub fn recover_address_from_ecdsa_signature<M: WithdrawalMessage + alloy_sol_typ
     input_outpoint: OutPoint,
     output_script_pubkey: ScriptBuf,
     output_amount: Amount,
-    signature: PrimitiveSignature,
+    signature: Signature,
 ) -> Result<alloy::primitives::Address, BridgeError> {
     let params = M::new(
         deposit_id,

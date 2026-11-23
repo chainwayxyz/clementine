@@ -135,7 +135,7 @@ impl TxSender {
                 .await
                 .map_err(|e| SendTxError::NetworkError(format!("Failed to read response: {e}")))?;
 
-            tracing::info!(
+            tracing::debug!(
                 "Successfully submitted nonstandard transaction {:?} to mempool.space testnet4 accelerator: {}",
                 txid,
                 response_text

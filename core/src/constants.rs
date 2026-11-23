@@ -82,6 +82,8 @@ mod timeout {
 
     pub const PUBLIC_KEY_COLLECTION_TIMEOUT: Duration = Duration::from_secs(30);
 
+    pub const COMPATIBILITY_PARAMS_TIMEOUT: Duration = Duration::from_secs(30);
+
     pub const WITHDRAWAL_TIMEOUT: Duration = Duration::from_secs(120); // 2 minutes
 }
 

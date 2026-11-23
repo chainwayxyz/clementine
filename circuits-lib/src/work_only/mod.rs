@@ -6,43 +6,10 @@
 
 use crate::{
     bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
-    common::{
-        constants::{
-            MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
-            SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
-        },
-        zkvm::ZkvmGuest,
-    },
+    common::{programs::CURRENT_HEADER_CHAIN, zkvm::ZkvmGuest},
 };
 
 use crypto_bigint::{Encoding, U128, U256};
-use risc0_zkvm::guest::env;
-
-/// Network-specific method ID for the header chain circuit.
-///
-/// Compile-time constant that resolves to the appropriate header chain method ID
-/// based on the `BITCOIN_NETWORK` environment variable. Ensures compatibility
-/// between work-only and header chain circuits for the same network.
-///
-/// ## Supported Networks
-/// - **mainnet**: Production Bitcoin network
-/// - **testnet4**: Bitcoin test network  
-/// - **signet**: Custom signet with configurable parameters
-/// - **regtest**: Local regression testing network
-///
-/// Defaults to mainnet if no network is specified.
-const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_HEADER_CHAIN_METHOD_ID,
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
-            TESTNET4_HEADER_CHAIN_METHOD_ID
-        }
-        Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET_HEADER_CHAIN_METHOD_ID,
-        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_HEADER_CHAIN_METHOD_ID,
-        None => MAINNET_HEADER_CHAIN_METHOD_ID,
-        _ => panic!("Invalid network type"),
-    }
-};
 
 /// Main entry point for the work-only zkVM circuit.
 ///
@@ -71,15 +38,14 @@ const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     let input: WorkOnlyCircuitInput = guest.read_from_host();
     assert_eq!(
-        HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id,
+        CURRENT_HEADER_CHAIN.recursion, input.header_chain_circuit_output.method_id,
         "Invalid method ID for header chain circuit: expected {:?}, got {:?}",
-        HEADER_CHAIN_METHOD_ID, input.header_chain_circuit_output.method_id
+        CURRENT_HEADER_CHAIN.recursion, input.header_chain_circuit_output.method_id
     );
-    env::verify(
+    guest.verify(
         input.header_chain_circuit_output.method_id,
-        &borsh::to_vec(&input.header_chain_circuit_output).unwrap(),
-    )
-    .unwrap();
+        &input.header_chain_circuit_output,
+    );
     let total_work_u256: U256 =
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
     let words = work_conversion(total_work_u256);

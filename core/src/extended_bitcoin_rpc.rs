@@ -11,55 +11,86 @@
 //! [`crate::test::common`] for using [`ExtendedBitcoinRpc`] in tests.
 
 use async_trait::async_trait;
-use bitcoin::Address;
-use bitcoin::Amount;
-use bitcoin::BlockHash;
-use bitcoin::FeeRate;
-use bitcoin::Network;
-use bitcoin::OutPoint;
-use bitcoin::ScriptBuf;
-use bitcoin::TxOut;
-use bitcoin::Txid;
-use bitcoincore_rpc::Auth;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
-use eyre::eyre;
-use eyre::Context;
-use eyre::OptionExt;
+use bitcoin::{
+    Address, Amount, BlockHash, FeeRate, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid,
+    XOnlyPublicKey,
+};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
+use eyre::{eyre, Context, OptionExt};
 use http::StatusCode;
 use reqwest;
-use secrecy::ExposeSecret;
-use secrecy::SecretString;
-use std::iter::Take;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
+use secrecy::{ExposeSecret, SecretString};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::Take,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time::timeout;
-use tokio_retry::strategy::{jitter, ExponentialBackoff};
-use tokio_retry::RetryIf;
+use tokio_retry::{
+    strategy::{jitter, ExponentialBackoff},
+    RetryIf,
+};
 
-use crate::builder::address::create_taproot_address;
-use crate::builder::transaction::create_round_txhandlers;
-use crate::builder::transaction::input::UtxoVout;
-use crate::builder::transaction::KickoffWinternitzKeys;
-use crate::builder::transaction::TransactionType;
-use crate::builder::transaction::TxHandler;
-use crate::config::protocol::ProtocolParamset;
-use crate::deposit::OperatorData;
-use crate::errors::{BridgeError, FeeErr};
-use crate::operator::RoundIndex;
+use crate::{
+    bitvm_client::ClementineBitVMPublicKeys,
+    builder::{
+        address::create_taproot_address,
+        transaction::{
+            create_round_txhandlers, input::UtxoVout, KickoffWinternitzKeys, TransactionType,
+            TxHandler,
+        },
+    },
+    config::protocol::ProtocolParamset,
+    constants::NON_STANDARD_V3,
+    database::Database,
+    deposit::OperatorData,
+    errors::{BridgeError, FeeErr},
+    operator::RoundIndex,
+};
+use circuits_lib::{bridge_circuit::parse_op_return_data, common::constants::FIRST_FIVE_OUTPUTS};
 
 #[cfg(test)]
 use crate::test::common::citrea::CitreaE2EData;
 #[cfg(test)]
 use crate::{
     citrea::CitreaClientT,
-    test::common::{are_all_state_managers_synced, test_actors::TestActors},
+    test::common::{are_all_nodes_synced, test_actors::TestActors},
 };
 
 type Result<T> = std::result::Result<T, BitcoinRPCError>;
 
 const MAX_RETRY_ATTEMPTS: usize = 50;
+
+/// Timeout for a single Bitcoin RPC request. Some calls legitimately take a
+/// while (e.g. mining hundreds of regtest blocks in one `generatetoaddress`
+/// call on a loaded CI machine), so keep this generous; the retry layer on
+/// top handles genuine node outages. The underlying client's built-in
+/// default (15s) is too tight and caused flaky timeouts in tests.
+const RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// `RPC_INVALID_ADDRESS_OR_KEY`. Returned by `getrawtransaction` when the transaction is in neither
+/// the mempool nor the chain.
+pub const RPC_INVALID_ADDRESS_OR_KEY: i32 = -5;
+
+/// `RPC_INVALID_PARAMETER`. Returned by `getblockhash` when the requested height is above the tip.
+pub const RPC_INVALID_PARAMETER: i32 = -8;
+
+/// Returns the JSON-RPC error code when `error` is an error Bitcoin Core itself reported, and
+/// `None` for transport, authentication and deserialization failures.
+///
+/// Use this to tell "the node answered, and the answer is no" apart from "we could not ask the
+/// node". Collapsing the two makes a broken connection look like an empty chain or a missing
+/// transaction.
+pub fn rpc_error_code(error: &bitcoincore_rpc::Error) -> Option<i32> {
+    match error {
+        bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(rpc_error)) => {
+            Some(rpc_error.code)
+        }
+        _ => None,
+    }
+}
 
 #[derive(Clone)]
 pub struct RetryConfig {
@@ -135,123 +166,207 @@ impl std::fmt::Debug for RetryConfig {
     }
 }
 
-/// Trait to determine if an error is retryable
-pub trait RetryableError {
-    fn is_retryable(&self) -> bool;
+/// JSON-RPC application codes for a node that is not ready.
+const RPC_CLIENT_NOT_CONNECTED: i32 = -9;
+const RPC_CLIENT_IN_INITIAL_DOWNLOAD: i32 = -10;
+const RPC_IN_WARMUP_CODE: i32 = -28;
+
+/// Returns true when an RPC application error is safe to retry.
+///
+/// Bitcoin Core emits `RPC_IN_WARMUP` from the RPC dispatcher before it calls
+/// the command. The other transient codes are command-level errors and do not
+/// prove that an arbitrary command had no effect. They are retried only when
+/// repeating the command after an unknown outcome is safe.
+fn is_retryable_rpc_code(code: i32, safe_after_unknown_outcome: bool) -> bool {
+    code == RPC_IN_WARMUP_CODE
+        || (safe_after_unknown_outcome
+            && matches!(
+                code,
+                RPC_CLIENT_NOT_CONNECTED | RPC_CLIENT_IN_INITIAL_DOWNLOAD
+            ))
 }
 
-impl RetryableError for bitcoincore_rpc::Error {
-    fn is_retryable(&self) -> bool {
-        tracing::trace!("Checking if error is retryable: {:?}", self);
-        let result = match self {
-            // JSON-RPC errors - check specific error patterns
-            bitcoincore_rpc::Error::JsonRpc(jsonrpc_error) => {
-                let error_str = jsonrpc_error.to_string().to_lowercase();
-                tracing::trace!("JsonRpc error string (lowercase): {}", error_str);
-                // Retry on connection issues, timeouts, temporary failures
-                let is_retryable = error_str.contains("timeout")
-                    || error_str.contains("connection")
-                    || error_str.contains("temporary")
-                    || error_str.contains("busy")
-                    || error_str.contains("unavailable")
-                    || error_str.contains("network")
-                    || error_str.contains("broken pipe")
-                    || error_str.contains("connection reset")
-                    || error_str.contains("connection refused")
-                    || error_str.contains("host unreachable");
-                tracing::trace!("JsonRpc error is_retryable: {}", is_retryable);
-                is_retryable
-            }
+/// Connection drops that can appear as I/O sources under a decode-kind reqwest
+/// error when the peer resets or aborts while the response body is still being
+/// read. Clean EOF (`UnexpectedEof`) is included; HTTP 401/404 empty bodies do
+/// not produce these kinds.
+fn is_connection_drop_io(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
 
-            // I/O errors are typically network-related and retryable
-            bitcoincore_rpc::Error::Io(io_error) => {
-                use std::io::ErrorKind;
-                match io_error.kind() {
-                    // These are typically temporary network issues
-                    ErrorKind::ConnectionRefused
-                    | ErrorKind::ConnectionReset
-                    | ErrorKind::ConnectionAborted
-                    | ErrorKind::NotConnected
-                    | ErrorKind::BrokenPipe
-                    | ErrorKind::TimedOut
-                    | ErrorKind::Interrupted
-                    | ErrorKind::UnexpectedEof => true,
+    matches!(
+        error.kind(),
+        ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::BrokenPipe
+            | ErrorKind::TimedOut
+            | ErrorKind::UnexpectedEof
+    )
+}
 
-                    // These are typically permanent issues
-                    ErrorKind::PermissionDenied
-                    | ErrorKind::NotFound
-                    | ErrorKind::InvalidInput
-                    | ErrorKind::InvalidData => false,
+/// Returns true if a decode-kind reqwest error was caused by the connection
+/// dropping mid-response (transport EOF) instead of a malformed or empty
+/// (e.g. HTTP 401/404) response body. reqwest's `Decoder` reports a body
+/// closed before its Content-Length completes as `is_decode`, with a
+/// `hyper::Error` (incomplete message) or a connection-drop `io::Error`
+/// source; genuine JSON syntax errors have a plain `serde_json::Error`
+/// source instead.
+fn is_transport_eof_decode(error: &reqwest::Error) -> bool {
+    if !error.is_decode() {
+        return false;
+    }
 
-                    // For other kinds, be conservative and retry
-                    _ => true,
-                }
-            }
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        if cause
+            .downcast_ref::<hyper::Error>()
+            .is_some_and(hyper::Error::is_incomplete_message)
+        {
+            return true;
+        }
+        if cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(is_connection_drop_io)
+        {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
 
-            // Authentication errors are typically permanent
-            bitcoincore_rpc::Error::Auth(_) => false,
+/// Returns true for reqwest transport errors that are safe to retry.
+///
+/// - Connect failures never reached the server: always safe.
+/// - Mid-flight failures (request timeout, connection dropped while sending
+///   the request or while streaming the response) are only safe when
+///   `allow_mid_flight` is set, i.e. the command is idempotent: the server
+///   may have already applied a mutating command, and re-issuing it would
+///   apply it twice (double spend, extra blocks).
+/// - Unparsable responses ([`reqwest::Error::is_decode`]) are never
+///   retryable: bitcoind answers HTTP rejections such as 401 (bad auth) or
+///   404 (unknown wallet) with a non-JSON body, which surfaces as a decode
+///   error. Decode errors caused by transport EOF ([`is_transport_eof_decode`])
+///   are the exception: they are mid-flight failures.
+fn is_retryable_transport_error(
+    error: &(dyn std::error::Error + 'static),
+    allow_mid_flight: bool,
+) -> bool {
+    let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() else {
+        return false;
+    };
 
-            // URL parse errors are permanent
-            bitcoincore_rpc::Error::UrlParse(_) => false,
+    reqwest_error.is_connect()
+        || (allow_mid_flight
+            && (reqwest_error.is_timeout()
+                || reqwest_error.is_request()
+                || reqwest_error.is_body()
+                || is_transport_eof_decode(reqwest_error)))
+}
 
-            // Invalid cookie file is usually a config issue (permanent)
-            bitcoincore_rpc::Error::InvalidCookieFile => false,
+/// Classifies local I/O failures without retrying known permanent errors.
+fn is_retryable_io_error(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
 
-            // Daemon returned error - check the error message
-            bitcoincore_rpc::Error::ReturnedError(error_msg) => {
-                let error_str = error_msg.to_lowercase();
-                // Retry on temporary RPC errors
-                error_str.contains("loading") ||
-                error_str.contains("warming up") ||
-                error_str.contains("verifying") ||
-                error_str.contains("busy") ||
-                error_str.contains("temporary") ||
-                error_str.contains("try again") ||
-                error_str.contains("timeout") ||
-                // Don't retry on wallet/transaction specific errors
-                !(error_str.contains("insufficient funds") ||
-                  error_str.contains("transaction already") ||
-                  error_str.contains("invalid") ||
-                  error_str.contains("not found") ||
-                  error_str.contains("conflict"))
-            }
-
-            // Unexpected structure might be due to version mismatch or temporary parsing issues
-            // Be conservative and retry once
-            bitcoincore_rpc::Error::UnexpectedStructure => true,
-
-            // Serialization errors are typically permanent
-            bitcoincore_rpc::Error::BitcoinSerialization(_) => false,
-            bitcoincore_rpc::Error::Hex(_) => false,
-            bitcoincore_rpc::Error::Json(_) => false,
-            bitcoincore_rpc::Error::Secp256k1(_) => false,
-            bitcoincore_rpc::Error::InvalidAmount(_) => false,
-        };
-        tracing::trace!("Final is_retryable result: {}", result);
-        result
+    match error.kind() {
+        ErrorKind::ConnectionRefused
+        | ErrorKind::ConnectionReset
+        | ErrorKind::ConnectionAborted
+        | ErrorKind::NotConnected
+        | ErrorKind::BrokenPipe
+        | ErrorKind::TimedOut
+        | ErrorKind::Interrupted
+        | ErrorKind::UnexpectedEof => true,
+        ErrorKind::PermissionDenied
+        | ErrorKind::NotFound
+        | ErrorKind::InvalidInput
+        | ErrorKind::InvalidData => false,
+        _ => true,
     }
 }
 
-impl RetryableError for BitcoinRPCError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            BitcoinRPCError::TransactionNotConfirmed => true,
-            BitcoinRPCError::TransactionAlreadyInBlock(_) => false,
-            BitcoinRPCError::BumpFeeUTXOSpent(_) => false,
+/// Returns true when repeating an RPC after an unknown outcome is safe and useful.
+///
+/// Commands with side effects or duplicate-in-progress failures are deliberately
+/// absent. A retry-safe command missing from this list merely means its mid-flight
+/// failures are not retried (conservative).
+fn is_safe_to_repeat_after_unknown_outcome(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        // Chain and block queries
+        "getbestblockhash"
+            | "getblock"
+            | "getblockchaininfo"
+            | "getblockcount"
+            | "getblockhash"
+            | "getblockheader"
+            | "getchaintips"
+            | "getdeploymentinfo"
+            | "getindexinfo"
+            // Mempool and transaction queries
+            | "getmempoolentry"
+            | "getmempoolinfo"
+            | "getrawmempool"
+            | "getrawtransaction"
+            | "gettxout"
+            | "gettxspendingprevout"
+            | "testmempoolaccept"
+            // Fee estimation
+            | "estimatesmartfee"
+            | "estimaterawfee"
+            // Node status
+            | "getaddednodeinfo"
+            | "getmemoryinfo"
+            | "getmininginfo"
+            | "getnetworkinfo"
+            | "getpeerinfo"
+            | "getrpcinfo"
+            | "ping"
+            | "uptime"
+            // Wallet read-only queries
+            | "deriveaddresses"
+            | "getaddressinfo"
+            | "getbalance"
+            | "getbalances"
+            | "getdescriptorinfo"
+            | "gettransaction"
+            | "getwalletinfo"
+            | "listdescriptors"
+            | "listunspent"
+            | "listwalletdir"
+            | "listwallets"
+            // Stateless signing: no wallet or chain state change; a repeat
+            // after an unknown outcome returns an equally valid result.
+            | "signrawtransactionwithwallet"
+            | "walletprocesspsbt"
+            // Same hex is idempotent. Retrying avoids CPFP/withdraw funding a
+            // new tx when the first send was accepted but the response dropped.
+            | "sendrawtransaction"
+            | "submitpackage"
+    )
+}
 
-            // These might be temporary - retry
-            BitcoinRPCError::BumpFeeError(_, _) => true,
+/// Command-aware retry classification for individual RPC calls.
+///
+/// Definite reqwest connection failures never reached the server and are safe
+/// for every command. All errors with an unknown outcome are retried only for
+/// commands that are safe to repeat. This fail-closed rule prevents retries
+/// from repeating wallet-funded sends, fee bumps, or other monetary effects.
+fn is_retryable_for_command(cmd: &str, error: &bitcoincore_rpc::Error) -> bool {
+    let safe_after_unknown_outcome = is_safe_to_repeat_after_unknown_outcome(cmd);
 
-            // Check underlying error
-            BitcoinRPCError::Other(err) => {
-                let err_str = err.to_string().to_lowercase();
-                err_str.contains("timeout")
-                    || err_str.contains("connection")
-                    || err_str.contains("temporary")
-                    || err_str.contains("busy")
-                    || err_str.contains("network")
-            }
+    match error {
+        bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Transport(transport_error)) => {
+            is_retryable_transport_error(transport_error.as_ref(), safe_after_unknown_outcome)
         }
+        bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(rpc_error)) => {
+            is_retryable_rpc_code(rpc_error.code, safe_after_unknown_outcome)
+        }
+        // This error does not record whether the I/O failure happened before
+        // or after dispatch, so treat its outcome as unknown.
+        bitcoincore_rpc::Error::Io(io_error) => {
+            safe_after_unknown_outcome && is_retryable_io_error(io_error)
+        }
+        _ => false,
     }
 }
 
@@ -292,11 +407,10 @@ pub enum BitcoinRPCError {
 }
 
 impl ExtendedBitcoinRpc {
-    /// Connects to Bitcoin RPC server with built-in retry mechanism.
+    /// Connects to Bitcoin RPC server and checks that the node answers.
     ///
-    /// This method attempts to connect to the Bitcoin RPC server and creates a new
-    /// [`ExtendedBitcoinRpc`] instance. It includes retry logic that will retry
-    /// connection attempts for retryable errors using exponential backoff.
+    /// `Client::with_timeouts` is lazy. The live check is `ping`, which goes through
+    /// [`RpcApi::call`] and the same command-aware retry path as every other RPC.
     ///
     /// # Parameters
     ///
@@ -311,73 +425,45 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Errors
     ///
-    /// - [`BitcoinRPCError`]: If connection fails after all retry attempts or ping fails
+    /// - [`BitcoinRPCError`]: If the client cannot be created, or ping fails after retries
     pub async fn connect(
         url: String,
         user: SecretString,
         password: SecretString,
         retry_config: Option<RetryConfig>,
     ) -> Result<Self> {
-        let config = retry_config.clone().unwrap_or_default();
+        let retry_config = retry_config.unwrap_or_default();
+        let auth = Auth::UserPass(
+            user.expose_secret().to_string(),
+            password.expose_secret().to_string(),
+        );
 
-        let url_clone = url.clone();
-        let user_clone = user.clone();
-        let password_clone = password.clone();
+        tracing::debug!(
+            "Attempting to connect to Bitcoin RPC at {} with retry config: {:?}",
+            &url,
+            &retry_config
+        );
+        // with_timeouts only stores URL, auth, and timeouts; it does not open a socket.
+        let client = Client::with_timeouts(&url, auth, Some(RPC_REQUEST_TIMEOUT), None)
+            .await
+            .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-        let retry_strategy = config.get_strategy();
+        let rpc = Self {
+            url,
+            client: Arc::new(client),
+            retry_config,
+            #[cfg(test)]
+            cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
+        };
 
-        RetryIf::spawn(
-            retry_strategy,
-            || async {
-                let auth = Auth::UserPass(
-                    user_clone.expose_secret().to_string(),
-                    password_clone.expose_secret().to_string(),
-                );
+        tracing::debug!(
+            "Pinging Bitcoin RPC at {} to make sure it's alive",
+            &rpc.url
+        );
+        rpc.ping().await.wrap_err("Failed to ping Bitcoin RPC")?;
 
-                let retry_config = retry_config.clone().unwrap_or_default();
-
-                tracing::debug!(
-                    "Attempting to connect to Bitcoin RPC at {} with retry config: {:?}",
-                    &url_clone,
-                    &retry_config
-                );
-                let rpc = Client::new(&url_clone, auth)
-                    .await
-                    .wrap_err("Failed to connect to Bitcoin RPC")?;
-
-                // Since this is a lazy connection, we should ping it to ensure it works
-                tracing::debug!(
-                    "Pinging Bitcoin RPC at {} to make sure it's alive",
-                    &url_clone
-                );
-                rpc.ping()
-                    .await
-                    .map_err(|e| eyre::eyre!("Failed to ping Bitcoin RPC: {}", e))?;
-
-                let result: Result<ExtendedBitcoinRpc> = Ok(Self {
-                    url: url_clone.clone(),
-                    client: Arc::new(rpc),
-                    retry_config,
-                    #[cfg(test)]
-                    cached_mining_address: Arc::new(tokio::sync::RwLock::new(None)),
-                });
-
-                match &result {
-                    Ok(_) => tracing::debug!("Connected to Bitcoin RPC successfully"),
-                    Err(error) => {
-                        if !error.is_retryable() {
-                            tracing::debug!("Non-retryable connection error: {}", error);
-                        } else {
-                            tracing::debug!("Bitcoin RPC connection failed, will retry: {}", error);
-                        }
-                    }
-                }
-
-                result
-            },
-            |error: &BitcoinRPCError| error.is_retryable(),
-        )
-        .await
+        tracing::debug!("Connected to Bitcoin RPC successfully");
+        Ok(rpc)
     }
 
     /// Generates a new Bitcoin address for the wallet.
@@ -427,32 +513,37 @@ impl ExtendedBitcoinRpc {
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
     }
 
-    /// Checks if an operator's collateral is valid and available for use.
+    /// Checks if an operator is still safely usable in the protocol.
     ///
-    /// This function validates the operator's collateral by:
-    /// 1. Verifying the collateral UTXO exists and has the correct amount
-    /// 2. Creating the round transaction chain to track current collateral position
-    /// 3. Determining if the current collateral UTXO in the chain is spent in a non-protocol tx, signaling the exit of operator from the protocol
+    /// This validates:
+    /// 1. The collateral UTXO exists with the correct amount and script
+    /// 2. The round chain is followed to the current collateral position
+    /// 3. The current collateral is not spent outside the protocol
+    /// 4. Every already-passed round (ready-to-reimburse is on chain) has no leftover
+    ///    kickoff UTXOs. UnspentKickoff cannot slash those once the next round spends
+    ///    the ready-to-reimburse burn connector, so leftover kickoffs can later be used
+    ///    with already-mined reimburse connectors.
+    /// 5. If a passed-round kickoff UTXO was spent as a kickoff, that kickoff's finalizer
+    ///    must also be spent. An in-flight kickoff in a passed round is not watched by the
+    ///    round state machine. This uses the actual spending transaction of each leftover
+    ///    kickoff UTXO, including kickoffs that commit to a deposit that is not yet signed.
     ///
-    /// # Parameters
+    /// `db` is the bitcoin syncer. Kickoff UTXOs of finished rounds are looked
+    /// up there; we only load block bodies for spends that might be kickoffs.
     ///
-    /// * `operator_data`: Data about the operator including collateral funding outpoint
-    /// * `kickoff_wpks`: Kickoff Winternitz public keys for round transaction creation
-    /// * `paramset`: Protocol parameters
+    /// Spent-or-not comes from the syncer, not from bitcoind. If the syncer has
+    /// no spend for a kickoff UTXO in a finalized block, treat it as still live
+    /// and reject. A short mismatch with bitcoind is fine on mainnet.
     ///
     /// # Returns
     ///
-    /// - [`bool`]: `true` if the collateral is still usable, thus operator is still in protocol, `false` if the collateral is spent, thus operator is not in protocol anymore
-    ///
-    /// # Errors
-    ///
-    /// - [`BridgeError`]: If there was an error retrieving transaction data, creating round transactions,
-    ///   or checking UTXO status
+    /// - [`bool`]: `true` if the operator is still in protocol and safe to include in deposits
     pub async fn collateral_check(
         &self,
         operator_data: &OperatorData,
         kickoff_wpks: &KickoffWinternitzKeys,
         paramset: &'static ProtocolParamset,
+        db: &Database,
     ) -> std::result::Result<bool, BridgeError> {
         // first check if the collateral utxo is on chain or mempool
         let tx = self
@@ -588,6 +679,24 @@ impl ExtendedBitcoinRpc {
                 break;
             }
 
+            // Ready-to-reimburse is on chain, so this round is passed. Leftover
+            // kickoffs can no longer be slashed via UnspentKickoff once the next
+            // round spends that burn connector.
+            let round_txhandler =
+                round_txhandler_opt.expect("Round txhandler should exist, checked above");
+            if !self
+                .passed_round_kickoffs_are_safe(
+                    round_txhandler,
+                    round_idx,
+                    paramset,
+                    operator_data,
+                    db,
+                )
+                .await?
+            {
+                return Ok(false);
+            }
+
             current_collateral_outpoint = OutPoint {
                 txid: ready_to_reimburse_txid,
                 vout: UtxoVout::CollateralInReadyToReimburse.get_vout(),
@@ -600,6 +709,124 @@ impl ExtendedBitcoinRpc {
         // bridge protocol, thus it is unusable and operator cannot fulfill withdrawals anymore
         // if not spent, it should exist in chain, which is checked below
         Ok(!self.is_utxo_spent(&current_collateral_outpoint).await?)
+    }
+
+    /// Returns false if a passed round still has a live kickoff UTXO, or an
+    /// in-flight kickoff whose finalizer is unspent.
+    ///
+    /// Kickoff UTXOs of this finished round must all be spent. Spent-or-not
+    /// comes from the syncer, not from bitcoind. A spend counts only if its
+    /// block is finalized. No such spend means the UTXO is still live: reject.
+    /// Do not add a `gettxout` check. A short mismatch with bitcoind is fine on
+    /// mainnet.
+    ///
+    /// A tx that spends more than one of these UTXOs cannot be a protocol
+    /// kickoff (those have a single input), so it is a burn and its block is
+    /// not loaded. Other spends are loaded from their blocks. Sequence is the
+    /// first filter: burn / UnspentKickoff set CSV, so a relative locktime
+    /// cannot be a kickoff. After that it is a protocol kickoff only if it has
+    /// exactly one input, version 3, the kickoff output layout, and the kickoff
+    /// OP_RETURN (`move_txid || this operator's xonly pk`). Any other Winternitz
+    /// spend still uses up the UTXO.
+    async fn passed_round_kickoffs_are_safe(
+        &self,
+        round_txhandler: &TxHandler,
+        round_idx: RoundIndex,
+        paramset: &'static ProtocolParamset,
+        operator_data: &OperatorData,
+        db: &Database,
+    ) -> std::result::Result<bool, BridgeError> {
+        let mut kickoff_outpoints = Vec::with_capacity(paramset.num_kickoffs_per_round);
+        for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+            kickoff_outpoints.push(
+                *round_txhandler
+                    .get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?
+                    .get_prev_outpoint(),
+            );
+        }
+        let mut dbtx = db.begin_transaction().await?;
+        let tip_height = db.get_max_height(Some(&mut dbtx)).await?.unwrap_or(0);
+        let mut spends = db
+            .get_canonical_spending_txids(Some(&mut dbtx), &kickoff_outpoints)
+            .await?;
+        // A reorg of a non-final spend revives the UTXO after deposits are signed,
+        // when the burn connectors are already spent by the next round.
+        spends.retain(|_, (_, _, height)| paramset.is_block_finalized(*height, tip_height));
+
+        let mut spend_count: HashMap<Txid, usize> = HashMap::new();
+        for (spending_txid, _, _) in spends.values() {
+            *spend_count.entry(*spending_txid).or_default() += 1;
+        }
+
+        let mut to_classify = Vec::new();
+        let mut wanted_txids = HashSet::new();
+        let mut unique_blockhashes = HashSet::new();
+        for (kickoff_idx, kickoff_outpoint) in kickoff_outpoints.iter().enumerate() {
+            let Some((spending_txid, blockhash, _)) = spends.get(kickoff_outpoint) else {
+                tracing::error!(
+                    ?operator_data,
+                    ?round_idx,
+                    kickoff_idx,
+                    %kickoff_outpoint,
+                    "Passed round has a kickoff UTXO without a finalized spend; operator is not safe to include in deposits"
+                );
+                dbtx.commit().await?;
+                return Ok(false);
+            };
+            // A tx that consumes more than one leftover kickoff in this round cannot
+            // be a protocol kickoff (those have a single input).
+            if spend_count[spending_txid] > 1 {
+                continue;
+            }
+            to_classify.push((*kickoff_outpoint, *spending_txid));
+            wanted_txids.insert(*spending_txid);
+            unique_blockhashes.insert(*blockhash);
+        }
+
+        // It is assumed that the number of unique block hashes is small, so we can fetch all the transactions in one query.
+        // It will be obvious on mainnet if an operator intentionally tries to grief this.
+        let spending_txs = db
+            .get_txs_from_block_hashes(Some(&mut dbtx), unique_blockhashes, &wanted_txids)
+            .await?;
+
+        let mut finalizer_outpoints = Vec::new();
+        for (kickoff_outpoint, spending_txid) in to_classify {
+            let Some(spending_tx) = spending_txs.get(&spending_txid) else {
+                return Err(eyre!(
+                    "Canonical spending txid {spending_txid} was indexed but missing from its block"
+                )
+                .into());
+            };
+            if spending_is_protocol_kickoff(kickoff_outpoint, spending_tx, operator_data.xonly_pk)?
+            {
+                finalizer_outpoints.push(OutPoint {
+                    txid: spending_txid,
+                    vout: UtxoVout::KickoffFinalizer.get_vout(),
+                });
+            }
+        }
+
+        if !finalizer_outpoints.is_empty() {
+            let spent_finalizers = db
+                .get_canonical_spending_txids(Some(&mut dbtx), &finalizer_outpoints)
+                .await?;
+            if let Some(finalizer) = finalizer_outpoints.iter().find(|outpoint| {
+                !spent_finalizers
+                    .get(outpoint)
+                    .is_some_and(|(_, _, height)| paramset.is_block_finalized(*height, tip_height))
+            }) {
+                tracing::error!(
+                    ?operator_data,
+                    ?round_idx,
+                    %finalizer,
+                    "Passed round kickoff UTXO was spent as a kickoff but the kickoff finalizer has no finalized spend"
+                );
+                dbtx.commit().await?;
+                return Ok(false);
+            }
+        }
+        dbtx.commit().await?;
+        Ok(true)
     }
 
     /// Returns block hash of a transaction, if confirmed.
@@ -691,7 +918,7 @@ impl ExtendedBitcoinRpc {
         Ok(raw_transaction)
     }
 
-    /// Checks if a transaction is on-chain.
+    /// Checks if a transaction is in a block of the active chain.
     ///
     /// # Parameters
     ///
@@ -699,14 +926,22 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
+    /// - [`bool`]: `true` if the transaction is in a block of the active chain, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Only an unknown transaction yields `Ok(false)`. Any other RPC failure is returned as an
+    /// error: callers use this to decide whether collateral is still present and whether round
+    /// transactions have landed, so a transport failure must not be reported as "not on chain".
     pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
-        Ok(self
-            .get_raw_transaction_info(txid, None)
-            .await
-            .ok()
-            .and_then(|s| s.blockhash)
-            .is_some())
+        match self.get_raw_transaction_info(txid, None).await {
+            // With txindex, a tx from a reorged-out block keeps that blockhash, with 0 confirmations.
+            Ok(info) => Ok(info.blockhash.is_some() && info.confirmations.is_some_and(|c| c > 0)),
+            Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_ADDRESS_OR_KEY) => Ok(false),
+            Err(e) => Err(eyre::eyre!(e)
+                .wrap_err(format!("Failed to look up transaction {txid}"))
+                .into()),
+        }
     }
 
     /// Checks if a transaction UTXO has expected address and amount.
@@ -821,7 +1056,7 @@ impl ExtendedBitcoinRpc {
 
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < reorg_blocks as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
@@ -853,7 +1088,7 @@ impl ExtendedBitcoinRpc {
                 // mined blocks has to be block_num higher than reorg_blocks + 1, because this callers of this fn expects
                 // chain size to increase by at least block_num starting from where cpfp fee payer is in mempool.
                 while mined_blocks.len() != (reorg_blocks + block_num + 1) as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
@@ -866,7 +1101,7 @@ impl ExtendedBitcoinRpc {
                 // do not do a reorg here, just mine blocks
                 let mut mined_blocks = Vec::new();
                 while mined_blocks.len() < block_num as usize {
-                    if !are_all_state_managers_synced(self, actors).await? {
+                    if !are_all_nodes_synced(self, actors).await? {
                         // wait until they are synced
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                         continue;
@@ -1005,15 +1240,15 @@ impl ExtendedBitcoinRpc {
         Ok(txout)
     }
 
-    /// Bumps the fee of a transaction to meet or exceed a target fee rate. Does
-    /// nothing if the transaction is already confirmed. Returns the original
-    /// txid if no bump was needed.
+    /// Builds and signs a Replace-By-Fee (RBF) replacement of an unconfirmed
+    /// transaction that meets or exceeds a target fee rate. It does not
+    /// broadcast the replacement, so the caller can persist it first.
     ///
-    /// This function implements Replace-By-Fee (RBF) to increase the fee of an unconfirmed transaction.
     /// It works as follows:
     /// 1. If the transaction is already confirmed, returns Err(TransactionAlreadyInBlock)
-    /// 2. If the current fee rate is already >= the requested fee rate, returns the original txid
-    /// 3. Otherwise, increases the fee rate by adding the node's incremental fee to the current fee rate, then `bump_fee`s the transaction
+    /// 2. If the current fee rate is already >= the requested fee rate, returns `None`
+    /// 3. Otherwise, increases the fee rate by adding the node's incremental fee to the current fee rate,
+    ///    builds the replacement with `psbtbumpfee`, then signs and finalizes it with the wallet
     ///
     /// Note: This function currently only supports fee payer TXs.
     ///
@@ -1023,26 +1258,25 @@ impl ExtendedBitcoinRpc {
     ///
     /// # Returns
     ///
-    /// - [`Txid`]: The txid of the bumped transaction (which may be the same as the input txid if no bump was needed).
+    /// - [`Option<Transaction>`]: The signed replacement, or `None` if no bump was needed.
     ///
     /// # Errors
     ///
     ///  * `TransactionAlreadyInBlock` - If the transaction is already confirmed
     /// * `BumpFeeUTXOSpent` - If the UTXO being spent by the transaction is already spent
     /// * `BumpFeeError` - For other errors with fee bumping
-    pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
+    pub async fn create_fee_bump_tx(
+        &self,
+        txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<Option<Transaction>> {
         // Check if transaction is already confirmed
         let transaction_info = self
             .get_transaction(&txid, None)
             .await
             .wrap_err("Failed to get transaction")?;
-        if transaction_info.info.blockhash.is_some() {
-            return Err(BitcoinRPCError::TransactionAlreadyInBlock(
-                transaction_info
-                    .info
-                    .blockhash
-                    .expect("Blockhash should be present"),
-            ));
+        if let Some(blockhash) = transaction_info.info.blockhash {
+            return Err(BitcoinRPCError::TransactionAlreadyInBlock(blockhash));
         }
 
         // Calculate current fee rate
@@ -1065,9 +1299,9 @@ impl ExtendedBitcoinRpc {
             "Bump fee with fee rate txid: {txid} - Current fee sat: {current_fee_sat} - current fee rate: {current_fee_rate_sat_kwu}"
         );
 
-        // If current fee rate is already sufficient, return original txid
+        // If current fee rate is already sufficient, no replacement is needed
         if current_fee_rate_sat_kwu >= fee_rate.to_sat_per_kwu() as f64 {
-            return Ok(txid);
+            return Ok(None);
         }
 
         tracing::trace!(
@@ -1094,9 +1328,9 @@ impl ExtendedBitcoinRpc {
             "Bumping fee for txid: {txid} from {current_fee_rate_sat_kwu} to {new_fee_rate} with incremental fee {incremental_fee_rate_sat_kwu} - Final fee rate: {new_fee_rate}, current chain fee rate: {fee_rate}"
         );
 
-        // Call Bitcoin Core's bumpfee RPC
+        // Call Bitcoin Core's psbtbumpfee RPC
         let bump_fee_result = match self
-            .bump_fee(
+            .psbt_bump_fee(
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
@@ -1135,15 +1369,36 @@ impl ExtendedBitcoinRpc {
                 _ => {
                     return Err(eyre::eyre!(e)
                         .wrap_err(BitcoinRPCError::BumpFeeError(txid, fee_rate))
-                        .into())
+                        .into());
                 }
             },
         };
 
-        // Return the new txid
-        Ok(bump_fee_result
-            .txid
-            .ok_or_eyre("Failed to get Txid from bump_fee_result")?)
+        let psbt = bump_fee_result
+            .psbt
+            .ok_or_eyre("Failed to get PSBT from bump_fee_result")?;
+        let processed = self
+            .wallet_process_psbt(&psbt, Some(true), None, None)
+            .await
+            .wrap_err("Failed to sign bumped tx with wallet")?;
+        if !processed.complete {
+            return Err(eyre!("Wallet could not fully sign the replacement of {txid}").into());
+        }
+        let finalized = self
+            .finalize_psbt(&processed.psbt, None)
+            .await
+            .wrap_err("Failed to finalize bumped tx")?;
+        if !finalized.complete {
+            return Err(eyre!("Could not finalize the replacement of {txid}").into());
+        }
+        let bumped_tx: Transaction = bitcoin::consensus::deserialize(
+            &finalized
+                .hex
+                .ok_or_eyre("finalizepsbt returned no transaction")?,
+        )
+        .wrap_err("Failed to deserialize bumped tx")?;
+
+        Ok(Some(bumped_tx))
     }
 
     /// Creates a new instance of the [`ExtendedBitcoinRpc`] with a new client
@@ -1207,7 +1462,7 @@ impl ExtendedBitcoinRpc {
             // Regtest use a fixed, low fee rate.
             Network::Regtest => {
                 tracing::debug!("Using fixed fee rate of 1 sat/vB for {network} network");
-                Ok(FeeRate::from_sat_per_vb_unchecked(1))
+                Ok(FeeRate::from_sat_per_vb_u32(1))
             }
 
             // Mainnet and Testnet4 fetch fees from Mempool Space and Bitcoin Core RPC.
@@ -1272,14 +1527,14 @@ impl ExtendedBitcoinRpc {
                         }
                     }
                     (Ok(mempool_amt), Err(rpc_err)) => {
-                        tracing::warn!(
+                        tracing::debug!(
                             "RPC fee estimation failed, using mempool.space: {:#}",
                             rpc_err
                         );
                         mempool_amt
                     }
                     (Err(mempool_err), Ok(rpc_amt)) => {
-                        tracing::warn!(
+                        tracing::debug!(
                             "Mempool.space fee fetch failed, using Bitcoin Core RPC: {:#}",
                             mempool_err
                         );
@@ -1288,7 +1543,8 @@ impl ExtendedBitcoinRpc {
                     (Err(mempool_err), Err(rpc_err)) => {
                         tracing::warn!(
                             "Both fee sources failed (mempool: {:#}, rpc: {:#}), using default of 1 sat/vB",
-                            mempool_err, rpc_err
+                            mempool_err,
+                            rpc_err
                         );
                         Amount::from_sat(1000) // 1 sat/vB * 1000 = 1000 sat/kvB
                     }
@@ -1299,7 +1555,7 @@ impl ExtendedBitcoinRpc {
 
                 // Apply hard cap from config
                 if fee_sat_kvb > fee_rate_hard_cap * 1000 {
-                    tracing::warn!(
+                    tracing::debug!(
                         "Fee rate {} sat/kvb exceeds hard cap {} sat/kvb, using hard cap",
                         fee_sat_kvb,
                         fee_rate_hard_cap * 1000
@@ -1346,7 +1602,7 @@ async fn get_fee_rate_from_mempool_space(
         Network::Testnet4 => format!("{url}testnet4/{endpoint}"),
         // Return early with error for unsupported networks
         Network::Signet => {
-            tracing::warn!("You should use Citrea signet url for mempool.space");
+            tracing::debug!("You should use Citrea signet url for mempool.space");
             format!("{url}{endpoint}")
         }
         _ => return Err(eyre!("Unsupported network for mempool.space: {network:?}").into()),
@@ -1401,6 +1657,56 @@ async fn get_fee_rate_from_mempool_space(
     Ok(fee_rate)
 }
 
+/// Challenge, KickoffFinalizer, Reimburse, Disprove, LatestBlockhash, asserts,
+/// OP_RETURN, and the CPFP anchor. Watchtower pairs are extra and deposit-dependent.
+fn min_kickoff_output_count() -> usize {
+    FIRST_FIVE_OUTPUTS + ClementineBitVMPublicKeys::number_of_assert_txs() + 2
+}
+
+/// True if `spending_tx` spends `kickoff_outpoint` as a protocol kickoff.
+///
+/// Sequence is the first filter: the 1-block CSV burn / UnspentKickoff path
+/// cannot be a kickoff. A kickoff spends only that UTXO, so more than one
+/// input cannot be a kickoff. After that it must be version 3, have the
+/// protocol output count, and include the kickoff OP_RETURN ending in this
+/// operator's xonly pk. Missing the spent input is an invariant error: the
+/// caller only passes transactions indexed as spending this outpoint.
+fn spending_is_protocol_kickoff(
+    kickoff_outpoint: OutPoint,
+    spending_tx: &Transaction,
+    operator_xonly_pk: XOnlyPublicKey,
+) -> std::result::Result<bool, BridgeError> {
+    let Some(txin) = spending_tx
+        .input
+        .iter()
+        .find(|txin| txin.previous_output == kickoff_outpoint)
+    else {
+        return Err(eyre!(
+            "Spending transaction {} does not include kickoff outpoint {}",
+            spending_tx.compute_txid(),
+            kickoff_outpoint
+        )
+        .into());
+    };
+    if txin.sequence.is_relative_lock_time() {
+        return Ok(false);
+    }
+    if spending_tx.input.len() != 1 {
+        return Ok(false);
+    }
+    if spending_tx.version != NON_STANDARD_V3 {
+        return Ok(false);
+    }
+    if spending_tx.output.len() < min_kickoff_output_count() {
+        return Ok(false);
+    }
+    let operator_pk = operator_xonly_pk.serialize();
+    Ok(spending_tx.output.iter().any(|output| {
+        parse_op_return_data(&output.script_pubkey)
+            .is_some_and(|data| data.len() == 64 && data[32..] == operator_pk)
+    }))
+}
+
 #[async_trait]
 /// Implementation of the `RpcApi` trait for `ExtendedBitcoinRpc`. All RPC calls
 /// are made with retry logic that only retries when errors are retryable.
@@ -1413,12 +1719,10 @@ impl RpcApi for ExtendedBitcoinRpc {
         tracing::trace!("Calling Bitcoin RPC command: {}", cmd);
         let strategy = self.retry_config.get_strategy();
 
-        let condition = |error: &bitcoincore_rpc::Error| error.is_retryable();
-
         RetryIf::spawn(
             strategy,
             || async { self.client.call(cmd, args).await },
-            condition,
+            |error: &bitcoincore_rpc::Error| is_retryable_for_command(cmd, error),
         )
         .await
     }
@@ -1426,25 +1730,15 @@ impl RpcApi for ExtendedBitcoinRpc {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::actor::Actor;
-    use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
-    use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
-    use crate::test::common::{citrea, create_test_config_with_thread_name};
     use crate::{
-        bitvm_client::SECP, extended_bitcoin_rpc::BitcoinRPCError, test::common::create_regtest_rpc,
+        actor::Actor,
+        bitvm_client::SECP,
+        config::protocol::{ProtocolParamset, REGTEST_PARAMSET},
+        extended_bitcoin_rpc::{BitcoinRPCError, ExtendedBitcoinRpc},
+        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
     };
-    use bitcoin::Amount;
-    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, Amount, FeeRate, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
-    use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-    use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
-    use citrea_e2e::node::NodeKind;
-    use citrea_e2e::test_case::TestCaseRunner;
-    use citrea_e2e::Result;
-    use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
-    use tonic::async_trait;
 
     #[tokio::test]
     async fn new_extended_rpc_with_clone() {
@@ -1520,7 +1814,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bump_fee_with_fee_rate() {
+    async fn create_fee_bump_tx() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
@@ -1535,7 +1829,7 @@ mod tests {
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
         rpc.mine_blocks(1).await.unwrap();
         assert!(rpc
-            .bump_fee_with_fee_rate(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
+            .create_fee_bump_tx(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
             .await
             .inspect_err(|e| {
                 match e {
@@ -1545,125 +1839,31 @@ mod tests {
             })
             .is_err());
 
-        let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        let current_fee_rate = FeeRate::from_sat_per_vb_u32(1);
 
-        // Trying to bump a transaction with a fee rate that is already enough
-        // should return the original txid.
+        // A fee rate that is already enough needs no replacement.
         let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-        let txid = rpc
-            .bump_fee_with_fee_rate(utxo.txid, current_fee_rate)
+        assert!(rpc
+            .create_fee_bump_tx(utxo.txid, current_fee_rate)
             .await
-            .unwrap();
-        assert_eq!(txid, utxo.txid);
+            .unwrap()
+            .is_none());
 
-        // A bigger fee rate should return a different txid.
-        let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
-        let txid = rpc
-            .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
+        // A bigger fee rate returns a signed replacement that is not broadcast yet.
+        let new_fee_rate = FeeRate::from_sat_per_vb_u32(100);
+        let bumped_tx = rpc
+            .create_fee_bump_tx(utxo.txid, new_fee_rate)
             .await
-            .unwrap();
-        assert_ne!(txid, utxo.txid);
-    }
+            .unwrap()
+            .expect("A replacement is needed");
+        let bumped_txid = bumped_tx.compute_txid();
+        assert_ne!(bumped_txid, utxo.txid);
+        assert!(rpc.get_mempool_entry(&utxo.txid).await.is_ok());
+        assert!(rpc.get_mempool_entry(&bumped_txid).await.is_err());
 
-    struct ReorgChecks;
-    #[async_trait]
-    impl TestCase for ReorgChecks {
-        fn bitcoin_config() -> BitcoinConfig {
-            BitcoinConfig {
-                extra_args: vec![
-                    "-txindex=1",
-                    "-fallbackfee=0.000001",
-                    "-rpcallowip=0.0.0.0/0",
-                    "-dustrelayfee=0",
-                ],
-                ..Default::default()
-            }
-        }
-
-        fn test_config() -> TestCaseConfig {
-            TestCaseConfig {
-                with_sequencer: true,
-                with_batch_prover: false,
-                n_nodes: HashMap::from([(NodeKind::Bitcoin, 2)]),
-                docker: TestCaseDockerConfig {
-                    bitcoin: true,
-                    citrea: true,
-                },
-                ..Default::default()
-            }
-        }
-
-        async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-            let (da0, da1) = (
-                f.bitcoin_nodes.get(0).unwrap(),
-                f.bitcoin_nodes.get(1).unwrap(),
-            );
-
-            let mut config = create_test_config_with_thread_name().await;
-            const PARAMSET: ProtocolParamset = ProtocolParamset {
-                finality_depth: DEFAULT_FINALITY_DEPTH as u32,
-                ..REGTEST_PARAMSET
-            };
-            config.protocol_paramset = &PARAMSET;
-            citrea::update_config_with_citrea_e2e_values(
-                &mut config,
-                da0,
-                f.sequencer.as_ref().expect("Sequencer is present"),
-                None,
-            );
-
-            let rpc = ExtendedBitcoinRpc::connect(
-                config.bitcoin_rpc_url.clone(),
-                config.bitcoin_rpc_user.clone(),
-                config.bitcoin_rpc_password.clone(),
-                None,
-            )
-            .await
-            .unwrap();
-
-            // Reorg starts here.
-            f.bitcoin_nodes.disconnect_nodes().await?;
-
-            let before_reorg_tip_height = rpc.get_block_count().await?;
-            let before_reorg_tip_hash = rpc.get_block_hash(before_reorg_tip_height).await?;
-
-            let address = Actor::new(config.secret_key, config.protocol_paramset.network).address;
-            let tx = rpc
-                .send_to_address(&address, Amount::from_sat(10000))
-                .await?;
-
-            assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
-            rpc.mine_blocks(1).await?;
-            assert!(rpc.is_tx_on_chain(&tx.txid).await?);
-
-            // Make the second branch longer and perform a reorg.
-            let reorg_depth = 4;
-            da1.generate(reorg_depth).await.unwrap();
-            f.bitcoin_nodes.connect_nodes().await?;
-            f.bitcoin_nodes.wait_for_sync(None).await?;
-
-            // Check that reorg happened.
-            let current_tip_height = rpc.get_block_count().await?;
-            assert_eq!(
-                before_reorg_tip_height + reorg_depth,
-                current_tip_height,
-                "Re-org did not occur"
-            );
-            let current_tip_hash = rpc.get_block_hash(current_tip_height).await?;
-            assert_ne!(
-                before_reorg_tip_hash, current_tip_hash,
-                "Re-org did not occur"
-            );
-
-            assert!(!rpc.is_tx_on_chain(&tx.txid).await?);
-
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn reorg_checks() -> Result<()> {
-        TestCaseRunner::new(ReorgChecks).run().await
+        rpc.send_raw_transaction(&bumped_tx).await.unwrap();
+        assert!(rpc.get_mempool_entry(&bumped_txid).await.is_ok());
+        assert!(rpc.get_mempool_entry(&utxo.txid).await.is_err());
     }
 
     mod retry_config_tests {
@@ -1733,147 +1933,204 @@ mod tests {
     }
 
     mod retryable_error_tests {
-        use bitcoin::{hashes::Hash, BlockHash, Txid};
+        use std::time::Duration;
 
-        use crate::extended_bitcoin_rpc::RetryableError;
-
-        use super::*;
-        use std::io::{Error as IoError, ErrorKind};
+        fn rpc_error(code: i32) -> bitcoincore_rpc::Error {
+            bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Rpc(
+                jsonrpc_async::error::RpcError {
+                    code,
+                    message: "test".to_string(),
+                    data: None,
+                },
+            ))
+        }
 
         #[test]
-        fn test_bitcoin_rpc_error_retryable_io_errors() {
-            let retryable_kinds = [
-                ErrorKind::ConnectionRefused,
+        fn rpc_errors_are_classified_by_code() {
+            let warmup = rpc_error(super::super::RPC_IN_WARMUP_CODE);
+            assert!(super::super::is_retryable_for_command(
+                "sendtoaddress",
+                &warmup
+            ));
+
+            let insufficient_funds = rpc_error(-6);
+            assert!(!super::super::is_retryable_for_command(
+                "getblock",
+                &insufficient_funds
+            ));
+
+            for code in [
+                super::super::RPC_CLIENT_NOT_CONNECTED,
+                super::super::RPC_CLIENT_IN_INITIAL_DOWNLOAD,
+            ] {
+                let error = rpc_error(code);
+                assert!(
+                    super::super::is_retryable_for_command("getblock", &error),
+                    "{code} should be retried for a read-only command"
+                );
+                assert!(
+                    !super::super::is_retryable_for_command("sendtoaddress", &error),
+                    "{code} must not retry a wallet-funded command"
+                );
+            }
+        }
+
+        #[test]
+        fn unknown_outcomes_never_retry_wallet_mutations() {
+            for cmd in [
+                "sendtoaddress",
+                "sendmany",
+                "bumpfee",
+                "psbtbumpfee",
+                "fundrawtransaction",
+                "walletcreatefundedpsbt",
+                "lockunspent",
+                "generatetoaddress",
+                "unknown-future-command",
+            ] {
+                let error = bitcoincore_rpc::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "test",
+                ));
+                assert!(
+                    !super::super::is_retryable_for_command(cmd, &error),
+                    "{cmd} must not be retried after an unknown outcome"
+                );
+            }
+
+            for cmd in ["getblock", "sendrawtransaction", "submitpackage"] {
+                let error = bitcoincore_rpc::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "test",
+                ));
+                assert!(
+                    super::super::is_retryable_for_command(cmd, &error),
+                    "{cmd} should be safe to repeat"
+                );
+            }
+        }
+
+        fn transport_error(error: reqwest::Error) -> bitcoincore_rpc::Error {
+            bitcoincore_rpc::Error::JsonRpc(bitcoincore_rpc::RpcError::Transport(Box::new(error)))
+        }
+
+        #[tokio::test]
+        async fn definite_connect_failures_retry_every_command() {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            drop(listener);
+
+            let error = reqwest::Client::new()
+                .post(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap_err();
+            assert!(error.is_connect());
+            assert!(super::super::is_retryable_for_command(
+                "sendtoaddress",
+                &transport_error(error)
+            ));
+        }
+
+        async fn decode_error(response: Vec<u8>) -> reqwest::Error {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            use tokio::net::TcpListener;
+
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0; 1024];
+                assert!(stream.read(&mut request).await.unwrap() > 0);
+                stream.write_all(&response).await.unwrap();
+            });
+
+            let error = tokio::time::timeout(Duration::from_secs(2), async {
+                reqwest::Client::new()
+                    .post(format!("http://{address}"))
+                    .json(&serde_json::json!({"method": "test", "params": [], "id": 1}))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json::<jsonrpc_async::Response>()
+                    .await
+                    .unwrap_err()
+            })
+            .await
+            .expect("HTTP request timed out");
+            server.await.unwrap();
+            error
+        }
+
+        #[tokio::test]
+        async fn decode_errors_distinguish_http_rejections_from_transport_eof() {
+            fn http_response(status: &str, body: &str, content_length: usize) -> Vec<u8> {
+                format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {content_length}\r\nConnection: close\r\n\r\n{body}"
+                )
+                .into_bytes()
+            }
+
+            for status in ["401 Unauthorized", "404 Not Found"] {
+                let rejection = decode_error(http_response(status, "", 0)).await;
+                assert!(rejection.is_decode());
+                assert!(!super::super::is_transport_eof_decode(&rejection));
+                assert!(!super::super::is_retryable_for_command(
+                    "getblock",
+                    &transport_error(rejection)
+                ));
+            }
+
+            let partial_body = r#"{"result": {"ok": true}"#;
+            let truncated = decode_error(http_response(
+                "200 OK",
+                partial_body,
+                partial_body.len() + 32,
+            ))
+            .await;
+            assert!(super::super::is_transport_eof_decode(&truncated));
+            let truncated = transport_error(truncated);
+            assert!(super::super::is_retryable_for_command(
+                "getblock", &truncated
+            ));
+            assert!(super::super::is_retryable_for_command(
+                "sendrawtransaction",
+                &truncated
+            ));
+            assert!(!super::super::is_retryable_for_command(
+                "sendtoaddress",
+                &truncated
+            ));
+        }
+
+        #[test]
+        fn connection_drop_io_kinds_are_transport_eof_sources() {
+            use std::io::{Error, ErrorKind};
+
+            for kind in [
                 ErrorKind::ConnectionReset,
                 ErrorKind::ConnectionAborted,
-                ErrorKind::NotConnected,
                 ErrorKind::BrokenPipe,
                 ErrorKind::TimedOut,
-                ErrorKind::Interrupted,
                 ErrorKind::UnexpectedEof,
-            ];
-
-            for kind in retryable_kinds {
-                let io_error = IoError::new(kind, "test error");
-                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
+            ] {
                 assert!(
-                    rpc_error.is_retryable(),
-                    "ErrorKind::{kind:?} should be retryable"
+                    super::super::is_connection_drop_io(&Error::new(kind, "test")),
+                    "{kind:?} should be a connection-drop source"
                 );
             }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_non_retryable_io_errors() {
-            let non_retryable_kinds = [
-                ErrorKind::PermissionDenied,
-                ErrorKind::NotFound,
-                ErrorKind::InvalidInput,
+            assert!(!super::super::is_connection_drop_io(&Error::new(
                 ErrorKind::InvalidData,
-            ];
-
-            for kind in non_retryable_kinds {
-                let io_error = IoError::new(kind, "test error");
-                let rpc_error = bitcoincore_rpc::Error::Io(io_error);
-                assert!(
-                    !rpc_error.is_retryable(),
-                    "ErrorKind::{kind:?} should not be retryable"
-                );
-            }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_auth_not_retryable() {
-            let auth_error = bitcoincore_rpc::Error::Auth("Invalid credentials".to_string());
-            assert!(!auth_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_url_parse_not_retryable() {
-            let url_error = url::ParseError::EmptyHost;
-            let rpc_error = bitcoincore_rpc::Error::UrlParse(url_error);
-            assert!(!rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_invalid_cookie_not_retryable() {
-            let rpc_error = bitcoincore_rpc::Error::InvalidCookieFile;
-            assert!(!rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_returned_error_non_retryable_patterns() {
-            let non_retryable_messages = [
-                "insufficient funds",
-                "transaction already in blockchain",
-                "invalid transaction",
-                "not found in mempool",
-                "transaction conflict",
-            ];
-
-            for msg in non_retryable_messages {
-                let rpc_error = bitcoincore_rpc::Error::ReturnedError(msg.to_string());
-                assert!(
-                    !rpc_error.is_retryable(),
-                    "Message '{msg}' should not be retryable"
-                );
-            }
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_unexpected_structure_retryable() {
-            let rpc_error = bitcoincore_rpc::Error::UnexpectedStructure;
-            assert!(rpc_error.is_retryable());
-        }
-
-        #[test]
-        fn test_bitcoin_rpc_error_serialization_errors_not_retryable() {
-            use bitcoin::consensus::encode::Error as EncodeError;
-
-            let serialization_errors = [
-                bitcoincore_rpc::Error::BitcoinSerialization(EncodeError::Io(
-                    IoError::other("test").into(),
-                )),
-                // bitcoincore_rpc::Error::Hex(HexToBytesError::InvalidChar(InvalidCharError{invalid: 0})),
-                bitcoincore_rpc::Error::Json(serde_json::Error::io(IoError::other("test"))),
-            ];
-
-            for error in serialization_errors {
-                assert!(
-                    !error.is_retryable(),
-                    "Serialization error should not be retryable"
-                );
-            }
-        }
-
-        #[test]
-        fn test_bridge_rpc_error_retryable() {
-            // Test permanent errors
-            assert!(
-                !BitcoinRPCError::TransactionAlreadyInBlock(BlockHash::all_zeros()).is_retryable()
-            );
-            assert!(!BitcoinRPCError::BumpFeeUTXOSpent(Default::default()).is_retryable());
-
-            // Test potentially retryable errors
-            let txid = Txid::all_zeros();
-            let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
-            assert!(BitcoinRPCError::BumpFeeError(txid, fee_rate).is_retryable());
-
-            // Test Other error with retryable patterns
-            let retryable_other = BitcoinRPCError::Other(eyre::eyre!("timeout occurred"));
-            assert!(retryable_other.is_retryable());
-
-            let non_retryable_other = BitcoinRPCError::Other(eyre::eyre!("permission denied"));
-            assert!(!non_retryable_other.is_retryable());
+                "test"
+            )));
         }
     }
 
     mod rpc_call_retry_tests {
 
-        use crate::extended_bitcoin_rpc::RetryableError;
-
         use super::*;
         use secrecy::SecretString;
+        use std::time::Duration;
 
         #[tokio::test]
         async fn test_rpc_call_retry_with_invalid_credentials() {
@@ -1891,19 +2148,21 @@ mod tests {
             let res = ExtendedBitcoinRpc::connect(url, invalid_user, invalid_password, None).await;
 
             assert!(res.is_err());
-            assert!(!res.unwrap_err().is_retryable());
         }
 
         #[tokio::test]
         async fn test_rpc_call_retry_with_invalid_host() {
+            use crate::extended_bitcoin_rpc::RetryConfig;
+
             let user = SecretString::new("user".to_string().into());
             let password = SecretString::new("password".to_string().into());
             let invalid_url = "http://nonexistent-host:8332".to_string();
+            // Connect failures are retryable; cap attempts so this test does not wait on DNS.
+            let retry = RetryConfig::new(10, Duration::from_millis(10), 1, 2, false);
 
-            let res = ExtendedBitcoinRpc::connect(invalid_url, user, password, None).await;
+            let res = ExtendedBitcoinRpc::connect(invalid_url, user, password, Some(retry)).await;
 
             assert!(res.is_err());
-            assert!(!res.unwrap_err().is_retryable());
         }
     }
 
@@ -1982,14 +2241,400 @@ mod tests {
 
             // Create an unconfirmed transaction
             let utxo = rpc.send_to_address(&address, amount).await.unwrap();
-            let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+            let new_fee_rate = FeeRate::from_sat_per_vb_u32(10000);
 
-            let result = rpc.bump_fee_with_fee_rate(utxo.txid, new_fee_rate).await;
+            let result = rpc.create_fee_bump_tx(utxo.txid, new_fee_rate).await;
             assert!(result.is_ok());
 
-            let new_txid = result.unwrap();
+            let new_tx = result.unwrap().expect("A replacement is needed");
             // Should return a different txid since fee was actually bumped
-            assert_ne!(new_txid, utxo.txid);
+            assert_ne!(new_tx.compute_txid(), utxo.txid);
         }
+    }
+
+    /// `nofn` is the test signer so the kickoff finalizer is a CheckSig we can spend.
+    fn test_kickoff_tx(
+        signer: &Actor,
+        round_tx: &crate::builder::transaction::TxHandler,
+        kickoff_idx: u32,
+        extra_watchtowers: Vec<XOnlyPublicKey>,
+        unlock_hashes: Vec<[u8; 20]>,
+        paramset: &'static ProtocolParamset,
+    ) -> crate::builder::transaction::TxHandler {
+        use crate::{
+            bitvm_client::ClementineBitVMPublicKeys,
+            builder::transaction::{
+                create_kickoff_txhandler, create_move_to_vault_txhandler, AssertScripts,
+                DisprovePath,
+            },
+            deposit::{
+                Actors, BaseDepositData, DepositData, DepositInfo, DepositType, KickoffData,
+                SecurityCouncil,
+            },
+            operator::RoundIndex,
+            EVMAddress,
+        };
+        use bitcoin::{hashes::Hash, OutPoint, ScriptBuf, Txid};
+        use std::str::FromStr;
+
+        let mut deposit_data = DepositData {
+            nofn_xonly_pk: Some(signer.xonly_public_key),
+            deposit: DepositInfo {
+                deposit_outpoint: OutPoint::new(Txid::all_zeros(), 1),
+                deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                    evm_address: EVMAddress([0u8; 20]),
+                    recovery_taproot_address: bitcoin::Address::from_str(
+                        "bcrt1p65yp9q9fxtf7dyvthyrx26xxm2czanvrnh9rtvphmlsjvhdt4k6qw4pkss",
+                    )
+                    .unwrap(),
+                }),
+            },
+            actors: Actors {
+                verifiers: vec![],
+                watchtowers: extra_watchtowers,
+                operators: vec![signer.xonly_public_key],
+            },
+            security_council: SecurityCouncil {
+                pks: vec![signer.xonly_public_key],
+                threshold: 1,
+            },
+        };
+        let move_tx = create_move_to_vault_txhandler(&mut deposit_data, paramset).unwrap();
+        let assert_hashes = vec![[0u8; 32]; ClementineBitVMPublicKeys::number_of_assert_txs()];
+        let disprove_root = [1u8; 32];
+        create_kickoff_txhandler(
+            KickoffData {
+                operator_xonly_pk: signer.xonly_public_key,
+                round_idx: RoundIndex::Round(0),
+                kickoff_idx,
+            },
+            round_tx,
+            &move_tx,
+            &mut deposit_data,
+            signer.xonly_public_key,
+            AssertScripts::AssertScriptTapNodeHash(&assert_hashes),
+            DisprovePath::HiddenNode(&disprove_root),
+            ScriptBuf::from_bytes(vec![0x51]).to_bytes(),
+            AssertScripts::AssertScriptTapNodeHash(&[[2u8; 32]]),
+            &unlock_hashes,
+            paramset,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn collateral_check_rejects_leftover_kickoffs_in_passed_round() {
+        use crate::{
+            actor::WinternitzDerivationPath,
+            builder::{
+                script::SpendPath,
+                transaction::{
+                    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+                    input::UtxoVout, output::UnspentTxOut, KickoffWinternitzKeys, TransactionType,
+                    TxHandlerBuilder, DEFAULT_SEQUENCE,
+                },
+            },
+            constants::NON_STANDARD_V3,
+            database::Database,
+            deposit::OperatorData,
+            operator::RoundIndex,
+            rpc::clementine::NormalSignatureKind,
+        };
+        use bitcoin::Transaction;
+
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.mine_0_fee_txs = true;
+        let db = Database::new(&config).await.unwrap();
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let paramset = config.protocol_paramset();
+
+        async fn mine_and_index(db: &Database, rpc: &ExtendedBitcoinRpc) {
+            rpc.mine_blocks(1).await.unwrap();
+            let height = u32::try_from(rpc.get_block_count().await.unwrap()).unwrap();
+            let hash = rpc.get_block_hash(height as u64).await.unwrap();
+            let block = rpc.get_block(&hash).await.unwrap();
+            let mut dbtx = db.begin_transaction().await.unwrap();
+            crate::bitcoin_syncer::save_block(db, &mut dbtx, &block, height)
+                .await
+                .unwrap();
+            dbtx.commit().await.unwrap();
+        }
+        async fn broadcast(db: &Database, rpc: &ExtendedBitcoinRpc, tx: &Transaction) {
+            rpc.send_raw_transaction(tx).await.unwrap();
+            mine_and_index(db, rpc).await;
+        }
+        async fn finalize_tip(db: &Database, rpc: &ExtendedBitcoinRpc, finality_depth: u32) {
+            for _ in 1..finality_depth {
+                mine_and_index(db, rpc).await;
+            }
+        }
+
+        let signer = Actor::new(
+            config.test_params.all_operators_secret_keys[0],
+            paramset.network,
+        );
+        let collateral = rpc
+            .send_to_address(&signer.address, paramset.collateral_funding_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let mut wpks = Vec::new();
+        for round_idx in RoundIndex::iter_rounds(paramset.num_round_txs + 1) {
+            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                wpks.push(
+                    signer
+                        .derive_winternitz_pk(WinternitzDerivationPath::Kickoff(
+                            round_idx,
+                            kickoff_idx as u32,
+                            paramset,
+                        ))
+                        .unwrap(),
+                );
+            }
+        }
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            wpks,
+            paramset.num_kickoffs_per_round,
+            paramset.num_round_txs,
+        )
+        .unwrap();
+        let operator_data = OperatorData {
+            xonly_pk: signer.xonly_public_key,
+            collateral_funding_outpoint: collateral,
+            reimburse_addr: signer.address.clone(),
+        };
+
+        let (mut round_tx, mut ready_to_reimburse_tx) = create_round_nth_txhandler(
+            signer.xonly_public_key,
+            collateral,
+            paramset.collateral_funding_amount,
+            RoundIndex::Round(0),
+            &kickoff_wpks,
+            paramset,
+        )
+        .unwrap();
+
+        signer
+            .tx_sign_and_fill_sigs(&mut round_tx, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, round_tx.get_cached_tx()).await;
+
+        assert!(
+            rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "current round with unspent kickoffs should still be accepted"
+        );
+
+        signer
+            .tx_sign_and_fill_sigs(&mut ready_to_reimburse_tx, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, ready_to_reimburse_tx.get_cached_tx()).await;
+
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "passed round with leftover kickoffs should be rejected"
+        );
+
+        let key_out = || {
+            UnspentTxOut::from_scripts(
+                Amount::ZERO,
+                vec![],
+                Some(signer.xonly_public_key),
+                paramset.network,
+            )
+        };
+        // Winternitz spend of leftover 0 that is not a protocol kickoff.
+        let mut dummy_spend = TxHandlerBuilder::new(TransactionType::Kickoff)
+            .with_version(NON_STANDARD_V3)
+            .add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                round_tx.get_spendable_output(UtxoVout::Kickoff(0)).unwrap(),
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(key_out())
+            .add_output(key_out())
+            .finalize();
+        signer
+            .tx_sign_winternitz(
+                &mut dummy_spend,
+                &[(
+                    vec![0u8; 20],
+                    WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 0, paramset),
+                )],
+            )
+            .unwrap();
+        rpc.send_raw_transaction(dummy_spend.get_cached_tx())
+            .await
+            .unwrap();
+
+        let mut protocol_kickoff = test_kickoff_tx(&signer, &round_tx, 1, vec![], vec![], paramset);
+        signer
+            .tx_sign_winternitz(
+                &mut protocol_kickoff,
+                &[(
+                    vec![0u8; 20],
+                    WinternitzDerivationPath::Kickoff(RoundIndex::Round(0), 1, paramset),
+                )],
+            )
+            .unwrap();
+        rpc.send_raw_transaction(protocol_kickoff.get_cached_tx())
+            .await
+            .unwrap();
+
+        let unused: Vec<usize> = (2..paramset.num_kickoffs_per_round).collect();
+        let mut burn_tx = create_burn_unused_kickoff_connectors_txhandler(
+            &round_tx,
+            &unused,
+            &signer.address,
+            paramset,
+        )
+        .unwrap();
+        signer
+            .tx_sign_and_fill_sigs(&mut burn_tx, &[], None)
+            .unwrap();
+        rpc.send_raw_transaction(burn_tx.get_cached_tx())
+            .await
+            .unwrap();
+        mine_and_index(&db, rpc).await;
+        finalize_tip(&db, rpc, paramset.finality_depth).await;
+
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "kickoff in a passed round with unspent finalizer should be rejected"
+        );
+
+        let mut spend_finalizer = TxHandlerBuilder::new(TransactionType::Dummy)
+            .with_version(NON_STANDARD_V3)
+            .add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                protocol_kickoff
+                    .get_spendable_output(UtxoVout::KickoffFinalizer)
+                    .unwrap(),
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(key_out())
+            .finalize();
+        signer
+            .tx_sign_and_fill_sigs(&mut spend_finalizer, &[], None)
+            .unwrap();
+        broadcast(&db, rpc, spend_finalizer.get_cached_tx()).await;
+
+        assert!(paramset.finality_depth > 1);
+        assert!(
+            !rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "a finalizer spend that is not finalized yet can be reorged out and should be rejected"
+        );
+
+        finalize_tip(&db, rpc, paramset.finality_depth).await;
+        assert!(
+            rpc.collateral_check(&operator_data, &kickoff_wpks, paramset, &db)
+                .await
+                .unwrap(),
+            "operator should be accepted after leftover kickoffs are burned and the kickoff finalizer is spent"
+        );
+    }
+
+    /// Locks the classifier to `create_kickoff_txhandler`: a real kickoff, with and
+    /// without extra watchtower outputs, must be classified as a protocol kickoff.
+    #[test]
+    fn create_kickoff_txhandler_is_classified_as_protocol_kickoff() {
+        use crate::{
+            bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
+            builder::transaction::{
+                create_round_nth_txhandler, input::UtxoVout, KickoffWinternitzKeys,
+            },
+            operator::RoundIndex,
+        };
+        use bitcoin::{
+            hashes::Hash, secp256k1::rand::thread_rng, secp256k1::SecretKey, Network, OutPoint,
+            Txid,
+        };
+
+        let paramset = &REGTEST_PARAMSET;
+        let signer = Actor::new(SecretKey::new(&mut thread_rng()), Network::Regtest);
+        let wpks = KickoffWinternitzKeys::new(
+            vec![
+                vec![[0u8; 20]; 43];
+                (paramset.num_round_txs + 1) * paramset.num_kickoffs_per_round
+            ],
+            paramset.num_kickoffs_per_round,
+            paramset.num_round_txs,
+        )
+        .unwrap();
+        let (round_tx, _) = create_round_nth_txhandler(
+            signer.xonly_public_key,
+            OutPoint::new(Txid::all_zeros(), 0),
+            paramset.collateral_funding_amount,
+            RoundIndex::Round(0),
+            &wpks,
+            paramset,
+        )
+        .unwrap();
+        let kickoff_outpoint = *round_tx
+            .get_spendable_output(UtxoVout::Kickoff(0))
+            .unwrap()
+            .get_prev_outpoint();
+
+        let classify = |extra_watchtowers: Vec<bitcoin::XOnlyPublicKey>,
+                        unlock_hashes: Vec<[u8; 20]>| {
+            let kickoff = test_kickoff_tx(
+                &signer,
+                &round_tx,
+                0,
+                extra_watchtowers,
+                unlock_hashes,
+                paramset,
+            );
+            super::spending_is_protocol_kickoff(
+                kickoff_outpoint,
+                kickoff.get_cached_tx(),
+                signer.xonly_public_key,
+            )
+            .unwrap()
+        };
+
+        assert!(
+            classify(vec![], vec![]),
+            "create_kickoff_txhandler output with no extra watchtowers must be a protocol kickoff"
+        );
+        assert!(
+            classify(vec![*UNSPENDABLE_XONLY_PUBKEY], vec![[0u8; 20]]),
+            "create_kickoff_txhandler output with extra watchtower outputs must still be a protocol kickoff"
+        );
+    }
+
+    #[test]
+    fn spending_is_protocol_kickoff_errors_if_input_is_missing() {
+        use bitcoin::hashes::Hash;
+        let kickoff_outpoint = bitcoin::OutPoint {
+            txid: bitcoin::Txid::all_zeros(),
+            vout: 1,
+        };
+        let spending_tx = bitcoin::Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+        let err = super::spending_is_protocol_kickoff(
+            kickoff_outpoint,
+            &spending_tx,
+            *crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("does not include kickoff outpoint"));
     }
 }

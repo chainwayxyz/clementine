@@ -1,77 +1,11 @@
 //! # ZkVM Module
-//! This module defines the traits and structures for zkVM guest and host interactions.
-//! It includes the `ZkvmGuest` and `ZkvmHost` traits for reading from and writing to the host,
-//! as well as committing data and verifying proofs. The `Risc0Guest` struct implements the `ZkvmGuest` trait
-//! for RISC0 zkVM interactions.
-//! The `VerificationContext` struct is used to represent a proof that can be used in zkVM interactions,
-//! containing a method ID and a journal of data for verification.
-//! The module also provides a default implementation for the `Risc0Guest` struct, which
-//! initializes a new instance of the guest.
+//! This module defines the `ZkvmGuest` trait for reading from the host, committing data and
+//! verifying proofs inside a guest. The `SP1Guest` struct in [`super::sp1`] implements it for
+//! the SP1 zkVM.
 
-use std::io::Write;
-
-use borsh::BorshDeserialize;
-use risc0_zkvm::guest::env::{self};
-
-/// This module defines the traits and structures for zkVM guest and host interactions for convenience.
+/// Guest I/O and proof verification, implemented by the SP1 guest and by native test mocks.
 pub trait ZkvmGuest {
     fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T;
     fn commit<T: borsh::BorshSerialize>(&self, item: &T);
     fn verify<T: borsh::BorshSerialize>(&self, method_id: [u32; 8], journal: &T);
-}
-
-/// This struct represents a proof that can be used in zkVM interactions.
-/// It contains a method ID and a journal of data that can be used to verify the proof.
-/// Proof itself is not included here, as it is added as an assumption by the host.
-#[derive(Debug, Clone)]
-pub struct VerificationContext {
-    pub method_id: [u32; 8],
-    pub journal: Vec<u8>,
-}
-
-pub trait ZkvmHost {
-    /// Adding data to the host
-    fn write<T: borsh::BorshSerialize>(&self, value: &T);
-
-    /// Adds an assumption to the the guest code to be verified.
-    fn add_assumption(&self, proof: VerificationContext);
-
-    /// Proves with the given data
-    fn prove(&self, elf: &[u32]) -> VerificationContext;
-}
-
-#[derive(Debug, Clone)]
-pub struct Risc0Guest;
-
-impl Risc0Guest {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for Risc0Guest {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ZkvmGuest for Risc0Guest {
-    /// This uses little endianness in the items it deserializes
-    fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T {
-        let mut reader = env::stdin();
-        BorshDeserialize::deserialize_reader(&mut reader)
-            .expect("Failed to deserialize input from host")
-    }
-
-    /// This uses little endianness in the items it serializes
-    fn commit<T: borsh::BorshSerialize>(&self, item: &T) {
-        // use risc0_zkvm::guest::env::Write as _;
-        let buf = borsh::to_vec(item).expect("Serialization to vec is infallible");
-        let mut journal = env::journal();
-        journal.write_all(&buf).unwrap();
-    }
-
-    fn verify<T: borsh::BorshSerialize>(&self, method_id: [u32; 8], output: &T) {
-        env::verify(method_id, &borsh::to_vec(output).unwrap()).unwrap();
-    }
 }

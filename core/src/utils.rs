@@ -1,9 +1,11 @@
 use crate::builder::transaction::TransactionType;
-use crate::config::TelemetryConfig;
+use crate::config::{BridgeConfig, TelemetryConfig};
 use crate::errors::BridgeError;
+use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
 use crate::operator::RoundIndex;
 use crate::rpc::clementine::VergenResponse;
-use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey};
+use bitcoin::{OutPoint, ScriptBuf, TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use eyre::Context as _;
 use futures::future::join_all;
 use http::HeaderValue;
@@ -154,6 +156,25 @@ pub fn initialize_telemetry(config: &TelemetryConfig) -> Result<(), BridgeError>
         .map_err(|e| eyre::eyre!("Failed to initialize telemetry: {}", e))?;
 
     Ok(())
+}
+
+/// If `deposit_finality_depth` is set, the deposit tx must have at least that
+/// many confirmations. Unconfirmed txs are treated as 0 confirmations and
+/// rejected with `InvalidDeposit`. If unset, this is a no-op.
+pub async fn ensure_deposit_finality(
+    rpc: &ExtendedBitcoinRpc,
+    config: &BridgeConfig,
+    deposit_txid: Txid,
+) -> Result<(), BridgeError> {
+    if config.deposit_finality_depth.is_none() {
+        return Ok(());
+    }
+
+    let tx_info = rpc
+        .get_raw_transaction_info(&deposit_txid, None)
+        .await
+        .wrap_err("Failed to get deposit transaction info")?;
+    config.ensure_deposit_confirmations(deposit_txid, tx_info.confirmations.unwrap_or(0))
 }
 
 fn try_set_global_subscriber<S>(subscriber: S)
@@ -541,6 +562,9 @@ pub trait NamedEntity: Sync + Send + 'static {
 
     /// Consumer ID for the finalized block task with no automation.
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str;
+
+    /// Consumer ID for the LCP syncer task.
+    const LCP_SYNCER_CONSUMER_ID: &'static str;
 
     /// Consumer ID for the finalized block task with automation.
     const FINALIZED_BLOCK_CONSUMER_ID_AUTOMATION: &'static str;

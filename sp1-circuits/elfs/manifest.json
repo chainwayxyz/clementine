@@ -1,0 +1,97 @@
+{
+  "mainnet-bridge-circuit": {
+    "program_key": "00bd302a721e12c1884e9777fbba251de0b71bf4779f76d5bd63975e048bd2b7",
+    "sha256": "73bf29cb421e9e66bb9c4f896e2e014f57dad26619ed614bf828a6456bb8ab4a",
+    "sp1_version": "6.10.0"
+  },
+  "mainnet-header-chain": {
+    "program_key": "00d71d5746f312471e4e970f7add8671d1071f5fef2070ca219d60a3f30311e7",
+    "sha256": "a083530a395ec154df11cf4490ad52c555c0ff8ea2ed48993ed9bc6f26adbb8d",
+    "sp1_version": "6.10.0"
+  },
+  "mainnet-light-client": {
+    "program_key": "00eaa67d5c5f212b46e9695a248c8cd6ac0d7329a00420dc452bf971cfd7ff93",
+    "sha256": "64346d7baf1653d4beee2690ebd712cf7662178a6114c3e55f3414aa2e34bd91",
+    "sp1_version": "6.10.0"
+  },
+  "mainnet-work-only": {
+    "program_key": "00cd6fe2a2602c467bc69c34bc95194b0bc366ffa023be26b83290de76d7f594",
+    "sha256": "16824ba37613c0420cad059babbd90a8d3243815ae2e16ec41e1477c4c47be85",
+    "sp1_version": "6.10.0"
+  },
+  "regtest-bridge-circuit": {
+    "program_key": "00f92f2d095ab22cfda5177a079001ecea9f7de20fd0919c03bc7bd176da58ea",
+    "sha256": "034f27b6061128172398f7dedba4b27e88899dd5a11df64acbced9f0c5a848a7",
+    "sp1_version": "6.10.0"
+  },
+  "regtest-header-chain": {
+    "program_key": "00cee7334b57b8a65d925b307d59f48854dd83714604513936a2fc3308449b8f",
+    "sha256": "387a66e9663ad577f1c74a72744d1eaeb9de5066df97c08d3ea0e04b17beac98",
+    "sp1_version": "6.10.0"
+  },
+  "regtest-light-client": {
+    "program_key": "003326b3f04a80d76eb2cf9dda1d4f32f356568550820b2f3d55d40c6621fa74",
+    "sha256": "2d5bdf5d12994c9a05645503eec28ef9ecc11f1eaf8ddf64270a8c252e8e74e7",
+    "sp1_version": "6.10.0"
+  },
+  "regtest-work-only": {
+    "program_key": "00e93fef817af3dae453adc4933d6ab31236e1edf0e71f469f42edf05c73ca9e",
+    "sha256": "4a84a1957333e421271f296831bff73ce64578866af5bf51e8da1ed44e5d0f12",
+    "sp1_version": "6.10.0"
+  },
+  "signet-bridge-circuit": {
+    "program_key": "002ad4b167e01ddc595049e29d4028e7a64d1b25d29bafe900faf4a4b979d2b1",
+    "sha256": "0cd51abbe1fbee1b9dcffa0ae7b1ac5198c89fe453e2fedac3369439f9e7221a",
+    "sp1_version": "6.10.0"
+  },
+  "signet-header-chain": {
+    "program_key": "00a38fb3f48816964cc06740c9e6cc3266e49b9693aaeafbbb42a6c01ba3a963",
+    "sha256": "8d37a5f22cf97629ce8fe344ed2943d2c88f36dfc98b1769eaf6e347738f6243",
+    "sp1_version": "6.10.0"
+  },
+  "signet-light-client": {
+    "program_key": "00c4f867d1b30a3479cf10920884fd81019b59a0708c63f6b199c0f1e29be9da",
+    "sha256": "8f98b48354dc69608fee7f50af334ebb4d2e694f6ec4649e824f1f8a825fe464",
+    "sp1_version": "6.10.0"
+  },
+  "signet-work-only": {
+    "program_key": "0020ffc658d539f1ec155de7c7e4e1751da8d14187279b789600b1fa5adfdfbb",
+    "sha256": "7278bf18362f64a5414db737a3195da465ce218ea3f93da2349f1b660168edf3",
+    "sp1_version": "6.10.0"
+  },
+  "test-regtest-bridge-circuit": {
+    "program_key": "005fa8a0e0996d4a97a7f013efad4ffef0509607a428069c942de16947a908bc",
+    "sha256": "4b9fabdffccb57e8d87bf34fb15842bd8fffb74cecd4f70cac639091da57ef87",
+    "sp1_version": "6.10.0"
+  },
+  "test-signet-bridge-circuit": {
+    "program_key": "00346db601a9c37f84651033fe6d2ce00ddca7f324039e45c8089f29b483f92c",
+    "sha256": "7274f5cfd4decd15bafd59e240f0b24182e8308b8a4358c450c751d09c845c3a",
+    "sp1_version": "6.10.0"
+  },
+  "test-testnet4-bridge-circuit": {
+    "program_key": "00d32e61dc07c192ccba3ad615c6def722bde431bf334991a9f5807dbdc845a1",
+    "sha256": "da29624483195a79f128644dcdb5712de3442cc9698ad40daab19ba01f888ac9",
+    "sp1_version": "6.10.0"
+  },
+  "testnet4-bridge-circuit": {
+    "program_key": "007a9cf8e72305ce5cec8fb8133abdb81c59315cd909e7e4fd914a1a47c6749b",
+    "sha256": "5ef9ea432810e9abb3054df2c55be592c7002f1fa67bda27c20eb90cc6152700",
+    "sp1_version": "6.10.0"
+  },
+  "testnet4-header-chain": {
+    "program_key": "003c2a8443df65c13af865cc6cbfa8162fae65c0e52293bddc9c27d113b9be92",
+    "sha256": "4e05fe4a40c283ed19c5132a300677d6f3105f53f49ff26ca2c23d9123f88783",
+    "sp1_version": "6.10.0"
+  },
+  "testnet4-light-client": {
+    "program_key": "000b799bd64f1be497ea370c289ba8162f6b88a57317a0bd9275c8350663af1e",
+    "sha256": "1869e11673b139f975c63a65b708fd93e14a8668ee33442f4e1027394e7bf653",
+    "sp1_version": "6.10.0"
+  },
+  "testnet4-work-only": {
+    "program_key": "004a826c83785e4cdf80be007fb2d150f7a58508b9f57a61c07a392ecbaa6d5f",
+    "sha256": "1bf4747166077c977baf206216d8f543cbab9aab173f64194867f1f839a17c4e",
+    "sp1_version": "6.10.0"
+  }
+}

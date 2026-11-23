@@ -6,9 +6,9 @@ use crate::{
 };
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{BlockHash, OutPoint, Txid};
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use circuits_lib::bridge_circuit::structs::StorageProof;
+use circuits_lib::common::sp1::Receipt;
 use eyre::Context;
-use risc0_zkvm::Receipt;
 use std::{
     collections::HashMap,
     fmt,
@@ -99,7 +99,7 @@ impl CitreaClientT for MockCitreaClient {
         Ok(())
     }
 
-    async fn prove_lcp_for_assert(
+    async fn get_lcp_for_assert(
         &self,
         _payout_block_height: u64,
         _payout_block_hash: BlockHash,
@@ -194,10 +194,10 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
+        _l1_hash: BlockHash,
         _paramset: &'static ProtocolParamset,
-    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
+    ) -> Result<Option<(Receipt, u64)>, BridgeError> {
         Ok(Some((
-            LightClientProof { lc_journal: vec![] },
             borsh::from_slice(include_bytes!(
                 "../../../../../circuits-lib/test_data/lcp_receipt.bin"
             ))
@@ -209,6 +209,8 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
+        _block_hash: BlockHash,
+        _prev_block_hash: BlockHash,
         _timeout: Duration,
         _paramset: &'static ProtocolParamset,
     ) -> Result<(u64, u64), BridgeError> {

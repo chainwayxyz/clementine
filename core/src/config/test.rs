@@ -1,5 +1,7 @@
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TxHandlerBuilder;
+use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
+use crate::config::protocol::ProtocolParamset;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::deposit::DepositData;
 use crate::extended_bitcoin_rpc::ExtendedBitcoinRpc;
@@ -10,11 +12,12 @@ use bitcoin::secp256k1::SecretKey;
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
+use bitcoin::{OutPoint, Witness};
 use bitvm::chunk::api::Assertions;
 use circuits_lib::bridge_circuit::structs::CircuitWitness;
 use circuits_lib::bridge_circuit::structs::{CircuitTxOut, WatchtowerInput};
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use risc0_zkvm::Receipt;
+use circuits_lib::common::sp1::Receipt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -51,6 +54,11 @@ pub struct TestParams {
 
     /// A flag to indicate whether the public input for the BitVM challenge is corrupted.
     pub corrupted_public_input: bool,
+
+    /// A fault injection flag. If true, the operator encodes digits of the first assert as
+    /// non-minimal or out-of-range script numbers that commit to the same values. The first
+    /// assert is then non-standard, so tests must mine it directly.
+    pub non_canonical_assert_digits: bool,
 
     /// A flag to generate blocks to the address of the wallet.
     pub generate_to_address: bool,
@@ -138,6 +146,75 @@ impl TestParams {
         asserts
     }
 
+    /// Re-encodes digits of the first assert if `non_canonical_assert_digits` is set. After
+    /// `OP_MIN(digit, 15)`, consensus sees the same values as before.
+    ///
+    /// - Zero digits of the Groth16 public input become negative zero (`0x80`), a non-minimal
+    ///   encoding of 0. The public input always has zero digits, because the Groth16 output is
+    ///   31 bytes.
+    /// - Digits with value 15 in all commits alternate between 16 (`0x10`), which is minimal but
+    ///   out of range, and a non-minimal encoding of 256 (`00 01 00`). The commits have hundreds
+    ///   of digits, so some of them have value 15.
+    ///
+    /// The first byte of each new encoding differs from the value that consensus uses.
+    pub fn maybe_use_non_canonical_assert_digits(
+        &self,
+        tx_type: TransactionType,
+        mut tx: Transaction,
+        deposit_outpoint: OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> eyre::Result<Transaction> {
+        if !self.non_canonical_assert_digits || tx_type != TransactionType::MiniAssert(0) {
+            return Ok(tx);
+        }
+
+        let derivations =
+            ClementineBitVMPublicKeys::mini_assert_derivations_0(deposit_outpoint, paramset);
+        // The witness starts with the operator signature, followed by the Winternitz signatures
+        // of the commits in reverse order. Each digit is a hash followed by the digit value.
+        let g16_public_input_start = 1 + derivations[2..]
+            .iter()
+            .map(|path| 2 * path.get_params().total_digit_len() as usize)
+            .sum::<usize>();
+        let message_digits = (derivations[1].get_params().message_byte_len() * 8)
+            .div_ceil(paramset.winternitz_log_d) as usize;
+        let total_digits = derivations
+            .iter()
+            .map(|path| path.get_params().total_digit_len() as usize)
+            .sum::<usize>();
+
+        let mut witness = tx.input[0].witness.to_vec();
+        let mut zero_digits = 0;
+        for digit_idx in (0..message_digits).map(|i| g16_public_input_start + 2 * i + 1) {
+            if witness[digit_idx].is_empty() {
+                witness[digit_idx] = vec![0x80];
+                zero_digits += 1;
+            }
+        }
+        let mut max_digits = 0;
+        for digit_idx in (0..total_digits).map(|i| 2 * i + 2) {
+            if witness[digit_idx] == [0x0f] {
+                witness[digit_idx] = if max_digits % 2 == 0 {
+                    vec![0x10]
+                } else {
+                    vec![0x00, 0x01, 0x00]
+                };
+                max_digits += 1;
+            }
+        }
+        eyre::ensure!(zero_digits > 0, "Groth16 public input has no zero digit");
+        eyre::ensure!(
+            max_digits >= 2,
+            "First assert has fewer than two digits with value 15"
+        );
+        tracing::info!(
+            "Re-encoded {zero_digits} zero digits and {max_digits} digits with value 15 in the first assert"
+        );
+
+        tx.input[0].witness = Witness::from_slice(&witness);
+        Ok(tx)
+    }
+
     pub fn maybe_override_blockhashes_serialized(
         &self,
         blockhashes_serialized: Vec<[u8; 32]>,
@@ -159,7 +236,9 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
+            let highest_valid_wt_index = self
+                .highest_valid_wt_index(total_works, genesis_height)
+                .unwrap();
 
             tracing::info!(
                 "Overriding blockhashes: first two valid mode with {} blocks",
@@ -182,6 +261,7 @@ impl TestParams {
         block_hashes: &[(BlockHash, impl Sized)],
         header_chain_prover: &HeaderChainProver,
         total_works: Vec<[u8; 16]>,
+        genesis_height: u32,
     ) -> eyre::Result<Receipt> {
         if self.generate_varying_total_works_insufficient_total_work {
             let (hcp, _) = header_chain_prover
@@ -191,7 +271,8 @@ impl TestParams {
         }
 
         if self.generate_varying_total_works_first_two_valid {
-            let highest_valid_wt_index = self.highest_valid_wt_index(total_works).unwrap();
+            let highest_valid_wt_index =
+                self.highest_valid_wt_index(total_works, genesis_height)?;
             let target_blockhash = block_hashes.get(highest_valid_wt_index).ok_or_else(|| {
                 eyre::eyre!("Missing blockhash at index {}", highest_valid_wt_index)
             })?;
@@ -205,7 +286,13 @@ impl TestParams {
         Ok(current_hcp)
     }
 
-    fn highest_valid_wt_index(&self, total_works: Vec<[u8; 16]>) -> eyre::Result<usize> {
+    /// Index, counted from the genesis block, of the block whose regtest total work is the
+    /// second lowest watchtower total work.
+    fn highest_valid_wt_index(
+        &self,
+        total_works: Vec<[u8; 16]>,
+        genesis_height: u32,
+    ) -> eyre::Result<usize> {
         if total_works.len() < 2 {
             return Err(eyre::eyre!(
                 "Expected at least two total works for first two valid mode"
@@ -222,7 +309,7 @@ impl TestParams {
                 .expect("Expected 8 bytes for index conversion"),
         );
 
-        Ok(second_lowest_total_work_index / 2 - 1)
+        Ok(second_lowest_total_work_index / 2 - 1 - genesis_height as usize)
     }
 
     pub fn maybe_disrupt_block_hash(&self, block_hash: [u8; 32]) -> [u8; 32] {
@@ -581,6 +668,7 @@ impl Default for TestParams {
             operator_forgot_watchtower_challenge: false,
             corrupted_asserts: false,
             corrupted_public_input: false,
+            non_canonical_assert_digits: false,
             use_small_annex: false,
             use_large_annex: false,
             use_large_output: false,

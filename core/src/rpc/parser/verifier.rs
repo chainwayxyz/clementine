@@ -122,7 +122,6 @@ impl From<PartialSignature> for PartialSig {
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_pk: &PublicKey,
@@ -149,7 +148,6 @@ pub fn parse_deposit_sign_session(
     Ok((deposit_data, session_id))
 }
 
-#[allow(clippy::result_large_err)]
 pub fn parse_partial_sigs(partial_sigs: Vec<Vec<u8>>) -> Result<Vec<PartialSignature>, Status> {
     partial_sigs
         .iter()
@@ -170,7 +168,6 @@ pub fn parse_partial_sigs(partial_sigs: Vec<Vec<u8>>) -> Result<Vec<PartialSigna
         .collect::<Result<Vec<_>, _>>()
 }
 
-#[allow(clippy::result_large_err)]
 pub fn parse_op_keys_with_deposit(
     data: OperatorKeysWithDeposit,
 ) -> Result<(DepositData, OperatorKeys, XOnlyPublicKey), Status> {

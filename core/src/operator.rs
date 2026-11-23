@@ -1,4 +1,3 @@
-use ark_ff::PrimeField;
 use circuits_lib::common::constants::FIRST_FIVE_OUTPUTS;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -28,7 +27,7 @@ use crate::task::entity_metric_publisher::{
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::{monitor_standalone_task, Last20Bytes, ScriptBufExt};
+use crate::utils::{ensure_deposit_finality, monitor_standalone_task, Last20Bytes, ScriptBufExt};
 use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, constants, UTXO};
 use bitcoin::hashes::Hash;
@@ -40,6 +39,7 @@ use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 
 use eyre::{Context, OptionExt};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -56,15 +56,9 @@ use {
     bitcoin::Witness,
     bitvm::chunk::api::generate_assertions,
     bridge_circuit_host::{
-        bridge_circuit_host::{
-            create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF,
-            REGTEST_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF_TEST, SIGNET_BRIDGE_CIRCUIT_ELF,
-            SIGNET_BRIDGE_CIRCUIT_ELF_TEST, TESTNET4_BRIDGE_CIRCUIT_ELF,
-            TESTNET4_BRIDGE_CIRCUIT_ELF_TEST,
-        },
+        bridge_circuit_host::{create_spv, prove_bridge_circuit},
         structs::{BridgeCircuitHostParams, WatchtowerContext},
     },
-    circuits_lib::bridge_circuit::structs::LightClientProof,
     std::collections::HashMap,
 };
 
@@ -196,6 +190,7 @@ where
         self.background_tasks
             .ensure_task_looping(
                 PayoutCheckerTask::new(self.operator.db.clone(), self.operator.clone())
+                    .into_buffered_errors(20, 3, Duration::from_secs(60))
                     .with_delay(PAYOUT_CHECKER_POLL_DELAY),
             )
             .await;
@@ -258,6 +253,7 @@ where
             stopped_tasks: Some(stopped_tasks),
             state_manager_next_height: sync_status.state_manager_next_height,
             btc_fee_rate_sat_vb: sync_status.bitcoin_fee_rate_sat_vb,
+            lcp_synced_height: sync_status.lcp_synced_height,
         })
     }
 
@@ -297,8 +293,27 @@ where
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
             Some(operator_data) => {
-                // Operator data is already set in db, we don't actually need to do anything.
-                // set_operator_checked will give error if the values set in config and db doesn't match.
+                // Signed deposits commit to the stored values, so config can't change them.
+                if config
+                    .operator_reimbursement_address
+                    .as_ref()
+                    .is_some_and(|addr| addr != operator_data.reimburse_addr.as_unchecked())
+                    || config
+                        .operator_collateral_funding_outpoint
+                        .is_some_and(|outpoint| {
+                            outpoint != operator_data.collateral_funding_outpoint
+                        })
+                {
+                    return Err(eyre::eyre!(
+                        "Operator reimbursement address or collateral funding outpoint in config doesn't match the values stored in DB. \
+                         Config: ({:?}, {:?}), DB: ({:?}, {:?})",
+                        config.operator_reimbursement_address,
+                        config.operator_collateral_funding_outpoint,
+                        operator_data.reimburse_addr,
+                        operator_data.collateral_funding_outpoint
+                    )
+                    .into());
+                }
                 (
                     operator_data.collateral_funding_outpoint,
                     operator_data.reimburse_addr,
@@ -307,7 +322,7 @@ where
             None => {
                 if config.protocol_paramset().network == bitcoin::Network::Bitcoin
                     && (config.operator_reimbursement_address.is_none()
-                        || config.operator_reimbursement_address.is_none())
+                        || config.operator_collateral_funding_outpoint.is_none())
                 {
                     let wallet_address = rpc.get_new_wallet_address().await?;
                     return Err(eyre::eyre!(
@@ -517,6 +532,13 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
+        ensure_deposit_finality(
+            &self.rpc,
+            &self.config,
+            deposit_data.get_deposit_outpoint().txid,
+        )
+        .await?;
+
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(constants::DEFAULT_CHANNEL_SIZE);
         let monitor_err_sender = sig_tx.clone();
@@ -615,16 +637,19 @@ where
         };
 
         // Net profit must be bigger than withdrawal fee.
-        // net profit doesn't take into account the fees, but operator_withdrawal_fee_sats should
+        // Net profit does not subtract the payout tx fee, which the operator pays. By design,
+        // operator_withdrawal_fee_sats is substantially higher than any realistic payout tx fee.
         net_profit >= operator_withdrawal_fee_sats
     }
 
     /// Prepares a withdrawal by:
     ///
     /// 1. Checking if the withdrawal has been made on Citrea
-    /// 2. Verifying the given signature
-    /// 3. Checking if the withdrawal is profitable or not
-    /// 4. Funding the withdrawal transaction using TxSender RBF option
+    /// 2. Checking that this operator has deposit signatures for the withdrawal's deposit, as
+    ///    otherwise the payout can't be reimbursed
+    /// 3. Verifying the given signature
+    /// 4. Checking if the withdrawal is profitable or not
+    /// 5. Funding the withdrawal transaction using TxSender RBF option
     ///
     /// # Parameters
     ///
@@ -676,6 +701,34 @@ where
 
         if withdrawal_utxo != input_utxo.outpoint {
             return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
+        }
+
+        // Without deposit signatures the payout can never be reimbursed, and the payout checker
+        // would stop at this payout.
+        let move_to_vault_txid = self
+            .db
+            .get_move_to_vault_txid_from_citrea_deposit(None, withdrawal_index)
+            .await?
+            .ok_or_eyre(format!(
+                "Move to vault txid not found for withdrawal {withdrawal_index}"
+            ))?;
+        let deposit_outpoint = self
+            .db
+            .get_deposit_data_with_move_tx(None, move_to_vault_txid)
+            .await?
+            .ok_or_eyre(format!(
+                "Deposit data not found for move to vault txid {move_to_vault_txid} of withdrawal {withdrawal_index}"
+            ))?
+            .get_deposit_outpoint();
+        if !self
+            .db
+            .has_deposit_signatures(None, deposit_outpoint, self.signer.xonly_public_key)
+            .await?
+        {
+            return Err(eyre::eyre!(
+                "No deposit signatures of this operator found for deposit {deposit_outpoint} of withdrawal {withdrawal_index}, payout can't be reimbursed"
+            )
+            .into());
         }
 
         let operator_withdrawal_fee_sats =
@@ -746,6 +799,7 @@ where
                 payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
+                    include_unsafe: Some(false),
                     change_address: None,
                     change_position: Some(1),
                     change_type: None,
@@ -932,6 +986,8 @@ where
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<bitcoin::Txid, BridgeError> {
+        self.db.lock_current_round_index(dbtx).await?;
+
         let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
@@ -1104,6 +1160,8 @@ where
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
     ) -> Result<(), BridgeError> {
+        self.db.lock_current_round_index(dbtx).await?;
+
         // get current round index
         let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
 
@@ -1211,43 +1269,45 @@ where
             }
         }
 
-        // Burn unused kickoff connectors
-        let mut burn_unspent_kickoff_connectors_tx =
-            create_burn_unused_kickoff_connectors_txhandler(
-                &current_round_txhandler,
-                &unspent_kickoff_connector_indices,
-                &self.signer.address,
-                self.config.protocol_paramset(),
-            )?;
+        // Burn unused kickoff connectors. If every connector was used, there is nothing to burn.
+        if !unspent_kickoff_connector_indices.is_empty() {
+            let mut burn_unspent_kickoff_connectors_tx =
+                create_burn_unused_kickoff_connectors_txhandler(
+                    &current_round_txhandler,
+                    &unspent_kickoff_connector_indices,
+                    &self.signer.address,
+                    self.config.protocol_paramset(),
+                )?;
 
-        // sign burn unused kickoff connectors tx
-        self.signer
-            .tx_sign_and_fill_sigs(
-                &mut burn_unspent_kickoff_connectors_tx,
-                &[],
-                Some(&mut tweak_cache),
-            )
-            .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
+            // sign burn unused kickoff connectors tx
+            self.signer
+                .tx_sign_and_fill_sigs(
+                    &mut burn_unspent_kickoff_connectors_tx,
+                    &[],
+                    Some(&mut tweak_cache),
+                )
+                .wrap_err("Failed to sign burn unused kickoff connectors tx")?;
 
-        self.tx_sender
-            .insert_try_to_send(
-                dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::BurnUnusedKickoffConnectors,
-                    operator_xonly_pk: Some(self.signer.xonly_public_key),
-                    round_idx: Some(current_round_index),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                burn_unspent_kickoff_connectors_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    dbtx,
+                    Some(TxMetadata {
+                        tx_type: TransactionType::BurnUnusedKickoffConnectors,
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
+                        round_idx: Some(current_round_index),
+                        kickoff_idx: None,
+                        deposit_outpoint: None,
+                    }),
+                    burn_unspent_kickoff_connectors_tx.get_cached_tx(),
+                    FeePayingType::CPFP,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await?;
+        }
 
         // send ready to reimburse tx
         self.tx_sender
@@ -1306,6 +1366,28 @@ where
         Ok(())
     }
 
+    /// Saves finalized headers that header sync has not saved yet, in case it is behind.
+    ///
+    /// The header chain prover reads on its own connection, so the headers are committed
+    /// independently of the state transaction that `send_asserts` holds open.
+    #[cfg(feature = "automation")]
+    async fn catch_up_assertion_headers(&self) -> Result<(), BridgeError> {
+        let rpc_current_finalized_height = self
+            .rpc
+            .get_current_chain_height()
+            .await?
+            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
+
+        self.db
+            .fetch_and_save_missing_blocks(
+                None,
+                &self.rpc,
+                self.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + 1,
+            )
+            .await
+    }
+
     #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
@@ -1316,7 +1398,8 @@ where
         _payout_blockhash: Witness,
         latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        use bridge_circuit_host::utils::{get_verifying_key, is_dev_mode};
+        use bridge_circuit_host::bitvm_verifier::get_verifying_key;
+        use circuits_lib::bridge_circuit::constants::is_test_vk;
         use citrea_sov_rollup_interface::zk::light_client_proof::output::LightClientCircuitOutput;
 
         let context = ContractContext::new_context_for_kickoff(
@@ -1396,7 +1479,7 @@ where
 
         let lcp_receipt = self
             .citrea_client
-            .prove_lcp_for_assert(
+            .get_lcp_for_assert(
                 payout_block_height as u64,
                 payout_block_hash,
                 deposit_idx as u32,
@@ -1408,9 +1491,6 @@ where
         let proof_output: LightClientCircuitOutput = borsh::from_slice(&lcp_receipt.journal.bytes)
             .wrap_err("Failed to deserialize light client circuit output")?;
         let l2_height = proof_output.last_l2_height;
-        let light_client_proof = LightClientProof {
-            lc_journal: lcp_receipt.journal.bytes.clone(),
-        };
 
         tracing::info!("Got light client proof in send_asserts");
 
@@ -1448,21 +1528,7 @@ where
             .test_params
             .maybe_disrupt_latest_block_hash_commit(latest_blockhash_last_20);
 
-        let rpc_current_finalized_height = self
-            .rpc
-            .get_current_chain_height()
-            .await?
-            .saturating_sub(self.config.protocol_paramset().finality_depth - 1);
-
-        // update headers in case the sync (state machine handle_finalized_block) is behind
-        self.db
-            .fetch_and_save_missing_blocks(
-                Some(dbtx),
-                &self.rpc,
-                self.config.protocol_paramset().genesis_height,
-                rpc_current_finalized_height + 1,
-            )
-            .await?;
+        self.catch_up_assertion_headers().await?;
 
         let current_height = self
             .db
@@ -1500,7 +1566,7 @@ where
         #[cfg(test)]
         {
             use bridge_circuit_host::utils::total_work_from_wt_tx;
-            for (_, tx) in watchtower_challenges.iter() {
+            for tx in watchtower_challenges.values() {
                 let total_work = total_work_from_wt_tx(tx);
                 total_works.push(total_work);
             }
@@ -1517,6 +1583,7 @@ where
                 &block_hashes,
                 &self.header_chain_prover,
                 total_works.clone(),
+                self.config.protocol_paramset().genesis_height,
             )
             .await?;
 
@@ -1583,7 +1650,6 @@ where
             kickoff_tx.clone(),
             spv,
             current_hcp,
-            light_client_proof,
             lcp_receipt,
             storage_proof,
             self.config.protocol_paramset().network,
@@ -1592,37 +1658,7 @@ where
         )
         .wrap_err("Failed to create bridge circuit host params in send_asserts")?;
 
-        let bridge_circuit_elf = match self.config.protocol_paramset().network {
-            bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
-            bitcoin::Network::Testnet4 => {
-                if is_dev_mode() {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    TESTNET4_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Signet => {
-                if is_dev_mode() {
-                    SIGNET_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    SIGNET_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            bitcoin::Network::Regtest => {
-                if is_dev_mode() {
-                    REGTEST_BRIDGE_CIRCUIT_ELF_TEST
-                } else {
-                    REGTEST_BRIDGE_CIRCUIT_ELF
-                }
-            }
-            _ => {
-                return Err(eyre::eyre!(
-                    "Unsupported network {:?} in send_asserts",
-                    self.config.protocol_paramset().network
-                )
-                .into())
-            }
-        };
+        let backend = self.header_chain_prover.backend();
         tracing::info!("Starting proving bridge circuit to send asserts");
 
         #[cfg(test)]
@@ -1630,20 +1666,13 @@ where
             .test_params
             .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
 
-        #[cfg(test)]
-        self.config
-            .test_params
-            .maybe_dump_bridge_circuit_params_to_file(&bridge_circuit_host_params)?;
-
-        let (g16_proof, g16_output, public_inputs) = tokio::task::spawn_blocking(move || {
-            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf)
-        })
-        .await
-        .wrap_err("Failed to join the prove_bridge_circuit task")?
-        .wrap_err("Failed to prove bridge circuit")?;
+        let (g16_proof, public_inputs) = prove_bridge_circuit(bridge_circuit_host_params, backend)
+            .await
+            .wrap_err("Failed to prove bridge circuit")?;
 
         tracing::info!("Proved bridge circuit in send_asserts");
-        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+        let public_input_scalar = public_inputs.groth16_public_input();
+        let bridge_program_key = *self.config.protocol_paramset().bridge_program_key()?;
 
         #[cfg(test)]
         let mut public_inputs = public_inputs;
@@ -1670,12 +1699,12 @@ where
         );
 
         let asserts = tokio::task::spawn_blocking(move || {
-            let vk = get_verifying_key();
+            let vk = get_verifying_key(&bridge_program_key)?;
 
             generate_assertions(g16_proof, vec![public_input_scalar], &vk).map_err(|e| {
                 eyre::eyre!(
                     "Failed to generate {}assertions: {}",
-                    if is_dev_mode() { "dev mode " } else { "" },
+                    if is_test_vk() { "development " } else { "" },
                     e
                 )
             })
@@ -1705,6 +1734,17 @@ where
             .await?;
 
         for (tx_type, tx) in assert_txs {
+            #[cfg(test)]
+            let tx = self
+                .config
+                .test_params
+                .maybe_use_non_canonical_assert_digits(
+                    tx_type,
+                    tx,
+                    deposit_data.get_deposit_outpoint(),
+                    self.config.protocol_paramset(),
+                )?;
+
             self.tx_sender
                 .add_tx_to_queue(
                     dbtx,
@@ -1894,14 +1934,54 @@ where
             std::cmp::Ordering::Equal => {
                 // first check if the kickoff is in chain
                 if !self.rpc.is_tx_on_chain(&kickoff_txid).await? {
-                    tracing::info!(
-                        "Kickoff tx is not on chain, can send it, kickoff txid: {:?}",
-                        kickoff_txid
-                    );
                     let kickoff_tx = kickoff_txs
                         .iter()
                         .find(|(tx_type, _)| tx_type == &TransactionType::Kickoff)
                         .ok_or(eyre::eyre!("Kickoff tx not found in kickoff txs"))?;
+
+                    // the kickoff spends its connector, so its first input is that connector
+                    let kickoff_connector = kickoff_tx
+                        .1
+                        .input
+                        .first()
+                        .ok_or(eyre::eyre!("Kickoff tx has no inputs"))?
+                        .previous_output;
+                    let current_chain_height = self
+                        .db
+                        .get_max_height(dbtx.as_deref_mut())
+                        .await?
+                        .ok_or_eyre(
+                        "Max block height is not found in the btc syncer database",
+                    )?;
+                    if self
+                        .reset_kickoff_assignment_if_connector_spent(
+                            dbtx.as_deref_mut(),
+                            kickoff_round_idx,
+                            kickoff_connector_idx,
+                            kickoff_txid,
+                            kickoff_connector,
+                            current_chain_height,
+                        )
+                        .await?
+                    {
+                        // nothing to send until the payout checker assigns a new kickoff connector
+                        return Ok(txs_to_send);
+                    }
+                    // Spent but not finalized: reset waits, and this kickoff would be a
+                    // double-spend. Do not return it as safe to send.
+                    if self.rpc.is_utxo_spent(&kickoff_connector).await? {
+                        return Err(eyre::eyre!(format!(
+                            "Kickoff connector {kickoff_connector:?} asasigned for the kickoff is spent, but the spending tx is not yet finalized, wait until it is finalized. Finality depth: {}
+                            If it is actually finalized, but this error is returned, it means internal bitcoin syncer is slow or stopped.",
+                            self.config.protocol_paramset().finality_depth
+                        ))
+                        .into());
+                    }
+
+                    tracing::info!(
+                        "Kickoff tx is not on chain, can send it, kickoff txid: {:?}",
+                        kickoff_txid
+                    );
 
                     // fetch and save the LCP for if we get challenged and need to provide proof of payout later
                     let (_, payout_block_height) = self
@@ -2002,6 +2082,7 @@ where
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
+        self.db.lock_current_round_index(&mut dbtx).await?;
         // first check if the deposit is in the database
         let (deposit_id, mut deposit_data) = self
             .db
@@ -2126,6 +2207,7 @@ where
                 .await?;
 
             if !unspent_kickoff_utxos.is_empty() {
+                // Not marked used. Preemptively marking will cause the connectors to become unusable even if the user doesn't actually send the burn tx.
                 let burn_txs = self
                     .create_burn_unused_kickoff_connectors_tx(round_idx, &unspent_kickoff_utxos)
                     .await?;
@@ -2161,7 +2243,9 @@ where
     }
 
     /// Finds unspent kickoff UTXOs and marks spent ones as used in the database.
-    /// Returns the unspent kickoff utxos (doesn't matter if finalized or unfinalized) and a boolean to mark if all utxos are spent and finalized
+    /// Skips connectors reserved for a kickoff that is not on chain yet.
+    /// Returned connectors are not marked used so that if a new kickoff is assigned, it can be used, unless the burn tx is sent..
+    /// Also returns whether every spent kickoff utxo is finalized.
     async fn find_and_mark_unspent_kickoff_utxos(
         &self,
         mut dbtx: Option<DatabaseTransaction<'_, '_>>,
@@ -2179,7 +2263,25 @@ where
                 vout: UtxoVout::Kickoff(kickoff_idx).get_vout(),
             };
             if !self.rpc.is_utxo_spent(&kickoff_utxo).await? {
-                unspent_kickoff_utxos.push(kickoff_idx);
+                // The connector can be reserved for a kickoff that is signed but not broadcast yet.
+                // Burning it would make that kickoff unspendable, so exclude it until its kickoff is on chain.
+                match self
+                    .db
+                    .get_kickoff_txid_for_used_kickoff_connector(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                    )
+                    .await?
+                {
+                    Some(kickoff_txid) => tracing::warn!(
+                        "Kickoff connector {:?} of round {:?} is reserved for kickoff tx {:?} that is not on chain yet, excluding it from BurnUnusedKickoffConnectors. That kickoff needs to be sent before ReadyToReimburse can be sent.",
+                        kickoff_idx,
+                        round_idx,
+                        kickoff_txid
+                    ),
+                    None => unspent_kickoff_utxos.push(kickoff_idx),
+                }
             } else {
                 // set the kickoff connector as used (it will do nothing if the utxo is already in db, so it won't overwrite the kickoff txid)
                 // mark so that we don't try to use this utxo anymore
@@ -2202,9 +2304,109 @@ where
                         self.config.protocol_paramset(),
                     )
                     .await?;
+
+                let reserved_kickoff_txid = self
+                    .db
+                    .get_kickoff_txid_for_used_kickoff_connector(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                    )
+                    .await?;
+                if let Some(kickoff_txid) = reserved_kickoff_txid {
+                    self.reset_kickoff_assignment_if_connector_spent(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        kickoff_idx as u32,
+                        kickoff_txid,
+                        kickoff_utxo,
+                        current_chain_height,
+                    )
+                    .await?;
+                }
             }
         }
         Ok((unspent_kickoff_utxos, fully_finalized_spent))
+    }
+
+    /// A connector reserved for a kickoff can be spent by another tx, for example a burn that was
+    /// signed before the reservation existed. That kickoff can never be sent, and waiting for it
+    /// would block the round forever, so clear the unusable kickoff assignment and request
+    /// reassignment.
+    /// Other finalized spent connectors in the round are marked used so reassignment does not
+    /// pick another input of the same burn. Unspent connectors stay available; do not send a
+    /// burn from the same call if you want to assign them. The payout is unchanged, and the
+    /// spent connector remains reserved.
+    /// The conflicting spend must be finalized, otherwise a reorg could undo it and let the
+    /// original kickoff confirm after all.
+    /// Returns true if the kickoff assignment was reset.
+    async fn reset_kickoff_assignment_if_connector_spent(
+        &self,
+        mut dbtx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: RoundIndex,
+        kickoff_idx: u32,
+        kickoff_txid: Txid,
+        kickoff_connector: OutPoint,
+        current_chain_height: u32,
+    ) -> Result<bool, BridgeError> {
+        if self.rpc.is_tx_on_chain(&kickoff_txid).await?
+            || !self.rpc.is_utxo_spent(&kickoff_connector).await?
+            || !self
+                .db
+                .check_if_utxo_spending_tx_is_finalized(
+                    dbtx.as_deref_mut(),
+                    kickoff_connector,
+                    current_chain_height,
+                    self.config.protocol_paramset(),
+                )
+                .await?
+        {
+            return Ok(false);
+        }
+
+        tracing::warn!(
+            "Kickoff connector {:?} of round {:?} was spent by another tx, so kickoff {:?} can never be sent. Clearing its unusable kickoff assignment and requesting reassignment.",
+            kickoff_idx,
+            round_idx,
+            kickoff_txid
+        );
+
+        // Mark other finalized spent connectors in this round so reassignment
+        // does not pick another input of the same burn. ON CONFLICT DO NOTHING
+        // keeps live reservations.
+        for idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+            let connector = OutPoint {
+                txid: kickoff_connector.txid,
+                vout: UtxoVout::Kickoff(idx).get_vout(),
+            };
+            if self.rpc.is_utxo_spent(&connector).await?
+                && self
+                    .db
+                    .check_if_utxo_spending_tx_is_finalized(
+                        dbtx.as_deref_mut(),
+                        connector,
+                        current_chain_height,
+                        self.config.protocol_paramset(),
+                    )
+                    .await?
+            {
+                self.db
+                    .mark_kickoff_connector_as_used(
+                        dbtx.as_deref_mut(),
+                        round_idx,
+                        idx as u32,
+                        None,
+                    )
+                    .await?;
+            }
+        }
+
+        self.db
+            .clear_kickoff_txid_for_used_kickoff_connector(dbtx.as_deref_mut(), kickoff_txid)
+            .await?;
+        self.db.unmark_payout_handled(dbtx, kickoff_txid).await?;
+
+        Ok(true)
     }
 
     /// Creates a transaction that burns unused kickoff connectors.
@@ -2362,6 +2564,7 @@ where
         "operator_finalized_block_fetcher_automation";
     const FINALIZED_BLOCK_CONSUMER_ID_NO_AUTOMATION: &'static str =
         "operator_finalized_block_fetcher_no_automation";
+    const LCP_SYNCER_CONSUMER_ID: &'static str = "operator_lcp_syncer";
 }
 
 #[cfg(feature = "automation")]
@@ -2373,9 +2576,8 @@ mod states {
         TxHandlerCache,
     };
     use crate::states::context::DutyResult;
-    use crate::states::{block_cache, Duty, Owner, StateManager};
+    use crate::states::{Duty, Owner, StateManager};
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     #[tonic::async_trait]
     impl<C> Owner for Operator<C>
@@ -2398,6 +2600,60 @@ mod states {
                     Ok(DutyResult::Handled)
                 }
                 Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
+                Duty::AddNecessaryTxsForKickoff {
+                    kickoff_data,
+                    deposit_data,
+                }
+                | Duty::AddRelevantTxsToTxSenderIfChallenged {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    let context = ContractContext::new_context_for_kickoff(
+                        kickoff_data,
+                        deposit_data.clone(),
+                        self.config.protocol_paramset(),
+                    );
+                    let signed_txs = create_and_sign_txs(
+                        self.db.clone(),
+                        &self.signer,
+                        self.config.clone(),
+                        context,
+                        // the blockhash is only relevant for the kickoff tx which is already on chain, so we can use a dummy value here
+                        Some([0u8; 20]),
+                        Some(dbtx),
+                    )
+                    .await?;
+                    let tx_metadata = Some(TxMetadata {
+                        tx_type: TransactionType::Dummy,
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    });
+                    for (tx_type, signed_tx) in &signed_txs {
+                        match *tx_type {
+                            TransactionType::OperatorChallengeAck(_)
+                            | TransactionType::WatchtowerChallengeTimeout(_)
+                            | TransactionType::ChallengeTimeout
+                            | TransactionType::DisproveTimeout
+                            | TransactionType::Reimburse => {
+                                self.tx_sender
+                                    .add_tx_to_queue(
+                                        dbtx,
+                                        *tx_type,
+                                        signed_tx,
+                                        &signed_txs,
+                                        tx_metadata,
+                                        &self.config,
+                                        None,
+                                    )
+                                    .await?;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(DutyResult::Handled)
+                }
                 Duty::SendOperatorAsserts {
                     kickoff_data,
                     deposit_data,
@@ -2433,7 +2689,6 @@ mod states {
                     txid,
                     block_height,
                     witness,
-                    challenged_before: _,
                 } => {
                     tracing::debug!(
                         "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -2452,58 +2707,16 @@ mod states {
                             dbtx,
                             kickoff_data,
                             block_height,
-                            deposit_data.clone(),
+                            deposit_data,
                             witness,
                         )
                         .await?;
-
-                        // resend relevant txs
-                        let context = ContractContext::new_context_for_kickoff(
-                            kickoff_data,
-                            deposit_data.clone(),
-                            self.config.protocol_paramset(),
-                        );
-                        let signed_txs = create_and_sign_txs(
-                            self.db.clone(),
-                            &self.signer,
-                            self.config.clone(),
-                            context,
-                            Some([0u8; 20]),
-                            Some(dbtx),
-                        )
-                        .await?;
-                        let tx_metadata = Some(TxMetadata {
-                            tx_type: TransactionType::Dummy,
-                            operator_xonly_pk: Some(self.signer.xonly_public_key),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        });
-                        for (tx_type, signed_tx) in &signed_txs {
-                            match *tx_type {
-                                TransactionType::OperatorChallengeAck(_)
-                                | TransactionType::WatchtowerChallengeTimeout(_)
-                                | TransactionType::ChallengeTimeout
-                                | TransactionType::DisproveTimeout
-                                | TransactionType::Reimburse => {
-                                    self.tx_sender
-                                        .add_tx_to_queue(
-                                            dbtx,
-                                            *tx_type,
-                                            signed_tx,
-                                            &signed_txs,
-                                            tx_metadata,
-                                            &self.config,
-                                            None,
-                                        )
-                                        .await?;
-                                }
-                                _ => {}
-                            }
-                        }
                     }
 
                     Ok(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoffMalicious { .. } => {
+                    Ok(DutyResult::CheckIfKickoffMalicious { challenged: false })
                 }
             }
         }
@@ -2526,15 +2739,8 @@ mod states {
             Ok(txhandlers)
         }
 
-        async fn handle_finalized_block(
-            &self,
-            _dbtx: DatabaseTransaction<'_, '_>,
-            _block_id: u32,
-            _block_height: u32,
-            _block_cache: Arc<block_cache::BlockCache>,
-            _light_client_proof_wait_interval_secs: Option<u32>,
-        ) -> Result<(), BridgeError> {
-            Ok(())
+        fn is_kickoff_relevant_for_owner(&self, kickoff_data: &KickoffData) -> bool {
+            kickoff_data.operator_xonly_pk == self.signer.xonly_public_key
         }
     }
 }
@@ -2589,5 +2795,32 @@ mod tests {
             idx += 1;
         }
         assert_eq!(idx, actual_wpks.len());
+    }
+
+    #[cfg(feature = "automation")]
+    #[tokio::test]
+    async fn assertion_header_catch_up_is_visible_to_header_chain_prover() {
+        use bitcoincore_rpc::RpcApi;
+
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
+        let finality_depth = operator.config.protocol_paramset().finality_depth;
+        let height = regtest
+            .rpc()
+            .get_current_chain_height()
+            .await
+            .unwrap()
+            .saturating_sub(finality_depth - 1);
+        let hash = regtest.rpc().get_block_hash(height.into()).await.unwrap();
+
+        // Header sync is not running, so only the catch-up can save this block's header.
+        operator.catch_up_assertion_headers().await.unwrap();
+        let (_, proven_height) = operator
+            .header_chain_prover
+            .prove_till_hash(hash)
+            .await
+            .unwrap();
+        assert_eq!(proven_height, u64::from(height));
     }
 }

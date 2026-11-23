@@ -71,6 +71,8 @@ pub use creator::{
 pub use operator_collateral::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
 };
+#[cfg(test)]
+pub(crate) use operator_reimburse::{create_kickoff_txhandler, AssertScripts, DisprovePath};
 pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 
@@ -435,6 +437,10 @@ pub fn create_move_to_vault_txhandler(
 ///
 /// This transaction moves funds to the address controlled by the security council from the move-to-vault txout.
 /// Used to stop the deposit in case of a security issue. The moved funds will eventually be redeposited using the replacement deposit tx.
+///
+/// By design, the aggregator can send this tx at any time, including after an operator paid a withdrawal and before it got its
+/// reimbursement. This tx spends the deposit utxo, so the reimburse tx of the deposit becomes invalid. In this case, the security
+/// council is assumed to handle the operator's reimbursement.
 ///
 /// # Arguments
 ///

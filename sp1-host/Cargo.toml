@@ -1,0 +1,17 @@
+[package]
+name = "sp1-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sp1-sdk.workspace = true
+eyre.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+circuits-lib = { path = "../circuits-lib" }
+borsh.workspace = true

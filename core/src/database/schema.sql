@@ -6,12 +6,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_hash text not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
@@ -67,10 +61,10 @@ create table if not exists unspent_kickoff_signatures (
     signatures bytea not null,
     primary key (xonly_pk, round_idx)
 );
--- LCP inputs saved for sending assert
-create table if not exists lcp_input_for_asserts (
+-- Light client proofs of payout blocks, saved for sending assert
+create table if not exists lcp_receipts_for_asserts (
     deposit_id int not null primary key,
-    lcp_input bytea not null
+    lcp_receipt bytea not null
 );
 -- Verifier table for BitVM setup data
 /* This table holds the BitVM setup data for each operator and deposit_id pair. */
@@ -109,6 +103,7 @@ create table if not exists bitcoin_syncer_txs (
     txid bytea not null,
     primary key (block_id, txid)
 );
+CREATE INDEX IF NOT EXISTS bitcoin_syncer_txs_txid_idx ON bitcoin_syncer_txs (txid);
 create table if not exists bitcoin_syncer_spent_utxos (
     block_id bigint not null references bitcoin_syncer (id),
     spending_txid bytea not null,
@@ -117,12 +112,14 @@ create table if not exists bitcoin_syncer_spent_utxos (
     primary key (block_id, spending_txid, txid, vout),
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
+CREATE INDEX IF NOT EXISTS bitcoin_syncer_spent_utxos_txid_vout_idx ON bitcoin_syncer_spent_utxos (txid, vout);
 create table if not exists bitcoin_blocks (
     height int primary key not null,
     block_hash text not null,
     block_data bytea not null,
     created_at timestamp not null default now()
 );
+CREATE INDEX IF NOT EXISTS bitcoin_blocks_block_hash_idx ON bitcoin_blocks (block_hash);
 -- enum for bitcoin_syncer_events
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
@@ -159,6 +156,7 @@ create table if not exists tx_sender_try_to_send_txs (
     raw_tx bytea not null,
     tx_metadata text,
     fee_paying_type fee_paying_type not null,
+    -- sat/kWU, matching bitcoin::FeeRate::to_sat_per_kwu()
     effective_fee_rate bigint,
     txid bytea,
     -- txid of the tx if it is CPFP
@@ -187,6 +185,8 @@ create table if not exists tx_sender_fee_payer_utxos (
     -- if set to false, all replacements of this fee payer utxo are evicted
     is_evicted boolean not null default false
 );
+CREATE UNIQUE INDEX IF NOT EXISTS tx_sender_fee_payer_utxos_outpoint_idx
+    ON tx_sender_fee_payer_utxos (fee_payer_txid, vout);
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
     txid bytea not null,
@@ -300,7 +300,9 @@ create table if not exists withdrawals (
     idx int primary key,
     move_to_vault_txid bytea not null,
     withdrawal_utxo_txid bytea,
-    withdrawal_utxo_vout int,
+    -- bigint so the full Bitcoin/u32 vout range fits; Bridge.withdraw is public
+    -- and callers can persist any 4-byte outputId
+    withdrawal_utxo_vout bigint,
     withdrawal_batch_proof_bitcoin_block_height int,
     payout_txid bytea,
     payout_payer_operator_xonly_pk text,
@@ -333,6 +335,7 @@ CREATE TABLE IF NOT EXISTS state_machines (
 CREATE TABLE IF NOT EXISTS state_manager_status (
     owner_type VARCHAR(100) PRIMARY KEY,
     next_height_to_process INT NOT NULL,
+    last_processed_lcp INT,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 -- Create indexes for better query performance

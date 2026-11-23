@@ -7,12 +7,9 @@ homepage = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-risc0-zkvm = { workspace = true, features = ["metal", "bonsai", "client", "prove"] }
-risc0-circuit-recursion = { workspace = true }
-risc0-zkp = { workspace = true }
-risc0-groth16 = { workspace = true }
-risc0-binfmt = { workspace = true }
-risc0-core = { version = "2.0.0" }
+sp1-host = { path = "../sp1-host" }
+sp1-sdk.workspace = true
+sp1-verifier = { workspace = true, features = ["ark"] }
 
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
@@ -55,5 +52,8 @@ citrea-sov-rollup-interface = { workspace = true }
 
 
 [features]
-metal = ["risc0-zkvm/metal"]
 use-test-vk = ["circuits-lib/use-test-vk"]
+
+[[example]]
+name = "refresh_sp1_watchtower_fixtures"
+required-features = ["use-test-vk"]

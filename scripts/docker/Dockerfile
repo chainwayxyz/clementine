@@ -1,10 +1,11 @@
 # Compile Clementine
-FROM rust:1.88.0 as builder
+FROM rust:1.97.1-trixie as builder
+RUN apt-get update && apt-get install -y --no-install-recommends clang cmake protobuf-compiler libprotobuf-dev pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /clementine
 COPY . .
 RUN cargo build --release --bin clementine-core
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN \
   apt-get update \
   && apt -y install gettext-base libssl-dev wget \
@@ -16,5 +17,7 @@ RUN \
 COPY --from=builder /clementine/target/release/clementine-core /clementine-core
 
 # Set up Clementine
+# BitVM script generation needs far more stack than the 2 MiB default. See docs/usage.md.
+ENV RUST_MIN_STACK=33554432
 ENTRYPOINT [ "/clementine-core" ]
 EXPOSE 17000

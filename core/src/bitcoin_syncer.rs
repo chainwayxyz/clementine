@@ -8,7 +8,7 @@ use crate::{
     config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
-    extended_bitcoin_rpc::ExtendedBitcoinRpc,
+    extended_bitcoin_rpc::{rpc_error_code, ExtendedBitcoinRpc, RPC_INVALID_PARAMETER},
     task::{IntoTask, RecoverableTask, Task, TaskExt, TaskVariant, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
@@ -257,10 +257,18 @@ async fn fetch_new_blocks(
 ) -> Result<Option<Vec<BlockInfo>>, BridgeError> {
     let next_height = current_height + 1;
 
-    // Try to fetch the block hash for the next height.
+    // Try to fetch the block hash for the next height. Bitcoin Core reports a height above the tip
+    // as an invalid parameter, which is the only "no new blocks yet" answer. Anything else means we
+    // could not reach the node, and reporting that as "no new blocks" would stall the syncer
+    // silently instead of surfacing the failure to the task error buffer.
     let block_hash = match rpc.get_block_hash(next_height as u64).await {
         Ok(hash) => hash,
-        Err(_) => return Ok(None),
+        Err(e) if rpc_error_code(&e) == Some(RPC_INVALID_PARAMETER) => return Ok(None),
+        Err(e) => {
+            return Err(eyre::eyre!(e)
+                .wrap_err(format!("Failed to get block hash at height {next_height}"))
+                .into())
+        }
     };
     tracing::debug!(
         "Fetching block with hash of {:?} and height of {}...",

@@ -7,11 +7,10 @@ homepage = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
+sp1-verifier.workspace = true
 sha2 = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false, features = ["derive"] }
 
-risc0-zkvm = { workspace = true, features = ["std"] }
-risc0-groth16 = { workspace = true }
 
 borsh = { workspace = true, features = ["derive"] }
 bitcoin = { workspace = true, features = ["rand-std", "serde"] }
@@ -20,7 +19,6 @@ ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 ark-std = { workspace = true }
-ark-crypto-primitives = { workspace = true }
 ark-serialize = { workspace = true }
 ark-relations = { workspace = true }
 ark-groth16 = { workspace = true, default-features = false }
@@ -36,15 +34,11 @@ eyre = { workspace = true }
 tracing = { workspace = true }
 
 alloy-primitives = { workspace = true, features = ["serde"] }
-alloy-rpc-types = { workspace = true }
 
 serde_json = { workspace = true }
-bincode = { workspace = true }
-alloy-rpc-types-eth = { workspace = true, features = ["serde"] }
 derive_more = { workspace = true, features = ["display"]} 
 crypto-bigint = { workspace = true }
 blake3 = { workspace = true }
-itertools = { workspace = true }
 k256 = { workspace = true }
 lazy_static = { workspace = true }
 
@@ -54,3 +48,19 @@ citrea-sov-rollup-interface = { workspace = true }
 default = []
 use-test-vk = [] # Use the test verification key - this is used for testing purposes only
 test-utils = [] # Expose test utilities for external crates
+
+[dev-dependencies]
+sp1-hypercube = "=6.10.0"
+slop-algebra = "=6.10.0"
+
+[target.'cfg(target_os = "zkvm")'.dependencies]
+sp1-zkvm.workspace = true
+
+# The `ark` feature enables ark-groth16's default features, including Rayon (`parallel`),
+# so guests must not enable it.
+[target.'cfg(not(target_os = "zkvm"))'.dependencies]
+sp1-verifier = { workspace = true, features = ["ark"] }
+
+[[example]]
+name = "generate_sp1_development_vk"
+required-features = ["use-test-vk"]

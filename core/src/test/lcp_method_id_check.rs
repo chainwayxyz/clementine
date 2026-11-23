@@ -9,7 +9,7 @@ use bitcoincore_rpc::RpcApi;
 use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::NodeKind;
 use citrea_e2e::{
-    config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, TestCaseConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
 };
@@ -25,35 +25,22 @@ struct CitreaLcpProverE2E;
 #[async_trait]
 impl TestCase for CitreaLcpProverE2E {
     fn bitcoin_config() -> BitcoinConfig {
-        BitcoinConfig {
-            extra_args: vec![
-                "-txindex=1",
-                "-fallbackfee=0.000001",
-                "-rpcallowip=0.0.0.0/0",
-                "-dustrelayfee=0",
-            ],
-            ..Default::default()
-        }
+        crate::test::e2e_bitcoin_config(vec!["-dustrelayfee=0"])
     }
 
     fn test_config() -> TestCaseConfig {
-        TestCaseConfig {
+        crate::test::e2e_citrea_config(TestCaseConfig {
             with_sequencer: false,
             with_batch_prover: false,
             with_light_client_prover: true,
             with_full_node: false,
             n_nodes: HashMap::from([(NodeKind::Bitcoin, 1)]),
-            docker: TestCaseDockerConfig {
-                bitcoin: true,
-                citrea: true,
-            },
             ..Default::default()
-        }
+        })
     }
 
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
-            enable_recovery: false,
             initial_da_height: INITIAL_DA_HEIGHT,
             ..Default::default()
         }
@@ -64,6 +51,7 @@ impl TestCase for CitreaLcpProverE2E {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
+        crate::test::common::mark_citrea_e2e_test_started();
         let lc_prover = f
             .light_client_prover
             .as_ref()
@@ -106,21 +94,21 @@ impl TestCase for CitreaLcpProverE2E {
         )
         .await?;
 
-        let (_, receipt, _) = poll_lcp(&citrea_client, target_l1_height, &config).await?;
+        let l1_hash = rpc.get_block_hash(target_l1_height).await?;
+        let (receipt, _) = poll_lcp(&citrea_client, target_l1_height, l1_hash, &config).await?;
         let proof_output: LightClientCircuitOutput = borsh::from_slice(&receipt.journal.bytes)?;
 
         assert_eq!(
             proof_output.latest_da_state.block_hash,
-            rpc.get_block_hash(target_l1_height).await?.to_byte_array()
+            l1_hash.to_byte_array()
         );
-        let expected_method_id = config.protocol_paramset().get_lcp_image_id()?;
-        let actual_method_id = lcp_method_id(&proof_output);
+        let expected_method_id = config
+            .protocol_paramset()
+            .light_client_program_key()?
+            .recursion;
         assert_eq!(
-            actual_method_id,
-            expected_method_id,
-            "LCP method ID does not match paramset method ID: expected {}, got {}",
-            hex::encode(expected_method_id),
-            hex::encode(actual_method_id)
+            proof_output.light_client_proof_method_id, expected_method_id,
+            "LCP method ID does not match paramset method ID"
         );
 
         if let Ok(path) = std::env::var("CLEMENTINE_REGTEST_LCP_RECEIPT_OUT") {
@@ -132,31 +120,18 @@ impl TestCase for CitreaLcpProverE2E {
     }
 }
 
-fn lcp_method_id(proof_output: &LightClientCircuitOutput) -> [u8; 32] {
-    proof_output
-        .light_client_proof_method_id
-        .iter()
-        .flat_map(|&x| x.to_le_bytes())
-        .collect::<Vec<u8>>()
-        .try_into()
-        .expect("Conversion from [u32; 8] to [u8; 32] cannot fail")
-}
-
 async fn poll_lcp(
     citrea_client: &CitreaClient,
     l1_height: u64,
+    l1_hash: bitcoin::BlockHash,
     config: &crate::config::BridgeConfig,
-) -> citrea_e2e::Result<(
-    circuits_lib::bridge_circuit::structs::LightClientProof,
-    risc0_zkvm::Receipt,
-    u64,
-)> {
+) -> citrea_e2e::Result<(circuits_lib::common::sp1::Receipt, u64)> {
     let start = Instant::now();
     let timeout = Duration::from_secs(120);
 
     loop {
         if let Some(proof) = citrea_client
-            .get_light_client_proof(l1_height, config.protocol_paramset())
+            .get_light_client_proof(l1_height, l1_hash, config.protocol_paramset())
             .await?
         {
             return Ok(proof);
@@ -178,6 +153,6 @@ async fn poll_lcp(
 async fn citrea_lcp_prover_returns_expected_method_id() -> citrea_e2e::Result<()> {
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))
         .expect("Failed to initialize logger");
-    std::env::set_var("CITREA_DOCKER_IMAGE", crate::test::CITREA_E2E_DOCKER_IMAGE);
-    TestCaseRunner::new(CitreaLcpProverE2E).run().await
+    crate::test::common::run_citrea_e2e_with_retry(|| TestCaseRunner::new(CitreaLcpProverE2E).run())
+        .await
 }
