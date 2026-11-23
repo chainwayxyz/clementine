@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["fix_sp1_metadata","get_verifying_key","program_verifying_key","verify_bitvm"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["deserialize_txin","deserialize_txout","serialize_txin","serialize_txout"],"struct":["CircuitTransaction"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_PREALLOCATED_ITEMS"],"fn":["deserialize_txin","deserialize_txout","serialize_txin","serialize_txout"],"struct":["CircuitTransaction"]};

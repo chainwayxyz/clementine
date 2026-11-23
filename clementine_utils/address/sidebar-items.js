@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["calculate_taproot_leaf_depths","create_taproot_address","is_p2a_anchor","op_return_txout","taproot_builder_with_scripts"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_RETRY_ATTEMPTS"],"struct":["RetryConfig"],"trait":["RetryableError"]};

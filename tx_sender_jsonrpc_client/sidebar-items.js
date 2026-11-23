@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["CitreaTxRequest","FeePayingType","RbfSigningSpendPath"],"struct":["ActivatedWithOutpoint","ActivatedWithTxid","InsertCitreaRawTxParams","InsertTryToSendParams","JsonRpcTxSenderClient","RbfSigningInfo","TxMetadata"]};

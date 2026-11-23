@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["get_fee_rate_from_mempool_space"],"struct":["ExtendedBitcoinRpc"],"type":["Result"]};

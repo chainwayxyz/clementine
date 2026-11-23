@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["citrea_try_to_send_id","optional_citrea_try_to_send_id"],"struct":["ConfirmedChunkReveals","ConfirmedTxInfo"],"type":["BlockTxPositionCache"]};

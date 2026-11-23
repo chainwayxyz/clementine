@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["TxChainStatus"],"fn":["fetch_mempool_outspend_with_backoff","get_tx_status_cached","mempool_outspend_url"],"struct":["MempoolOutspendResponse","MempoolOutspendStatus","ValidatedOutspend"]};

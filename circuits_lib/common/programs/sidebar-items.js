@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CURRENT","CURRENT_HEADER_CHAIN","CURRENT_LIGHT_CLIENT","CURRENT_WORK_ONLY","MAINNET","REGTEST","SIGNET","TESTNET4"],"fn":["with_development_bridge"],"struct":["NetworkPrograms","ProgramKey"]};

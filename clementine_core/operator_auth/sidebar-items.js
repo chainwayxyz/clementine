@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEPOSIT_KEYS_DOMAIN","SETUP_DOMAIN"],"fn":["deposit_keys_digest","setup_digest","sign_digest","sign_operator_deposit_keys","sign_operator_setup","verify_digest","verify_operator_deposit_keys","verify_operator_setup"],"struct":["Transcript"]};

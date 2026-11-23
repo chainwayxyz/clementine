@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Proof"],"fn":["production_proof_body"],"mod":["groth16"],"struct":["CompressedProof","Groth16Proof","Journal","Receipt"]};

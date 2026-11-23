@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["TRUC_CHILD_MAX_VSIZE"],"struct":["CurrentCpfpChild"]};

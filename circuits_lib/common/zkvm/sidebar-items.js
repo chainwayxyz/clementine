@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["Risc0Guest","VerificationContext"],"trait":["ZkvmGuest","ZkvmHost"]};
+window.SIDEBAR_ITEMS = {"trait":["ZkvmGuest"]};

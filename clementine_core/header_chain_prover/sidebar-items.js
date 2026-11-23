@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["HeaderChainProverError"],"fn":["get_hcp_method_id"],"struct":["HeaderChainProver","MAINNET_HCP_METHOD_ID","REGTEST_HCP_METHOD_ID","SIGNET_HCP_METHOD_ID","TESTNET4_HCP_METHOD_ID"]};
+window.SIDEBAR_ITEMS = {"enum":["HeaderChainProverError"],"fn":["next_epoch_bits","work_only_output"],"struct":["HeaderChainProver"]};

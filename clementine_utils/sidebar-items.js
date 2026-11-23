@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["FeePayingType","RbfSigningSpendPath"],"mod":["address","sign","tracing","traits"],"struct":["RbfSigningInfo","TxMetadata"]};

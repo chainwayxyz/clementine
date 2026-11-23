@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["BLOCKS_PER_HOUR","MIN_TAPROOT_AMOUNT","NON_EPHEMERAL_ANCHOR_AMOUNT","REGTEST_PARAMSET","WINTERNITZ_LOG_D"],"enum":["ProtocolParamsetName"],"struct":["ProtocolParamset"]};

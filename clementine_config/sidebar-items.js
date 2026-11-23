@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["grpc","protocol","telemetry","tx_sender"]};

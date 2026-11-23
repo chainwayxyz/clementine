@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["default_grpc_limits","default_tx_sender_limits"],"mod":["env","protocol"],"struct":["BridgeConfig","GrpcLimits","TelemetryConfig","TxSenderLimits"],"trait":["GrpcLimitsExt","TelemetryConfigExt","TxSenderLimitsExt"]};
+window.SIDEBAR_ITEMS = {"fn":["default_grpc_limits","default_tx_sender_limits"],"mod":["env","protocol"],"struct":["BridgeConfig","GrpcLimits","TelemetryConfig","TxSenderLimits"]};

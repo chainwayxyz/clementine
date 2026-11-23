@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["create_reveal_script"],"struct":["CitreaSigningData"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["read_string_from_env","read_string_from_env_then_parse"]};
+window.SIDEBAR_ITEMS = {"fn":["read_optional_env_then_parse","read_string_from_env","read_string_from_env_then_parse"]};
