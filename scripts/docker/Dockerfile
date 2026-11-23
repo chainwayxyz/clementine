@@ -1,6 +1,6 @@
 # Compile Clementine
 FROM rust:1.97.1-trixie as builder
-RUN apt-get update && apt-get install -y --no-install-recommends clang cmake protobuf-compiler pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends clang cmake protobuf-compiler libprotobuf-dev pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /clementine
 COPY . .
 RUN cargo build --release --bin clementine-core
